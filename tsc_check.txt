@@ -1,0 +1,11 @@
+src/app/(dashboard)/drivers/page.tsx(136,20): error TS2352: Conversion of type 'GenericStringError[]' to type 'DriverListItem[]' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type '{ error: true; } & String' is missing the following properties from type 'DriverListItem': id, status, category, full_name_ar, and 7 more.
+src/components/site-footer.tsx(21,65): error TS2339: Property 'footerCompany' does not exist on type '{ company: string; contact: string; legal: string; aboutUs: string; careers: string; privacyPolicy: string; termsOfService: string; helpSupport: string; timezone: string; copyright: string; }'.
+src/components/site-footer.tsx(22,30): error TS2339: Property 'footerAddress' does not exist on type '{ company: string; contact: string; legal: string; aboutUs: string; careers: string; privacyPolicy: string; termsOfService: string; helpSupport: string; timezone: string; copyright: string; }'.
+src/lib/payroll/calculate.ts(124,36): error TS2345: Argument of type '(r: { id: string; deduction_amount: number; violation_id: string; violations: { violation_ref: string; } | null; }) => { source: string; amount: number; reason: string; source_module: string; source_reference: any; status: "approved"; }' is not assignable to parameter of type '(value: { id: any; deduction_amount: any; violation_id: any; violations: { violation_ref: any; }[]; }, index: number, array: { id: any; deduction_amount: any; violation_id: any; violations: { violation_ref: any; }[]; }[]) => { ...; }'.
+  Types of parameters 'r' and 'value' are incompatible.
+    Type '{ id: any; deduction_amount: any; violation_id: any; violations: { violation_ref: any; }[]; }' is not assignable to type '{ id: string; deduction_amount: number; violation_id: string; violations: { violation_ref: string; } | null; }'.
+      Types of property 'violations' are incompatible.
+        Property 'violation_ref' is missing in type '{ violation_ref: any; }[]' but required in type '{ violation_ref: string; }'.
+src/lib/payroll/calculate.ts(129,25): error TS7053: Element implicitly has an 'any' type because expression of type '0' can't be used to index type '{ violation_ref: string; }'.
+  Property '0' does not exist on type '{ violation_ref: string; }'.

@@ -1,0 +1,278 @@
+[
+  {
+    "id": 1,
+    "question": "What is Elite Development?",
+    "answer": "Elite Development is an enterprise logistics operations platform for managing drivers, vehicles, attendance, expenses, and payroll. It is built for delivery and fleet operators who work across platforms like HungerStation, Jahez, Keeta, ToYou, and Mrsool.",
+    "category": "General"
+  },
+  {
+    "id": 2,
+    "question": "How do I get started?",
+    "answer": "Sign in with your account credentials, then invite your operations team from the Users module. After that, add your drivers and vehicles, configure your company settings, and your fleet dashboard will populate with live operational data.",
+    "category": "General"
+  },
+  {
+    "id": 3,
+    "question": "Do you offer a free trial?",
+    "answer": "Yes, we offer a 14-day free trial for all new customers. No credit card is required to start the trial, and you can explore all features including payroll and reporting during this period.",
+    "category": "General"
+  },
+  {
+    "id": 4,
+    "question": "Which browsers are supported?",
+    "answer": "We support all modern browsers including Chrome, Firefox, Safari, and Edge. For the best experience with real-time dashboards, we recommend using the latest version of Chrome or Edge.",
+    "category": "General"
+  },
+  {
+    "id": 5,
+    "question": "How do I contact support?",
+    "answer": "You can contact our support team through the Help center, by email at support@elite-dev.com, or through the in-app chat available 24/7 for Professional and Enterprise plans.",
+    "category": "General"
+  },
+  {
+    "id": 6,
+    "question": "Is there a mobile app available?",
+    "answer": "Currently, we offer a fully responsive web application that works great on mobile devices for field managers. A dedicated driver mobile app is planned for a future release.",
+    "category": "General"
+  },
+  {
+    "id": 7,
+    "question": "Can I customize the dashboard?",
+    "answer": "Yes, the dashboard is highly customizable. You can switch between light and dark themes, adjust sidebar preferences, configure the displayed KPIs, and tailor reports to match your brand.",
+    "category": "General"
+  },
+  {
+    "id": 8,
+    "question": "Which delivery platforms do you integrate with?",
+    "answer": "We integrate with all major delivery platforms in the region including HungerStation, Jahez, Keeta, ToYou, Mrsool, and Ninja, with order-level and financial reconciliation support.",
+    "category": "General"
+  },
+  {
+    "id": 9,
+    "question": "How do I reset my password?",
+    "answer": "Click the 'Forgot Password' link on the login page, enter your email address, and we'll send you a secure link to reset your password. The link expires after 30 minutes.",
+    "category": "Account"
+  },
+  {
+    "id": 10,
+    "question": "How do I change my email address?",
+    "answer": "You can change your email address in your account settings under the 'Security' section. You'll need to verify the new email address before the change takes effect.",
+    "category": "Account"
+  },
+  {
+    "id": 11,
+    "question": "Can I have multiple team members?",
+    "answer": "Yes, depending on your plan, you can invite team members and assign granular roles and permissions such as General Manager, Operations Manager, Accountant, or Dispatcher.",
+    "category": "Account"
+  },
+  {
+    "id": 12,
+    "question": "How do I delete my account?",
+    "answer": "To delete your account, contact your account administrator or our support team. Please note that account deletion is irreversible and all operational data will be permanently removed after the retention period.",
+    "category": "Account"
+  },
+  {
+    "id": 13,
+    "question": "Can I change my username?",
+    "answer": "Yes, you can change your display name in the account settings. Keep in mind that some audit log entries may still reference your previous name for accountability.",
+    "category": "Account"
+  },
+  {
+    "id": 14,
+    "question": "How do I enable two-factor authentication?",
+    "answer": "You can enable two-factor authentication in your account security settings. We support authenticator apps and email verification codes for added security.",
+    "category": "Account"
+  },
+  {
+    "id": 15,
+    "question": "What payment methods do you accept?",
+    "answer": "We accept all major credit cards (Visa, MasterCard, American Express) and bank transfers for enterprise customers. All payments are processed securely and invoices are issued per billing cycle.",
+    "category": "Billing"
+  },
+  {
+    "id": 16,
+    "question": "How can I upgrade my plan?",
+    "answer": "You can upgrade your plan at any time from the Pricing page or by contacting our sales team. Changes take effect immediately and you'll be billed pro-rata for the remainder of the cycle.",
+    "category": "Billing"
+  },
+  {
+    "id": 17,
+    "question": "Can I downgrade my plan?",
+    "answer": "Yes, you can downgrade your plan at any time. The change takes effect at the start of your next billing cycle to ensure you don't lose access to premium features mid-cycle.",
+    "category": "Billing"
+  },
+  {
+    "id": 18,
+    "question": "Do you offer refunds?",
+    "answer": "We offer a 30-day money-back guarantee for all plans. If you're not satisfied, contact our support team for a full refund within 30 days of purchase.",
+    "category": "Billing"
+  },
+  {
+    "id": 19,
+    "question": "How does billing work?",
+    "answer": "Billing is processed monthly or annually depending on your chosen plan. You'll receive an invoice before each billing cycle, and payment is automatically charged to your selected method.",
+    "category": "Billing"
+  },
+  {
+    "id": 20,
+    "question": "Can I change my billing cycle?",
+    "answer": "Yes, you can switch between monthly and annual billing at any time. Annual billing offers significant savings compared to monthly billing.",
+    "category": "Billing"
+  },
+  {
+    "id": 21,
+    "question": "What happens if payment fails?",
+    "answer": "If a payment fails, we'll attempt to charge your card again after 3 days. You'll receive email notifications, and your account will remain active during this grace period.",
+    "category": "Billing"
+  },
+  {
+    "id": 22,
+    "question": "How do I view my billing history?",
+    "answer": "You can view your complete billing history in the 'Billing' section of your account settings. All invoices and receipts are available for download in PDF format.",
+    "category": "Billing"
+  },
+  {
+    "id": 23,
+    "question": "Can I export my data?",
+    "answer": "Yes, you can export operational data at any time. We provide exports in CSV and XLSX formats for drivers, vehicles, attendance, expenses, and payroll records, including WPS-ready payroll files.",
+    "category": "Technical"
+  },
+  {
+    "id": 24,
+    "question": "What APIs do you provide?",
+    "answer": "We provide comprehensive REST APIs for major features including driver management, vehicle tracking, attendance, and order reconciliation. Full API documentation is available for Enterprise plans.",
+    "category": "Technical"
+  },
+  {
+    "id": 25,
+    "question": "How do I backup my data?",
+    "answer": "We automatically back up all your data daily with point-in-time recovery. You can also export manual backups anytime from the settings, and restore from any backup point within the last 30 days.",
+    "category": "Technical"
+  },
+  {
+    "id": 26,
+    "question": "Is there a rate limit on API calls?",
+    "answer": "Yes, API rate limits vary by plan. Basic plans have 1,000 calls/hour, Professional plans have 10,000 calls/hour, and Enterprise plans have unlimited calls.",
+    "category": "Technical"
+  },
+  {
+    "id": 27,
+    "question": "How do I set up webhooks?",
+    "answer": "Webhooks can be configured in the 'Connections' section of your settings. You can set up webhooks for events like new driver assignments, attendance punches, and payroll runs.",
+    "category": "Technical"
+  },
+  {
+    "id": 28,
+    "question": "What about system maintenance?",
+    "answer": "We perform maintenance during low-traffic hours (typically Sunday 2-4 AM UTC). You'll be notified at least 48 hours in advance of any scheduled maintenance.",
+    "category": "Technical"
+  },
+  {
+    "id": 29,
+    "question": "How do I troubleshoot connection issues?",
+    "answer": "First, check your internet connection and try refreshing the page. If issues persist, check our status page or contact support with the specific error message you're seeing.",
+    "category": "Technical"
+  },
+  {
+    "id": 30,
+    "question": "Can I use custom domains?",
+    "answer": "Yes, Professional and Enterprise plans support custom domains. You can configure your custom domain in the 'Connections' section of your account settings.",
+    "category": "Technical"
+  },
+  {
+    "id": 31,
+    "question": "How does the WPS payroll export work?",
+    "answer": "The payroll module calculates driver and staff salaries from attendance and trips, then generates a WPS-compliant salary file ready for upload to your bank, with full deduction rollback support.",
+    "category": "Technical"
+  },
+  {
+    "id": 32,
+    "question": "How do you handle my personal data?",
+    "answer": "We follow strict data protection policies and comply with Saudi PDPL, GDPR, and other privacy regulations. Your data is never shared with third parties without your consent.",
+    "category": "Privacy"
+  },
+  {
+    "id": 33,
+    "question": "Can I request my data?",
+    "answer": "Yes, you can request a complete copy of your data at any time. We'll provide it in a machine-readable format within 30 days of your request.",
+    "category": "Privacy"
+  },
+  {
+    "id": 34,
+    "question": "How long do you retain data?",
+    "answer": "We retain your operational data as long as your account is active. After account deletion, personal data is removed within 30 days, though some anonymized analytics may be retained.",
+    "category": "Privacy"
+  },
+  {
+    "id": 35,
+    "question": "Do you use cookies?",
+    "answer": "Yes, we use essential cookies for authentication and session security, and optional cookies for analytics and personalization. You can manage your cookie preferences in your account settings.",
+    "category": "Privacy"
+  },
+  {
+    "id": 36,
+    "question": "Is my data encrypted?",
+    "answer": "Yes, all data is encrypted both in transit (using TLS 1.3) and at rest (using AES-256 encryption). We use industry-standard security practices to protect your information.",
+    "category": "Privacy"
+  },
+  {
+    "id": 37,
+    "question": "How secure is my data?",
+    "answer": "We implement bank-level security with end-to-end encryption, regular security audits, row-level security on every table, and a complete audit trail of all user actions.",
+    "category": "Security"
+  },
+  {
+    "id": 38,
+    "question": "Do you support SSO?",
+    "answer": "Yes, Enterprise plans include Single Sign-On (SSO) support with popular providers like Google, Microsoft Entra ID, and Okta for seamless team access.",
+    "category": "Security"
+  },
+  {
+    "id": 39,
+    "question": "What are the password requirements?",
+    "answer": "We require strong passwords with at least 8 characters, including uppercase, lowercase, numbers, and special characters. We also highly recommend enabling two-factor authentication.",
+    "category": "Security"
+  },
+  {
+    "id": 40,
+    "question": "How do you handle security incidents?",
+    "answer": "We have a comprehensive incident response plan. In case of any security issues, we immediately investigate, contain the issue, and notify affected customers within 24 hours.",
+    "category": "Security"
+  },
+  {
+    "id": 41,
+    "question": "What support channels are available?",
+    "answer": "We offer email support, in-app chat, and phone support (for Enterprise customers). Our knowledge base and help center are also available 24/7.",
+    "category": "Support"
+  },
+  {
+    "id": 42,
+    "question": "What are your support hours?",
+    "answer": "Email and chat support are available 24/7. Phone support for Enterprise customers is available Monday-Friday, 9 AM-6 PM in your local timezone.",
+    "category": "Support"
+  },
+  {
+    "id": 43,
+    "question": "How quickly will I get a response?",
+    "answer": "Response times vary by plan: Starter (24 hours), Professional (12 hours), Enterprise (2 hours). Critical operational issues are prioritized and responded to immediately.",
+    "category": "Support"
+  },
+  {
+    "id": 44,
+    "question": "Do you offer training?",
+    "answer": "Yes, we provide comprehensive onboarding for all plans, video tutorials, documentation, and personalized training sessions for Enterprise customers.",
+    "category": "Support"
+  },
+  {
+    "id": 45,
+    "question": "Can you help with custom implementations?",
+    "answer": "Enterprise customers get access to our professional services team for custom implementations, platform integrations, and consulting services.",
+    "category": "Support"
+  },
+  {
+    "id": 46,
+    "question": "Is there a community forum?",
+    "answer": "Yes, we have an active customer community where operators share best practices, ask questions, and get help from both our team and other fleet operators.",
+    "category": "Support"
+  }
+]

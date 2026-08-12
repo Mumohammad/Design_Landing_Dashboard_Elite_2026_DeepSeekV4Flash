@@ -1,0 +1,1132 @@
+"use client"
+
+import { useEffect, useState } from "react"
+import { useActionState } from "react"
+import { createClient } from "@/lib/supabase/client"
+import { useTranslation } from "@/hooks/use-translation"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { LoadingSpinner } from "@/components/ui/loading-spinner"
+import {
+  BookOpenText, ListTree, Scale, HandCoins, Wallet, Plus, Save, X, CheckCircle2, AlertTriangle, Percent, Landmark,
+  RotateCcw, Send, Check, Ban, CalendarRange, Lock, Unlock, Loader2, Users, Store,
+} from "lucide-react"
+import {
+  postJournalEntry,
+  createReceivable,
+  createJournalDraft,
+  submitJournalEntry,
+  approveJournalEntry,
+  rejectJournalEntry,
+  reverseJournalEntry,
+  closeAccountingPeriod,
+  reopenAccountingPeriod,
+} from "@/lib/accounting/actions"
+import { ChartOfAccountsManager } from "./components/chart-of-accounts-manager"
+import { PartiesManager } from "./components/parties-manager"
+
+// ── Row shapes ────────────────────────────────────────────────────────────
+interface JournalRow {
+  id: string
+  entry_ref: string
+  entry_date: string
+  entry_type: string
+  status: string
+  description_ar: string | null
+  description_en: string | null
+  posted_at: string | null
+  journal_approvals?: { status: string } | null
+}
+
+interface PeriodRow {
+  id: string
+  period_year: number
+  period_month: number
+  status: string
+  opened_at: string | null
+  closed_at: string | null
+  reopen_reason: string | null
+}
+
+interface AccountRow {
+  id: string
+  account_code: string
+  name_ar: string
+  name_en: string
+  account_type: string
+  normal_balance: string
+}
+
+interface ArApRow {
+  id: string
+  invoice_ref: string
+  invoice_date: string
+  due_date: string
+  amount: number
+  vat_amount: number
+  total_amount: number
+  paid_amount: number
+  status: string
+}
+
+interface TrialRow {
+  account_code: string
+  name_ar: string
+  name_en: string
+  account_type: string
+  normal_balance: string
+  total_debit: number | null
+  total_credit: number | null
+  net_balance: number | null
+}
+
+interface VatLedgerRow {
+  id: string
+  period_year: number
+  period_month: number
+  invoice_ref: string
+  invoice_date: string
+  vat_base_amount: number
+  vat_rate: number
+  vat_amount: number
+}
+
+interface PaymentRow {
+  id: string
+  payment_ref: string
+  direction: string
+  payment_date: string
+  amount: number
+  method: string
+  reference: string | null
+  status: string
+  customers?: { name_ar: string | null; name_en: string | null } | null
+  suppliers?: { name_ar: string | null; name_en: string | null } | null
+}
+
+interface BankAccountRow {
+  id: string
+  bank_name: string
+  account_name: string
+  iban: string
+  currency: string
+  opening_balance: number
+  is_active: boolean
+}
+
+const TYPE_AR: Record<string, string> = {
+  asset: "أصل",
+  liability: "التزام",
+  equity: "حقوق ملكية",
+  income: "إيراد",
+  expense: "مصروف",
+}
+
+const JOURNAL_STATUS: Record<string, { ar: string; en: string; className: string }> = {
+  draft: { ar: "مسودة", en: "Draft", className: "bg-gray-500/15 text-gray-600 border-gray-500/20" },
+  posted: { ar: "مرحّلة", en: "Posted", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/20" },
+  reversed: { ar: "معكوسة", en: "Reversed", className: "bg-red-500/15 text-red-600 border-red-500/20" },
+}
+
+const APPROVAL_STATUS: Record<string, { ar: string; en: string; className: string }> = {
+  submitted: { ar: "قيد المراجعة", en: "In review", className: "bg-amber-500/15 text-amber-600 border-amber-500/20" },
+  approved: { ar: "معتمد", en: "Approved", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/20" },
+  rejected: { ar: "مرفوض", en: "Rejected", className: "bg-red-500/15 text-red-600 border-red-500/20" },
+}
+
+const PERIOD_STATUS: Record<string, { ar: string; en: string; className: string }> = {
+  open: { ar: "مفتوحة", en: "Open", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/20" },
+  closing: { ar: "قيد الإغلاق", en: "Closing", className: "bg-amber-500/15 text-amber-600 border-amber-500/20" },
+  closed: { ar: "مغلقة", en: "Closed", className: "bg-gray-500/15 text-gray-600 border-gray-500/20" },
+  reopened: { ar: "أعيد فتحها", en: "Reopened", className: "bg-purple-500/15 text-purple-600 border-purple-500/20" },
+}
+
+const MONTH_NAMES_AR = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"]
+const MONTH_NAMES_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+const ARAP_STATUS: Record<string, { ar: string; en: string; className: string }> = {
+  open: { ar: "مفتوحة", en: "Open", className: "bg-blue-500/15 text-blue-600 border-blue-500/20" },
+  partially_paid: { ar: "مدفوعة جزئياً", en: "Partially paid", className: "bg-amber-500/15 text-amber-600 border-amber-500/20" },
+  paid: { ar: "مدفوعة", en: "Paid", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/20" },
+  overdue: { ar: "متأخرة", en: "Overdue", className: "bg-red-500/15 text-red-600 border-red-500/20" },
+  written_off: { ar: "مشطوبة", en: "Written off", className: "bg-gray-500/15 text-gray-600 border-gray-500/20" },
+}
+
+function fmtDate(d: string | null): string {
+  if (!d) return "—"
+  try {
+    return new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
+  } catch {
+    return d
+  }
+}
+
+function fmtMoney(n: number | null | undefined): string {
+  return (n ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function Th({ children }: { children: React.ReactNode }) {
+  return <th className="px-4 py-3 text-start font-medium">{children}</th>
+}
+
+function TableShell({ headers, children }: { headers: string[]; children: React.ReactNode }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-border/60 text-start text-xs text-muted-foreground">
+            {headers.map((h) => <Th key={h}>{h}</Th>)}
+          </tr>
+        </thead>
+        <tbody>{children}</tbody>
+      </table>
+    </div>
+  )
+}
+
+function EmptyRow({ colSpan, text }: { colSpan: number; text: string }) {
+  return (
+    <tr>
+      <td colSpan={colSpan} className="px-4 py-10 text-center text-muted-foreground">{text}</td>
+    </tr>
+  )
+}
+
+// ── Journal entry line editor state ───────────────────────────────────────
+interface LineDraft {
+  key: number
+  account_id: string
+  description: string
+  debit: string
+  credit: string
+}
+
+export default function AccountingPage() {
+  const { t, locale } = useTranslation()
+  const ar = locale === "ar"
+
+  const [tab, setTab] = useState("journal")
+  const [isLoading, setIsLoading] = useState(true)
+
+  const [journals, setJournals] = useState<JournalRow[]>([])
+  const [accounts, setAccounts] = useState<AccountRow[]>([])
+  const [trial, setTrial] = useState<TrialRow[]>([])
+  const [receivables, setReceivables] = useState<ArApRow[]>([])
+  const [payables, setPayables] = useState<ArApRow[]>([])
+  const [vatOutput, setVatOutput] = useState<VatLedgerRow[]>([])
+  const [vatInput, setVatInput] = useState<VatLedgerRow[]>([])
+  const [payments, setPayments] = useState<PaymentRow[]>([])
+  const [bankAccounts, setBankAccounts] = useState<BankAccountRow[]>([])
+  const [periods, setPeriods] = useState<PeriodRow[]>([])
+
+  useEffect(() => {
+    void (async () => {
+      setIsLoading(true)
+      const supabase = createClient()
+
+      if (tab === "journal") {
+        const { data } = await supabase
+          .from("chart_of_accounts")
+          .select("id,account_code,name_ar,name_en,account_type,normal_balance")
+          .is("deleted_at", null)
+          .order("account_code", { ascending: true })
+        if (data) setAccounts(data as AccountRow[])
+      }
+
+      if (tab === "journal") {
+        const { data } = await supabase
+          .from("journal_entries")
+          .select("id,entry_ref,entry_date,entry_type,status,description_ar,description_en,posted_at,journal_approvals(status)")
+          .is("deleted_at", null)
+          .order("entry_date", { ascending: false })
+          .order("created_at", { ascending: false })
+          .limit(100)
+        if (data) setJournals(data as unknown as JournalRow[])
+      } else if (tab === "trial") {
+        const { data } = await supabase.from("trial_balance").select("*")
+        if (data) setTrial(data as TrialRow[])
+      } else if (tab === "receivables") {
+        const { data } = await supabase
+          .from("receivables")
+          .select("id,invoice_ref,invoice_date,due_date,amount,vat_amount,total_amount,paid_amount,status")
+          .is("deleted_at", null)
+          .order("due_date", { ascending: true })
+          .limit(200)
+        if (data) setReceivables(data as ArApRow[])
+      } else if (tab === "payables") {
+        const { data } = await supabase
+          .from("payables")
+          .select("id,invoice_ref,invoice_date,due_date,amount,vat_amount,total_amount,paid_amount,status")
+          .is("deleted_at", null)
+          .order("due_date", { ascending: true })
+          .limit(200)
+        if (data) setPayables(data as ArApRow[])
+      } else if (tab === "vat") {
+        const [outRes, inRes] = await Promise.all([
+          supabase
+            .from("vat_output_ledger")
+            .select("id,period_year,period_month,invoice_ref,invoice_date,vat_base_amount,vat_rate,vat_amount")
+            .order("invoice_date", { ascending: false })
+            .limit(200),
+          supabase
+            .from("vat_input_ledger")
+            .select("id,period_year,period_month,invoice_ref,invoice_date,vat_base_amount,vat_rate,vat_amount")
+            .order("invoice_date", { ascending: false })
+            .limit(200),
+        ])
+        if (outRes.data) setVatOutput(outRes.data as VatLedgerRow[])
+        if (inRes.data) setVatInput(inRes.data as VatLedgerRow[])
+      } else if (tab === "payments") {
+        const [payRes, bankRes] = await Promise.all([
+          supabase
+            .from("finance_payments")
+            .select("id,payment_ref,direction,payment_date,amount,method,reference,status,customers(name_ar,name_en),suppliers(name_ar,name_en)")
+            .is("deleted_at", null)
+            .order("payment_date", { ascending: false })
+            .limit(200),
+          supabase
+            .from("bank_accounts")
+            .select("id,bank_name,account_name,iban,currency,opening_balance,is_active")
+            .is("deleted_at", null)
+            .order("bank_name", { ascending: true })
+            .limit(50),
+        ])
+        if (payRes.data) setPayments(payRes.data as unknown as PaymentRow[])
+        if (bankRes.data) setBankAccounts(bankRes.data as BankAccountRow[])
+      } else if (tab === "periods") {
+        const { data } = await supabase
+          .from("accounting_periods")
+          .select("id,period_year,period_month,status,opened_at,closed_at,reopen_reason")
+          .is("deleted_at", null)
+          .order("period_year", { ascending: false })
+          .order("period_month", { ascending: false })
+          .limit(60)
+        if (data) setPeriods(data as PeriodRow[])
+      }
+
+      setIsLoading(false)
+    })()
+  }, [tab])
+
+  // ── Create forms ────────────────────────────────────────────────────────
+  const [openDialogs, setOpenDialogs] = useState<Record<string, boolean>>({})
+  const openDialog = (key: string) => setOpenDialogs((p) => ({ ...p, [key]: true }))
+  const closeDialog = (key: string) => setOpenDialogs((p) => ({ ...p, [key]: false }))
+
+  // Journal entry form
+  const [entryDate, setEntryDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [entryDesc, setEntryDesc] = useState("")
+  const [lines, setLines] = useState<LineDraft[]>([
+    { key: 1, account_id: "", description: "", debit: "", credit: "" },
+    { key: 2, account_id: "", description: "", debit: "", credit: "" },
+  ])
+  const [journalState, journalAction, isPosting] = useActionState(
+    async (_prev: { success: boolean; error?: string } | null, _form: FormData) => {
+      const payload = {
+        entry_date: entryDate,
+        description_ar: entryDesc,
+        lines: lines.map((l) => ({
+          account_id: l.account_id,
+          description: l.description,
+          debit: Number(l.debit || 0),
+          credit: Number(l.credit || 0),
+        })),
+      }
+      const res = asDraft ? await createJournalDraft(payload) : await postJournalEntry(payload)
+      if (res.success) closeDialog("journal")
+      return res
+    },
+    null
+  )
+  const totalDebit = lines.reduce((s, l) => s + Number(l.debit || 0), 0)
+  const totalCredit = lines.reduce((s, l) => s + Number(l.credit || 0), 0)
+  const isBalanced = Math.abs(totalDebit - totalCredit) < 0.001 && totalDebit > 0
+  const updateLine = (key: number, patch: Partial<LineDraft>) =>
+    setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)))
+  const addLine = () =>
+    setLines((prev) => [...prev, { key: Date.now(), account_id: "", description: "", debit: "", credit: "" }])
+  const removeLine = (key: number) => setLines((prev) => (prev.length > 2 ? prev.filter((l) => l.key !== key) : prev))
+
+  // Draft mode: save as draft (unbalanced allowed) vs post directly.
+  const [asDraft, setAsDraft] = useState(false)
+
+  // ── Phase 3 action handlers ────────────────────────────────────────────
+  const [feedback, setFeedback] = useState<{ type: "ok" | "err"; text: string } | null>(null)
+  const [busyEntryId, setBusyEntryId] = useState<string | null>(null)
+  const [reversalTarget, setReversalTarget] = useState<JournalRow | null>(null)
+  const [reversalDesc, setReversalDesc] = useState("")
+  const [reversalDate, setReversalDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [isReversing, setIsReversing] = useState(false)
+  const [rejectTarget, setRejectTarget] = useState<JournalRow | null>(null)
+  const [rejectReason, setRejectReason] = useState("")
+  const [isRejecting, setIsRejecting] = useState(false)
+
+  async function reloadJournal() {
+    const supabase = createClient()
+    const { data } = await supabase
+      .from("journal_entries")
+      .select("id,entry_ref,entry_date,entry_type,status,description_ar,description_en,posted_at,journal_approvals(status)")
+      .is("deleted_at", null)
+      .order("entry_date", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(100)
+    if (data) setJournals(data as unknown as JournalRow[])
+  }
+
+  const flash = (type: "ok" | "err", text: string) => {
+    setFeedback({ type, text })
+    window.setTimeout(() => setFeedback(null), 6000)
+  }
+
+  async function handleJournalAction(action: "submit" | "approve", entry: JournalRow) {
+    setBusyEntryId(entry.id)
+    const res = action === "submit"
+      ? await submitJournalEntry({ entry_id: entry.id })
+      : await approveJournalEntry({ entry_id: entry.id })
+    setBusyEntryId(null)
+    if (res.success) {
+      flash("ok", action === "submit"
+        ? (ar ? "أُرسل القيد للمراجعة." : "Entry submitted for review.")
+        : (ar ? "تم اعتماد القيد وترحيله." : "Entry approved and posted."))
+      await reloadJournal()
+    } else {
+      flash("err", res.error ?? "Failed")
+    }
+  }
+
+  async function handleReverse() {
+    if (!reversalTarget) return
+    setIsReversing(true)
+    const res = await reverseJournalEntry({
+      entry_id: reversalTarget.id,
+      description_ar: reversalDesc || null,
+      reversal_date: reversalDate || null,
+    })
+    setIsReversing(false)
+    setReversalTarget(null)
+    if (res.success) {
+      flash("ok", ar ? "تم عكس القيد بنجاح." : "Entry reversed successfully.")
+      await reloadJournal()
+    } else {
+      flash("err", res.error ?? "Failed")
+    }
+  }
+
+  async function handleReject() {
+    if (!rejectTarget) return
+    setIsRejecting(true)
+    const res = await rejectJournalEntry({ entry_id: rejectTarget.id, reason: rejectReason })
+    setIsRejecting(false)
+    setRejectTarget(null)
+    setRejectReason("")
+    if (res.success) {
+      flash("ok", ar ? "تم رفض القيد." : "Entry rejected.")
+      await reloadJournal()
+    } else {
+      flash("err", res.error ?? "Failed")
+    }
+  }
+
+  // ── Period actions ──────────────────────────────────────────────────────
+  const [busyPeriodId, setBusyPeriodId] = useState<string | null>(null)
+  const [reopenTarget, setReopenTarget] = useState<PeriodRow | null>(null)
+  const [reopenReason, setReopenReason] = useState("")
+  const [isReopening, setIsReopening] = useState(false)
+
+  async function handleClosePeriod(p: PeriodRow) {
+    setBusyPeriodId(p.id)
+    const res = await closeAccountingPeriod({ period_id: p.id })
+    setBusyPeriodId(null)
+    if (res.success) {
+      flash("ok", ar ? "تم إغلاق الفترة." : "Period closed.")
+      setPeriods((prev) => prev.map((x) => (x.id === p.id ? { ...x, status: "closed" } : x)))
+    } else {
+      flash("err", res.error ?? "Failed")
+    }
+  }
+
+  async function handleReopen() {
+    if (!reopenTarget) return
+    setIsReopening(true)
+    const res = await reopenAccountingPeriod({ period_id: reopenTarget.id, reason: reopenReason })
+    setIsReopening(false)
+    setReopenTarget(null)
+    setReopenReason("")
+    if (res.success) {
+      flash("ok", ar ? "أعيد فتح الفترة." : "Period reopened.")
+      setPeriods((prev) => prev.map((x) => (x.id === reopenTarget.id ? { ...x, status: "reopened", reopen_reason: reopenReason } : x)))
+    } else {
+      flash("err", res.error ?? "Failed")
+    }
+  }
+
+  // Receivable form
+  const [rcvRef, setRcvRef] = useState("")
+  const [rcvDate, setRcvDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [rcvDue, setRcvDue] = useState(() => new Date().toISOString().slice(0, 10))
+  const [rcvAmount, setRcvAmount] = useState("")
+  const [rcvVat, setRcvVat] = useState("15")
+  const [rcvState, rcvAction, isSavingRcv] = useActionState(
+    async (_prev: { success: boolean; error?: string } | null, _form: FormData) => {
+      const res = await createReceivable({
+        invoice_ref: rcvRef,
+        invoice_date: rcvDate,
+        due_date: rcvDue,
+        amount: Number(rcvAmount || 0),
+        vat_rate: Number(rcvVat || 0),
+      })
+      if (res.success) closeDialog("receivable")
+      return res
+    },
+    null
+  )
+
+  const dialogBtn = "inline-flex h-8 items-center gap-1.5 rounded-xl bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 px-3 text-xs font-medium text-white shadow-sm transition-all hover:from-elite-blue-700 hover:to-elite-blue-800"
+
+  return (
+    <div className="px-4 lg:px-6 py-4 space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">
+            {ar ? "المحاسبة والمالية" : "Accounting & Finance"}
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            {ar ? "قيود اليومية، دليل الحسابات، الذمم، وضريبة القيمة المضافة" : "Journal entries, chart of accounts, AR/AP, and VAT"}
+          </p>
+        </div>
+        {feedback && (
+          <div
+            className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-medium ${
+              feedback.type === "ok"
+                ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-600"
+                : "border-red-500/20 bg-red-500/10 text-red-500"
+            }`}
+          >
+            {feedback.type === "ok" ? <CheckCircle2 className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
+            {feedback.text}
+          </div>
+        )}
+        <div className="flex items-center gap-2">
+          <Dialog open={openDialogs["journal"]} onOpenChange={(o) => setOpenDialogs((p) => ({ ...p, journal: o }))}>
+            <DialogTrigger asChild>
+              <button className={dialogBtn} onClick={() => openDialog("journal")}>
+                <BookOpenText className="h-3.5 w-3.5" />
+                {ar ? "قييد جديد" : "New entry"}
+              </button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl rounded-2xl">
+              <DialogHeader>
+                <DialogTitle>{ar ? "قيد يومية يدوي" : "Manual journal entry"}</DialogTitle>
+                <DialogDescription>
+                  {ar ? "يُتحقق من توازن القيد قبل الترحيل؛ القيود المرحّلة غير قابلة للتعديل" : "Entries are balance-checked before posting; posted entries are immutable"}
+                </DialogDescription>
+              </DialogHeader>
+              <form action={journalAction} className="space-y-4">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="entryDate">{ar ? "التاريخ" : "Date"}</Label>
+                    <Input id="entryDate" type="date" dir="ltr" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} className="h-9" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="entryDesc">{ar ? "الوصف" : "Description"}</Label>
+                    <Input id="entryDesc" value={entryDesc} onChange={(e) => setEntryDesc(e.target.value)} className="h-9" />
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-border/50">
+                  <div className="grid grid-cols-[1fr_90px_90px_32px] gap-2 border-b border-border/50 bg-muted/30 px-3 py-2 text-[11px] font-medium text-muted-foreground">
+                    <span>{ar ? "الحساب" : "Account"}</span>
+                    <span>{ar ? "مدين" : "Debit"}</span>
+                    <span>{ar ? "دائن" : "Credit"}</span>
+                    <span />
+                  </div>
+                  {lines.map((l) => (
+                    <div key={l.key} className="grid grid-cols-[1fr_90px_90px_32px] items-center gap-2 px-3 py-2">
+                      <select
+                        value={l.account_id}
+                        onChange={(e) => updateLine(l.key, { account_id: e.target.value })}
+                        className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        <option value="">—</option>
+                        {accounts.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.account_code} · {a.name_ar}
+                          </option>
+                        ))}
+                      </select>
+                      <Input
+                        type="number"
+                        dir="ltr"
+                        min="0"
+                        step="0.01"
+                        value={l.debit}
+                        onChange={(e) => updateLine(l.key, { debit: e.target.value })}
+                        className="h-9 text-end tabular-nums"
+                      />
+                      <Input
+                        type="number"
+                        dir="ltr"
+                        min="0"
+                        step="0.01"
+                        value={l.credit}
+                        onChange={(e) => updateLine(l.key, { credit: e.target.value })}
+                        className="h-9 text-end tabular-nums"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeLine(l.key)}
+                        disabled={lines.length <= 2}
+                        className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-500 disabled:opacity-30"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={addLine}
+                    className="text-xs font-medium text-elite-blue-600 hover:text-elite-blue-700"
+                  >
+                    + {ar ? "إضافة سطر" : "Add line"}
+                  </button>
+                  <div className="flex items-center gap-3 text-xs">
+                    <span className="text-muted-foreground">{ar ? "المجموع" : "Totals"}:</span>
+                    <span dir="ltr" className="tabular-nums font-medium">{fmtMoney(totalDebit)}</span>
+                    <span dir="ltr" className="tabular-nums font-medium">{fmtMoney(totalCredit)}</span>
+                    {isBalanced ? (
+                      <span className="inline-flex items-center gap-1 text-emerald-600">
+                        <CheckCircle2 className="h-3.5 w-3.5" /> {ar ? "متوازن" : "Balanced"}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-red-500">
+                        <AlertTriangle className="h-3.5 w-3.5" /> {ar ? "غير متوازن" : "Not balanced"}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/50 pt-3">
+                  <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={asDraft}
+                      onChange={(e) => setAsDraft(e.target.checked)}
+                      className="h-3.5 w-3.5 rounded border-border accent-elite-blue-600"
+                    />
+                    {ar ? "حفظ كمسودة (قيد مراجعة لاحقاً)" : "Save as draft (approve later)"}
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <Button
+                      type="submit"
+                      disabled={isPosting || lines.some((l) => !l.account_id) || (!asDraft && !isBalanced)}
+                      className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800"
+                    >
+                      {isPosting ? <LoadingSpinner className="h-4 w-4" /> : asDraft ? <Send className="h-4 w-4" /> : <Save className="h-4 w-4" />}
+                      {asDraft ? (ar ? "حفظ كمسودة" : "Save draft") : (ar ? "ترحيل القيد" : "Post entry")}
+                    </Button>
+                    {journalState?.error && <span className="text-xs text-red-500">{journalState.error}</span>}
+                  </div>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
+      </div>
+
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList className="flex-wrap">
+          <TabsTrigger value="journal" className="gap-2"><BookOpenText className="h-4 w-4" />{ar ? "قيود اليومية" : "Journal"}</TabsTrigger>
+          <TabsTrigger value="accounts" className="gap-2"><ListTree className="h-4 w-4" />{ar ? "دليل الحسابات" : "Accounts"}</TabsTrigger>
+          <TabsTrigger value="trial" className="gap-2"><Scale className="h-4 w-4" />{ar ? "ميزان المراجعة" : "Trial balance"}</TabsTrigger>
+          <TabsTrigger value="receivables" className="gap-2"><HandCoins className="h-4 w-4" />{ar ? "الذمم المدينة" : "Receivables"}</TabsTrigger>
+          <TabsTrigger value="payables" className="gap-2"><Wallet className="h-4 w-4" />{ar ? "الذمم الدائنة" : "Payables"}</TabsTrigger>
+          <TabsTrigger value="customers" className="gap-2"><Users className="h-4 w-4" />{ar ? "العملاء" : "Customers"}</TabsTrigger>
+          <TabsTrigger value="suppliers" className="gap-2"><Store className="h-4 w-4" />{ar ? "الموردون" : "Suppliers"}</TabsTrigger>
+          <TabsTrigger value="vat" className="gap-2"><Percent className="h-4 w-4" />{ar ? "الضريبة (VAT)" : "VAT"}</TabsTrigger>
+          <TabsTrigger value="payments" className="gap-2"><Landmark className="h-4 w-4" />{ar ? "المدفوعات والبنوك" : "Payments"}</TabsTrigger>
+          <TabsTrigger value="periods" className="gap-2"><CalendarRange className="h-4 w-4" />{ar ? "الفترات" : "Periods"}</TabsTrigger>
+        </TabsList>
+
+        {isLoading ? (
+          <div className="flex items-center justify-center py-24">
+            <LoadingSpinner className="h-6 w-6 text-elite-blue-600" />
+          </div>
+        ) : (
+          <>
+            <TabsContent value="journal" className="mt-4">
+              <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+                <TableShell headers={["Ref", ar ? "التاريخ" : "Date", ar ? "الوصف" : "Description", ar ? "النوع" : "Type", ar ? "الحالة" : "Status", ar ? "إجراء" : "Action"]}>
+                  {journals.length === 0 && <EmptyRow colSpan={6} text={ar ? "لا توجد قيود بعد. أنشئ قيداً جديداً." : "No journal entries yet. Create one."} />}
+                  {journals.map((j) => {
+                    const s = JOURNAL_STATUS[j.status] ?? JOURNAL_STATUS.draft
+                    const approval = j.journal_approvals?.status
+                    const ap = APPROVAL_STATUS[approval ?? ""]
+                    const canSubmit = j.status === "draft" && approval !== "submitted"
+                    const canApprove = j.status === "draft" && approval === "submitted"
+                    const canReject = canApprove
+                    const canReverse = j.status === "posted"
+                    return (
+                      <tr key={j.id} className="border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors">
+                        <td className="px-4 py-3 font-mono text-xs" dir="ltr">{j.entry_ref}</td>
+                        <td className="px-4 py-3 text-xs" dir="ltr">{fmtDate(j.entry_date)}</td>
+                        <td className="px-4 py-3">{j.description_ar ?? j.description_en ?? "—"}</td>
+                        <td className="px-4 py-3 text-xs uppercase" dir="ltr">{j.entry_type}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <Badge className={s.className}>{ar ? s.ar : s.en}</Badge>
+                            {ap && <Badge className={ap.className}>{ar ? ap.ar : ap.en}</Badge>}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1">
+                            {canSubmit && (
+                              <button
+                                onClick={() => handleJournalAction("submit", j)}
+                                disabled={busyEntryId === j.id}
+                                className="inline-flex h-7 items-center gap-1 rounded-lg border border-amber-500/25 bg-amber-500/10 px-2 text-xs font-medium text-amber-600 transition-colors hover:bg-amber-500/20 disabled:opacity-50"
+                              >
+                                {busyEntryId === j.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+                                {ar ? "إرسال للمراجعة" : "Submit"}
+                              </button>
+                            )}
+                            {canApprove && (
+                              <button
+                                onClick={() => handleJournalAction("approve", j)}
+                                disabled={busyEntryId === j.id}
+                                className="inline-flex h-7 items-center gap-1 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-2 text-xs font-medium text-emerald-600 transition-colors hover:bg-emerald-500/20 disabled:opacity-50"
+                              >
+                                {busyEntryId === j.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                                {ar ? "اعتماد وترحيل" : "Approve"}
+                              </button>
+                            )}
+                            {canReject && (
+                              <button
+                                onClick={() => setRejectTarget(j)}
+                                className="inline-flex h-7 items-center gap-1 rounded-lg border border-red-500/25 bg-red-500/10 px-2 text-xs font-medium text-red-600 transition-colors hover:bg-red-500/20"
+                              >
+                                <Ban className="h-3 w-3" />
+                                {ar ? "رفض" : "Reject"}
+                              </button>
+                            )}
+                            {canReverse && (
+                              <button
+                                onClick={() => { setReversalTarget(j); setReversalDesc(""); setReversalDate(new Date().toISOString().slice(0, 10)) }}
+                                className="inline-flex h-7 items-center gap-1 rounded-lg border border-purple-500/25 bg-purple-500/10 px-2 text-xs font-medium text-purple-600 transition-colors hover:bg-purple-500/20"
+                              >
+                                <RotateCcw className="h-3 w-3" />
+                                {ar ? "عكس" : "Reverse"}
+                              </button>
+                            )}
+                            {!canSubmit && !canApprove && !canReject && !canReverse && (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </TableShell>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="accounts" className="mt-4">
+              <ChartOfAccountsManager />
+            </TabsContent>
+
+            <TabsContent value="trial" className="mt-4">
+              <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+                <TableShell headers={[ar ? "الرمز" : "Code", ar ? "الاسم" : "Name", ar ? "النوع" : "Type", ar ? "مدين" : "Debit", ar ? "دائن" : "Credit", ar ? "الرصيد" : "Balance"]}>
+                  {trial.length === 0 && <EmptyRow colSpan={6} text={ar ? "لا توجد قيود مرحّلة بعد." : "No posted entries yet."} />}
+                  {trial.map((r) => (
+                    <tr key={r.account_code} className="border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors">
+                      <td className="px-4 py-3 font-mono text-xs" dir="ltr">{r.account_code}</td>
+                      <td className="px-4 py-3 font-medium">{r.name_ar}</td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">{ar ? TYPE_AR[r.account_type] ?? r.account_type : r.account_type}</td>
+                      <td className="px-4 py-3 text-xs tabular-nums" dir="ltr">{fmtMoney(r.total_debit)}</td>
+                      <td className="px-4 py-3 text-xs tabular-nums" dir="ltr">{fmtMoney(r.total_credit)}</td>
+                      <td className={`px-4 py-3 text-xs font-medium tabular-nums ${(r.net_balance ?? 0) < 0 ? "text-red-600" : "text-emerald-600"}`} dir="ltr">{fmtMoney(r.net_balance)}</td>
+                    </tr>
+                  ))}
+                </TableShell>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="receivables" className="mt-4">
+              <div className="space-y-4">
+                <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+                  <CardHeader className="pb-3 flex-row items-center justify-between">
+                    <CardTitle className="text-base">{ar ? "الذمم المدينة" : "Receivables"}</CardTitle>
+                    <Dialog open={openDialogs["receivable"]} onOpenChange={(o) => setOpenDialogs((p) => ({ ...p, receivable: o }))}>
+                      <DialogTrigger asChild>
+                        <button className={dialogBtn} onClick={() => openDialog("receivable")}>
+                          <Plus className="h-3.5 w-3.5" />{ar ? "فاتورة جديدة" : "New invoice"}
+                        </button>
+                      </DialogTrigger>
+                      <DialogContent className="max-w-md rounded-2xl">
+                        <DialogHeader>
+                          <DialogTitle>{ar ? "إنشاء ذمم مدينة" : "Create receivable"}</DialogTitle>
+                          <DialogDescription>{ar ? "فاتورة عميل مع ضريبة القيمة المضافة" : "Customer invoice with VAT"}</DialogDescription>
+                        </DialogHeader>
+                        <form action={rcvAction} className="space-y-3">
+                          <div className="space-y-1.5">
+                            <Label htmlFor="rcvRef">{ar ? "رقم الفاتورة" : "Invoice ref"}</Label>
+                            <Input id="rcvRef" dir="ltr" value={rcvRef} onChange={(e) => setRcvRef(e.target.value)} className="h-9" />
+                          </div>
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <div className="space-y-1.5">
+                              <Label htmlFor="rcvDate">{ar ? "تاريخ الفاتورة" : "Invoice date"}</Label>
+                              <Input id="rcvDate" type="date" dir="ltr" value={rcvDate} onChange={(e) => setRcvDate(e.target.value)} className="h-9" />
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label htmlFor="rcvDue">{ar ? "تاريخ الاستحقاق" : "Due date"}</Label>
+                              <Input id="rcvDue" type="date" dir="ltr" value={rcvDue} onChange={(e) => setRcvDue(e.target.value)} className="h-9" />
+                            </div>
+                          </div>
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <div className="space-y-1.5">
+                              <Label htmlFor="rcvAmount">{ar ? "المبلغ (قبل الضريبة)" : "Amount (excl. VAT)"}</Label>
+                              <Input id="rcvAmount" type="number" dir="ltr" min="0" step="0.01" value={rcvAmount} onChange={(e) => setRcvAmount(e.target.value)} className="h-9 text-end tabular-nums" />
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label htmlFor="rcvVat">{ar ? "نسبة الضريبة %" : "VAT rate %"}</Label>
+                              <Input id="rcvVat" type="number" dir="ltr" min="0" max="100" step="0.01" value={rcvVat} onChange={(e) => setRcvVat(e.target.value)} className="h-9 text-end tabular-nums" />
+                            </div>
+                          </div>
+                          {Number(rcvAmount || 0) > 0 && (
+                            <p className="text-xs text-muted-foreground" dir="ltr">
+                              VAT: {fmtMoney((Number(rcvAmount) * Number(rcvVat || 0)) / 100)} · Total: {fmtMoney(Number(rcvAmount) + (Number(rcvAmount) * Number(rcvVat || 0)) / 100)} SAR
+                            </p>
+                          )}
+                          <div className="flex items-center gap-3">
+                            <Button type="submit" disabled={isSavingRcv} className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800">
+                              {isSavingRcv ? <LoadingSpinner className="h-4 w-4" /> : <Save className="h-4 w-4" />}
+                              {t.common.save}
+                            </Button>
+                            {rcvState?.error && <span className="text-xs text-red-500">{rcvState.error}</span>}
+                          </div>
+                        </form>
+                      </DialogContent>
+                    </Dialog>
+                  </CardHeader>
+                  <TableShell headers={[ar ? "الفاتورة" : "Invoice", ar ? "التاريخ" : "Date", ar ? "الاستحقاق" : "Due", ar ? "المبلغ" : "Amount", "VAT", ar ? "الإجمالي" : "Total", ar ? "المدفوع" : "Paid", ar ? "الحالة" : "Status"]}>
+                    {receivables.length === 0 && <EmptyRow colSpan={8} text={ar ? "لا توجد ذمم مدينة." : "No receivables."} />}
+                    {receivables.map((r) => {
+                      const s = ARAP_STATUS[r.status] ?? ARAP_STATUS.open
+                      const overdue = r.status !== "paid" && new Date(r.due_date) < new Date()
+                      return (
+                        <tr key={r.id} className="border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors">
+                          <td className="px-4 py-3 font-mono text-xs" dir="ltr">{r.invoice_ref}</td>
+                          <td className="px-4 py-3 text-xs" dir="ltr">{fmtDate(r.invoice_date)}</td>
+                          <td className={`px-4 py-3 text-xs ${overdue ? "text-red-600 font-medium" : ""}`} dir="ltr">{fmtDate(r.due_date)}</td>
+                          <td className="px-4 py-3 text-xs tabular-nums" dir="ltr">{fmtMoney(r.amount)}</td>
+                          <td className="px-4 py-3 text-xs tabular-nums" dir="ltr">{fmtMoney(r.vat_amount)}</td>
+                          <td className="px-4 py-3 text-xs font-medium tabular-nums" dir="ltr">{fmtMoney(r.total_amount)}</td>
+                          <td className="px-4 py-3 text-xs tabular-nums" dir="ltr">{fmtMoney(r.paid_amount)}</td>
+                          <td className="px-4 py-3"><Badge className={overdue && r.status === "open" ? ARAP_STATUS.overdue.className : s.className}>{ar ? (overdue && r.status === "open" ? ARAP_STATUS.overdue.ar : s.ar) : s.en}</Badge></td>
+                        </tr>
+                      )
+                    })}
+                  </TableShell>
+                </Card>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="payables" className="mt-4">
+              <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+                <TableShell headers={[ar ? "الفاتورة" : "Invoice", ar ? "التاريخ" : "Date", ar ? "الاستحقاق" : "Due", ar ? "المبلغ" : "Amount", "VAT", ar ? "الإجمالي" : "Total", ar ? "المدفوع" : "Paid", ar ? "الحالة" : "Status"]}>
+                  {payables.length === 0 && <EmptyRow colSpan={8} text={ar ? "لا توجد ذمم دائنة." : "No payables."} />}
+                  {payables.map((r) => {
+                    const s = ARAP_STATUS[r.status] ?? ARAP_STATUS.open
+                    const overdue = r.status !== "paid" && new Date(r.due_date) < new Date()
+                    return (
+                      <tr key={r.id} className="border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors">
+                        <td className="px-4 py-3 font-mono text-xs" dir="ltr">{r.invoice_ref}</td>
+                        <td className="px-4 py-3 text-xs" dir="ltr">{fmtDate(r.invoice_date)}</td>
+                        <td className={`px-4 py-3 text-xs ${overdue ? "text-red-600 font-medium" : ""}`} dir="ltr">{fmtDate(r.due_date)}</td>
+                        <td className="px-4 py-3 text-xs tabular-nums" dir="ltr">{fmtMoney(r.amount)}</td>
+                        <td className="px-4 py-3 text-xs tabular-nums" dir="ltr">{fmtMoney(r.vat_amount)}</td>
+                        <td className="px-4 py-3 text-xs font-medium tabular-nums" dir="ltr">{fmtMoney(r.total_amount)}</td>
+                        <td className="px-4 py-3 text-xs tabular-nums" dir="ltr">{fmtMoney(r.paid_amount)}</td>
+                        <td className="px-4 py-3"><Badge className={overdue && r.status === "open" ? ARAP_STATUS.overdue.className : s.className}>{ar ? (overdue && r.status === "open" ? ARAP_STATUS.overdue.ar : s.ar) : s.en}</Badge></td>
+                      </tr>
+                    )
+                  })}
+                </TableShell>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="customers" className="mt-4">
+              <PartiesManager kind="customers" />
+            </TabsContent>
+
+            <TabsContent value="suppliers" className="mt-4">
+              <PartiesManager kind="suppliers" />
+            </TabsContent>
+
+            <TabsContent value="vat" className="mt-4">
+              <div className="grid gap-4 xl:grid-cols-2">
+                <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">{ar ? "ضريبة المخرجات (مبيعات)" : "Output VAT (Sales)"}</CardTitle>
+                    <CardDescription>{ar ? "لا تُقابل مع المدخلات في نفس الدفتر" : "Never netted against input in the same ledger"}</CardDescription>
+                  </CardHeader>
+                  <TableShell headers={[ar ? "الفترة" : "Period", ar ? "الفاتورة" : "Invoice", ar ? "الأساس" : "Base", ar ? "النسبة" : "Rate", "VAT"]}>
+                    {vatOutput.length === 0 && <EmptyRow colSpan={5} text={ar ? "لا توجد ضريبة مخرجات." : "No output VAT."} />}
+                    {vatOutput.map((r) => (
+                      <tr key={r.id} className="border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors">
+                        <td className="px-4 py-3 text-xs tabular-nums" dir="ltr">{r.period_year}-{String(r.period_month).padStart(2, "0")}</td>
+                        <td className="px-4 py-3 font-mono text-xs" dir="ltr">{r.invoice_ref}</td>
+                        <td className="px-4 py-3 text-xs tabular-nums" dir="ltr">{fmtMoney(r.vat_base_amount)}</td>
+                        <td className="px-4 py-3 text-xs tabular-nums" dir="ltr">{r.vat_rate}%</td>
+                        <td className="px-4 py-3 text-xs font-medium tabular-nums" dir="ltr">{fmtMoney(r.vat_amount)}</td>
+                      </tr>
+                    ))}
+                  </TableShell>
+                </Card>
+
+                <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">{ar ? "ضريبة المدخلات (مشتريات)" : "Input VAT (Purchases)"}</CardTitle>
+                    <CardDescription>{ar ? "قابلة للخصم ضمن إقرار ضريبة القيمة المضافة" : "Claimable within the VAT return"}</CardDescription>
+                  </CardHeader>
+                  <TableShell headers={[ar ? "الفترة" : "Period", ar ? "الفاتورة" : "Invoice", ar ? "الأساس" : "Base", ar ? "النسبة" : "Rate", "VAT"]}>
+                    {vatInput.length === 0 && <EmptyRow colSpan={5} text={ar ? "لا توجد ضريبة مدخلات." : "No input VAT."} />}
+                    {vatInput.map((r) => (
+                      <tr key={r.id} className="border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors">
+                        <td className="px-4 py-3 text-xs tabular-nums" dir="ltr">{r.period_year}-{String(r.period_month).padStart(2, "0")}</td>
+                        <td className="px-4 py-3 font-mono text-xs" dir="ltr">{r.invoice_ref}</td>
+                        <td className="px-4 py-3 text-xs tabular-nums" dir="ltr">{fmtMoney(r.vat_base_amount)}</td>
+                        <td className="px-4 py-3 text-xs tabular-nums" dir="ltr">{r.vat_rate}%</td>
+                        <td className="px-4 py-3 text-xs font-medium tabular-nums" dir="ltr">{fmtMoney(r.vat_amount)}</td>
+                      </tr>
+                    ))}
+                  </TableShell>
+                </Card>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="periods" className="mt-4">
+              <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">{ar ? "الفترات المحاسبية" : "Accounting periods"}</CardTitle>
+                  <CardDescription>
+                    {ar ? "إغلاق الفترة يمنع أي ترحيلات جديدة؛ إعادة الفتح تتطلب سبباً" : "Closing a period blocks new postings; reopening requires a reason"}
+                  </CardDescription>
+                </CardHeader>
+                <TableShell headers={[ar ? "الفترة" : "Period", ar ? "الحالة" : "Status", ar ? "تاريخ الفتح" : "Opened", ar ? "تاريخ الإغلاق" : "Closed", ar ? "السبب" : "Reason", ar ? "إجراء" : "Action"]}>
+                  {periods.length === 0 && <EmptyRow colSpan={6} text={ar ? "لا توجد فترات." : "No periods."} />}
+                  {periods.map((p) => {
+                    const s = PERIOD_STATUS[p.status] ?? PERIOD_STATUS.open
+                    const monthName = ar ? MONTH_NAMES_AR[(p.period_month ?? 1) - 1] : MONTH_NAMES_EN[(p.period_month ?? 1) - 1]
+                    return (
+                      <tr key={p.id} className="border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors">
+                        <td className="px-4 py-3 font-medium tabular-nums" dir="ltr">{monthName} {p.period_year}</td>
+                        <td className="px-4 py-3"><Badge className={s.className}>{ar ? s.ar : s.en}</Badge></td>
+                        <td className="px-4 py-3 text-xs" dir="ltr">{fmtDate(p.opened_at)}</td>
+                        <td className="px-4 py-3 text-xs" dir="ltr">{p.closed_at ? fmtDate(p.closed_at) : "—"}</td>
+                        <td className="px-4 py-3 text-xs text-muted-foreground max-w-[220px] truncate" title={p.reopen_reason ?? ""}>
+                          {p.reopen_reason ?? "—"}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1">
+                            {(p.status === "open" || p.status === "closing") && (
+                              <button
+                                onClick={() => handleClosePeriod(p)}
+                                disabled={busyPeriodId === p.id}
+                                className="inline-flex h-7 items-center gap-1 rounded-lg border border-gray-500/25 bg-gray-500/10 px-2 text-xs font-medium text-foreground/80 transition-colors hover:bg-gray-500/20 disabled:opacity-50"
+                              >
+                                {busyPeriodId === p.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Lock className="h-3 w-3" />}
+                                {ar ? "إغلاق" : "Close"}
+                              </button>
+                            )}
+                            {p.status === "closed" && (
+                              <button
+                                onClick={() => { setReopenTarget(p); setReopenReason("") }}
+                                className="inline-flex h-7 items-center gap-1 rounded-lg border border-purple-500/25 bg-purple-500/10 px-2 text-xs font-medium text-purple-600 transition-colors hover:bg-purple-500/20"
+                              >
+                                <Unlock className="h-3 w-3" />
+                                {ar ? "إعادة فتح" : "Reopen"}
+                              </button>
+                            )}
+                            {(p.status === "reopened" || p.status === "closed") && <span className="text-xs text-muted-foreground">—</span>}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </TableShell>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="payments" className="mt-4">
+              <div className="space-y-4">
+                <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">{ar ? "الحسابات البنكية" : "Bank accounts"}</CardTitle>
+                  </CardHeader>
+                  {bankAccounts.length === 0 ? (
+                    <p className="px-4 pb-6 text-sm text-muted-foreground">{ar ? "لا توجد حسابات بنكية." : "No bank accounts."}</p>
+                  ) : (
+                    <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
+                      {bankAccounts.map((b) => (
+                        <div key={b.id} className="rounded-xl border border-border/50 bg-muted/20 p-4">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-sm font-semibold text-foreground">{b.bank_name}</p>
+                            <Badge className={b.is_active ? "bg-emerald-500/15 text-emerald-600 border-emerald-500/20" : "bg-gray-500/15 text-gray-600 border-gray-500/20"}>
+                              {ar ? (b.is_active ? "نشط" : "غير نشط") : b.is_active ? "Active" : "Inactive"}
+                            </Badge>
+                          </div>
+                          <p className="mt-0.5 truncate text-xs text-muted-foreground">{b.account_name}</p>
+                          <p className="mt-2 font-mono text-xs text-foreground/80" dir="ltr">{b.iban}</p>
+                          <p className="mt-2 text-xs text-muted-foreground" dir="ltr">
+                            {ar ? "رصيد افتتاحي" : "Opening"}: <span className="font-semibold tabular-nums text-foreground">{fmtMoney(b.opening_balance)} {b.currency}</span>
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </Card>
+
+                <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">{ar ? "المدفوعات" : "Finance payments"}</CardTitle>
+                  </CardHeader>
+                  <TableShell headers={[ar ? "المرجع" : "Ref", ar ? "الاتجاه" : "Dir", ar ? "التاريخ" : "Date", ar ? "الطرف" : "Party", ar ? "المبلغ" : "Amount", ar ? "الطريقة" : "Method", ar ? "الحالة" : "Status"]}>
+                    {payments.length === 0 && <EmptyRow colSpan={7} text={ar ? "لا توجد مدفوعات." : "No payments."} />}
+                    {payments.map((p) => (
+                      <tr key={p.id} className="border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors">
+                        <td className="px-4 py-3 font-mono text-xs" dir="ltr">{p.payment_ref}</td>
+                        <td className="px-4 py-3">
+                          <Badge className={p.direction === "in" ? "bg-emerald-500/15 text-emerald-600 border-emerald-500/20" : "bg-red-500/15 text-red-600 border-red-500/20"}>
+                            {ar ? (p.direction === "in" ? "وارد" : "صادر") : p.direction === "in" ? "In" : "Out"}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3 text-xs" dir="ltr">{fmtDate(p.payment_date)}</td>
+                        <td className="px-4 py-3 text-xs">
+                          {p.customers ? (p.customers.name_ar ?? p.customers.name_en ?? "—") : p.suppliers ? (p.suppliers.name_ar ?? p.suppliers.name_en ?? "—") : "—"}
+                        </td>
+                        <td className="px-4 py-3 text-xs font-medium tabular-nums" dir="ltr">{fmtMoney(p.amount)}</td>
+                        <td className="px-4 py-3 text-xs capitalize text-muted-foreground" dir="ltr">{p.method}</td>
+                        <td className="px-4 py-3"><Badge className="bg-muted text-muted-foreground">{ar ? p.status : p.status.replace(/_/g, " ")}</Badge></td>
+                      </tr>
+                    ))}
+                  </TableShell>
+                </Card>
+              </div>
+            </TabsContent>
+          </>
+        )}
+      </Tabs>
+
+      {/* ── Reverse entry dialog ─────────────────────────────────────────── */}
+      <Dialog open={!!reversalTarget} onOpenChange={(o) => { if (!o) setReversalTarget(null) }}>
+        <DialogContent className="max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>{ar ? "عكس قيد مرحّل" : "Reverse posted entry"}</DialogTitle>
+            <DialogDescription>
+              {ar
+                ? `سيُنشأ قيد عكسي (مقابل) مربوط بالقيد ${reversalTarget?.entry_ref ?? ""}، ويصبح الأصل معكوساً. لا يمكن التراجع عن هذا الإجراء.`
+                : `A linked reversal entry for ${reversalTarget?.entry_ref ?? ""} will be posted and the original marked reversed. This cannot be undone.`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="revDate">{ar ? "تاريخ العكس" : "Reversal date"}</Label>
+              <Input id="revDate" type="date" dir="ltr" value={reversalDate} onChange={(e) => setReversalDate(e.target.value)} className="h-9" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="revDesc">{ar ? "وصف العكس (اختياري)" : "Reversal description (optional)"}</Label>
+              <Input id="revDesc" value={reversalDesc} onChange={(e) => setReversalDesc(e.target.value)} className="h-9" />
+            </div>
+            <div className="flex items-center gap-3">
+              <Button
+                onClick={() => void handleReverse()}
+                disabled={isReversing}
+                className="bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800"
+              >
+                {isReversing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                {ar ? "عكس القيد" : "Reverse entry"}
+              </Button>
+              <Button variant="ghost" onClick={() => setReversalTarget(null)}>
+                <X className="h-4 w-4" />
+                {ar ? "إلغاء" : "Cancel"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Reject entry dialog ──────────────────────────────────────────── */}
+      <Dialog open={!!rejectTarget} onOpenChange={(o) => { if (!o) { setRejectTarget(null); setRejectReason("") } }}>
+        <DialogContent className="max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>{ar ? "رفض القيد" : "Reject entry"}</DialogTitle>
+            <DialogDescription>
+              {ar ? "سيعود القيد إلى المسودة للمراجعة بعد بيان السبب." : "The entry returns to draft for revision after a reason is recorded."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="rejectReason">{ar ? "سبب الرفض (مطلوب)" : "Rejection reason (required)"}</Label>
+              <Input id="rejectReason" value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} className="h-9" />
+            </div>
+            <div className="flex items-center gap-3">
+              <Button
+                onClick={() => void handleReject()}
+                disabled={isRejecting || !rejectReason.trim()}
+                className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800"
+              >
+                {isRejecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}
+                {ar ? "رفض القيد" : "Reject entry"}
+              </Button>
+              <Button variant="ghost" onClick={() => { setRejectTarget(null); setRejectReason("") }}>
+                <X className="h-4 w-4" />
+                {ar ? "إلغاء" : "Cancel"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Reopen period dialog ─────────────────────────────────────────── */}
+      <Dialog open={!!reopenTarget} onOpenChange={(o) => { if (!o) { setReopenTarget(null); setReopenReason("") } }}>
+        <DialogContent className="max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>{ar ? "إعادة فتح الفترة" : "Reopen period"}</DialogTitle>
+            <DialogDescription>
+              {ar ? "سيُسمح بترحيل قيود جديدة في هذه الفترة. يُسجَّل السبب في سجل المراجعة." : "New postings will be allowed in this period. The reason is recorded for audit."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="reopenReason">{ar ? "سبب إعادة الفتح (مطلوب)" : "Reopen reason (required)"}</Label>
+              <Input id="reopenReason" value={reopenReason} onChange={(e) => setReopenReason(e.target.value)} className="h-9" />
+            </div>
+            <div className="flex items-center gap-3">
+              <Button
+                onClick={() => void handleReopen()}
+                disabled={isReopening || !reopenReason.trim()}
+                className="bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800"
+              >
+                {isReopening ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unlock className="h-4 w-4" />}
+                {ar ? "إعادة فتح الفترة" : "Reopen period"}
+              </Button>
+              <Button variant="ghost" onClick={() => { setReopenTarget(null); setReopenReason("") }}>
+                <X className="h-4 w-4" />
+                {ar ? "إلغاء" : "Cancel"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}

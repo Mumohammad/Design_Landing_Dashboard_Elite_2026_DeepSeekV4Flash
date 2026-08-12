@@ -1,0 +1,69 @@
+/* ═══ A4 print confirmation — driver registration ═══ */
+
+.print-only {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 14mm;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+  }
+
+  /* Hide everything on screen except the confirmation sheet */
+  body * {
+    visibility: hidden;
+  }
+
+  .print-only,
+  .print-only * {
+    visibility: visible;
+  }
+
+  .print-only {
+    display: block !important;
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+    width: 100%;
+    padding: 8mm 6mm;
+    color: #0b1e33;
+  }
+
+  .a4-sheet {
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .a4-sheet dl {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 24px;
+  }
+
+  .a4-sheet dt {
+    color: #5a6b7d;
+    font-weight: 600;
+  }
+
+  .a4-sheet dd {
+    margin: 0;
+    font-weight: 700;
+    color: #0b1e33;
+  }
+
+  .a4-sheet img {
+    max-width: 100%;
+  }
+}
+
+@media screen {
+  .print-only {
+    display: none !important;
+  }
+}
