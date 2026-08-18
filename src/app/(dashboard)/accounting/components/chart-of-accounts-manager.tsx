@@ -20,10 +20,12 @@ import {
   importChartAccountsCsv,
   initializeDefaultCoa,
   postOpeningBalances,
+} from "@/lib/accounting/actions"
+import {
   CONVENTIONAL_BALANCE,
   type AccountType,
   type NormalBalance,
-} from "@/lib/accounting/actions"
+} from "@/lib/accounting/csv-utils"
 import {
   Pencil,
   Power,

@@ -5,7 +5,7 @@ import { useActionState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
@@ -14,7 +14,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { LoadingSpinner } from "@/components/ui/loading-spinner"
 import {
   BookOpenText, ListTree, Scale, HandCoins, Wallet, Plus, Save, X, CheckCircle2, AlertTriangle, Percent, Landmark,
-  RotateCcw, Send, Check, Ban, CalendarRange, Lock, Unlock, Loader2, Users, Store,
+  RotateCcw, Send, Check, Ban, CalendarRange, Lock, Unlock, Loader2, Users, Store, ListChecks, Zap,
+  ArrowDownLeft, ArrowUpRight, Building2, FileCheck2, KeyRound,
 } from "lucide-react"
 import {
   postJournalEntry,
@@ -29,6 +30,26 @@ import {
 } from "@/lib/accounting/actions"
 import { ChartOfAccountsManager } from "./components/chart-of-accounts-manager"
 import { PartiesManager } from "./components/parties-manager"
+import { StatementsManager } from "./components/statements-manager"
+import { runEventDispatcher } from "@/lib/accounting/dispatcher"
+import { runZatcaAdapter, getZatcaTransmission } from "@/lib/accounting/zatca"
+import {
+  listZatcaCsids,
+  onboardZatcaCsids,
+  type ZatcaCsidSummary,
+  type ZatcaCsidEnvironment,
+} from "@/lib/accounting/zatca-csid"
+import { computeVatNetPosition } from "@/lib/accounting/vat-math"
+import { recordPayment, voidPayment, createBankAccount } from "@/lib/accounting/payments"
+import {
+  resolveVatReviewItem,
+  exportVatReconciliationCsv,
+  generateVatReconciliationReport,
+  getVatReturn,
+  exportVatReturnCsv,
+  generateVatReturnReport,
+  type VatReturnData,
+} from "@/lib/accounting/vat"
 
 // ── Row shapes ────────────────────────────────────────────────────────────
 interface JournalRow {
@@ -94,6 +115,26 @@ interface VatLedgerRow {
   vat_base_amount: number
   vat_rate: number
   vat_amount: number
+  vat_recoverability?: string
+}
+
+interface VatAdjustmentRow {
+  id: string
+  period_year: number
+  period_month: number
+  adjustment_type: string
+  direction: string
+  base_amount: number
+  vat_amount: number
+  reason: string | null
+  status: string
+}
+
+interface VatPeriodRow {
+  id: string
+  period_year: number
+  period_month: number
+  status: string
 }
 
 interface PaymentRow {
@@ -105,8 +146,10 @@ interface PaymentRow {
   method: string
   reference: string | null
   status: string
+  payment_allocations?: { id: string }[] | null
   customers?: { name_ar: string | null; name_en: string | null } | null
   suppliers?: { name_ar: string | null; name_en: string | null } | null
+  bank_accounts?: { bank_name: string } | null
 }
 
 interface BankAccountRow {
@@ -117,6 +160,84 @@ interface BankAccountRow {
   currency: string
   opening_balance: number
   is_active: boolean
+  coa_account_code?: string | null
+}
+
+interface OpenArApRow extends ArApRow {
+  party_name?: string | null
+  customer_id?: string | null
+  supplier_id?: string | null
+}
+
+interface PayAllocDraft {
+  key: number
+  id: string
+  receivable_id: string | null
+  payable_id: string | null
+  label: string
+  party: string
+  outstanding: number
+  amount: string
+  selected: boolean
+}
+
+interface EventRow {
+  id: string
+  idempotency_key: string
+  source_type: string
+  event_type: string
+  processing_status: string
+  event_date: string
+  created_at: string
+  processed_at: string | null
+  error_message: string | null
+}
+
+interface VatReviewItem {
+  id: string
+  invoice_ref: string
+  invoice_date: string
+  vat_base_amount: number
+  vat_rate: number
+  vat_amount: number
+  supplier_id: string | null
+}
+
+interface ZatcaTransmissionRow {
+  id: string
+  doc_ref: string
+  doc_type: string
+  status: string
+  zatca_uuid: string | null
+  error_message: string | null
+  transmitted_at: string | null
+  created_at: string
+}
+
+interface ZatcaDetail {
+  doc_ref: string
+  doc_type: string
+  status: string
+  zatca_uuid: string | null
+  payload_xml: string
+  response: Record<string, unknown> | null
+  transmitted_at: string | null
+  error_message: string | null
+}
+
+interface VatReconRow {
+  period_id: string | null
+  period_year: number
+  period_month: number
+  period_status: string | null
+  output_vat: number
+  recoverable_input_vat: number
+  non_recoverable_vat: number
+  pending_review_vat: number
+  adjustments_output: number
+  adjustments_input: number
+  pending_review_rows: number
+  net_position: number
 }
 
 const TYPE_AR: Record<string, string> = {
@@ -139,6 +260,13 @@ const APPROVAL_STATUS: Record<string, { ar: string; en: string; className: strin
   rejected: { ar: "مرفوض", en: "Rejected", className: "bg-red-500/15 text-red-600 border-red-500/20" },
 }
 
+const EVENT_STATUS: Record<string, { ar: string; en: string; className: string }> = {
+  pending: { ar: "قيد الانتظار", en: "Pending", className: "bg-amber-500/15 text-amber-600 border-amber-500/20" },
+  processed: { ar: "تمت المعالجة", en: "Processed", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/20" },
+  failed: { ar: "فشل", en: "Failed", className: "bg-red-500/15 text-red-600 border-red-500/20" },
+  skipped_duplicate: { ar: "مكرر", en: "Duplicate", className: "bg-gray-500/15 text-gray-600 border-gray-500/20" },
+}
+
 const PERIOD_STATUS: Record<string, { ar: string; en: string; className: string }> = {
   open: { ar: "مفتوحة", en: "Open", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/20" },
   closing: { ar: "قيد الإغلاق", en: "Closing", className: "bg-amber-500/15 text-amber-600 border-amber-500/20" },
@@ -148,6 +276,21 @@ const PERIOD_STATUS: Record<string, { ar: string; en: string; className: string 
 
 const MONTH_NAMES_AR = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"]
 const MONTH_NAMES_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+const ZATCA_STATUS: Record<string, { ar: string; en: string; className: string }> = {
+  not_transmitted: { ar: "غير مُرسلة", en: "Not transmitted", className: "bg-gray-500/15 text-gray-600 border-gray-500/20" },
+  pending: { ar: "قيد الإرسال", en: "Pending", className: "bg-amber-500/15 text-amber-600 border-amber-500/20" },
+  reported: { ar: "مُبلَّغ عنها", en: "Reported", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/20" },
+  cleared: { ar: "مُخلصة", en: "Cleared", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/20" },
+  rejected: { ar: "مرفوضة", en: "Rejected", className: "bg-red-500/15 text-red-600 border-red-500/20" },
+  failed: { ar: "فشل الإرسال", en: "Failed", className: "bg-red-500/15 text-red-600 border-red-500/20" },
+}
+
+const ZATCA_DOC_TYPE: Record<string, { ar: string; en: string }> = {
+  invoice: { ar: "فاتورة", en: "Invoice" },
+  credit_note: { ar: "إشعار دائن", en: "Credit note" },
+  debit_note: { ar: "إشعار مدين", en: "Debit note" },
+}
 
 const ARAP_STATUS: Record<string, { ar: string; en: string; className: string }> = {
   open: { ar: "مفتوحة", en: "Open", className: "bg-blue-500/15 text-blue-600 border-blue-500/20" },
@@ -220,8 +363,39 @@ export default function AccountingPage() {
   const [payables, setPayables] = useState<ArApRow[]>([])
   const [vatOutput, setVatOutput] = useState<VatLedgerRow[]>([])
   const [vatInput, setVatInput] = useState<VatLedgerRow[]>([])
+  const [vatAdjustments, setVatAdjustments] = useState<VatAdjustmentRow[]>([])
+  const [vatPeriods, setVatPeriods] = useState<VatPeriodRow[]>([])
+  const [vatRecon, setVatRecon] = useState<VatReconRow[]>([])
+  const [vatReviewItems, setVatReviewItems] = useState<VatReviewItem[]>([])
+  const [reconExporting, setReconExporting] = useState(false)
+  const [reconPrinting, setReconPrinting] = useState(false)
+  const [vatReturn, setVatReturn] = useState<VatReturnData | null>(null)
+  const [vatReturnPeriod, setVatReturnPeriod] = useState<string>("")
+  const [returnExporting, setReturnExporting] = useState(false)
+  const [returnPrinting, setReturnPrinting] = useState(false)
+  const [returnLoading, setReturnLoading] = useState(false)
+  const [resolveTarget, setResolveTarget] = useState<VatReviewItem | null>(null)
+  const [resolveRecoverability, setResolveRecoverability] = useState<"recoverable" | "non_recoverable">("recoverable")
+  const [resolveBusy, setResolveBusy] = useState(false)
+  const [vatRefresh, setVatRefresh] = useState(0)
+  const [events, setEvents] = useState<EventRow[]>([])
+  const [dispatchBusy, setDispatchBusy] = useState(false)
+  const [zatcaRows, setZatcaRows] = useState<ZatcaTransmissionRow[]>([])
+  const [zatcaCsids, setZatcaCsids] = useState<ZatcaCsidSummary[]>([])
+  const [zatcaBusy, setZatcaBusy] = useState(false)
+  const [zatcaDetail, setZatcaDetail] = useState<ZatcaDetail | null>(null)
+  const [zatcaDetailBusy, setZatcaDetailBusy] = useState(false)
+  const [onboardOpen, setOnboardOpen] = useState(false)
+  const [onboardEnv, setOnboardEnv] = useState<ZatcaCsidEnvironment>("sandbox")
+  const [onboardOtp, setOnboardOtp] = useState("")
+  const [onboardBusy, setOnboardBusy] = useState(false)
   const [payments, setPayments] = useState<PaymentRow[]>([])
   const [bankAccounts, setBankAccounts] = useState<BankAccountRow[]>([])
+  const [openAr, setOpenAr] = useState<OpenArApRow[]>([])
+  const [openAp, setOpenAp] = useState<OpenArApRow[]>([])
+  const [custOptions, setCustOptions] = useState<{ id: string; name: string }[]>([])
+  const [suppOptions, setSuppOptions] = useState<{ id: string; name: string }[]>([])
+  const [payRefresh, setPayRefresh] = useState(0)
   const [periods, setPeriods] = useState<PeriodRow[]>([])
 
   useEffect(() => {
@@ -267,7 +441,7 @@ export default function AccountingPage() {
           .limit(200)
         if (data) setPayables(data as ArApRow[])
       } else if (tab === "vat") {
-        const [outRes, inRes] = await Promise.all([
+        const [outRes, inRes, adjRes, perRes, reconRes, reviewRes] = await Promise.all([
           supabase
             .from("vat_output_ledger")
             .select("id,period_year,period_month,invoice_ref,invoice_date,vat_base_amount,vat_rate,vat_amount")
@@ -275,29 +449,106 @@ export default function AccountingPage() {
             .limit(200),
           supabase
             .from("vat_input_ledger")
-            .select("id,period_year,period_month,invoice_ref,invoice_date,vat_base_amount,vat_rate,vat_amount")
+            .select("id,period_year,period_month,invoice_ref,invoice_date,vat_base_amount,vat_rate,vat_amount,vat_recoverability")
             .order("invoice_date", { ascending: false })
+            .limit(200),
+          supabase
+            .from("vat_adjustments")
+            .select("id,period_year,period_month,adjustment_type,direction,base_amount,vat_amount,reason,status")
+            .is("deleted_at", null)
+            .order("period_year", { ascending: false })
+            .order("period_month", { ascending: false })
+            .limit(100),
+          supabase
+            .from("vat_periods")
+            .select("id,period_year,period_month,status")
+            .is("deleted_at", null)
+            .order("period_year", { ascending: false })
+            .order("period_month", { ascending: false })
+            .limit(24),
+          supabase
+            .from("vat_reconciliation")
+            .select("*")
+            .order("period_year", { ascending: false })
+            .order("period_month", { ascending: false }),
+          supabase
+            .from("vat_input_ledger")
+            .select("id,invoice_ref,invoice_date,vat_base_amount,vat_rate,vat_amount,supplier_id")
+            .eq("vat_recoverability", "pending_review")
+            .order("invoice_date", { ascending: true })
             .limit(200),
         ])
         if (outRes.data) setVatOutput(outRes.data as VatLedgerRow[])
         if (inRes.data) setVatInput(inRes.data as VatLedgerRow[])
+        if (adjRes.data) setVatAdjustments(adjRes.data as VatAdjustmentRow[])
+        if (perRes.data) setVatPeriods(perRes.data as VatPeriodRow[])
+        if (reconRes.data) setVatRecon(reconRes.data as VatReconRow[])
+        if (reviewRes.data) setVatReviewItems(reviewRes.data as unknown as VatReviewItem[])
       } else if (tab === "payments") {
-        const [payRes, bankRes] = await Promise.all([
+        const [payRes, bankRes, arRes, apRes, custRes, suppRes] = await Promise.all([
           supabase
             .from("finance_payments")
-            .select("id,payment_ref,direction,payment_date,amount,method,reference,status,customers(name_ar,name_en),suppliers(name_ar,name_en)")
+            .select("id,payment_ref,direction,payment_date,amount,method,reference,status,payment_allocations(id),bank_accounts(bank_name),customers(name_ar,name_en),suppliers(name_ar,name_en)")
             .is("deleted_at", null)
             .order("payment_date", { ascending: false })
             .limit(200),
           supabase
             .from("bank_accounts")
-            .select("id,bank_name,account_name,iban,currency,opening_balance,is_active")
+            .select("id,bank_name,account_name,iban,currency,opening_balance,is_active,coa_account_code")
             .is("deleted_at", null)
             .order("bank_name", { ascending: true })
             .limit(50),
+          supabase
+            .from("receivables")
+            .select("id,invoice_ref,invoice_date,due_date,amount,vat_amount,total_amount,paid_amount,status,customer_id,customers(name_ar,name_en)")
+            .is("deleted_at", null)
+            .in("status", ["open", "partially_paid", "overdue"])
+            .order("due_date", { ascending: true })
+            .limit(100),
+          supabase
+            .from("payables")
+            .select("id,invoice_ref,invoice_date,due_date,amount,vat_amount,total_amount,paid_amount,status,supplier_id,suppliers(name_ar,name_en)")
+            .is("deleted_at", null)
+            .in("status", ["open", "partially_paid", "overdue"])
+            .order("due_date", { ascending: true })
+            .limit(100),
+          supabase
+            .from("customers")
+            .select("id,name_ar,name_en")
+            .is("deleted_at", null)
+            .order("name_ar", { ascending: true })
+            .limit(200),
+          supabase
+            .from("suppliers")
+            .select("id,name_ar,name_en")
+            .is("deleted_at", null)
+            .order("name_ar", { ascending: true })
+            .limit(200),
         ])
         if (payRes.data) setPayments(payRes.data as unknown as PaymentRow[])
         if (bankRes.data) setBankAccounts(bankRes.data as BankAccountRow[])
+        if (arRes.data) {
+          setOpenAr(
+            (arRes.data as unknown as (ArApRow & { customers?: { name_ar: string | null; name_en: string | null } | null })[]).map((r) => ({
+              ...r,
+              party_name: r.customers ? (r.customers.name_ar ?? r.customers.name_en ?? null) : null,
+            }))
+          )
+        }
+        if (apRes.data) {
+          setOpenAp(
+            (apRes.data as unknown as (ArApRow & { suppliers?: { name_ar: string | null; name_en: string | null } | null })[]).map((r) => ({
+              ...r,
+              party_name: r.suppliers ? (r.suppliers.name_ar ?? r.suppliers.name_en ?? null) : null,
+            }))
+          )
+        }
+        if (custRes.data) {
+          setCustOptions((custRes.data as { id: string; name_ar: string | null; name_en: string | null }[]).map((c) => ({ id: c.id, name: c.name_ar ?? c.name_en ?? "" })))
+        }
+        if (suppRes.data) {
+          setSuppOptions((suppRes.data as { id: string; name_ar: string | null; name_en: string | null }[]).map((s) => ({ id: s.id, name: s.name_ar ?? s.name_en ?? "" })))
+        }
       } else if (tab === "periods") {
         const { data } = await supabase
           .from("accounting_periods")
@@ -307,11 +558,48 @@ export default function AccountingPage() {
           .order("period_month", { ascending: false })
           .limit(60)
         if (data) setPeriods(data as PeriodRow[])
+      } else if (tab === "events") {
+        const { data } = await supabase
+          .from("financial_events")
+          .select("id,idempotency_key,source_type,event_type,processing_status,event_date,created_at,processed_at,error_message")
+          .order("created_at", { ascending: false })
+          .limit(100)
+        if (data) setEvents(data as EventRow[])
+      } else if (tab === "zatca") {
+        const { data } = await supabase
+          .from("zatca_transmissions")
+          .select("id,doc_ref,doc_type,status,zatca_uuid,error_message,transmitted_at,created_at")
+          .order("created_at", { ascending: false })
+          .limit(100)
+        if (data) setZatcaRows(data as ZatcaTransmissionRow[])
+        const csids = await listZatcaCsids()
+        if (csids.success && csids.csids) setZatcaCsids(csids.csids)
       }
 
       setIsLoading(false)
     })()
-  }, [tab])
+  }, [tab, payRefresh, vatRefresh])
+
+  // ── VAT return (Phase 12) — auto-select the latest period once the
+  // reconciliation list is loaded, then fetch its return summary. Mirror the
+  // main loader's `void (async () => {})()` pattern so state updates happen
+  // inside the async context (lint react-hooks/set-state-in-effect).
+  useEffect(() => {
+    if (tab !== "vat" || vatRecon.length === 0) return
+    void (async () => {
+      const latest = `${vatRecon[0].period_year}-${String(vatRecon[0].period_month).padStart(2, "0")}`
+      const period = vatReturnPeriod || latest
+      setVatReturnPeriod((p) => (p || latest))
+      if (!period) return
+      const [year, month] = period.split("-").map(Number)
+      if (!year || !month) return
+      setReturnLoading(true)
+      const res = await getVatReturn({ period_year: year, period_month: month })
+      setReturnLoading(false)
+      if (res.success && res.data) setVatReturn(res.data)
+      else setVatReturn(null)
+    })()
+  }, [tab, vatRecon, vatReturnPeriod, vatRefresh])
 
   // ── Create forms ────────────────────────────────────────────────────────
   const [openDialogs, setOpenDialogs] = useState<Record<string, boolean>>({})
@@ -460,6 +748,302 @@ export default function AccountingPage() {
     if (res.success) {
       flash("ok", ar ? "أعيد فتح الفترة." : "Period reopened.")
       setPeriods((prev) => prev.map((x) => (x.id === reopenTarget.id ? { ...x, status: "reopened", reopen_reason: reopenReason } : x)))
+    } else {
+      flash("err", res.error ?? "Failed")
+    }
+  }
+
+  // ── Event dispatcher (Phase 9) ──────────────────────────────────────────
+  async function reloadEvents() {
+    const supabase = createClient()
+    const { data } = await supabase
+      .from("financial_events")
+      .select("id,idempotency_key,source_type,event_type,processing_status,event_date,created_at,processed_at,error_message")
+      .order("created_at", { ascending: false })
+      .limit(100)
+    if (data) setEvents(data as EventRow[])
+  }
+
+  async function handleRunDispatcher() {
+    setDispatchBusy(true)
+    const res = await runEventDispatcher()
+    setDispatchBusy(false)
+    if (res.success) {
+      flash(
+        "ok",
+        ar
+          ? `تمت المعالجة: ${res.processed ?? 0} · مكرر: ${res.skipped ?? 0} · فشل: ${res.failed ?? 0}`
+          : `Dispatched: ${res.processed ?? 0} processed · ${res.skipped ?? 0} skipped · ${res.failed ?? 0} failed`
+      )
+      await reloadEvents()
+    } else {
+      flash("err", res.error ?? "Dispatcher failed")
+    }
+  }
+
+  // ── ZATCA adapter (Phase 15) ──────────────────────────────────────────
+  async function reloadZatca() {
+    const supabase = createClient()
+    const { data } = await supabase
+      .from("zatca_transmissions")
+      .select("id,doc_ref,doc_type,status,zatca_uuid,error_message,transmitted_at,created_at")
+      .order("created_at", { ascending: false })
+      .limit(100)
+    if (data) setZatcaRows(data as ZatcaTransmissionRow[])
+    const csids = await listZatcaCsids()
+    if (csids.success && csids.csids) setZatcaCsids(csids.csids)
+  }
+
+  async function handleRunZatca() {
+    setZatcaBusy(true)
+    const res = await runZatcaAdapter()
+    setZatcaBusy(false)
+    if (res.success) {
+      flash(
+        "ok",
+        ar
+          ? `ZATCA: أُرسلت ${res.processed ?? 0} · تخطّي ${res.skipped ?? 0} · فشل ${res.failed ?? 0}${res.sandbox ? " (وضع تجريبي)" : ""}`
+          : `ZATCA: ${res.processed ?? 0} transmitted · ${res.skipped ?? 0} skipped · ${res.failed ?? 0} failed${res.sandbox ? " (sandbox)" : ""}`
+      )
+      await reloadZatca()
+    } else {
+      flash("err", res.error ?? "ZATCA adapter failed")
+    }
+  }
+
+  async function handleViewZatca(id: string) {
+    setZatcaDetailBusy(true)
+    const res = await getZatcaTransmission(id)
+    setZatcaDetailBusy(false)
+    if (res.success && res.transmission) setZatcaDetail(res.transmission)
+    else flash("err", res.error ?? "Failed to load transmission")
+  }
+
+  async function handleOnboardZatca() {
+    setOnboardBusy(true)
+    const res = await onboardZatcaCsids({ environment: onboardEnv, otp: onboardOtp.trim() })
+    setOnboardBusy(false)
+    if (res.success) {
+      flash(
+        "ok",
+        ar
+          ? `تم الإعداد (${onboardEnv}) — compliance ✓ · production ✓${res.sandbox ? " (وضع تجريبي)" : ""}`
+          : `Onboarding complete (${onboardEnv}) — compliance ✓ · production ✓${res.sandbox ? " (sandbox)" : ""}`
+      )
+      setOnboardOpen(false)
+      setOnboardOtp("")
+      await reloadZatca()
+    } else {
+      flash("err", res.error ?? "Onboarding failed")
+    }
+  }
+
+  // ── VAT reconciliation (Phase 11) ──────────────────────────────────────
+  async function handleExportVatRecon() {
+    setReconExporting(true)
+    const res = await exportVatReconciliationCsv()
+    setReconExporting(false)
+    if (res.success && res.csv) {
+      const blob = new Blob([res.csv], { type: "text/csv;charset=utf-8" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `vat-reconciliation-${new Date().toISOString().slice(0, 10)}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+      flash("ok", ar ? "تم تصدير التسوية الضريبية." : "VAT reconciliation exported.")
+    } else {
+      flash("err", res.error ?? "Export failed")
+    }
+  }
+
+  async function handlePrintVatRecon() {
+    setReconPrinting(true)
+    const res = await generateVatReconciliationReport()
+    setReconPrinting(false)
+    if (res.success && res.html) {
+      const win = window.open("", "_blank")
+      if (win) {
+        win.document.write(res.html)
+        win.document.close()
+        setTimeout(() => win.print(), 300)
+      }
+    } else {
+      flash("err", res.error ?? "Report failed")
+    }
+  }
+
+  async function handleResolveReview() {
+    if (!resolveTarget) return
+    setResolveBusy(true)
+    const res = await resolveVatReviewItem({ id: resolveTarget.id, recoverability: resolveRecoverability })
+    setResolveBusy(false)
+    if (res.success) {
+      flash("ok", ar ? "تم تصنيف البند." : "Review item classified.")
+      setResolveTarget(null)
+      setVatRefresh((k) => k + 1)
+    } else {
+      flash("err", res.error ?? "Failed")
+    }
+  }
+
+  // ── VAT return (Phase 12) handlers ──────────────────────────────────────
+  async function handleExportVatReturn() {
+    if (!vatReturnPeriod) return
+    setReturnExporting(true)
+    const [year, month] = vatReturnPeriod.split("-").map(Number)
+    const res = await exportVatReturnCsv({ period_year: year, period_month: month })
+    setReturnExporting(false)
+    if (res.success && res.csv) {
+      const blob = new Blob([res.csv], { type: "text/csv;charset=utf-8" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `vat-return-${vatReturnPeriod}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+      flash("ok", ar ? "تم تصدير الإقرار الضريبي." : "VAT return exported.")
+    } else {
+      flash("err", res.error ?? "Export failed")
+    }
+  }
+
+  async function handlePrintVatReturn() {
+    if (!vatReturnPeriod) return
+    setReturnPrinting(true)
+    const [year, month] = vatReturnPeriod.split("-").map(Number)
+    const res = await generateVatReturnReport({ period_year: year, period_month: month })
+    setReturnPrinting(false)
+    if (res.success && res.html) {
+      const win = window.open("", "_blank")
+      if (win) {
+        win.document.write(res.html)
+        win.document.close()
+        setTimeout(() => win.print(), 300)
+      }
+      flash("ok", ar ? `تم إنشاء مستند ${res.docNumber}` : `Document ${res.docNumber} generated`)
+    } else {
+      flash("err", res.error ?? "Report failed")
+    }
+  }
+
+  // ── Payments ───────────────────────────────────────────────────────────
+  const [payDialogOpen, setPayDialogOpen] = useState(false)
+  const [payBusy, setPayBusy] = useState(false)
+  const [voidBusyId, setVoidBusyId] = useState<string | null>(null)
+  const [voidArmedId, setVoidArmedId] = useState<string | null>(null)
+  const [payDirection, setPayDirection] = useState<"in" | "out">("in")
+  const [payDate, setPayDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [payAmount, setPayAmount] = useState("")
+  const [payMethod, setPayMethod] = useState("transfer")
+  const [payBank, setPayBank] = useState("")
+  const [payCustomer, setPayCustomer] = useState("")
+  const [paySupplier, setPaySupplier] = useState("")
+  const [payReference, setPayReference] = useState("")
+  const [payAllocs, setPayAllocs] = useState<PayAllocDraft[]>([])
+
+  function syncAllocList(dir: "in" | "out", partyId?: string) {
+    const rows = (dir === "in" ? openAr : openAp).filter((r) => {
+      if (!partyId) return true
+      return dir === "in" ? r.customer_id === partyId : r.supplier_id === partyId
+    })
+    setPayAllocs(
+      rows.map((r, i) => ({
+        key: i,
+        id: r.id,
+        receivable_id: dir === "in" ? r.id : null,
+        payable_id: dir === "out" ? r.id : null,
+        label: r.invoice_ref,
+        party: r.party_name ?? "",
+        outstanding: r.total_amount - r.paid_amount,
+        amount: "",
+        selected: false,
+      }))
+    )
+  }
+
+  function openPayDialog() {
+    setPayDirection("in")
+    setPayDate(new Date().toISOString().slice(0, 10))
+    setPayAmount("")
+    setPayMethod("transfer")
+    setPayBank("")
+    setPayCustomer("")
+    setPaySupplier("")
+    setPayReference("")
+    syncAllocList("in")
+    setPayDialogOpen(true)
+  }
+
+  async function handleRecordPayment() {
+    setPayBusy(true)
+    const res = await recordPayment({
+      direction: payDirection,
+      payment_date: payDate,
+      amount: Number(payAmount || 0),
+      method: payMethod as "cash" | "transfer" | "cheque" | "wps" | "card",
+      bank_account_id: payMethod === "cash" ? null : payBank || null,
+      customer_id: payDirection === "in" ? payCustomer || null : null,
+      supplier_id: payDirection === "out" ? paySupplier || null : null,
+      reference: payReference || null,
+      allocations: payAllocs
+        .filter((a) => a.selected && Number(a.amount) > 0)
+        .map((a) => ({ receivable_id: a.receivable_id, payable_id: a.payable_id, amount: Number(a.amount) })),
+    })
+    setPayBusy(false)
+    if (res.success) {
+      flash("ok", ar ? "تم تسجيل الدفعة وترحيلها." : "Payment recorded and posted.")
+      setPayDialogOpen(false)
+      setPayRefresh((k) => k + 1)
+    } else {
+      flash("err", res.error ?? "Failed")
+    }
+  }
+
+  async function handleVoidPayment(p: PaymentRow) {
+    setVoidBusyId(p.id)
+    const res = await voidPayment({ id: p.id })
+    setVoidBusyId(null)
+    setVoidArmedId(null)
+    if (res.success) {
+      flash("ok", ar ? `تم إلغاء الدفعة ${p.payment_ref}.` : `Payment ${p.payment_ref} voided.`)
+      setPayRefresh((k) => k + 1)
+    } else {
+      flash("err", res.error ?? "Failed")
+    }
+  }
+
+  // ── Bank accounts ──────────────────────────────────────────────────────
+  const [bankDialogOpen, setBankDialogOpen] = useState(false)
+  const [bankBusy, setBankBusy] = useState(false)
+  const [bankName, setBankName] = useState("")
+  const [bankAccName, setBankAccName] = useState("")
+  const [bankIban, setBankIban] = useState("")
+  const [bankAccNum, setBankAccNum] = useState("")
+  const [bankOpening, setBankOpening] = useState("")
+  const [bankCoa, setBankCoa] = useState("1100")
+
+  async function handleCreateBank() {
+    setBankBusy(true)
+    const res = await createBankAccount({
+      bank_name: bankName,
+      account_name: bankAccName,
+      iban: bankIban,
+      account_number: bankAccNum || null,
+      currency: "SAR",
+      opening_balance: Number(bankOpening || 0),
+      coa_account_code: bankCoa || "1100",
+    })
+    setBankBusy(false)
+    if (res.success) {
+      flash("ok", ar ? "تمت إضافة الحساب البنكي." : "Bank account added.")
+      setBankDialogOpen(false)
+      setBankName("")
+      setBankAccName("")
+      setBankIban("")
+      setBankAccNum("")
+      setBankOpening("")
+      setPayRefresh((k) => k + 1)
     } else {
       flash("err", res.error ?? "Failed")
     }
@@ -642,7 +1226,7 @@ export default function AccountingPage() {
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="flex-wrap">
+        <TabsList className="flex-wrap h-auto">
           <TabsTrigger value="journal" className="gap-2"><BookOpenText className="h-4 w-4" />{ar ? "قيود اليومية" : "Journal"}</TabsTrigger>
           <TabsTrigger value="accounts" className="gap-2"><ListTree className="h-4 w-4" />{ar ? "دليل الحسابات" : "Accounts"}</TabsTrigger>
           <TabsTrigger value="trial" className="gap-2"><Scale className="h-4 w-4" />{ar ? "ميزان المراجعة" : "Trial balance"}</TabsTrigger>
@@ -653,6 +1237,9 @@ export default function AccountingPage() {
           <TabsTrigger value="vat" className="gap-2"><Percent className="h-4 w-4" />{ar ? "الضريبة (VAT)" : "VAT"}</TabsTrigger>
           <TabsTrigger value="payments" className="gap-2"><Landmark className="h-4 w-4" />{ar ? "المدفوعات والبنوك" : "Payments"}</TabsTrigger>
           <TabsTrigger value="periods" className="gap-2"><CalendarRange className="h-4 w-4" />{ar ? "الفترات" : "Periods"}</TabsTrigger>
+          <TabsTrigger value="events" className="gap-2"><ListChecks className="h-4 w-4" />{ar ? "الأحداث" : "Events"}</TabsTrigger>
+          <TabsTrigger value="statements" className="gap-2"><BookOpenText className="h-4 w-4" />{ar ? "القوائم المالية" : "Statements"}</TabsTrigger>
+          <TabsTrigger value="zatca" className="gap-2"><FileCheck2 className="h-4 w-4" />{ar ? "إشعارات ZATCA" : "ZATCA"}</TabsTrigger>
         </TabsList>
 
         {isLoading ? (
@@ -871,7 +1458,250 @@ export default function AccountingPage() {
               <PartiesManager kind="suppliers" />
             </TabsContent>
 
-            <TabsContent value="vat" className="mt-4">
+            <TabsContent value="vat" className="mt-4 space-y-4">
+              {/* Net position strip */}
+              {(() => {
+                const out = vatOutput.reduce((s, r) => s + Number(r.vat_amount), 0)
+                const rec = vatInput.filter((r) => (r.vat_recoverability ?? "recoverable") === "recoverable").reduce((s, r) => s + Number(r.vat_amount), 0)
+                const adjOut = vatAdjustments.filter((a) => a.direction === "output").reduce((s, a) => s + Number(a.vat_amount), 0)
+                const adjIn = vatAdjustments.filter((a) => a.direction === "input").reduce((s, a) => s + Number(a.vat_amount), 0)
+                const net = computeVatNetPosition(out, adjOut, rec, adjIn)
+                const items = [
+                  { label: ar ? "مخرجات" : "Output", value: fmtMoney(out), cls: "text-blue-600" },
+                  { label: ar ? "مدخلات قابلة للاسترداد" : "Recoverable input", value: fmtMoney(rec), cls: "text-emerald-600" },
+                  { label: ar ? "تسويات" : "Adjustments", value: fmtMoney(adjOut + adjIn), cls: "text-amber-600" },
+                  {
+                    label: ar ? "صافي المركز" : "Net position",
+                    value: fmtMoney(net),
+                    cls: net > 0 ? "text-red-600" : net < 0 ? "text-emerald-600" : "text-foreground",
+                  },
+                ]
+                return (
+                  <div className="grid gap-3 sm:grid-cols-4">
+                    {items.map((it) => (
+                      <div key={it.label} className="rounded-2xl border border-border/50 bg-card/80 px-4 py-3 shadow-sm">
+                        <p className="text-[11px] font-medium text-muted-foreground">{it.label}</p>
+                        <p dir="ltr" className={`mt-0.5 text-lg font-bold tabular-nums ${it.cls}`}>{it.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
+
+              {/* Per-period reconciliation (Phase 11) */}
+              <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+                <CardHeader className="pb-3 flex-row items-center justify-between flex-wrap gap-2">
+                  <div>
+                    <CardTitle className="text-base">{ar ? "التسوية حسب الفترة" : "Reconciliation by period"}</CardTitle>
+                    <CardDescription>{ar ? "المخرجات − المدخلات القابلة للاسترداد ± التسويات = صافي المركز" : "Output − recoverable input ± adjustments = net position"}</CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={handleExportVatRecon} disabled={reconExporting} className={dialogBtn}>
+                      {reconExporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowDownLeft className="h-3.5 w-3.5" />}
+                      {ar ? "تصدير CSV" : "CSV"}
+                    </button>
+                    <button onClick={handlePrintVatRecon} disabled={reconPrinting} className={dialogBtn}>
+                      {reconPrinting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowUpRight className="h-3.5 w-3.5" />}
+                      {ar ? "طباعة التقرير" : "Print"}
+                    </button>
+                  </div>
+                </CardHeader>
+                <TableShell headers={[ar ? "الفترة" : "Period", ar ? "الحالة" : "Status", ar ? "المخرجات" : "Output", ar ? "مدخلات قابلة للاسترداد" : "Rec. input", ar ? "غير قابلة للاسترداد" : "Non-rec.", ar ? "قيد المراجعة" : "Pending", ar ? "تسويات" : "Adjustments", ar ? "صافي المركز" : "Net position"]}>
+                  {vatRecon.length === 0 && <EmptyRow colSpan={8} text={ar ? "لا توجد بيانات تسوية." : "No reconciliation data."} />}
+                  {vatRecon.map((r) => (
+                    <tr key={`${r.period_year}-${r.period_month}`} className="border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors">
+                      <td className="px-4 py-3 text-xs font-medium tabular-nums" dir="ltr">{r.period_year}-{String(r.period_month).padStart(2, "0")}</td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium text-foreground/70">{r.period_status ?? "—"}</span>
+                      </td>
+                      <td className="px-4 py-3 text-xs tabular-nums" dir="ltr">{fmtMoney(r.output_vat)}</td>
+                      <td className="px-4 py-3 text-xs tabular-nums text-emerald-600" dir="ltr">{fmtMoney(r.recoverable_input_vat)}</td>
+                      <td className="px-4 py-3 text-xs tabular-nums text-muted-foreground" dir="ltr">{fmtMoney(r.non_recoverable_vat)}</td>
+                      <td className="px-4 py-3 text-xs tabular-nums text-amber-600" dir="ltr">
+                        {r.pending_review_rows > 0 ? `${fmtMoney(r.pending_review_vat)} (${r.pending_review_rows})` : fmtMoney(r.pending_review_vat)}
+                      </td>
+                      <td className="px-4 py-3 text-xs tabular-nums" dir="ltr">
+                        {fmtMoney(r.adjustments_output + r.adjustments_input)}
+                      </td>
+                      <td className={`px-4 py-3 text-xs font-bold tabular-nums ${r.net_position > 0 ? "text-red-600" : r.net_position < 0 ? "text-emerald-600" : "text-foreground"}`} dir="ltr">
+                        {fmtMoney(r.net_position)}
+                      </td>
+                    </tr>
+                  ))}
+                </TableShell>
+              </Card>
+
+              {/* VAT return (Phase 12) */}
+              <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+                <CardHeader className="pb-3 flex-row items-center justify-between flex-wrap gap-2">
+                  <div>
+                    <CardTitle className="text-base">{ar ? "إقرار ضريبة القيمة المضافة" : "VAT Return"}</CardTitle>
+                    <CardDescription>
+                      {ar
+                        ? "ملخص الفترة للتحضير للإقرار — بلا إرسال إلكتروني (حتى مرحلة ZATCA)"
+                        : "Per-period return summary for preparation — no electronic submission (until the ZATCA phase)"}
+                    </CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={vatReturnPeriod}
+                      onChange={(e) => setVatReturnPeriod(e.target.value)}
+                      className="h-9 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {vatRecon.length === 0 && <option value="">—</option>}
+                      {vatRecon.map((r) => (
+                        <option key={`${r.period_year}-${r.period_month}`} value={`${r.period_year}-${String(r.period_month).padStart(2, "0")}`}>
+                          {r.period_year}-{String(r.period_month).padStart(2, "0")} · {r.period_status ?? "—"}
+                        </option>
+                      ))}
+                    </select>
+                    <button onClick={handleExportVatReturn} disabled={returnExporting} className={dialogBtn}>
+                      {returnExporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowDownLeft className="h-3.5 w-3.5" />}
+                      {ar ? "تصدير CSV" : "CSV"}
+                    </button>
+                    <button onClick={handlePrintVatReturn} disabled={returnPrinting} className={dialogBtn}>
+                      {returnPrinting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowUpRight className="h-3.5 w-3.5" />}
+                      {ar ? "طباعة الإقرار" : "Print"}
+                    </button>
+                  </div>
+                </CardHeader>
+                {returnLoading ? (
+                  <div className="flex items-center justify-center px-4 pb-6 pt-2">
+                    <LoadingSpinner className="h-5 w-5" />
+                  </div>
+                ) : vatReturn ? (
+                  <div className="px-4 pb-4">
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                      <div className="rounded-xl border border-border/50 bg-muted/20 p-3">
+                        <p className="text-[11px] font-medium text-muted-foreground">{ar ? "ضريبة المخرجات (مبيعات)" : "Output VAT (sales)"}</p>
+                        <p dir="ltr" className="mt-0.5 text-lg font-bold tabular-nums text-blue-600">{fmtMoney(vatReturn.output_vat)}</p>
+                      </div>
+                      <div className="rounded-xl border border-border/50 bg-muted/20 p-3">
+                        <p className="text-[11px] font-medium text-muted-foreground">{ar ? "مدخلات قابلة للاسترداد" : "Recoverable input"}</p>
+                        <p dir="ltr" className="mt-0.5 text-lg font-bold tabular-nums text-emerald-600">{fmtMoney(vatReturn.recoverable_input_vat)}</p>
+                      </div>
+                      <div className="rounded-xl border border-border/50 bg-muted/20 p-3">
+                        <p className="text-[11px] font-medium text-muted-foreground">{ar ? "غير قابلة للاسترداد" : "Non-recoverable"}</p>
+                        <p dir="ltr" className="mt-0.5 text-lg font-bold tabular-nums text-muted-foreground">{fmtMoney(vatReturn.non_recoverable_vat)}</p>
+                      </div>
+                      <div className={`rounded-xl border p-3 ${vatReturn.net_position > 0 ? "border-red-500/25 bg-red-500/10" : vatReturn.net_position < 0 ? "border-emerald-500/25 bg-emerald-500/10" : "border-border/50 bg-muted/20"}`}>
+                        <p className="text-[11px] font-medium text-muted-foreground">
+                          {vatReturn.net_position > 0
+                            ? (ar ? "صافي مستحق الدفع" : "Net payable")
+                            : vatReturn.net_position < 0
+                              ? (ar ? "صافي مستحق الاسترداد" : "Net receivable")
+                              : (ar ? "صافي المركز" : "Net position")}
+                        </p>
+                        <p dir="ltr" className={`mt-0.5 text-lg font-bold tabular-nums ${vatReturn.net_position > 0 ? "text-red-600" : vatReturn.net_position < 0 ? "text-emerald-600" : "text-foreground"}`}>
+                          {fmtMoney(Math.abs(vatReturn.net_position))}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
+                      <span dir="ltr" className="tabular-nums">
+                        {ar ? "تسويات مخرجات" : "Adj. out"}: {fmtMoney(vatReturn.adjustments_output)}
+                      </span>
+                      <span dir="ltr" className="tabular-nums">
+                        {ar ? "تسويات مدخلات" : "Adj. in"}: {fmtMoney(vatReturn.adjustments_input)}
+                      </span>
+                      {vatReturn.pending_review_rows > 0 && (
+                        <span dir="ltr" className="tabular-nums text-amber-600">
+                          {ar ? "قيد المراجعة" : "Pending"}: {fmtMoney(vatReturn.pending_review_vat)} ({vatReturn.pending_review_rows})
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="px-4 pb-6 text-sm text-muted-foreground">
+                    {ar ? "لا توجد بيانات إقرار لهذه الفترة." : "No VAT return data for this period."}
+                  </div>
+                )}
+              </Card>
+
+              {/* Review items (pending_review) — Phase 11 */}
+              <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">{ar ? "عناصر قيد المراجعة" : "Items awaiting review"}</CardTitle>
+                  <CardDescription>
+                    {ar
+                      ? "مدخلات ضريبة بانتظار تصنيف يدوي — تُستبعد من صافي المركز حتى تُصنَّف"
+                      : "Input VAT awaiting manual classification — excluded from the net until classified"}
+                  </CardDescription>
+                </CardHeader>
+                <TableShell headers={[ar ? "المرجع" : "Ref", ar ? "التاريخ" : "Date", ar ? "الأساس" : "Base", ar ? "النسبة" : "Rate", "VAT", ar ? "إجراء" : "Action"]}>
+                  {vatReviewItems.length === 0 && <EmptyRow colSpan={6} text={ar ? "لا توجد عناصر قيد المراجعة." : "No items awaiting review."} />}
+                  {vatReviewItems.map((it) => (
+                    <tr key={it.id} className="border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors">
+                      <td className="px-4 py-3 font-mono text-xs" dir="ltr">{it.invoice_ref}</td>
+                      <td className="px-4 py-3 text-xs" dir="ltr">{fmtDate(it.invoice_date)}</td>
+                      <td className="px-4 py-3 text-xs tabular-nums" dir="ltr">{fmtMoney(it.vat_base_amount)}</td>
+                      <td className="px-4 py-3 text-xs tabular-nums" dir="ltr">{it.vat_rate}%</td>
+                      <td className="px-4 py-3 text-xs font-medium tabular-nums" dir="ltr">{fmtMoney(it.vat_amount)}</td>
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={() => { setResolveTarget(it); setResolveRecoverability("recoverable") }}
+                          className="inline-flex h-7 items-center gap-1 rounded-lg border border-amber-500/25 bg-amber-500/10 px-2 text-xs font-medium text-amber-600 transition-colors hover:bg-amber-500/20"
+                        >
+                          {ar ? "تصنيف" : "Classify"}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </TableShell>
+              </Card>
+
+              <Dialog open={!!resolveTarget} onOpenChange={(o) => { if (!o) setResolveTarget(null) }}>
+                <DialogContent className="max-w-md rounded-2xl">
+                  <DialogHeader>
+                    <DialogTitle>{ar ? "تصنيف بند قيد المراجعة" : "Classify review item"}</DialogTitle>
+                    <DialogDescription>
+                      {ar
+                        ? "حدد ما إذا كانت ضريبة المدخلات هذه قابلة للاسترداد أم لا. لا يمكن التغيير لاحقاً."
+                        : "Choose whether this input VAT is recoverable or not. The choice is locked afterwards."}
+                    </DialogDescription>
+                  </DialogHeader>
+                  {resolveTarget && (
+                    <div className="space-y-4">
+                      <div className="rounded-xl border border-border/50 bg-muted/20 p-3 text-sm">
+                        <p className="font-mono text-xs" dir="ltr">{resolveTarget.invoice_ref}</p>
+                        <p className="mt-1 text-xs text-muted-foreground" dir="ltr">
+                          {fmtDate(resolveTarget.invoice_date)} · VAT {fmtMoney(resolveTarget.vat_amount)} SAR
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => setResolveRecoverability("recoverable")}
+                          className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${
+                            resolveRecoverability === "recoverable"
+                              ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-600"
+                              : "border-border/60 text-foreground/70 hover:bg-muted/40"
+                          }`}
+                        >
+                          {ar ? "قابل للاسترداد" : "Recoverable"}
+                        </button>
+                        <button
+                          onClick={() => setResolveRecoverability("non_recoverable")}
+                          className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${
+                            resolveRecoverability === "non_recoverable"
+                              ? "border-red-500/40 bg-red-500/15 text-red-600"
+                              : "border-border/60 text-foreground/70 hover:bg-muted/40"
+                          }`}
+                        >
+                          {ar ? "غير قابل للاسترداد" : "Non-recoverable"}
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <Button onClick={() => void handleResolveReview()} disabled={resolveBusy} className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800">
+                          {resolveBusy ? <LoadingSpinner className="h-4 w-4" /> : <Check className="h-4 w-4" />}
+                          {ar ? "تأكيد التصنيف" : "Confirm"}
+                        </Button>
+                        <Button variant="ghost" onClick={() => setResolveTarget(null)}>{ar ? "إلغاء" : "Cancel"}</Button>
+                      </div>
+                    </div>
+                  )}
+                </DialogContent>
+              </Dialog>
+
               <div className="grid gap-4 xl:grid-cols-2">
                 <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
                   <CardHeader className="pb-3">
@@ -894,11 +1724,11 @@ export default function AccountingPage() {
 
                 <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-base">{ar ? "ضريبة المدخلات (مشتريات)" : "Input VAT (Purchases)"}</CardTitle>
-                    <CardDescription>{ar ? "قابلة للخصم ضمن إقرار ضريبة القيمة المضافة" : "Claimable within the VAT return"}</CardDescription>
+                    <CardTitle className="text-base">{ar ? "ضريبة المدخلات (مشتريات ومصروفات)" : "Input VAT (Purchases & Expenses)"}</CardTitle>
+                    <CardDescription>{ar ? "يُحتسب في صافي المركز ما كان قابلاً للاسترداد فقط" : "Only recoverable input counts toward the net position"}</CardDescription>
                   </CardHeader>
-                  <TableShell headers={[ar ? "الفترة" : "Period", ar ? "الفاتورة" : "Invoice", ar ? "الأساس" : "Base", ar ? "النسبة" : "Rate", "VAT"]}>
-                    {vatInput.length === 0 && <EmptyRow colSpan={5} text={ar ? "لا توجد ضريبة مدخلات." : "No input VAT."} />}
+                  <TableShell headers={[ar ? "الفترة" : "Period", ar ? "المرجع" : "Ref", ar ? "الأساس" : "Base", ar ? "النسبة" : "Rate", "VAT", ar ? "التصنيف" : "Class"]}>
+                    {vatInput.length === 0 && <EmptyRow colSpan={6} text={ar ? "لا توجد ضريبة مدخلات." : "No input VAT."} />}
                     {vatInput.map((r) => (
                       <tr key={r.id} className="border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors">
                         <td className="px-4 py-3 text-xs tabular-nums" dir="ltr">{r.period_year}-{String(r.period_month).padStart(2, "0")}</td>
@@ -906,11 +1736,266 @@ export default function AccountingPage() {
                         <td className="px-4 py-3 text-xs tabular-nums" dir="ltr">{fmtMoney(r.vat_base_amount)}</td>
                         <td className="px-4 py-3 text-xs tabular-nums" dir="ltr">{r.vat_rate}%</td>
                         <td className="px-4 py-3 text-xs font-medium tabular-nums" dir="ltr">{fmtMoney(r.vat_amount)}</td>
+                        <td className="px-4 py-3">
+                          {(r.vat_recoverability ?? "recoverable") === "recoverable" ? (
+                            <span className="inline-flex items-center rounded-full border border-emerald-500/20 bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-600">{ar ? "قابل للاسترداد" : "Recoverable"}</span>
+                          ) : (r.vat_recoverability === "non_recoverable" ? (
+                            <span className="inline-flex items-center rounded-full border border-red-500/20 bg-red-500/15 px-2 py-0.5 text-[11px] font-medium text-red-600">{ar ? "غير قابل للاسترداد" : "Non-recoverable"}</span>
+                          ) : (
+                            <span className="inline-flex items-center rounded-full border border-amber-500/20 bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-600">{ar ? "قيد المراجعة" : "Pending review"}</span>
+                          ))}
+                        </td>
                       </tr>
                     ))}
                   </TableShell>
                 </Card>
               </div>
+
+              <div className="grid gap-4 xl:grid-cols-2">
+                <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">{ar ? "التسويات الضريبية" : "VAT Adjustments"}</CardTitle>
+                    <CardDescription>{ar ? "إشعارات دائنة/مدينة وتصحيحات — نهائية وغير قابلة للتعديل" : "Credit/debit notes & corrections — finalized, immutable"}</CardDescription>
+                  </CardHeader>
+                  <TableShell headers={[ar ? "الفترة" : "Period", ar ? "النوع" : "Type", ar ? "الاتجاه" : "Direction", ar ? "الأساس" : "Base", "VAT", ar ? "السبب" : "Reason"]}>
+                    {vatAdjustments.length === 0 && <EmptyRow colSpan={6} text={ar ? "لا توجد تسويات." : "No adjustments."} />}
+                    {vatAdjustments.map((a) => (
+                      <tr key={a.id} className="border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors">
+                        <td className="px-4 py-3 text-xs tabular-nums" dir="ltr">{a.period_year}-{String(a.period_month).padStart(2, "0")}</td>
+                        <td className="px-4 py-3 text-xs">{ar ? (a.adjustment_type === "credit_note" ? "إشعار دائن" : a.adjustment_type === "debit_note" ? "إشعار مدين" : a.adjustment_type === "correction" ? "تصحيح" : "أخرى") : a.adjustment_type}</td>
+                        <td className="px-4 py-3 text-xs">{ar ? (a.direction === "output" ? "مخرجات" : "مدخلات") : a.direction}</td>
+                        <td className="px-4 py-3 text-xs tabular-nums" dir="ltr">{fmtMoney(a.base_amount)}</td>
+                        <td className={`px-4 py-3 text-xs font-medium tabular-nums ${Number(a.vat_amount) < 0 ? "text-red-600" : "text-emerald-600"}`} dir="ltr">{fmtMoney(a.vat_amount)}</td>
+                        <td className="px-4 py-3 text-xs text-muted-foreground">{a.reason ?? "—"}</td>
+                      </tr>
+                    ))}
+                  </TableShell>
+                </Card>
+
+                <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">{ar ? "فترات ضريبة القيمة المضافة" : "VAT Periods"}</CardTitle>
+                    <CardDescription>{ar ? "فترة مفتوحة واحدة لكل شهر" : "One open period per month"}</CardDescription>
+                  </CardHeader>
+                  <TableShell headers={[ar ? "الفترة" : "Period", ar ? "الحالة" : "Status"]}>
+                    {vatPeriods.length === 0 && <EmptyRow colSpan={2} text={ar ? "لا توجد فترات." : "No periods."} />}
+                    {vatPeriods.map((p) => (
+                      <tr key={p.id} className="border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors">
+                        <td className="px-4 py-3 text-xs tabular-nums font-medium" dir="ltr">{p.period_year}-{String(p.period_month).padStart(2, "0")}</td>
+                        <td className="px-4 py-3">
+                          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+                            p.status === "open" ? "border-emerald-500/20 bg-emerald-500/15 text-emerald-600"
+                            : p.status === "closing" ? "border-amber-500/20 bg-amber-500/15 text-amber-600"
+                            : p.status === "reopened" ? "border-blue-500/20 bg-blue-500/15 text-blue-600"
+                            : "border-gray-500/20 bg-gray-500/15 text-gray-600"
+                          }`}>
+                            {p.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </TableShell>
+                </Card>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="events" className="mt-4">
+              <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+                <CardHeader className="pb-3 flex-row items-center justify-between">
+                  <div>
+                    <CardTitle className="text-base">{ar ? "قائمة الأحداث المالية" : "Financial event queue"}</CardTitle>
+                    <CardDescription>
+                      {ar
+                        ? "أحداث منتجة تستهلكها المحاسبة (قيود + ضريبة + ذمم) — كل حدث يُعالج مرة واحدة"
+                        : "Produced events consumed by Accounting (journal + VAT + AR/AP) — each processed exactly once"}
+                    </CardDescription>
+                  </div>
+                  <button onClick={handleRunDispatcher} disabled={dispatchBusy} className={dialogBtn}>
+                    {dispatchBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+                    {ar ? "تشغيل المعالج" : "Run dispatcher"}
+                  </button>
+                </CardHeader>
+                <TableShell headers={[ar ? "المفتاح" : "Key", ar ? "النوع" : "Type", ar ? "التاريخ" : "Date", ar ? "الحالة" : "Status", ar ? "الخطأ" : "Error"]}>
+                  {events.length === 0 && <EmptyRow colSpan={5} text={ar ? "لا توجد أحداث." : "No events."} />}
+                  {events.map((e) => {
+                    const s = EVENT_STATUS[e.processing_status] ?? EVENT_STATUS.pending
+                    return (
+                      <tr key={e.id} className="border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors">
+                        <td className="px-4 py-3 font-mono text-[11px]" dir="ltr">{e.idempotency_key}</td>
+                        <td className="px-4 py-3 text-xs" dir="ltr">{e.event_type}</td>
+                        <td className="px-4 py-3 text-xs" dir="ltr">{fmtDate(e.event_date)}</td>
+                        <td className="px-4 py-3">
+                          <Badge className={s.className}>{ar ? s.ar : s.en}</Badge>
+                        </td>
+                        <td className="max-w-64 truncate px-4 py-3 text-xs text-red-600" dir="ltr" title={e.error_message ?? undefined}>
+                          {e.error_message ?? "—"}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </TableShell>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="statements" className="mt-4">
+              <StatementsManager />
+            </TabsContent>
+
+            <TabsContent value="zatca" className="mt-4 space-y-4">
+              <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+                <CardHeader className="pb-3 flex-row items-center justify-between">
+                  <div>
+                    <CardTitle className="text-base">{ar ? "شهادات CSID المخزّنة" : "Stored CSID credentials"}</CardTitle>
+                    <CardDescription>
+                      {ar
+                        ? "أوراق اعتماد الإعداد (شهادة + سر) لكل بيئة — السر لا يظهر أبداً في المتصفح"
+                        : "Onboarding credentials (certificate + secret) per environment — the secret never reaches the browser"}
+                    </CardDescription>
+                  </div>
+                  <Dialog open={onboardOpen} onOpenChange={setOnboardOpen}>
+                    <DialogTrigger asChild>
+                      <button className={dialogBtn}>
+                        <KeyRound className="h-3.5 w-3.5" />{ar ? "إعداد جديد" : "Onboard"}
+                      </button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-md rounded-2xl">
+                      <DialogHeader>
+                        <DialogTitle>{ar ? "إعداد CSID (compliance → production)" : "CSID onboarding (compliance → production)"}</DialogTitle>
+                        <DialogDescription>
+                          {ar
+                            ? "يُنشئ مفتاحاً ومفتاح عام CSR حسب البيئة، ثم يخزّن شهادتَي compliance وproduction مع المفتاح الخاص — لا يصل السر إلى المتصفح أبداً"
+                            : "Generates a keypair + CSR for the environment, then stores both compliance & production CSIDs with the private key — the secret never reaches the browser"}
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-3">
+                        <div className="space-y-1.5">
+                          <Label htmlFor="onboardEnv">{ar ? "البيئة" : "Environment"}</Label>
+                          <select
+                            id="onboardEnv"
+                            value={onboardEnv}
+                            onChange={(e) => setOnboardEnv(e.target.value as ZatcaCsidEnvironment)}
+                            className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            <option value="sandbox">sandbox · TSTZATCA</option>
+                            <option value="simulation">simulation · PREZATCA</option>
+                            <option value="production">production · ZATCA</option>
+                          </select>
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label htmlFor="onboardOtp">{ar ? "رمز الدخول لمرة واحدة (OTP) من بوابة Fatoora" : "One-time password (OTP) from the Fatoora portal"}</Label>
+                          <Input id="onboardOtp" dir="ltr" placeholder="••••••" value={onboardOtp} onChange={(e) => setOnboardOtp(e.target.value)} className="h-9 font-mono" />
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">
+                          {ar
+                            ? "وضع sandbox التجريبي لا يحتاج بوابة؛ محاكاة/إنتاج تتطلب OTP حقيقياً (صلاحيته ~ساعة)."
+                            : "The offline sandbox mock needs no portal; simulation/production require a real OTP (valid ~1 hour)."}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <Button onClick={() => void handleOnboardZatca()} disabled={onboardBusy || !onboardOtp.trim()} className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800">
+                          {onboardBusy ? <LoadingSpinner className="h-4 w-4" /> : <KeyRound className="h-4 w-4" />}
+                          {ar ? "بدء الإعداد" : "Start onboarding"}
+                        </Button>
+                        <Button variant="outline" onClick={() => setOnboardOpen(false)}>
+                          {ar ? "إلغاء" : "Cancel"}
+                        </Button>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                </CardHeader>
+                {zatcaCsids.length === 0 ? (
+                  <div className="px-4 pb-4 text-xs text-muted-foreground">
+                    {ar
+                      ? "لا توجد شهادات مخزّنة بعد. تُحفظ تلقائياً عند اكتمال الإعداد (compliance/production CSID)."
+                      : "No stored CSIDs yet. They are saved automatically once onboarding (compliance/production CSID) completes."}
+                  </div>
+                ) : (
+                  <div className="px-4 pb-4 grid gap-3 sm:grid-cols-2">
+                    {zatcaCsids.map((c) => (
+                      <div key={c.id} className="rounded-xl border border-border/50 bg-muted/30 p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-medium capitalize" dir="ltr">{c.environment} · {c.kind}</span>
+                          <Badge className={c.status === "issued" ? "bg-emerald-500/15 text-emerald-700" : "bg-amber-500/15 text-amber-700"}>
+                            {ar ? "صادرة" : c.status}
+                          </Badge>
+                        </div>
+                        <div className="mt-2 space-y-1 font-mono text-[11px] text-muted-foreground" dir="ltr">
+                          <div>{ar ? "السر:" : "Secret:"} {c.secretPreview}</div>
+                          <div>{ar ? "الإصدار:" : "Issued:"} {fmtDate(c.issuedAt)}</div>
+                          {c.expiresAt && <div>{ar ? "الانتهاء:" : "Expires:"} {fmtDate(c.expiresAt)}</div>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Card>
+
+              <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+                <CardHeader className="pb-3 flex-row items-center justify-between">
+                  <div>
+                    <CardTitle className="text-base">{ar ? "سجل إرسال ZATCA" : "ZATCA transmission log"}</CardTitle>
+                    <CardDescription>
+                      {ar
+                        ? "الفواتير المبيعة المُرسلة كوثائق UBL 2.1 — وضع تجريبي افتراضياً، دون ادعاء امتثال"
+                        : "Finalized sales documents transmitted as UBL 2.1 — sandbox by default, no compliance claimed"}
+                    </CardDescription>
+                  </div>
+                  <button onClick={handleRunZatca} disabled={zatcaBusy} className={dialogBtn}>
+                    {zatcaBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                    {ar ? "تشغيل المحوّل" : "Run adapter"}
+                  </button>
+                </CardHeader>
+                <TableShell headers={[ar ? "المستند" : "Doc", ar ? "النوع" : "Type", ar ? "الحالة" : "Status", "UUID", ar ? "التاريخ" : "Date", ar ? "الخطأ" : "Error", ""]}>
+                  {zatcaRows.length === 0 && <EmptyRow colSpan={7} text={ar ? "لا توجد إرسالات بعد. رحّل فاتورة بيع ثم شغّل المحوّل." : "No transmissions yet. Finalize a sales invoice, then run the adapter."} />}
+                  {zatcaRows.map((t) => {
+                    const s = ZATCA_STATUS[t.status] ?? ZATCA_STATUS.not_transmitted
+                    const dt = ZATCA_DOC_TYPE[t.doc_type] ?? { ar: t.doc_type, en: t.doc_type }
+                    return (
+                      <tr key={t.id} className="border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors">
+                        <td className="px-4 py-3 font-mono text-xs" dir="ltr">{t.doc_ref}</td>
+                        <td className="px-4 py-3 text-xs">{ar ? dt.ar : dt.en}</td>
+                        <td className="px-4 py-3">
+                          <Badge className={s.className}>{ar ? s.ar : s.en}</Badge>
+                        </td>
+                        <td className="px-4 py-3 font-mono text-[11px] text-muted-foreground" dir="ltr">{t.zatca_uuid ?? "—"}</td>
+                        <td className="px-4 py-3 text-xs" dir="ltr">{fmtDate(t.transmitted_at ?? t.created_at)}</td>
+                        <td className="max-w-56 truncate px-4 py-3 text-xs text-red-600" dir="ltr" title={t.error_message ?? undefined}>
+                          {t.error_message ?? "—"}
+                        </td>
+                        <td className="px-4 py-3">
+                          <button
+                            onClick={() => handleViewZatca(t.id)}
+                            disabled={zatcaDetailBusy}
+                            className="inline-flex h-7 items-center gap-1 rounded-lg border border-elite-blue-500/25 bg-elite-blue-500/10 px-2 text-xs font-medium text-elite-blue-600 transition-colors hover:bg-elite-blue-500/20 disabled:opacity-50"
+                          >
+                            {ar ? "عرض" : "View"}
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </TableShell>
+              </Card>
+
+              <Dialog open={!!zatcaDetail} onOpenChange={(o) => { if (!o) setZatcaDetail(null) }}>
+                <DialogContent className="max-w-3xl rounded-2xl">
+                  <DialogHeader>
+                    <DialogTitle>
+                      {ar ? `وثيقة UBL — ${zatcaDetail?.doc_ref ?? ""}` : `UBL document — ${zatcaDetail?.doc_ref ?? ""}`}
+                    </DialogTitle>
+                    <DialogDescription>
+                      {zatcaDetail
+                        ? `${ar ? "الحالة" : "Status"}: ${zatcaDetail.status} · UUID: ${zatcaDetail.zatca_uuid ?? "—"}`
+                        : ""}
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="max-h-96 overflow-auto rounded-xl border border-border/50 bg-muted/30 p-4">
+                    <pre className="whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed text-muted-foreground" dir="ltr">
+                      {zatcaDetail?.payload_xml ?? ""}
+                    </pre>
+                  </div>
+                </DialogContent>
+              </Dialog>
             </TabsContent>
 
             <TabsContent value="periods" className="mt-4">
@@ -968,9 +2053,90 @@ export default function AccountingPage() {
 
             <TabsContent value="payments" className="mt-4">
               <div className="space-y-4">
+                {/* Summary strip */}
+                {(() => {
+                  const inTotal = payments.filter((p) => p.direction === "in" && p.status !== "void").reduce((s, p) => s + Number(p.amount), 0)
+                  const outTotal = payments.filter((p) => p.direction === "out" && p.status !== "void").reduce((s, p) => s + Number(p.amount), 0)
+                  const arOut = openAr.reduce((s, r) => s + (r.total_amount - r.paid_amount), 0)
+                  const apOut = openAp.reduce((s, r) => s + (r.total_amount - r.paid_amount), 0)
+                  const items = [
+                    { label: ar ? "المستلم (وارد)" : "Received (in)", value: fmtMoney(inTotal), cls: "text-emerald-600" },
+                    { label: ar ? "المدفوع (صادر)" : "Paid (out)", value: fmtMoney(outTotal), cls: "text-red-600" },
+                    { label: ar ? "ذمم مدينة مستحقة" : "Outstanding AR", value: fmtMoney(arOut), cls: "text-blue-600" },
+                    { label: ar ? "ذمم دائنة مستحقة" : "Outstanding AP", value: fmtMoney(apOut), cls: "text-amber-600" },
+                  ]
+                  return (
+                    <div className="grid gap-3 sm:grid-cols-4">
+                      {items.map((it) => (
+                        <div key={it.label} className="rounded-2xl border border-border/50 bg-card/80 px-4 py-3 shadow-sm">
+                          <p className="text-[11px] font-medium text-muted-foreground">{it.label}</p>
+                          <p dir="ltr" className={`mt-0.5 text-lg font-bold tabular-nums ${it.cls}`}>{it.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })()}
+
                 <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base">{ar ? "الحسابات البنكية" : "Bank accounts"}</CardTitle>
+                  <CardHeader className="pb-3 flex-row items-center justify-between">
+                    <CardTitle className="text-base flex items-center gap-2"><Building2 className="h-4 w-4 text-elite-blue-600" />{ar ? "الحسابات البنكية" : "Bank accounts"}</CardTitle>
+                    <Dialog open={bankDialogOpen} onOpenChange={setBankDialogOpen}>
+                      <DialogTrigger asChild>
+                        <button className={dialogBtn}>
+                          <Plus className="h-3.5 w-3.5" />{ar ? "حساب جديد" : "Add account"}
+                        </button>
+                      </DialogTrigger>
+                      <DialogContent className="max-w-md rounded-2xl">
+                        <DialogHeader>
+                          <DialogTitle>{ar ? "إضافة حساب بنكي" : "Add bank account"}</DialogTitle>
+                          <DialogDescription>{ar ? "يرتبط الحساب بحساب في دليل الحسابات (افتراضياً 1100 بنك)" : "Linked to a Chart of Accounts account (default 1100 Bank)"}</DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-3">
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <div className="space-y-1.5">
+                              <Label htmlFor="bankName">{ar ? "اسم البنك" : "Bank name"}</Label>
+                              <Input id="bankName" value={bankName} onChange={(e) => setBankName(e.target.value)} className="h-9" />
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label htmlFor="bankAccName">{ar ? "اسم الحساب" : "Account name"}</Label>
+                              <Input id="bankAccName" value={bankAccName} onChange={(e) => setBankAccName(e.target.value)} className="h-9" />
+                            </div>
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label htmlFor="bankIban">{ar ? "رقم الآيبان" : "IBAN"}</Label>
+                            <Input id="bankIban" dir="ltr" value={bankIban} onChange={(e) => setBankIban(e.target.value)} className="h-9" />
+                          </div>
+                          <div className="grid gap-3 sm:grid-cols-3">
+                            <div className="space-y-1.5">
+                              <Label htmlFor="bankAccNum">{ar ? "رقم الحساب" : "Account no."}</Label>
+                              <Input id="bankAccNum" dir="ltr" value={bankAccNum} onChange={(e) => setBankAccNum(e.target.value)} className="h-9" />
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label htmlFor="bankOpening">{ar ? "رصيد افتتاحي" : "Opening"}</Label>
+                              <Input id="bankOpening" type="number" dir="ltr" step="0.01" value={bankOpening} onChange={(e) => setBankOpening(e.target.value)} className="h-9 text-end tabular-nums" />
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label htmlFor="bankCoa">{ar ? "حساب الدليل" : "CoA code"}</Label>
+                              <select
+                                id="bankCoa"
+                                value={bankCoa}
+                                onChange={(e) => setBankCoa(e.target.value)}
+                                className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              >
+                                <option value="1100">{ar ? "1100 بنك" : "1100 Bank"}</option>
+                                <option value="1000">{ar ? "1000 نقدية" : "1000 Cash"}</option>
+                              </select>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <Button onClick={() => void handleCreateBank()} disabled={bankBusy} className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800">
+                              {bankBusy ? <LoadingSpinner className="h-4 w-4" /> : <Save className="h-4 w-4" />}
+                              {ar ? "إضافة" : "Add"}
+                            </Button>
+                          </div>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
                   </CardHeader>
                   {bankAccounts.length === 0 ? (
                     <p className="px-4 pb-6 text-sm text-muted-foreground">{ar ? "لا توجد حسابات بنكية." : "No bank accounts."}</p>
@@ -987,7 +2153,7 @@ export default function AccountingPage() {
                           <p className="mt-0.5 truncate text-xs text-muted-foreground">{b.account_name}</p>
                           <p className="mt-2 font-mono text-xs text-foreground/80" dir="ltr">{b.iban}</p>
                           <p className="mt-2 text-xs text-muted-foreground" dir="ltr">
-                            {ar ? "رصيد افتتاحي" : "Opening"}: <span className="font-semibold tabular-nums text-foreground">{fmtMoney(b.opening_balance)} {b.currency}</span>
+                            {ar ? "رصيد افتتاحي" : "Opening"}: <span className="font-semibold tabular-nums text-foreground">{fmtMoney(b.opening_balance)} {b.currency}</span> · CoA <span className="font-mono font-semibold text-foreground">{b.coa_account_code ?? "1100"}</span>
                           </p>
                         </div>
                       ))}
@@ -996,11 +2162,14 @@ export default function AccountingPage() {
                 </Card>
 
                 <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
-                  <CardHeader className="pb-3">
+                  <CardHeader className="pb-3 flex-row items-center justify-between">
                     <CardTitle className="text-base">{ar ? "المدفوعات" : "Finance payments"}</CardTitle>
+                    <button onClick={openPayDialog} className={dialogBtn}>
+                      <Plus className="h-3.5 w-3.5" />{ar ? "دفعة جديدة" : "New payment"}
+                    </button>
                   </CardHeader>
-                  <TableShell headers={[ar ? "المرجع" : "Ref", ar ? "الاتجاه" : "Dir", ar ? "التاريخ" : "Date", ar ? "الطرف" : "Party", ar ? "المبلغ" : "Amount", ar ? "الطريقة" : "Method", ar ? "الحالة" : "Status"]}>
-                    {payments.length === 0 && <EmptyRow colSpan={7} text={ar ? "لا توجد مدفوعات." : "No payments."} />}
+                  <TableShell headers={[ar ? "المرجع" : "Ref", ar ? "الاتجاه" : "Dir", ar ? "التاريخ" : "Date", ar ? "الطرف" : "Party", ar ? "المبلغ" : "Amount", ar ? "الطريقة" : "Method", ar ? "التخصيص" : "Alloc.", ar ? "الحالة" : "Status", ar ? "إجراء" : "Action"]}>
+                    {payments.length === 0 && <EmptyRow colSpan={9} text={ar ? "لا توجد مدفوعات." : "No payments."} />}
                     {payments.map((p) => (
                       <tr key={p.id} className="border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors">
                         <td className="px-4 py-3 font-mono text-xs" dir="ltr">{p.payment_ref}</td>
@@ -1015,11 +2184,210 @@ export default function AccountingPage() {
                         </td>
                         <td className="px-4 py-3 text-xs font-medium tabular-nums" dir="ltr">{fmtMoney(p.amount)}</td>
                         <td className="px-4 py-3 text-xs capitalize text-muted-foreground" dir="ltr">{p.method}</td>
-                        <td className="px-4 py-3"><Badge className="bg-muted text-muted-foreground">{ar ? p.status : p.status.replace(/_/g, " ")}</Badge></td>
+                        <td className="px-4 py-3">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-elite-blue-500/10 px-2 py-0.5 text-[11px] font-medium text-elite-blue-600" dir="ltr">
+                            {p.payment_allocations?.length ?? 0}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge className={p.status === "void" ? "bg-red-500/15 text-red-600 border-red-500/20" : p.status === "allocated" ? "bg-emerald-500/15 text-emerald-600 border-emerald-500/20" : p.status === "partially_allocated" ? "bg-amber-500/15 text-amber-600 border-amber-500/20" : "bg-muted text-muted-foreground"}>
+                            {ar
+                              ? p.status === "allocated" ? "مرحّل" : p.status === "partially_allocated" ? "تخصيص جزئي" : p.status === "void" ? "ملغاة" : p.status
+                              : p.status.replace(/_/g, " ")}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3">
+                          {p.status !== "void" ? (
+                            voidArmedId === p.id ? (
+                              <button
+                                onClick={() => void handleVoidPayment(p)}
+                                disabled={voidBusyId === p.id}
+                                className="inline-flex h-7 items-center gap-1 rounded-lg border border-red-500/25 bg-red-500/10 px-2 text-xs font-medium text-red-600 transition-colors hover:bg-red-500/20 disabled:opacity-50"
+                              >
+                                {voidBusyId === p.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Ban className="h-3 w-3" />}
+                                {ar ? "تأكيد؟" : "Confirm?"}
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => { setVoidArmedId(p.id); window.setTimeout(() => setVoidArmedId((cur) => (cur === p.id ? null : cur)), 4000) }}
+                                className="inline-flex h-7 items-center gap-1 rounded-lg border border-gray-500/25 bg-gray-500/10 px-2 text-xs font-medium text-foreground/70 transition-colors hover:bg-gray-500/20"
+                              >
+                                <Ban className="h-3 w-3" />
+                                {ar ? "إلغاء" : "Void"}
+                              </button>
+                            )
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </TableShell>
                 </Card>
+
+                {/* Record payment dialog */}
+                <Dialog open={payDialogOpen} onOpenChange={setPayDialogOpen}>
+                  <DialogContent className="max-w-lg rounded-2xl">
+                    <DialogHeader>
+                      <DialogTitle>{ar ? "تسجيل دفعة" : "Record payment"}</DialogTitle>
+                      <DialogDescription>
+                        {ar
+                          ? "استلام من عميل أو سداد لمورد، مع تخصيص للذمم المستحقة — يُرحَّل القيد تلقائياً"
+                          : "Receive from a customer or pay a supplier, allocated to outstanding AR/AP — the journal posts automatically"}
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => { setPayDirection("in"); syncAllocList("in") }}
+                          className={`inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border text-sm font-medium transition-colors ${payDirection === "in" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600" : "border-border/60 bg-muted/30 text-muted-foreground hover:bg-muted/60"}`}
+                        >
+                          <ArrowDownLeft className="h-4 w-4" />{ar ? "استلام (وارد)" : "Receipt (in)"}
+                        </button>
+                        <button
+                          onClick={() => { setPayDirection("out"); syncAllocList("out") }}
+                          className={`inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border text-sm font-medium transition-colors ${payDirection === "out" ? "border-red-500/30 bg-red-500/10 text-red-600" : "border-border/60 bg-muted/30 text-muted-foreground hover:bg-muted/60"}`}
+                        >
+                          <ArrowUpRight className="h-4 w-4" />{ar ? "سداد (صادر)" : "Payment (out)"}
+                        </button>
+                      </div>
+
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="space-y-1.5">
+                          <Label htmlFor="payDate">{ar ? "التاريخ" : "Date"}</Label>
+                          <Input id="payDate" type="date" dir="ltr" value={payDate} onChange={(e) => setPayDate(e.target.value)} className="h-9" />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label htmlFor="payMethod">{ar ? "طريقة الدفع" : "Method"}</Label>
+                          <select
+                            id="payMethod"
+                            value={payMethod}
+                            onChange={(e) => setPayMethod(e.target.value)}
+                            className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            <option value="transfer">{ar ? "تحويل بنكي" : "Bank transfer"}</option>
+                            <option value="cash">{ar ? "نقداً" : "Cash"}</option>
+                            <option value="cheque">{ar ? "شيك" : "Cheque"}</option>
+                            <option value="card">{ar ? "بطاقة" : "Card"}</option>
+                            <option value="wps">{ar ? "WPS" : "WPS"}</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {payMethod !== "cash" && (
+                        <div className="space-y-1.5">
+                          <Label htmlFor="payBank">{ar ? "الحساب البنكي" : "Bank account"}</Label>
+                          <select
+                            id="payBank"
+                            value={payBank}
+                            onChange={(e) => setPayBank(e.target.value)}
+                            className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            <option value="">—</option>
+                            {bankAccounts.filter((b) => b.is_active).map((b) => (
+                              <option key={b.id} value={b.id}>{b.bank_name} · {b.account_name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+
+                      {payDirection === "in" ? (
+                        <div className="space-y-1.5">
+                          <Label htmlFor="payCustomer">{ar ? "العميل" : "Customer"}</Label>
+                          <select
+                            id="payCustomer"
+                            value={payCustomer}
+                            onChange={(e) => { setPayCustomer(e.target.value); syncAllocList("in", e.target.value || undefined) }}
+                            className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            <option value="">—</option>
+                            {custOptions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                          </select>
+                        </div>
+                      ) : (
+                        <div className="space-y-1.5">
+                          <Label htmlFor="paySupplier">{ar ? "المورد" : "Supplier"}</Label>
+                          <select
+                            id="paySupplier"
+                            value={paySupplier}
+                            onChange={(e) => { setPaySupplier(e.target.value); syncAllocList("out", e.target.value || undefined) }}
+                            className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            <option value="">—</option>
+                            {suppOptions.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                          </select>
+                        </div>
+                      )}
+
+                      <div className="space-y-1.5">
+                        <Label htmlFor="payAmount">{ar ? "المبلغ" : "Amount"}</Label>
+                        <Input id="payAmount" type="number" dir="ltr" min="0" step="0.01" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} className="h-9 text-end tabular-nums" />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label>{ar ? "التخصيصات" : "Allocations"}</Label>
+                        {payAllocs.length === 0 ? (
+                          <p className="rounded-lg border border-dashed border-border/60 px-3 py-4 text-center text-xs text-muted-foreground">
+                            {ar ? "لا توجد ذمم مستحقة — أنشئ فاتورة/مصروفاً أولاً" : "No outstanding AR/AP — create an invoice/expense first"}
+                          </p>
+                        ) : (
+                          <div className="max-h-52 space-y-1.5 overflow-auto rounded-lg border border-border/50 p-2">
+                            {payAllocs.map((a) => (
+                              <label key={a.key} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-muted/50">
+                                <input
+                                  type="checkbox"
+                                  checked={a.selected}
+                                  onChange={(e) =>
+                                    setPayAllocs((prev) => prev.map((x) => (x.key === a.key ? { ...x, selected: e.target.checked } : x)))
+                                  }
+                                  className="h-3.5 w-3.5 rounded border-border accent-elite-blue-600"
+                                />
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate font-mono text-xs" dir="ltr">{a.label}</span>
+                                  <span className="block text-[11px] text-muted-foreground">{a.party || "—"} · {ar ? "متبقٍ" : "outstanding"}: {fmtMoney(a.outstanding)}</span>
+                                </span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  disabled={!a.selected}
+                                  placeholder={String(a.outstanding)}
+                                  value={a.amount}
+                                  onChange={(e) => setPayAllocs((prev) => prev.map((x) => (x.key === a.key ? { ...x, amount: e.target.value } : x)))}
+                                  className="h-8 w-28 rounded-md border border-input bg-transparent px-2 text-end text-sm tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
+                                />
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {(() => {
+                        const allocSum = payAllocs.filter((a) => a.selected).reduce((s, a) => s + Number(a.amount || 0), 0)
+                        const amount = Number(payAmount || 0)
+                        const balance = Math.round((amount - allocSum) * 100) / 100
+                        const diff = Math.abs(balance) > 0.01
+                        return (
+                          <p className={`text-xs ${diff ? "text-amber-600" : "text-emerald-600"}`} dir="ltr">
+                            {ar ? "المُخصص" : "Allocated"}: {fmtMoney(allocSum)} / {fmtMoney(amount)} · {ar ? "المتبقي" : "Remaining"}: {fmtMoney(balance)}
+                          </p>
+                        )
+                      })()}
+
+                      <div className="space-y-1.5">
+                        <Label htmlFor="payReference">{ar ? "مرجع (اختياري)" : "Reference (optional)"}</Label>
+                        <Input id="payReference" value={payReference} onChange={(e) => setPayReference(e.target.value)} className="h-9" />
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <Button onClick={() => void handleRecordPayment()} disabled={payBusy} className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800">
+                          {payBusy ? <LoadingSpinner className="h-4 w-4" /> : <Save className="h-4 w-4" />}
+                          {ar ? "تسجيل وترحيل" : "Record & post"}
+                        </Button>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
               </div>
             </TabsContent>
           </>

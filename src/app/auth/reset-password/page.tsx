@@ -3,9 +3,10 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { Lock, Eye, EyeOff, Loader2 } from "lucide-react"
+import { Lock, Eye, EyeOff, Loader2, AlertCircle } from "lucide-react"
 import { LogoMark } from "@/components/logo"
 import { useTranslation } from "@/hooks/use-translation"
+import { createClient } from "@/lib/supabase/client"
 
 export default function ResetPasswordPage() {
   const { t } = useTranslation()
@@ -15,6 +16,8 @@ export default function ResetPasswordPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [mismatch, setMismatch] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [done, setDone] = useState(false)
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -23,11 +26,27 @@ export default function ResetPasswordPage() {
       return
     }
     setMismatch(false)
-    // TODO: Phase 2 — wire to Supabase Auth updateUser
+    setError(null)
     setLoading(true)
-    await new Promise((r) => setTimeout(r, 600))
-    setLoading(false)
-    router.push("/auth/sign-in")
+    try {
+      const supabase = createClient()
+      // The recovery link from resetPasswordForEmail redirects here with a
+      // `code` query param; exchange it for a session, then set the new
+      // password. If no session exists (direct visit), updateUser rejects.
+      const code = new URLSearchParams(window.location.search).get("code")
+      if (code) {
+        const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code)
+        if (exchangeError) throw new Error(exchangeError.message)
+      }
+      const { error: updateError } = await supabase.auth.updateUser({ password })
+      if (updateError) throw new Error(updateError.message)
+      setDone(true)
+      setTimeout(() => router.push("/auth/sign-in"), 1200)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t.auth.genericError)
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -43,6 +62,17 @@ export default function ResetPasswordPage() {
         </div>
 
         <form onSubmit={onSubmit} className="stagger-3 grid gap-4">
+          {error && (
+            <div className="flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              <AlertCircle className="size-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+          {done && (
+            <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-600 dark:text-emerald-400">
+              {t.auth.passwordUpdated}
+            </div>
+          )}
           <div className="grid gap-2">
             <label htmlFor="password" className="text-sm font-medium">
               {t.auth.newPassword}

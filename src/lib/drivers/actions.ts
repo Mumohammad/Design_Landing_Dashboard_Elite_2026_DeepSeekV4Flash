@@ -51,7 +51,7 @@ export async function createDriver(input: DriverCreateInput): Promise<ActionResu
       .from("drivers")
       .insert({
         tenant_id: currentUser.tenantId,
-        created_by: currentUser.id,
+        created_by: currentUser.authUserId,
         driver_code: parsed.driver_code?.trim() || generateDriverCode(),
         full_name_ar: parsed.full_name_ar.trim(),
         full_name_en: parsed.full_name_en?.trim() || null,
@@ -97,7 +97,7 @@ export async function createDriver(input: DriverCreateInput): Promise<ActionResu
 
     await writeAuditLog({
       tenantId: currentUser.tenantId,
-      actorId: currentUser.id,
+      actorId: currentUser.authUserId,
       module: "drivers",
       action: "created",
       entityType: "driver",

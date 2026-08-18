@@ -219,59 +219,56 @@ export interface VehicleMaintenanceEvent {
   updated_at: string
 }
 
+// Create/update schemas — columns mirror migration 016_vehicles.sql exactly
+// (condition_status, odometer_current, insurance_expiry, … were stale before).
+function isSaudiPlate(val: string): boolean {
+  const arabicPlate = /^[\u0600-\u06FF]{1,3}\s?\d{3,4}$/
+  const englishPlate = /^[A-Z]{1,3}\s?\d{3,4}$/
+  const numericOnly = /^\d{4,7}$/
+  return arabicPlate.test(val) || englishPlate.test(val) || numericOnly.test(val)
+}
+
 const vehicleCreateBaseSchema = z.object({
   vehicle_code: z.string().nullable().optional(),
   plate_number: z
     .string()
+    .trim()
     .min(4)
-    .refine(
-      (val) => {
-        const arabicPlate = /^[\u0600-\u06FF]{1,3}\s?\d{3,4}$/
-        const englishPlate = /^[A-Z]{1,3}\s?\d{3,4}$/
-        const numericOnly = /^\d{4,7}$/
-        return (
-          arabicPlate.test(val) ||
-          englishPlate.test(val) ||
-          numericOnly.test(val)
-        )
-      },
-      "Invalid Saudi plate format",
-    ),
+    .refine(isSaudiPlate, "Invalid Saudi plate format"),
   plate_type: z.string().nullable().optional(),
-  make: z.string().nullable().optional(),
-  model: z.string().nullable().optional(),
+  make: z.string().trim().min(1, "Make is required"),
+  model: z.string().trim().min(1, "Model is required"),
   year: z
     .number()
     .int()
-    .min(1950)
+    .min(1980)
     .max(new Date().getFullYear() + 1)
     .nullable()
     .optional(),
   color: z.string().nullable().optional(),
+  chassis_number: z.string().nullable().optional(),
+  engine_number: z.string().nullable().optional(),
   vin: z.string().nullable().optional(),
-  fuel_type: fuelTypeSchema.nullable().optional(),
-  vehicle_category: z.string().nullable().optional(),
   status: vehicleStatusSchema.optional(),
-  condition: vehicleConditionSchema.optional(),
-  current_odometer: z.number().int().min(0).optional(),
+  condition_status: vehicleConditionSchema.optional(),
+  fuel_type: fuelTypeSchema.nullable().optional(),
+  odometer_current: z.number().int().min(0).optional(),
+  odometer_last_service: z.number().int().min(0).nullable().optional(),
   odometer_unit: z.string().optional(),
-  assigned_driver_id: z.string().nullable().optional(),
-  current_assignment_id: z.string().nullable().optional(),
-  primary_platform_id: z.string().nullable().optional(),
-  city_zone: z.string().nullable().optional(),
-  service_area: z.string().nullable().optional(),
-  operational_state: z.string().nullable().optional(),
   purchase_date: z.string().nullable().optional(),
-  purchase_price: z.number().min(0).nullable().optional(),
-  current_value: z.number().min(0).nullable().optional(),
+  warranty_expiry: z.string().nullable().optional(),
+  insurance_expiry: z.string().nullable().optional(),
   insurance_provider: z.string().nullable().optional(),
   insurance_policy_number: z.string().nullable().optional(),
-  insurance_expiry_date: z.string().nullable().optional(),
-  registration_expiry_date: z.string().nullable().optional(),
+  inspection_expiry: z.string().nullable().optional(),
+  registration_expiry: z.string().nullable().optional(),
   operating_card_expiry: z.string().nullable().optional(),
-  next_inspection_date: z.string().nullable().optional(),
-  fuel_level: z.number().min(0).max(100).nullable().optional(),
-  handover_required: z.boolean().optional(),
+  current_driver_id: z.string().nullable().optional(),
+  primary_platform_id: z.string().nullable().optional(),
+  transmission: z.string().nullable().optional(),
+  seats: z.number().int().min(1).nullable().optional(),
+  cargo_capacity: z.number().min(0).nullable().optional(),
+  photo_url: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
   tags: z.array(z.string()).nullable().optional(),
 })

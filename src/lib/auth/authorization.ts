@@ -59,7 +59,10 @@ export class AuthorizationError extends Error {
 }
 
 type UserProfile = {
+  /** Custom `users` row id (used for joins on the users table, e.g. reviewed_by). */
   id: string
+  /** Supabase auth.users id — required by every created_by/updated_by/actor_id FK. */
+  authUserId: string
   tenantId: string
   role: string
   status: string
@@ -67,6 +70,7 @@ type UserProfile = {
 
 type ProfileRow = {
   id: string
+  auth_user_id: string
   tenant_id: string
   role: string
   status: string
@@ -94,7 +98,7 @@ const getProfile = cache(async (): Promise<UserProfile | null> => {
 
   const { data, error } = await supabase
     .from("users")
-    .select("id, tenant_id, role, status")
+    .select("id, auth_user_id, tenant_id, role, status")
     .eq("auth_user_id", user.id)
     .is("deleted_at", null)
     .maybeSingle<ProfileRow>()
@@ -103,6 +107,7 @@ const getProfile = cache(async (): Promise<UserProfile | null> => {
 
   return {
     id: data.id,
+    authUserId: data.auth_user_id,
     tenantId: data.tenant_id,
     role: data.role,
     status: data.status,
@@ -228,7 +233,10 @@ export async function requirePermission(
  * for grants.
  */
 export const getCurrentUser = cache(async (): Promise<{
+  /** Custom `users` row id — only for joins on the users table (e.g. reviewed_by). */
   id: string
+  /** Supabase auth.users id — use for created_by/updated_by/actor_id columns. */
+  authUserId: string
   tenantId: string
   role: string
 } | null> => {
@@ -236,6 +244,7 @@ export const getCurrentUser = cache(async (): Promise<{
   if (!profile) return null
   return {
     id: profile.id,
+    authUserId: profile.authUserId,
     tenantId: profile.tenantId,
     role: profile.role,
   }

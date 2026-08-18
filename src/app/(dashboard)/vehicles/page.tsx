@@ -12,15 +12,8 @@ import {
 } from "@/components/dashboard/enterprise-module-page"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import type { VehicleStatus, VehicleCondition, FuelType } from "@/types/vehicles"
+import { CreateVehicleDialog } from "./components/create-vehicle-dialog"
 
 interface VehicleRow {
   id: string
@@ -331,29 +324,7 @@ export default function VehiclesPage() {
         }}
         isLoading={isLoading}
       >
-        <Dialog open={addOpen} onOpenChange={setAddOpen}>
-          <DialogContent className="rounded-2xl">
-            <DialogHeader>
-              <DialogTitle>{t.vehicles.addVehicle}</DialogTitle>
-              <DialogDescription>{t.vehicles.addVehicleDesc}</DialogDescription>
-            </DialogHeader>
-            <div className="rounded-xl border border-dashed border-border/50 bg-muted/20 p-6 text-center">
-              <Car className="mx-auto h-8 w-8 text-muted-foreground/60" />
-              <p className="mt-2 text-sm text-muted-foreground">
-                {t.vehicles.addVehicleComingSoon}
-              </p>
-            </div>
-            <DialogFooter>
-              <Button
-                variant="outline"
-                className="rounded-lg"
-                onClick={() => setAddOpen(false)}
-              >
-                {t.common.close}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <CreateVehicleDialog open={addOpen} onOpenChange={setAddOpen} />
       </EnterpriseModulePage>
     </div>
   )

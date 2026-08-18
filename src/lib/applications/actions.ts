@@ -74,7 +74,7 @@ export async function reviewApplication(input: {
 
     await writeAuditLog({
       tenantId: currentUser.tenantId,
-      actorId: currentUser.id,
+      actorId: currentUser.authUserId,
       module: "hr",
       action: "application_reviewed",
       entityType: "driver_applications",

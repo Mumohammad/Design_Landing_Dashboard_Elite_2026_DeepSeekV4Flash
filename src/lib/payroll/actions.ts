@@ -83,7 +83,7 @@ export async function calculatePayrollForPeriod(
 
     await writeAuditLog({
       tenantId: currentUser.tenantId,
-      actorId: currentUser.id,
+      actorId: currentUser.authUserId,
       module: "payroll",
       action: "payroll_run_calculated",
       entityType: "payroll_run",
@@ -209,7 +209,7 @@ export async function generateWpsFile(
 
     await writeAuditLog({
       tenantId: currentUser.tenantId,
-      actorId: currentUser.id,
+      actorId: currentUser.authUserId,
       module: "payroll",
       action: "wps_file_generated",
       entityType: "payroll_run",

@@ -51,7 +51,7 @@ export async function generateReportAction(
         report_type: reportType,
         report_params: safeParams,
         output_format: "csv",
-        generated_by: currentUser.id,
+        generated_by: currentUser.authUserId,
         status: "generating",
       })
       .select("id")
@@ -90,7 +90,7 @@ export async function generateReportAction(
 
       await writeAuditLog({
         tenantId: currentUser.tenantId,
-        actorId: currentUser.id,
+        actorId: currentUser.authUserId,
         module: "reports",
         action: "report_generated",
         entityType: "report_generation_log",

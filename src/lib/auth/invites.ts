@@ -9,9 +9,12 @@
 //   - listPendingInvites  (read)            lists pending invites for the tenant
 //
 // Token storage: the plaintext token is generated with crypto.randomUUID()
-// and stored as a SHA-256 hash. The plaintext token NEVER touches the DB.
-// TODO: upgrade the SHA-256 placeholder to bcrypt (cost factor 10) per auth
-// plan 6.3 step 7 / 6.8. See the REQUIRES note below.
+// and stored as a bcrypt hash (cost 10) — salted, so an equality lookup on
+// `token_hash` is impossible. The accept-invite link carries a NON-secret
+// `tid` (token_id, O(1) index lookup — migration 057) alongside the `token`
+// (secret); accept verifies with bcrypt.compare (auth plan 6.3/6.7/6.8).
+// Legacy pre-057 invites (SHA-256) still verify via the format-detecting
+// verifyInviteToken fallback. The plaintext token NEVER touches the DB.
 //
 // Server-side only. Uses the service-role admin client for operations that
 // bypass RLS (invite acceptance — a public flow with no session, plus
@@ -19,19 +22,14 @@
 // GM-scoped operations (create / revoke / list) where RLS enforces tenancy.
 
 import crypto from "crypto"
+import { headers } from "next/headers"
 
 import { requirePermission, getCurrentUser } from "@/lib/auth/authorization"
 import { writeAuditLog } from "@/lib/auth/sessions"
+import { rateLimit } from "@/lib/auth/rate-limit"
 import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
-
-// REQUIRES: pnpm add bcryptjs @types/bcryptjs
-// TODO: replace hashToken()'s SHA-256 with bcrypt.hash(token, 10) at issue
-// time and bcrypt.compare(token, hash) at accept time. SHA-256 is a
-// placeholder so the flow works without adding a dependency; bcrypt is
-// intentionally slow and timing-safe, which matters if the token_hash column
-// ever leaks. The DB enforces the invite status transitions, so the
-// placeholder does not weaken replay protection.
+import { hashInviteToken, verifyInviteToken } from "@/lib/auth/invite-tokens"
 
 /** One week in milliseconds — invite expiry window (auth plan 6.3 step 9). */
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000
@@ -59,6 +57,18 @@ export type PendingInvite = {
 
 type ActionResult = { success: boolean; error?: string }
 
+/** Best-effort client IP from the request headers (for per-IP rate limits). */
+async function getClientIp(): Promise<string> {
+  try {
+    const h = await headers()
+    const fwd = h.get("x-forwarded-for")
+    if (fwd) return fwd.split(",")[0].trim()
+    return h.get("x-real-ip") ?? "unknown"
+  } catch {
+    return "unknown"
+  }
+}
+
 /**
  * Extract a human-readable message from an unknown thrown value. Avoids `any`
  * while surfacing `Error.message` (AuthorizationError sets this to its
@@ -68,11 +78,6 @@ function errorMessage(e: unknown): string {
   if (e instanceof Error) return e.message
   if (typeof e === "string") return e
   return "An unexpected error occurred."
-}
-
-/** Hash a plaintext invite token with SHA-256. Placeholder for bcrypt. */
-function hashToken(token: string): string {
-  return crypto.createHash("sha256").update(token).digest("hex")
 }
 
 function nowIso(): string {
@@ -88,7 +93,7 @@ function nowIso(): string {
  * TODO: replace the inline HTML with a proper bilingual React email template
  * (Design DNA — subject and body in both EN and AR).
  */
-async function sendInviteEmail(email: string, token: string): Promise<void> {
+async function sendInviteEmail(email: string, token: string, tokenId: string): Promise<void> {
   const apiKey = process.env.RESEND_API_KEY
   const fromEmail = process.env.RESEND_FROM_EMAIL
   const appUrl = process.env.NEXT_PUBLIC_APP_URL
@@ -104,7 +109,9 @@ async function sendInviteEmail(email: string, token: string): Promise<void> {
     return
   }
 
-  const acceptUrl = `${appUrl}/auth/accept-invite?token=${token}`
+  // `tid` (token_id) is NOT secret — it is the O(1) lookup key (auth plan
+  // 6.7 strategy 2). The `token` is the secret; both are required to accept.
+  const acceptUrl = `${appUrl}/auth/accept-invite?tid=${encodeURIComponent(tokenId)}&token=${encodeURIComponent(token)}`
 
   const html = `
     <div style="font-family: sans-serif; max-width: 560px; margin: 0 auto;">
@@ -184,7 +191,8 @@ export async function createInvite(
     }
 
     const token = crypto.randomUUID()
-    const tokenHash = hashToken(token)
+    const tokenId = crypto.randomUUID()
+    const tokenHash = await hashInviteToken(token)
     const expiresAt = new Date(Date.now() + INVITE_TTL_MS).toISOString()
 
     const { data: invite, error: insertError } = await supabase
@@ -193,10 +201,11 @@ export async function createInvite(
         tenant_id: currentUser.tenantId,
         email,
         role,
+        token_id: tokenId,
         token_hash: tokenHash,
         status: "pending",
         expires_at: expiresAt,
-        invited_by: currentUser.id,
+        invited_by: currentUser.authUserId,
       })
       .select("id")
       .single<IdRow>()
@@ -207,7 +216,7 @@ export async function createInvite(
 
     // Email delivery is non-fatal — log failures, keep the invite pending.
     try {
-      await sendInviteEmail(email, token)
+      await sendInviteEmail(email, token, tokenId)
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("[invites] Resend email failed:", err)
@@ -215,7 +224,7 @@ export async function createInvite(
 
     await writeAuditLog({
       tenantId: currentUser.tenantId,
-      actorId: currentUser.id,
+      actorId: currentUser.authUserId,
       module: "users",
       action: "invite_created",
       entityType: "invite",
@@ -233,9 +242,11 @@ export async function createInvite(
  * Accept an invite and provision the new user. Public flow (no session) —
  * the token is the sole proof of authorization.
  *
- * Looks up the invite by `token_hash` (pending + non-expired + non-deleted),
- * creates the auth.users entry (email confirmed by invite construction),
- * creates the custom `users` row, the `tenant_memberships` row, and the
+ * Looks up the invite by `token_id` (O(1) — migration 057; the `tid` is
+ * non-secret, the `token` is the secret), verifies with bcrypt.compare
+ * (legacy SHA-256 invites still verify via format detection), creates the
+ * auth.users entry (email confirmed by invite construction), creates the
+ * custom `users` row, the `tenant_memberships` row, and the
  * `user_role_assignments` row, then marks the invite accepted.
  *
  * CAVEAT: the admin client does not provide a transaction across
@@ -246,26 +257,45 @@ export async function createInvite(
  */
 export async function acceptInvite(
   token: string,
+  tid: string,
   fullName: string,
   password: string
 ): Promise<ActionResult> {
   try {
-    const tokenHash = hashToken(token)
+    // 0. Per-IP rate limit to slow invite-brute-force attempts (auth plan
+    //    6.5 step 1).
+    const ip = await getClientIp()
+    const rate = await rateLimit(`accept_invite:${ip}`, 10, "minute")
+    if (!rate.success) {
+      return {
+        success: false,
+        error: "Too many attempts. Please try again later.",
+      }
+    }
+
     const admin = createAdminClient()
 
-    // 1. Lookup by token_hash. Generic error on miss to avoid enumeration
-    //    (auth plan 6.5 step 2).
+    // 1. Lookup by token_id (O(1) index). Generic error on miss to avoid
+    //    enumeration (auth plan 6.5 step 2).
     const { data: invite, error: lookupError } = await admin
       .from("invites")
-      .select("id, email, role, tenant_id")
-      .eq("token_hash", tokenHash)
+      .select("id, email, role, tenant_id, token_hash")
+      .eq("token_id", tid)
       .eq("status", "pending")
       .gt("expires_at", nowIso())
       .is("deleted_at", null)
-      .maybeSingle<InviteRow>()
+      .maybeSingle<InviteRow & { token_hash: string }>()
 
     if (lookupError) throw lookupError
     if (!invite) {
+      return { success: false, error: "Invalid or expired invite token." }
+    }
+
+    // 2. Verify the secret token against the stored hash (bcrypt for new
+    //    invites, legacy SHA-256 fallback for pre-057 rows). Same generic
+    //    error on mismatch (anti-enumeration).
+    const match = await verifyInviteToken(token, invite.token_hash)
+    if (!match) {
       return { success: false, error: "Invalid or expired invite token." }
     }
 
@@ -318,12 +348,16 @@ export async function acceptInvite(
     const newUserId = newUser.id
 
     // 4. tenant_memberships — hard fail; without it the account is unusable.
+    //    NOTE: the table has NO `role` column (it carries `is_primary`; the
+    //    role lives on `users.role` + `user_role_assignments.role_id`). An
+    //    earlier version inserted `role` here and every accept silently
+    //    failed with PGRST204 after creating the auth user + users row,
+    //    orphaning them. Fixed 2026-08-17 (E2E caught it).
     const { error: membershipError } = await admin
       .from("tenant_memberships")
       .insert({
         user_id: newUserId,
         tenant_id: invite.tenant_id,
-        role: invite.role,
       })
 
     if (membershipError) throw membershipError
@@ -375,9 +409,12 @@ export async function acceptInvite(
     if (updateError) throw updateError
 
     // 7. Audit log (writeAuditLog uses the admin client and never throws).
+    //    actor_id references auth.users(id) — NOT the custom users row — so
+    //    pass the auth user id (newUserId would violate the FK; the custom id
+    //    is recorded below in newValues).
     await writeAuditLog({
       tenantId: invite.tenant_id,
-      actorId: newUserId,
+      actorId: authUserId,
       module: "users",
       action: "invite_accepted",
       entityType: "invite",
@@ -421,7 +458,7 @@ export async function revokeInvite(inviteId: string): Promise<ActionResult> {
 
     await writeAuditLog({
       tenantId: currentUser.tenantId,
-      actorId: currentUser.id,
+      actorId: currentUser.authUserId,
       module: "users",
       action: "invite_revoked",
       entityType: "invite",

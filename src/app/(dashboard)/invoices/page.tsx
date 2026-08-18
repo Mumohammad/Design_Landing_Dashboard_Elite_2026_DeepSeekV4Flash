@@ -3,8 +3,10 @@
 import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { EnterpriseModulePage, type KpiCardData, type TableColumn } from "@/components/dashboard/enterprise-module-page"
-import { FileText, Clock, CheckCircle2, AlertTriangle } from "lucide-react"
+import { FileText, Clock, CheckCircle2, AlertTriangle, ReceiptText } from "lucide-react"
+import { InvoicesManager } from "./components/invoices-manager"
 
 interface PaymentRow {
   id: string
@@ -32,7 +34,7 @@ const MONTH_AR = ["يناير", "فبراير", "مارس", "أبريل", "ما�
 function fmtMoney(n: number): string { return n.toFixed(2) + " SAR" }
 function fmtDate(date: string | null): string { if (!date) return "—"; try { return new Date(date).toLocaleDateString("en-GB") } catch { return date } }
 
-export default function InvoicesPage() {
+function PlatformPaymentsTab() {
   const { t } = useTranslation()
   const [data, setData] = useState<PaymentRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -64,7 +66,6 @@ export default function InvoicesPage() {
     : data
 
   const totalOutstanding = data.reduce((s, r) => s + (r.outstanding_amount ?? 0), 0)
-  const totalExpected = data.reduce((s, r) => s + (r.expected_amount ?? 0), 0)
 
   const kpiCards: KpiCardData[] = [
     { label: t.nav.invoices, value: data.length, icon: FileText, color: "#1E5A99" },
@@ -93,19 +94,59 @@ export default function InvoicesPage() {
   ]
 
   return (
-    <div className="px-4 lg:px-6 py-4">
-      <EnterpriseModulePage
-        title={t.nav.invoices}
-        subtitle={t.common.status === "الحالة" ? "تسوية مدفوعات المنصات" : "Platform payment reconciliation"}
-        kpiCards={kpiCards}
-        searchPlaceholder={t.common.searchPlaceholder}
-        searchValue={search}
-        onSearchChange={setSearch}
-        columns={columns}
-        data={filtered}
-        isLoading={isLoading}
-        emptyStateMessage={t.common.noData}
-      />
+    <EnterpriseModulePage
+      title={t.nav.invoices}
+      subtitle="تسوية مدفوعات المنصات / Platform payment reconciliation"
+      kpiCards={kpiCards}
+      searchPlaceholder={t.common.searchPlaceholder}
+      searchValue={search}
+      onSearchChange={setSearch}
+      columns={columns}
+      data={filtered}
+      isLoading={isLoading}
+      emptyStateMessage={t.common.noData}
+    />
+  )
+}
+
+export default function InvoicesPage() {
+  const { locale } = useTranslation()
+  const ar = locale === "ar"
+  const [tab, setTab] = useState("invoices")
+
+  return (
+    <div className="px-4 lg:px-6 py-4 space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">
+          {ar ? "الفواتير" : "Invoices"}
+        </h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          {ar
+            ? "محرك الفواتير: مسودة ← صادرة ← معتمدة، مع الإشعارات الدائنة والمدينة وتسوية مدفوعات المنصات"
+            : "Invoice engine: draft → issued → finalized, credit/debit notes, and platform payment reconciliation"}
+        </p>
+      </div>
+
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList className="flex-wrap">
+          <TabsTrigger value="invoices" className="gap-2">
+            <ReceiptText className="h-4 w-4" />
+            {ar ? "الفواتير" : "Invoices"}
+          </TabsTrigger>
+          <TabsTrigger value="platforms" className="gap-2">
+            <FileText className="h-4 w-4" />
+            {ar ? "تسوية المنصات" : "Platform payments"}
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="invoices" className="mt-4">
+          <InvoicesManager />
+        </TabsContent>
+
+        <TabsContent value="platforms" className="mt-4">
+          <PlatformPaymentsTab />
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }

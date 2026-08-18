@@ -79,7 +79,7 @@ export async function updateCompanyProfile(
 
     await writeAuditLog({
       tenantId: currentUser.tenantId,
-      actorId: currentUser.id,
+      actorId: currentUser.authUserId,
       module: "settings",
       action: "updated",
       entityType: "tenant",
@@ -141,7 +141,7 @@ export async function updateSystemSettings(
 
     await writeAuditLog({
       tenantId: currentUser.tenantId,
-      actorId: currentUser.id,
+      actorId: currentUser.authUserId,
       module: "settings",
       action: "updated",
       entityType: "system_settings",
@@ -213,7 +213,7 @@ export async function updateCompanyWpsSettings(input: {
 
     await writeAuditLog({
       tenantId: currentUser.tenantId,
-      actorId: currentUser.id,
+      actorId: currentUser.authUserId,
       module: "settings",
       action: "updated",
       entityType: "system_settings",

@@ -8,12 +8,15 @@
 // (auditable, doc_number via date+random — never COUNT+1) and returns the HTML
 // so the client can open a print dialog.
 //
-// QR: verify_url is stored per document; rendering an actual QR image requires
-// a QR library and is documented as a follow-up (payslip spec: QR-verifiable).
+// QR: the printed document embeds a real QR image encoding the absolute
+// verify URL (qrcode package) so a scan opens /verify-document/[docNumber]
+// (payslip spec: QR-verifiable). The PNG data URL is also stored in
+// generated_documents.qr_code_url.
 
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
 import { writeAuditLog } from "@/lib/auth/sessions"
+import { qrPngDataUrl } from "@/lib/accounting/invoice-qr"
 import { buildDocumentHtml, type DocumentEntityData } from "./document-html"
 
 type ActionResult = { success: boolean; error?: string; html?: string; docNumber?: string; verifyUrl?: string }
@@ -133,6 +136,12 @@ export async function generateDocumentAction(
     const docNumber = `DOC-${stamp}-${rand}`
     const verifyUrl = `/verify-document/${docNumber}`
 
+    // QR content: absolute verify URL when a public base URL is configured,
+    // otherwise the relative path (still resolves within the same origin).
+    const baseUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "")
+    const qrContent = baseUrl ? `${baseUrl}${verifyUrl}` : verifyUrl
+    const qrDataUrl = await qrPngDataUrl(qrContent)
+
     const entityData: DocumentEntityData = {
       driver,
       vehicle,
@@ -141,6 +150,7 @@ export async function generateDocumentAction(
       docNumber,
       verifyUrl,
       generatedAt: new Date().toISOString(),
+      qrDataUrl,
     }
 
     const html = buildDocumentHtml(template.name_ar, template.name_en ?? template.name_ar, template.description, entityData)
@@ -160,10 +170,10 @@ export async function generateDocumentAction(
           html,
           template_code: template.code,
         },
-        qr_code_url: null,
+        qr_code_url: qrDataUrl,
         verify_url: verifyUrl,
         status: "generated",
-        generated_by: currentUser.id,
+        generated_by: currentUser.authUserId,
         generated_at: new Date().toISOString(),
       })
       .select("id")
@@ -172,7 +182,7 @@ export async function generateDocumentAction(
 
     await writeAuditLog({
       tenantId: currentUser.tenantId,
-      actorId: currentUser.id,
+      actorId: currentUser.authUserId,
       module: "templates",
       action: "document_generated",
       entityType: "generated_documents",

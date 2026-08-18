@@ -18,39 +18,28 @@ import { revalidatePath } from "next/cache"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
 import { writeAuditLog } from "@/lib/auth/sessions"
-import { getErrorDefinition } from "@/lib/errors/error-codes"
+// Sync helpers live in a plain module (a "use server" file can only export
+// async functions, which would force awaits at every call site).
+import { mapFinancialError, parseCsv, toCsv } from "@/lib/accounting/csv-utils"
+// Canonical 2dp integer-minor rounding (invoice-math.ts) — every money value
+// passes through the SAME EPSILON-guarded function so no float artifact can
+// slip in through a differently-rounded copy (TEST-STRATEGY §4).
+import { round2 } from "@/lib/accounting/invoice-math"
 
 type ActionResult = { success: boolean; error?: string }
 
-export type AccountType = "asset" | "liability" | "equity" | "income" | "expense"
-export type NormalBalance = "debit" | "credit"
+// Types + the CONVENTIONAL_BALANCE map live in csv-utils.ts (a plain module)
+// because they are imported by client components — a "use server" file can
+// only export async functions. Type-only exports are erased, so re-exporting
+// the types here is safe; the const must NOT be re-exported from this file.
+export type { AccountType, NormalBalance } from "@/lib/accounting/csv-utils"
+import { CONVENTIONAL_BALANCE, type AccountType, type NormalBalance } from "@/lib/accounting/csv-utils"
 
 const ACCOUNT_TYPES: AccountType[] = ["asset", "liability", "equity", "income", "expense"]
-
-/** Conventional normal balance per account type (contra accounts opt out). */
-export const CONVENTIONAL_BALANCE: Record<AccountType, NormalBalance> = {
-  asset: "debit",
-  expense: "debit",
-  liability: "credit",
-  equity: "credit",
-  income: "credit",
-}
 
 function errorMessage(e: unknown): string {
   if (e instanceof Error) return e.message
   return "Unknown error"
-}
-
-/**
- * Map a DB-raised financial exception code (e.g. "JRN004: …", "ACC001: …")
- * to its bilingual user-facing message from the error taxonomy. Falls back to
- * the raw message when the code is unknown.
- */
-export function mapFinancialError(raw: string): string {
-  const code = raw.split(":")[0]?.trim()
-  if (!code) return raw
-  const def = getErrorDefinition(code)
-  return def && def.code !== "ERR_INTERNAL" ? def.messageEn : raw
 }
 
 export async function createChartAccount(input: {
@@ -99,7 +88,7 @@ export async function createChartAccount(input: {
         parent_id: input.parent_id || null,
         is_contra: isContra,
         description: input.description?.trim() || null,
-        created_by: currentUser.id,
+        created_by: currentUser.authUserId,
       })
       .select("id")
       .single()
@@ -113,7 +102,7 @@ export async function createChartAccount(input: {
 
     await writeAuditLog({
       tenantId: currentUser.tenantId,
-      actorId: currentUser.id,
+      actorId: currentUser.authUserId,
       module: "accounting",
       action: "account_created",
       entityType: "chart_of_accounts",
@@ -195,7 +184,7 @@ export async function updateChartAccount(input: {
         is_contra: isContra,
         is_active: input.is_active ?? existing.is_active,
         description: input.description !== undefined ? input.description?.trim() || null : existing.description,
-        updated_by: currentUser.id,
+        updated_by: currentUser.authUserId,
       })
       .eq("id", input.account_id)
       .eq("tenant_id", currentUser.tenantId)
@@ -209,7 +198,7 @@ export async function updateChartAccount(input: {
 
     await writeAuditLog({
       tenantId: currentUser.tenantId,
-      actorId: currentUser.id,
+      actorId: currentUser.authUserId,
       module: "accounting",
       action: "account_updated",
       entityType: "chart_of_accounts",
@@ -247,7 +236,7 @@ export async function deactivateChartAccount(input: { account_id: string }): Pro
     const admin = createAdminClient()
     const { error } = await admin
       .from("chart_of_accounts")
-      .update({ is_active: false, updated_by: currentUser.id })
+      .update({ is_active: false, updated_by: currentUser.authUserId })
       .eq("id", input.account_id)
       .eq("tenant_id", currentUser.tenantId)
       .is("deleted_at", null)
@@ -258,7 +247,7 @@ export async function deactivateChartAccount(input: { account_id: string }): Pro
 
     await writeAuditLog({
       tenantId: currentUser.tenantId,
-      actorId: currentUser.id,
+      actorId: currentUser.authUserId,
       module: "accounting",
       action: "account_deactivated",
       entityType: "chart_of_accounts",
@@ -273,57 +262,10 @@ export async function deactivateChartAccount(input: { account_id: string }): Pro
   }
 }
 
-// ── CSV helpers (no external dependency — small, RFC-4180-ish) ────────────
-// Exported so the parties module (customers/suppliers) reuses the same
-// parser/serializer used by the CoA import/export.
-
-export async function parseCsv(text: string): string[][] {
-  const rows: string[][] = []
-  let row: string[] = []
-  let field = ""
-  let inQuotes = false
-  const src = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n")
-  for (let i = 0; i < src.length; i++) {
-    const ch = src[i]
-    if (inQuotes) {
-      if (ch === '"') {
-        if (src[i + 1] === '"') {
-          field += '"'
-          i++
-        } else {
-          inQuotes = false
-        }
-      } else {
-        field += ch
-      }
-    } else if (ch === '"') {
-      inQuotes = true
-    } else if (ch === ",") {
-      row.push(field)
-      field = ""
-    } else if (ch === "\n") {
-      row.push(field)
-      rows.push(row)
-      row = []
-      field = ""
-    } else {
-      field += ch
-    }
-  }
-  if (field.length > 0 || row.length > 0) {
-    row.push(field)
-    rows.push(row)
-  }
-  return rows.filter((r) => r.some((c) => c.trim() !== ""))
-}
-
-export async function toCsv(headers: string[], rows: (string | number | boolean | null)[][]): string {
-  const esc = (v: string | number | boolean | null): string => {
-    const s = v === null || v === undefined ? "" : String(v)
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-  }
-  return [headers.map(esc).join(","), ...rows.map((r) => r.map(esc).join(","))].join("\n")
-}
+// ── CSV helpers ────────────────────────────────────────────────────────────
+// parseCsv / toCsv / mapFinancialError now live in @/lib/accounting/csv-utils
+// (a plain module — see the import at the top). Reused by the parties and
+// invoice modules for import/export and bilingual error mapping.
 
 export async function exportChartAccountsCsv(): Promise<{ success: boolean; csv?: string; error?: string }> {
   try {
@@ -365,7 +307,7 @@ export async function exportChartAccountsCsv(): Promise<{ success: boolean; csv?
 
     await writeAuditLog({
       tenantId: currentUser.tenantId,
-      actorId: currentUser.id,
+      actorId: currentUser.authUserId,
       module: "accounting",
       action: "chart_of_accounts_exported",
       entityType: "chart_of_accounts",
@@ -487,7 +429,7 @@ export async function importChartAccountsCsv(input: { csv: string }): Promise<Cs
           is_contra: isContra,
           is_active: isActive,
           description: col.desc >= 0 ? (row[col.desc] ?? "").trim() || null : null,
-          created_by: currentUser.id,
+          created_by: currentUser.authUserId,
         })
         .select("id")
         .single()
@@ -504,7 +446,7 @@ export async function importChartAccountsCsv(input: { csv: string }): Promise<Cs
     if (imported.length > 0) {
       await writeAuditLog({
         tenantId: currentUser.tenantId,
-        actorId: currentUser.id,
+        actorId: currentUser.authUserId,
         module: "accounting",
         action: "chart_of_accounts_imported",
         entityType: "chart_of_accounts",
@@ -535,7 +477,7 @@ export async function initializeDefaultCoa(): Promise<ActionResult> {
     const inserted = Array.isArray(data) ? (data[0] as number | undefined) : (data as number | undefined)
     await writeAuditLog({
       tenantId: currentUser.tenantId,
-      actorId: currentUser.id,
+      actorId: currentUser.authUserId,
       module: "accounting",
       action: "default_chart_of_accounts_loaded",
       entityType: "chart_of_accounts",
@@ -563,7 +505,6 @@ export async function postOpeningBalances(input: {
       return { success: false, error: "Opening balances need at least two lines." }
     }
 
-    const round2 = (n: number) => Math.round(n * 100) / 100
     const linesPayload = lines.map((l) => ({
       account_id: l.account_id,
       description: l.description?.trim() || null,
@@ -577,7 +518,7 @@ export async function postOpeningBalances(input: {
       p_entry_date: input.entry_date,
       p_description_ar: "رصيد افتتاحي",
       p_description_en: "Opening balances",
-      p_created_by: currentUser.id,
+      p_created_by: currentUser.authUserId,
       p_entry_type: "opening",
       p_lines: linesPayload,
     })
@@ -593,7 +534,7 @@ export async function postOpeningBalances(input: {
 
     await writeAuditLog({
       tenantId: currentUser.tenantId,
-      actorId: currentUser.id,
+      actorId: currentUser.authUserId,
       module: "accounting",
       action: "opening_balances_posted",
       entityType: "journal_entries",
@@ -631,7 +572,6 @@ export async function createJournalDraft(input: {
       return { success: false, error: "A description is required." }
     }
 
-    const round2 = (n: number) => Math.round(n * 100) / 100
     const linesPayload = lines.map((l) => ({
       account_id: l.account_id,
       description: l.description?.trim() || null,
@@ -645,7 +585,7 @@ export async function createJournalDraft(input: {
       p_entry_date: input.entry_date,
       p_description_ar: input.description_ar.trim(),
       p_description_en: input.description_en?.trim() || null,
-      p_created_by: currentUser.id,
+      p_created_by: currentUser.authUserId,
       p_lines: linesPayload,
     })
     if (error) return { success: false, error: mapFinancialError(error.message) }
@@ -657,7 +597,7 @@ export async function createJournalDraft(input: {
 
     await writeAuditLog({
       tenantId: currentUser.tenantId,
-      actorId: currentUser.id,
+      actorId: currentUser.authUserId,
       module: "accounting",
       action: "journal_draft_created",
       entityType: "journal_entries",
@@ -682,13 +622,13 @@ export async function submitJournalEntry(input: { entry_id: string }): Promise<A
     const { error } = await admin.rpc("submit_journal_entry", {
       p_tenant_id: currentUser.tenantId,
       p_entry_id: input.entry_id,
-      p_submitted_by: currentUser.id,
+      p_submitted_by: currentUser.authUserId,
     })
     if (error) return { success: false, error: mapFinancialError(error.message) }
 
     await writeAuditLog({
       tenantId: currentUser.tenantId,
-      actorId: currentUser.id,
+      actorId: currentUser.authUserId,
       module: "accounting",
       action: "journal_submitted_for_approval",
       entityType: "journal_entries",
@@ -714,7 +654,7 @@ export async function approveJournalEntry(input: {
     const { data, error } = await admin.rpc("approve_journal_entry", {
       p_tenant_id: currentUser.tenantId,
       p_entry_id: input.entry_id,
-      p_approved_by: currentUser.id,
+      p_approved_by: currentUser.authUserId,
       p_comment: input.comment?.trim() || null,
     })
     if (error) return { success: false, error: mapFinancialError(error.message) }
@@ -722,7 +662,7 @@ export async function approveJournalEntry(input: {
     const row = Array.isArray(data) ? data[0] : data
     await writeAuditLog({
       tenantId: currentUser.tenantId,
-      actorId: currentUser.id,
+      actorId: currentUser.authUserId,
       module: "accounting",
       action: "journal_approved",
       entityType: "journal_entries",
@@ -750,13 +690,13 @@ export async function rejectJournalEntry(input: {
       p_tenant_id: currentUser.tenantId,
       p_entry_id: input.entry_id,
       p_reason: input.reason.trim(),
-      p_rejected_by: currentUser.id,
+      p_rejected_by: currentUser.authUserId,
     })
     if (error) return { success: false, error: mapFinancialError(error.message) }
 
     await writeAuditLog({
       tenantId: currentUser.tenantId,
-      actorId: currentUser.id,
+      actorId: currentUser.authUserId,
       module: "accounting",
       action: "journal_rejected",
       entityType: "journal_entries",
@@ -788,14 +728,14 @@ export async function reverseJournalEntry(input: {
       p_description_ar: input.description_ar?.trim() || null,
       p_description_en: input.description_en?.trim() || null,
       p_reversal_date: input.reversal_date || null,
-      p_created_by: currentUser.id,
+      p_created_by: currentUser.authUserId,
     })
     if (error) return { success: false, error: mapFinancialError(error.message) }
 
     const row = Array.isArray(data) ? data[0] : data
     await writeAuditLog({
       tenantId: currentUser.tenantId,
-      actorId: currentUser.id,
+      actorId: currentUser.authUserId,
       module: "accounting",
       action: "journal_reversed",
       entityType: "journal_entries",
@@ -819,13 +759,13 @@ export async function closeAccountingPeriod(input: { period_id: string }): Promi
     const { error } = await admin.rpc("close_accounting_period", {
       p_tenant_id: currentUser.tenantId,
       p_period_id: input.period_id,
-      p_closed_by: currentUser.id,
+      p_closed_by: currentUser.authUserId,
     })
     if (error) return { success: false, error: mapFinancialError(error.message) }
 
     await writeAuditLog({
       tenantId: currentUser.tenantId,
-      actorId: currentUser.id,
+      actorId: currentUser.authUserId,
       module: "accounting",
       action: "accounting_period_closed",
       entityType: "accounting_periods",
@@ -852,13 +792,13 @@ export async function reopenAccountingPeriod(input: {
       p_tenant_id: currentUser.tenantId,
       p_period_id: input.period_id,
       p_reason: input.reason.trim(),
-      p_reopened_by: currentUser.id,
+      p_reopened_by: currentUser.authUserId,
     })
     if (error) return { success: false, error: mapFinancialError(error.message) }
 
     await writeAuditLog({
       tenantId: currentUser.tenantId,
-      actorId: currentUser.id,
+      actorId: currentUser.authUserId,
       module: "accounting",
       action: "accounting_period_reopened",
       entityType: "accounting_periods",
@@ -893,7 +833,6 @@ export async function postJournalEntry(input: {
 
     // Round to 2dp in integer-minor arithmetic so the exact NUMERIC comparison
     // in the DB function never trips on float artifacts (e.g. 0.1 + 0.2).
-    const round2 = (n: number) => Math.round(n * 100) / 100
     const linesPayload = lines.map((l) => ({
       account_id: l.account_id,
       description: l.description?.trim() || null,
@@ -909,7 +848,7 @@ export async function postJournalEntry(input: {
       p_entry_date: input.entry_date,
       p_description_ar: input.description_ar.trim(),
       p_description_en: input.description_en?.trim() || null,
-      p_created_by: currentUser.id,
+      p_created_by: currentUser.authUserId,
       p_lines: linesPayload,
     })
 
@@ -924,7 +863,7 @@ export async function postJournalEntry(input: {
 
     await writeAuditLog({
       tenantId: currentUser.tenantId,
-      actorId: currentUser.id,
+      actorId: currentUser.authUserId,
       module: "accounting",
       action: "journal_entry_posted",
       entityType: "journal_entries",
@@ -965,8 +904,12 @@ export async function createReceivable(input: {
       return { success: false, error: "Due date cannot be before the invoice date." }
     }
 
-    const vatAmount = Math.round(amount * vatRate) / 100
-    const total = amount + vatAmount
+    // TEST-STRATEGY §4: the old `Math.round(amount * vatRate) / 100` float
+    // pattern was flagged for replacement — the canonical EPSILON-guarded
+    // round2 on the divided value matches expenses/invoices exactly.
+    const amountR = round2(amount)
+    const vatAmount = round2((amountR * vatRate) / 100)
+    const total = round2(amountR + vatAmount)
 
     const admin = createAdminClient()
     const { data: row, error } = await admin
@@ -976,7 +919,7 @@ export async function createReceivable(input: {
         invoice_ref: input.invoice_ref.trim(),
         invoice_date: input.invoice_date,
         due_date: input.due_date,
-        amount,
+        amount: amountR,
         vat_amount: vatAmount,
         total_amount: total,
         paid_amount: 0,
@@ -990,7 +933,7 @@ export async function createReceivable(input: {
 
     await writeAuditLog({
       tenantId: currentUser.tenantId,
-      actorId: currentUser.id,
+      actorId: currentUser.authUserId,
       module: "accounting",
       action: "receivable_created",
       entityType: "receivables",

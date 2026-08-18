@@ -136,6 +136,7 @@ export const config = {
     "/maintenance/:path*",
     "/invoices/:path*",
     "/accounting/:path*",
+    "/orders/:path*",
     "/platforms/:path*",
     "/hr/:path*",
     "/applications/:path*",

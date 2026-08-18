@@ -224,7 +224,7 @@ const j9 = await api("/rpc/post_journal_entry", {
     p_tenant_id: T,
     p_entry_date: new Date().toISOString().slice(0, 10),
     p_description_ar: "Verify JRN-9 REST",
-    p_entry_type: "payroll",
+    p_entry_type: "unsupported",
     p_lines: [
       { account_id: byCode["1000"], debit: 10.0, credit: 0 },
       { account_id: byCode["3000"], debit: 0, credit: 10.0 },

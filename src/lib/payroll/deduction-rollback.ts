@@ -108,7 +108,7 @@ export async function cancelPayrollPeriod(
   if (!currentUser) {
     throw new Error("No authenticated user")
   }
-  const cancelledBy = currentUser.id
+  const cancelledBy = currentUser.authUserId
 
   // 1. Get the payroll period record
   const { data: payroll, error: payrollError } = await admin

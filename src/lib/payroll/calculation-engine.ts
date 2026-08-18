@@ -87,7 +87,11 @@ export function calculateDriverPayrollFormula(
   if (category === "sponsored_type1") {
     const base_salary = rule.base_salary ?? 2000
     const daily_rate = base_salary / working_days_target
-    base_amount = Math.round(daily_rate * working_days_actual * 100) / 100
+    // Integer-minor 2dp rounding with the EPSILON guard (same canonical
+    // convention as round2 in invoice-math.ts) — a plain
+    // `Math.round(x * 100) / 100` can drop a cent on float-boundary values
+    // (e.g. x = 1000.0049999…), TEST-STRATEGY §4.
+    base_amount = Math.round((daily_rate * working_days_actual + Number.EPSILON) * 100) / 100
     steps.push(`Base (prorated): ${daily_rate.toFixed(4)} × ${working_days_actual} = ${base_amount} SAR`)
 
     const bonus_rate = rule.bonus_rate ?? 9
@@ -120,7 +124,7 @@ export function calculateDriverPayrollFormula(
   } else if (category === "freelancer") {
     const base_salary = rule.base_salary ?? 0
     const daily_rate = base_salary / working_days_target
-    base_amount = Math.round(daily_rate * working_days_actual * 100) / 100
+    base_amount = Math.round((daily_rate * working_days_actual + Number.EPSILON) * 100) / 100
     steps.push(`Freelancer base (prorated): ${base_amount} SAR`)
 
     const bonus_rate = rule.bonus_rate ?? 0

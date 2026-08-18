@@ -3,6 +3,8 @@ import { LogoMark } from "@/components/logo"
 import {
   BadgeCheck,
   FileQuestion,
+  Percent,
+  ReceiptText,
   ShieldCheck,
   Timer,
   User,
@@ -30,9 +32,20 @@ type GeneratedDocRow = {
   template_id: string | null
   driver_id: string | null
   vehicle_id: string | null
+  invoice_id: string | null
+  generated_data?: Record<string, unknown> | null
   document_templates?: { name_ar: string; name_en: string | null } | null
   drivers?: { full_name_ar: string | null; full_name_en: string | null } | null
   vehicles?: { plate_number: string | null; make: string | null; model: string | null } | null
+  invoices?: {
+    invoice_number: string
+    invoice_type: string
+    status: string
+    total: number
+    currency: string
+    customers?: { name_ar: string | null } | null
+    suppliers?: { name_ar: string | null } | null
+  } | null
 }
 
 async function loadDocument(docNumber: string): Promise<GeneratedDocRow | null> {
@@ -40,9 +53,10 @@ async function loadDocument(docNumber: string): Promise<GeneratedDocRow | null> 
   const { data, error } = await admin
     .from("generated_documents")
     .select(
-      "id, doc_number, status, generated_at, verify_url, template_id, driver_id, vehicle_id, " +
+      "id, doc_number, status, generated_at, verify_url, template_id, driver_id, vehicle_id, invoice_id, generated_data, " +
         "document_templates(name_ar, name_en), drivers(full_name_ar, full_name_en), " +
-        "vehicles(plate_number, make, model)",
+        "vehicles(plate_number, make, model), " +
+        "invoices(invoice_number, invoice_type, status, total, currency, customers(name_ar), suppliers(name_ar))",
     )
     .eq("doc_number", docNumber)
     .is("deleted_at", null)
@@ -50,6 +64,57 @@ async function loadDocument(docNumber: string): Promise<GeneratedDocRow | null> 
 
   if (error || !data) return null
   return data
+}
+
+function VatReturnCard({ data }: { data: Record<string, unknown> }) {
+  const fmt = (v: unknown): string => {
+    const n = Number(v ?? 0)
+    return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " SAR"
+  }
+  const period = `${Number(data.period_year)}-${String(Number(data.period_month)).padStart(2, "0")}`
+  const net = Number(data.net_position ?? 0)
+  const nature = String(data.net_nature ?? "zero")
+  const netLabel =
+    nature === "payable" ? "Net VAT payable"
+    : nature === "receivable" ? "Net VAT receivable"
+    : "Net VAT position"
+
+  return (
+    <div className="rounded-xl border border-border/50 bg-muted/30 px-4 py-3">
+      <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <Percent className="h-3 w-3" />
+        VAT Return
+      </p>
+      <p className="mt-0.5 font-mono text-sm font-bold text-foreground" dir="ltr">
+        Period {period}
+      </p>
+      <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+        <div>
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Output VAT</p>
+          <p className="font-medium text-foreground" dir="ltr">{fmt(data.output_vat)}</p>
+        </div>
+        <div>
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Recoverable input</p>
+          <p className="font-medium text-foreground" dir="ltr">{fmt(data.recoverable_input_vat)}</p>
+        </div>
+        <div>
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Adjustments</p>
+          <p className="font-medium text-foreground" dir="ltr">
+            {fmt(Number(data.adjustments_output) + Number(data.adjustments_input))}
+          </p>
+        </div>
+        <div>
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{netLabel}</p>
+          <p
+            className={`font-semibold ${net > 0 ? "text-red-600" : net < 0 ? "text-emerald-600" : "text-foreground"}`}
+            dir="ltr"
+          >
+            {fmt(Math.abs(net))}
+          </p>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function ResultCard({ doc }: { doc: GeneratedDocRow | null }) {
@@ -122,25 +187,51 @@ function ResultCard({ doc }: { doc: GeneratedDocRow | null }) {
                   </div>
                 </div>
 
-                {/* Entity */}
-                <div className="rounded-xl border border-border/50 bg-muted/30 px-4 py-3">
-                  <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    <User className="h-3 w-3" />
-                    {doc!.drivers ? "Driver" : "Vehicle"}
-                  </p>
-                  <p className="mt-0.5 text-sm font-semibold text-foreground">
-                    {doc!.drivers
-                      ? (doc!.drivers.full_name_en ?? doc!.drivers.full_name_ar ?? "—")
-                      : doc!.vehicles
-                        ? `${doc!.vehicles.make ?? ""} ${doc!.vehicles.model ?? ""}`.trim() || "—"
-                        : "—"}
-                  </p>
-                  {doc!.vehicles?.plate_number && (
-                    <p className="font-mono text-xs text-muted-foreground" dir="ltr">
-                      {doc!.vehicles.plate_number}
+                {/* Entity: VAT return, invoice document, or template entity */}
+                {doc!.generated_data?.kind === "vat_return" ? (
+                  <VatReturnCard data={doc!.generated_data} />
+                ) : doc!.invoice_id && doc!.invoices ? (
+                  <div className="rounded-xl border border-border/50 bg-muted/30 px-4 py-3">
+                    <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      <ReceiptText className="h-3 w-3" />
+                      Invoice
                     </p>
-                  )}
-                </div>
+                    <p className="mt-0.5 font-mono text-sm font-bold text-foreground" dir="ltr">
+                      {doc!.invoices.invoice_number}
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-foreground">
+                      {doc!.invoices.customers?.name_ar ?? doc!.invoices.suppliers?.name_ar ?? "—"}
+                    </p>
+                    <p className="mt-1 flex items-center gap-2 text-xs text-muted-foreground" dir="ltr">
+                      <span className="font-medium text-foreground">
+                        {Number(doc!.invoices.total).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                      {doc!.invoices.currency}
+                      <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-600">
+                        {doc!.invoices.status}
+                      </span>
+                    </p>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-border/50 bg-muted/30 px-4 py-3">
+                    <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      <User className="h-3 w-3" />
+                      {doc!.drivers ? "Driver" : "Vehicle"}
+                    </p>
+                    <p className="mt-0.5 text-sm font-semibold text-foreground">
+                      {doc!.drivers
+                        ? (doc!.drivers.full_name_en ?? doc!.drivers.full_name_ar ?? "—")
+                        : doc!.vehicles
+                          ? `${doc!.vehicles.make ?? ""} ${doc!.vehicles.model ?? ""}`.trim() || "—"
+                          : "—"}
+                    </p>
+                    {doc!.vehicles?.plate_number && (
+                      <p className="font-mono text-xs text-muted-foreground" dir="ltr">
+                        {doc!.vehicles.plate_number}
+                      </p>
+                    )}
+                  </div>
+                )}
               </>
             )}
           </div>

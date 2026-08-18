@@ -2,23 +2,42 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { Mail, MailCheck, Loader2 } from "lucide-react"
+import { Mail, MailCheck, Loader2, AlertCircle } from "lucide-react"
 import { LogoMark } from "@/components/logo"
 import { useTranslation } from "@/hooks/use-translation"
+import { createClient } from "@/lib/supabase/client"
 
 export default function ForgotPasswordPage() {
   const { t } = useTranslation()
   const [email, setEmail] = useState("")
   const [loading, setLoading] = useState(false)
   const [sent, setSent] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
-    // TODO: Phase 2 — wire to Supabase Auth resetPasswordForEmail
+    setError(null)
     setLoading(true)
-    await new Promise((r) => setTimeout(r, 600))
-    setLoading(false)
-    setSent(true)
+    try {
+      const supabase = createClient()
+      // Send the recovery email; the link redirects to /auth/reset-password
+      // where the code is exchanged for a session (open-redirect-safe:
+      // Next.js only allows same-origin redirectTo values by default).
+      const redirectTo = `${window.location.origin}/auth/reset-password`
+      const { error: authError } = await supabase.auth.resetPasswordForEmail(
+        email.trim(),
+        { redirectTo }
+      )
+      if (authError) {
+        setError(authError.message)
+        return
+      }
+      setSent(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t.auth.genericError)
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -42,6 +61,12 @@ export default function ForgotPasswordPage() {
           </div>
         ) : (
           <form onSubmit={onSubmit} className="stagger-3 grid gap-4">
+            {error && (
+              <div className="flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                <AlertCircle className="size-4 shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
             <div className="grid gap-2">
               <label htmlFor="email" className="text-sm font-medium">
                 {t.auth.email}

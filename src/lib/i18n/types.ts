@@ -23,6 +23,7 @@ export type TranslationStrings = {
     vehicles: string
     attendance: string
     platforms: string
+    orders: string
     payroll: string
     expenses: string
     invoices: string
@@ -69,11 +70,17 @@ export type TranslationStrings = {
     signingIn: string
     acceptInviteButton: string
     acceptInviteSubtitle: string
+    acceptInviteSuccessTitle: string
+    acceptInviteSuccessBody: string
+    inviteMissingTitle: string
+    inviteMissingBody: string
+    genericError: string
     fullName: string
     newPassword: string
     confirmPassword: string
     setPasswordButton: string
     resetPasswordSubtitle: string
+    passwordUpdated: string
     forgotPasswordSubtitle: string
     sendResetLink: string
     resetLinkSent: string
@@ -350,6 +357,52 @@ export type TranslationStrings = {
     securitySettings: string
     language: string
     theme: string
+  }
+  orders: {
+    title: string
+    subtitle: string
+    addOrder: string
+    addOrderDesc: string
+    searchPlaceholder: string
+    emptyMessage: string
+    kpiDelivered: string
+    kpiFailed: string
+    kpiRevenue: string
+    kpiCompletion: string
+    colDate: string
+    colDriver: string
+    colPlatform: string
+    colShift: string
+    colDelivered: string
+    colFailed: string
+    colReturned: string
+    colCancelled: string
+    colDistance: string
+    colRevenue: string
+    colVariance: string
+    colLocked: string
+    allShifts: string
+    locked: string
+    unlocked: string
+    fieldDriver: string
+    fieldPlatform: string
+    fieldDate: string
+    fieldShiftLabel: string
+    fieldDelivered: string
+    fieldFailed: string
+    fieldReturned: string
+    fieldCancelled: string
+    fieldDistance: string
+    fieldAvgDistance: string
+    fieldBatches: string
+    fieldRevenue: string
+    fieldReportedRevenue: string
+    fieldNotes: string
+    monthLabel: string
+    fullDay: string
+    shiftMorning: string
+    shiftEvening: string
+    shiftNight: string
   }
   vehicles: {
     title: string

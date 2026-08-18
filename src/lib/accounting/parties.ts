@@ -19,7 +19,7 @@ import { revalidatePath } from "next/cache"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
 import { writeAuditLog } from "@/lib/auth/sessions"
-import { mapFinancialError, toCsv } from "@/lib/accounting/actions"
+import { mapFinancialError, toCsv } from "@/lib/accounting/csv-utils"
 
 type ActionResult = { success: boolean; error?: string }
 
@@ -120,7 +120,7 @@ async function createParty(kind: PartyKind, input: PartyInput): Promise<ActionRe
     const insertPayload: Record<string, unknown> = {
       tenant_id: currentUser.tenantId,
       ...norm.payload,
-      created_by: currentUser.id,
+      created_by: currentUser.authUserId,
     }
     // Only set the code column when the caller supplied one — otherwise the
     // column DEFAULT (finance_doc_ref_seq) assigns the next number.
@@ -139,7 +139,7 @@ async function createParty(kind: PartyKind, input: PartyInput): Promise<ActionRe
 
     await writeAuditLog({
       tenantId: currentUser.tenantId,
-      actorId: currentUser.id,
+      actorId: currentUser.authUserId,
       module: "accounting",
       action: `${kind.slice(0, -1)}_created`,
       entityType: kind,
@@ -198,7 +198,7 @@ async function updateParty(
 
     const updatePayload: Record<string, unknown> = {
       ...norm.payload,
-      updated_by: currentUser.id,
+      updated_by: currentUser.authUserId,
       is_active: input.is_active ?? existing.is_active,
     }
     if (norm.payload.code) {
@@ -222,7 +222,7 @@ async function updateParty(
 
     await writeAuditLog({
       tenantId: currentUser.tenantId,
-      actorId: currentUser.id,
+      actorId: currentUser.authUserId,
       module: "accounting",
       action: `${kind.slice(0, -1)}_updated`,
       entityType: kind,
@@ -270,7 +270,7 @@ async function setPartyActive(
     const admin = createAdminClient()
     const { data: updated, error } = await admin
       .from(kind)
-      .update({ is_active: input.is_active, updated_by: currentUser.id })
+      .update({ is_active: input.is_active, updated_by: currentUser.authUserId })
       .eq("id", input.id)
       .eq("tenant_id", currentUser.tenantId)
       .is("deleted_at", null)
@@ -282,7 +282,7 @@ async function setPartyActive(
 
     await writeAuditLog({
       tenantId: currentUser.tenantId,
-      actorId: currentUser.id,
+      actorId: currentUser.authUserId,
       module: "accounting",
       action: input.is_active ? `${kind.slice(0, -1)}_activated` : `${kind.slice(0, -1)}_deactivated`,
       entityType: kind,
@@ -316,7 +316,7 @@ async function deleteParty(kind: PartyKind, input: { id: string }): Promise<Acti
     const admin = createAdminClient()
     const { data: updated, error } = await admin
       .from(kind)
-      .update({ deleted_at: new Date().toISOString(), updated_by: currentUser.id })
+      .update({ deleted_at: new Date().toISOString(), updated_by: currentUser.authUserId })
       .eq("id", input.id)
       .eq("tenant_id", currentUser.tenantId)
       .is("deleted_at", null)
@@ -328,7 +328,7 @@ async function deleteParty(kind: PartyKind, input: { id: string }): Promise<Acti
 
     await writeAuditLog({
       tenantId: currentUser.tenantId,
-      actorId: currentUser.id,
+      actorId: currentUser.authUserId,
       module: "accounting",
       action: `${kind.slice(0, -1)}_deleted`,
       entityType: kind,
@@ -392,7 +392,7 @@ async function exportPartiesCsv(kind: PartyKind): Promise<{ success: boolean; cs
 
     await writeAuditLog({
       tenantId: currentUser.tenantId,
-      actorId: currentUser.id,
+      actorId: currentUser.authUserId,
       module: "accounting",
       action: `${kind.slice(0, -1)}_list_exported`,
       entityType: kind,

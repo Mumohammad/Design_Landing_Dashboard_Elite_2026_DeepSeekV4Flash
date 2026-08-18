@@ -22,6 +22,8 @@ export interface DocumentEntityData {
   docNumber: string
   verifyUrl: string
   generatedAt: string
+  /** PNG data URL of the verification QR (built with qrcode + the verify URL). */
+  qrDataUrl?: string | null
 }
 
 function esc(text: string | null | undefined): string {
@@ -95,6 +97,7 @@ export function buildDocumentHtml(
   .sig { text-align: center; width: 30%; }
   .sig .line { border-top: 1px solid #0f172a; margin-top: 34px; padding-top: 4px; font-size: 11px; color: #475569; }
   .qr { border: 1px dashed #cbd5e1; width: 84px; height: 84px; display: flex; align-items: center; justify-content: center; font-size: 9px; color: #94a3b8; text-align: center; margin-top: 14px; }
+  .qr-img { width: 92px; height: 92px; border: 1px solid #cbd5e1; border-radius: 6px; margin-top: 14px; }
   .verify { font-size: 10px; color: #94a3b8; margin-top: 4px; }
   @media print { .doc { max-width: 100%; } }
 </style>
@@ -128,7 +131,9 @@ export function buildDocumentHtml(
     </div>
   </div>
 
-  <div class="qr">QR<br/>توثيق</div>
+  ${d.qrDataUrl
+    ? `<img class="qr-img" src="${d.qrDataUrl}" alt="QR" />`
+    : `<div class="qr">QR<br/>توثيق</div>`}
   <div class="verify" dir="ltr">${esc(d.verifyUrl)}</div>
 
   <div class="meta">

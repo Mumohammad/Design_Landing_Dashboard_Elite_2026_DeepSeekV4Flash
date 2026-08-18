@@ -103,6 +103,49 @@ export type ErrorCode =
   | "SUP003"
   | "SUP004"
   | "SUP005"
+  // Accounting — Invoice Engine (Phase 5, migration 038)
+  | "INV001"
+  | "INV002"
+  | "INV003"
+  | "INV004"
+  | "INV005"
+  | "INV006"
+  | "INV007"
+  | "INV008"
+  | "INV009"
+  | "INV010"
+  | "INV011"
+  | "INV012"
+  | "INV013"
+  | "INV014"
+  // Accounting — Expenses (Phase 7, migration 040)
+  | "EXP001"
+  | "EXP002"
+  | "EXP003"
+  | "EXP004"
+  | "EXP005"
+  | "EXP006"
+  // Accounting — VAT Engine (Phase 8, migration 041)
+  | "VAT001"
+  | "VAT002"
+  | "VAT003"
+  // Accounting — VAT Reconciliation (Phase 11, migration 051)
+  | "VAT004"
+  | "VAT005"
+  // Accounting — VAT Return (Phase 12, IMPLEMENTATION-PLAN Phase 11)
+  | "VAT006"
+  // Accounting — Financial Statements (Phase 13, IMPLEMENTATION-PLAN Phase 12)
+  | "STMT001"
+  // Accounting — Payments Engine (Phase 10, migration 048)
+  | "PMT001"
+  | "PMT002"
+  | "PMT003"
+  | "PMT004"
+  | "PMT005"
+  | "PMT006"
+  // Accounting — ZATCA Adapter (Phase 15, migration 054)
+  | "ZAT001"
+  | "ZAT002"
   // Catch-all
   | "ERR_INTERNAL"
 
@@ -544,6 +587,212 @@ export const ERROR_CODES: Record<ErrorCode, ErrorDefinition> = {
     messageEn: "An Arabic name is required.",
   },
 
+  // ── Accounting — Invoice Engine (Phase 5) ────────────────────────────
+  INV001: {
+    code: "INV001",
+    httpStatus: 404,
+    messageAr: "الفاتورة غير موجودة أو لا تنتمي إلى هذه المنشأة.",
+    messageEn: "Invoice not found or does not belong to this tenant.",
+  },
+  INV002: {
+    code: "INV002",
+    httpStatus: 422,
+    messageAr: "أحد بنود الفاتورة غير صالح (الوصف والكمية والسعر مطلوبة).",
+    messageEn: "One of the invoice lines is invalid (description, quantity and price required).",
+  },
+  INV003: {
+    code: "INV003",
+    httpStatus: 409,
+    messageAr: "الفاتورة المعتمدة غير قابلة للتعديل؛ استخدم إشعار دائن أو مدين.",
+    messageEn: "Finalized invoices are immutable; use a credit or debit note.",
+  },
+  INV004: {
+    code: "INV004",
+    httpStatus: 422,
+    messageAr: "حسابات الفاتورة غير متطابقة (الفرق بين الإجمالي والضريبة).",
+    messageEn: "Invoice math does not match (total ≠ subtotal + VAT).",
+  },
+  INV005: {
+    code: "INV005",
+    httpStatus: 422,
+    messageAr: "العميل مطلوب للفواتير البيعية والمورد للفواتير الشرائية.",
+    messageEn: "A customer is required for sales invoices and a supplier for purchase invoices.",
+  },
+  INV006: {
+    code: "INV006",
+    httpStatus: 409,
+    messageAr: "حالة الفاتورة لا تسمح بهذا الإجراء.",
+    messageEn: "Invoice state does not permit this action.",
+  },
+  INV007: {
+    code: "INV007",
+    httpStatus: 409,
+    messageAr: "لا يمكن إلغاء فاتورة مدفوعة أو مدفوعة جزئياً.",
+    messageEn: "Only unpaid invoices can be cancelled.",
+  },
+  INV008: {
+    code: "INV008",
+    httpStatus: 422,
+    messageAr: "تاريخ الاستحقاق لا يمكن أن يسبق تاريخ الإصدار.",
+    messageEn: "Due date cannot be before the issue date.",
+  },
+  INV009: {
+    code: "INV009",
+    httpStatus: 409,
+    messageAr: "تم إصدار إشعار دائن لهذه الفاتورة بالفعل.",
+    messageEn: "A credit note was already issued for this invoice.",
+  },
+  INV010: {
+    code: "INV010",
+    httpStatus: 422,
+    messageAr: "الإشعار يتطلب فاتورة مرجعية صالحة.",
+    messageEn: "The note requires a valid reference invoice.",
+  },
+  INV011: {
+    code: "INV011",
+    httpStatus: 409,
+    messageAr: "لا يمكن إصدار إشعار على فاتورة غير معتمدة.",
+    messageEn: "Notes can only be issued against finalized invoices.",
+  },
+  INV012: {
+    code: "INV012",
+    httpStatus: 422,
+    messageAr: "قيمة مالية غير صالحة (لا يمكن أن تكون سالبة أو غير محدودة).",
+    messageEn: "Invalid monetary value (cannot be negative or non-finite).",
+  },
+  INV013: {
+    code: "INV013",
+    httpStatus: 422,
+    messageAr: "الفاتورة تحتاج سطراً واحداً على الأقل.",
+    messageEn: "An invoice needs at least one line.",
+  },
+  INV014: {
+    code: "INV014",
+    httpStatus: 409,
+    messageAr: "الإشعارات غير قابلة للتعديل بعد الإصدار.",
+    messageEn: "Notes are immutable once issued.",
+  },
+
+  // ── Accounting — Expenses (Phase 7) ───────────────────────────────────
+  EXP001: {
+    code: "EXP001",
+    httpStatus: 404,
+    messageAr: "المصروف غير موجود أو لا ينتمي إلى هذه المنشأة.",
+    messageEn: "Expense not found or does not belong to this tenant.",
+  },
+  EXP002: {
+    code: "EXP002",
+    httpStatus: 409,
+    messageAr: "تم اعتماد هذا المصروف بالفعل.",
+    messageEn: "This expense is already approved.",
+  },
+  EXP003: {
+    code: "EXP003",
+    httpStatus: 422,
+    messageAr: "نسبة الضريبة أو تصنيف الاسترداد غير صالح.",
+    messageEn: "Invalid VAT rate or recoverability classification.",
+  },
+  EXP004: {
+    code: "EXP004",
+    httpStatus: 409,
+    messageAr: "اعتماد المصروف يتطلب الموافِق والتاريخ.",
+    messageEn: "Expense approval requires an approver and a timestamp.",
+  },
+  EXP005: {
+    code: "EXP005",
+    httpStatus: 422,
+    messageAr: "لا يوجد حساب دليل حسابات مرتبط بهذه الفئة.",
+    messageEn: "No Chart of Accounts mapping exists for this expense category.",
+  },
+  EXP006: {
+    code: "EXP006",
+    httpStatus: 422,
+    messageAr: "بيانات المصروف غير صالحة (النوع والمبلغ والتاريخ مطلوبة).",
+    messageEn: "Invalid expense data (type, positive amount and date are required).",
+  },
+
+  // ── Accounting — VAT Engine (Phase 8) ──────────────────────────────────
+  VAT001: {
+    code: "VAT001",
+    httpStatus: 404,
+    messageAr: "فترة ضريبة القيمة المضافة غير موجودة لهذا الشهر.",
+    messageEn: "No VAT period exists for this month.",
+  },
+  VAT002: {
+    code: "VAT002",
+    httpStatus: 409,
+    messageAr: "فترة ضريبة القيمة المضافة موجودة بالفعل لهذا الشهر.",
+    messageEn: "The VAT period already exists for this month.",
+  },
+  VAT003: {
+    code: "VAT003",
+    httpStatus: 409,
+    messageAr: "التسويات الضريبية النهائية غير قابلة للتعديل.",
+    messageEn: "Finalized VAT adjustments are immutable.",
+  },
+  VAT004: {
+    code: "VAT004",
+    httpStatus: 409,
+    messageAr: "البند ليس قيد المراجعة؛ إعادة التصنيف مقفلة.",
+    messageEn: "Review item is not pending review; reclassification is locked.",
+  },
+  VAT005: {
+    code: "VAT005",
+    httpStatus: 404,
+    messageAr: "لا توجد بيانات تسوية ضريبية لهذه الفترة.",
+    messageEn: "No VAT reconciliation data for this period.",
+  },
+  VAT006: {
+    code: "VAT006",
+    httpStatus: 404,
+    messageAr: "لا توجد بيانات إقرار ضريبي لهذه الفترة.",
+    messageEn: "No VAT return data for this period.",
+  },
+  STMT001: {
+    code: "STMT001",
+    httpStatus: 404,
+    messageAr: "لا توجد بيانات قوائم مالية لهذه الفترة.",
+    messageEn: "No financial statement data for this period.",
+  },
+
+  // ── Accounting — Payments Engine (Phase 10) ────────────────────────────
+  PMT001: {
+    code: "PMT001",
+    httpStatus: 409,
+    messageAr: "مبلغ التخصيص يتجاوز الرصيد المتبقي للذمة (المدينة/الدائنة).",
+    messageEn: "Allocation amount exceeds the outstanding AR/AP balance.",
+  },
+  PMT002: {
+    code: "PMT002",
+    httpStatus: 409,
+    messageAr: "الدفعة غير موجودة أو ملغاة؛ لا يمكن إضافة تخصيصات عليها.",
+    messageEn: "Payment is missing or void; allocations are frozen.",
+  },
+  PMT003: {
+    code: "PMT003",
+    httpStatus: 409,
+    messageAr: "مجموع التخصيصات يتجاوز مبلغ الدفعة.",
+    messageEn: "Total allocations exceed the payment amount.",
+  },
+  PMT004: {
+    code: "PMT004",
+    httpStatus: 422,
+    messageAr: "بيانات الدفعة غير صالحة (الاتجاه والطرف والمبلغ المالي مطلوبة).",
+    messageEn: "Invalid payment data (direction, party and positive amount are required).",
+  },
+  PMT005: {
+    code: "PMT005",
+    httpStatus: 404,
+    messageAr: "الدفعة غير موجودة أو لا تنتمي إلى هذه المنشأة.",
+    messageEn: "Payment not found or does not belong to this tenant.",
+  },
+  PMT006: {
+    code: "PMT006",
+    httpStatus: 404,
+    messageAr: "الحساب البنكي غير موجود أو لا ينتمي إلى هذه المنشأة.",
+    messageEn: "Bank account not found or does not belong to this tenant.",
+  },
+
   // ── Accounting — Periods (Phase 1) ─────────────────────────────────────
   ACC001: {
     code: "ACC001",
@@ -580,6 +829,20 @@ export const ERROR_CODES: Record<ErrorCode, ErrorDefinition> = {
     httpStatus: 422,
     messageAr: "سبب إعادة الفتح مطلوب.",
     messageEn: "A reopen reason is required.",
+  },
+
+  // ── Accounting — ZATCA Adapter (Phase 15) ─────────────────────────────
+  ZAT001: {
+    code: "ZAT001",
+    httpStatus: 409,
+    messageAr: "لا يمكن إرسال الفاتورة إلى ZATCA: رقم ضريبة البائع مفقود.",
+    messageEn: "Cannot transmit to ZATCA: seller VAT number is missing.",
+  },
+  ZAT002: {
+    code: "ZAT002",
+    httpStatus: 409,
+    messageAr: "لا يمكن إرسال الفاتورة إلى ZATCA: رقم ضريبة المشتري مفقود للفاتورة الضريبية.",
+    messageEn: "Cannot transmit to ZATCA: buyer tax number is missing for a tax invoice.",
   },
 
   // ── Catch-all ─────────────────────────────────────────────────────────

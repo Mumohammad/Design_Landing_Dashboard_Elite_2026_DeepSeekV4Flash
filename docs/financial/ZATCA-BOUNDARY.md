@@ -1,20 +1,19 @@
 # ZATCA Adapter — Boundary Document
 
-> **Status:** Boundary definition only. **Do NOT implement the ZATCA Adapter now.**
-> The ZATCA Adapter is a future, independent integration layer. This document defines the seam so Accounting, Invoice, and VAT engines can be built **now** without a rewrite later.
+> **Status:** The ZATCA adapter seams are **implemented** (transmission transport Phase 16; crypto + onboarding Phase 18) with sandbox defaults; production transmission stays config-only (`ZATCA_API_BASE_URL` + production CSID `ZATCA_CSID_CERT`/`ZATCA_CSID_SECRET`, see `docs/financial/ZATCA-ENV.md`) until the seams are validated against the ZATCA sandbox / official SDK with real credentials. This document defines the boundary the implementation must respect — the guardrails in §5 remain binding, and the status-copy audit (`src/lib/accounting/zatca-copy-audit.test.ts`) enforces the no-compliance-claim rule in `pnpm test`.
 
 ---
 
 ## 1. Explicitly OUT of scope (now)
 
-- ZATCA structured e-invoice transmission (XML/UBL or other formats)
-- ZATCA API integration, endpoints, or credentials
-- Cryptographic requirements (signing keys, certificates, hashing per ZATCA spec)
+- ZATCA structured e-invoice transmission (XML/UBL or other formats) — *implemented* as a sandbox transport (Phase 16); real transmission needs credentials + **sandbox-verified signing** below
+- ZATCA API integration, endpoints, or credentials — *implemented* config-only behind `ZATCA_API_BASE_URL` + the production CSID cert/secret (Basic auth, see `ZATCA-ENV.md`); production use requires real credentials + onboarding certificates
+- Cryptographic requirements (signing keys, certificates, hashing per ZATCA spec) — *implemented as unverified seams* (Phase 18): `zatca-crypto.ts` (secp256k1 keygen, invoice hash/PIH, ECDSA signature, CSR builder) + `zatca-onboarding.ts` (CCSID→PCSID requests). The documented constructions are unit-tested, but **none of them have been validated against the live ZATCA API or the official SDK** — the exact signature-input byte layout and XML C14N must be confirmed before any real transmission (see the SEAM notes in `zatca-crypto.ts`). Onboarding outputs persist per tenant in the `zatca_csids` table (migrations 055–056, service-role-only RLS — the secret AND the signing `private_key` never reach the browser, see `ZATCA-ENV.md` "CSID credential store")
 - QR code encoding mandated by ZATCA (our QR is a verification QR for now, not a ZATCA tax QR — keep them distinct in code and docs)
 - Any claim of ZATCA **compliance**, **approval**, or **certification**
 - Inventing ZATCA technical requirements
 
-**Do not fabricate ZATCA specs.** When the adapter phase arrives, requirements must come from the official ZATCA sources / a finance owner, not from memory.
+**Do not fabricate ZATCA specs.** The Phase 18 seams were built from the documented algorithm (Microsoft's official onboarding guide + the ZATCA developer community + open-source SDKs), but every technical detail must still be confirmed against the official ZATCA sources / a finance owner before production use.
 
 ---
 
@@ -39,11 +38,12 @@ Invoice Engine                     VAT Engine
    │  finalized invoice                 │  finalized VAT period
    ▼                                   ▼
 ┌────────────────────────────────────────────────┐
-│              ZATCA ADAPTER (future)            │
+│              ZATCA ADAPTER (seams built)       │
 │  - transforms final invoices → ZATCA payload   │
 │  - transmits via ZATCA API (production creds)  │
 │  - stores ZATCA responses (UUID, status)       │
-│  - cryptographic signing (Phase 15)            │
+│  - crypto: secp256k1 keys, invoice hash/PIH,   │  Phase 18 — implemented,
+│    ECDSA signature, CSR, CSID onboarding       │  NOT sandbox-verified
 └────────────────────────────────────────────────┘
 ```
 
