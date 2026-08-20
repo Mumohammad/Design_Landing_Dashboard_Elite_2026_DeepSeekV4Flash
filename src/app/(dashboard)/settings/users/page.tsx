@@ -132,7 +132,7 @@ export default function UsersSettingsPage() {
   }
 
   return (
-    <div className="px-4 lg:px-6 py-4 space-y-6">
+    <div className="page-enter px-4 lg:px-6 py-4 space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-foreground">{t.nav.users}</h1>
         <p className="text-sm text-muted-foreground mt-1">

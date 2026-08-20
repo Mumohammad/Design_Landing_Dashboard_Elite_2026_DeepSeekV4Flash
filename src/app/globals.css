@@ -262,11 +262,34 @@ html {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .animate-marquee-x {
+  .animate-marquee-x,
+  .animate-chip-glow,
+  .animate-logo-scroll,
+  .animate-float-slow,
+  .animate-float-medium,
+  .animate-float-fast,
+  .animate-pulse-glow,
+  .gradient-mesh,
+  .animated-border {
+    animation: none !important;
+  }
+
+  /* Disable transition-based reveals */
+  .page-enter {
     animation: none;
   }
-  .animate-chip-glow {
+
+  .page-enter,
+  [class*="transition-"] {
+    transition-duration: 0ms !important;
+    transition-delay: 0ms !important;
+  }
+
+  /* Show elements immediately */
+  .stagger-1, .stagger-2, .stagger-3, .stagger-4, .stagger-5, .stagger-6 {
     animation: none;
+    opacity: 1;
+    transform: none;
   }
 }
 
@@ -374,3 +397,285 @@ html {
 .stagger-4 { animation: slide-up 0.5s ease-out 0.4s both; }
 .stagger-5 { animation: slide-up 0.5s ease-out 0.5s both; }
 .stagger-6 { animation: slide-up 0.5s ease-out 0.6s both; }
+
+/* ═══ 2026 Premium Design System ═══ */
+
+/* Animated gradient mesh background */
+@keyframes gradient-shift {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.gradient-mesh {
+  background: 
+    radial-gradient(ellipse at 20% 50%, rgba(30, 90, 153, 0.15) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 20%, rgba(232, 125, 62, 0.12) 0%, transparent 50%),
+    radial-gradient(ellipse at 40% 80%, rgba(30, 90, 153, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 90% 80%, rgba(232, 125, 62, 0.06) 0%, transparent 50%);
+  background-size: 200% 200%;
+  animation: gradient-shift 20s ease-in-out infinite;
+}
+
+.dark .gradient-mesh {
+  background:
+    radial-gradient(ellipse at 20% 50%, rgba(30, 90, 153, 0.25) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 20%, rgba(232, 125, 62, 0.18) 0%, transparent 50%),
+    radial-gradient(ellipse at 40% 80%, rgba(30, 90, 153, 0.12) 0%, transparent 50%),
+    radial-gradient(ellipse at 90% 80%, rgba(232, 125, 62, 0.08) 0%, transparent 50%);
+  background-size: 200% 200%;
+  animation: gradient-shift 20s ease-in-out infinite;
+}
+
+/* Floating orb animations */
+@keyframes float-slow {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  25% { transform: translate(30px, -20px) scale(1.05); }
+  50% { transform: translate(-20px, 15px) scale(0.95); }
+  75% { transform: translate(15px, 25px) scale(1.02); }
+}
+
+@keyframes float-medium {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(-25px, 20px) scale(1.03); }
+  66% { transform: translate(20px, -15px) scale(0.97); }
+}
+
+@keyframes float-fast {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(15px, -25px); }
+}
+
+.animate-float-slow { animation: float-slow 12s ease-in-out infinite; }
+.animate-float-medium { animation: float-medium 8s ease-in-out infinite; }
+.animate-float-fast { animation: float-fast 6s ease-in-out infinite; }
+
+/* Animated gradient border */
+@keyframes border-rotate {
+  0% { --border-angle: 0deg; }
+  100% { --border-angle: 360deg; }
+}
+
+@property --border-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.animated-border {
+  --border-angle: 0deg;
+  border: 2px solid transparent;
+  background-image:
+    linear-gradient(var(--background), var(--background)),
+    conic-gradient(from var(--border-angle), #1E5A99, #E87D3E, #1E5A99);
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+  animation: border-rotate 4s linear infinite;
+}
+
+/* Glow effect for interactive cards */
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+
+.glow-hover {
+  position: relative;
+}
+
+.glow-hover::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: linear-gradient(135deg, #1E5A99, #E87D3E);
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  z-index: -1;
+  filter: blur(12px);
+}
+
+.glow-hover:hover::before {
+  opacity: 0.5;
+}
+
+/* Shimmer loading effect */
+@keyframes shimmer-2026 {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.shimmer-2026 {
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.08) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: shimmer-2026 2s ease-in-out infinite;
+}
+
+/* Premium card with subtle gradient border on hover */
+.card-premium {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  background: var(--card);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.card-premium::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(30, 90, 153, 0), rgba(30, 90, 153, 0));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  transition: background 0.3s ease;
+}
+
+.card-premium:hover::after {
+  background: linear-gradient(135deg, rgba(30, 90, 153, 0.4), rgba(232, 125, 62, 0.4));
+}
+
+.card-premium:hover {
+  border-color: transparent;
+  box-shadow: 0 20px 40px -12px rgba(30, 90, 153, 0.15), 0 0 0 1px rgba(30, 90, 153, 0.1);
+}
+
+/* Text gradient utility */
+.text-gradient-elite {
+  background: linear-gradient(135deg, #1E5A99 0%, #E87D3E 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.text-gradient-blue {
+  background: linear-gradient(135deg, #4d95ce 0%, #1E5A99 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Dot grid pattern (premium) */
+.dot-grid-premium {
+  background-image: radial-gradient(circle, rgba(30, 90, 153, 0.08) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.dark .dot-grid-premium {
+  background-image: radial-gradient(circle, rgba(30, 90, 153, 0.15) 1px, transparent 1px);
+}
+
+/* Pulse ring animation for status indicators */
+@keyframes pulse-ring {
+  0% { transform: scale(0.8); opacity: 1; }
+  100% { transform: scale(2); opacity: 0; }
+}
+
+.pulse-ring::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  animation: pulse-ring 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+/* Smooth page transitions */
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.page-enter {
+  animation: page-enter 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ──── Premium 2026 Icon Animations ──── */
+
+/* Icon float — subtle levitation for icon containers */
+@keyframes icon-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+.icon-float {
+  animation: icon-float 3s ease-in-out infinite;
+}
+
+/* Glow pulse — soft glow behind icon on hover */
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(1.15); }
+}
+.glow-pulse:hover .icon-glow {
+  animation: glow-pulse 2s ease-in-out infinite;
+}
+
+/* Gradient rotate — slow rotation for gradient backgrounds */
+@keyframes gradient-rotate {
+  0% { --gradient-angle: 0deg; }
+  100% { --gradient-angle: 360deg; }
+}
+
+/* Shimmer slide — premium loading shimmer */
+@keyframes shimmer-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+.shimmer-slide::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent);
+  animation: shimmer-slide 2s ease-in-out infinite;
+}
+
+/* Scale bounce — interactive feedback on hover */
+@keyframes scale-bounce {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+
+/* Line draw — bottom line grow on hover */
+@keyframes line-draw {
+  from { width: 0; opacity: 0; }
+  to { width: 100%; opacity: 0.4; }
+}
+
+/* ──── Reduce motion ──── */
+@media (prefers-reduced-motion: reduce) {
+  .icon-float,
+  .glow-pulse .icon-glow,
+  .shimmer-slide::after {
+    animation: none !important;
+  }
+  .animate-float-slow,
+  .animate-float-medium,
+  .animate-float-fast,
+  .animate-pulse,
+  .animate-spin,
+  .animate-marquee {
+    animation: none !important;
+  }
+  .stagger-helper > * {
+    transition-delay: 0ms !important;
+  }
+  .page-enter {
+    animation: none !important;
+  }
+  .motion-reduce\:transition-none {
+    transition: none !important;
+  }
+}

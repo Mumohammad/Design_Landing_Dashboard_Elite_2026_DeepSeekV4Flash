@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { ChevronDown } from "lucide-react"
+import { ChevronDown, HelpCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { landingContent } from "@/lib/landing-content"
 import { useTranslation } from "@/hooks/use-translation"
@@ -25,8 +25,8 @@ export function FaqSection() {
                 className={cn(
                   "overflow-hidden rounded-2xl border transition-all duration-300",
                   open
-                    ? "border-elite-blue-500/30 bg-card shadow-lg shadow-elite-blue-500/5"
-                    : "border-border/50 bg-card/70 hover:border-border"
+                    ? "border-elite-blue-500/30 bg-card shadow-lg shadow-elite-blue-500/5 ring-1 ring-inset ring-elite-blue-500/10"
+                    : "border-border/50 bg-card/70 hover:border-border hover:bg-card"
                 )}
               >
                 <button
@@ -34,7 +34,17 @@ export function FaqSection() {
                   aria-expanded={open}
                   className="flex w-full items-center justify-between gap-4 px-5 py-4 text-start"
                 >
-                  <span className="font-semibold text-foreground">{faq.q}</span>
+                  <span className="flex items-center gap-3">
+                    <span className={cn(
+                      "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-all duration-300",
+                      open
+                        ? "bg-elite-blue-500/10 text-elite-blue-600 dark:text-elite-blue-300"
+                        : "bg-muted/50 text-muted-foreground"
+                    )}>
+                      <HelpCircle className="h-3.5 w-3.5" />
+                    </span>
+                    <span className="font-semibold text-foreground">{faq.q}</span>
+                  </span>
                   <span
                     className={cn(
                       "flex h-7 w-7 shrink-0 items-center justify-center rounded-full border transition-all duration-300",
@@ -53,6 +63,7 @@ export function FaqSection() {
                   )}
                 >
                   <div className="overflow-hidden">
+                    <div className="mx-5 mb-5 h-px bg-gradient-to-r from-elite-blue-500/20 to-transparent" />
                     <p className="px-5 pb-5 text-sm leading-relaxed text-muted-foreground">{faq.a}</p>
                   </div>
                 </div>

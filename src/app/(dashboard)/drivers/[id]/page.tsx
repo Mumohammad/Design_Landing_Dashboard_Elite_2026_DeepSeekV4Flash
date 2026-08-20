@@ -237,7 +237,7 @@ export default function DriverDetailPage() {
   const categoryMeta = CATEGORY_META[driver.category]
 
   return (
-    <div className="space-y-6 px-4 py-4 lg:px-6">
+    <div className="page-enter space-y-6 px-4 py-4 lg:px-6">
       <Button
         variant="ghost"
         size="sm"

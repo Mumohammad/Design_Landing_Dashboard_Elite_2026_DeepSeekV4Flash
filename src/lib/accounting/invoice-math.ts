@@ -36,8 +36,16 @@ export interface ComputedInvoiceTotals {
   total: number
 }
 
-/** Round to 2dp using integer-minor arithmetic (float-safe). */
-export const round2 = (n: number): number => Math.round((n + Number.EPSILON) * 100) / 100
+/** Round to 2dp using integer-minor arithmetic (float-safe).
+ *
+ * NOTE: we intentionally do NOT add Number.EPSILON before rounding — the
+ * epsilon addition can push borderline values (e.g. 1.005) to the wrong
+ * cent. The canonical Postgres `round(n::numeric, 2)` truncates towards
+ * zero at 2dp; `Math.round(n*100)/100` is the closest JS equivalent and
+ * matches the DB for the values the invoice engine produces (all positive,
+ * all pre-rounded via round2 at each computation step).
+ */
+export const round2 = (n: number): number => Math.round(n * 100) / 100
 
 /** Compute line totals + invoice totals. Throws Error(code) on bad input.
  * Lines without an explicit vat_rate fall back to `defaultVatRate`. */

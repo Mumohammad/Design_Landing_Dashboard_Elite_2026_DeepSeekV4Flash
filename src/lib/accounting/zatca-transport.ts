@@ -135,13 +135,30 @@ function sandboxUuid(docRef: string): string {
  * Sandbox mode simulates the response; production mode (env-configured)
  * POSTs to the real API — currently documented but not exercised.
  */
+/** Sleep helper for retry backoff. */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
+ * Determine if an HTTP status is transient (retryable).
+ * 429 (rate limit), 502/503/504 (gateway) are retryable.
+ * 400/401/403 are permanent failures — no retry.
+ */
+function isRetryableStatus(status: number): boolean {
+  return status === 429 || status === 502 || status === 503 || status === 504
+}
+
+/** Maximum number of transmission retries for transient errors. */
+const MAX_RETRIES = 2
+
 export async function transmitToZatca(input: ZatcaTransmitInput): Promise<ZatcaTransportResponse> {
   // Explicit credentials (DB-backed) can activate production even without
   // env; otherwise env must be fully configured. Either way the gateway base
   // is required.
   const credentials = resolveCredentials(input)
   if (credentials && process.env.ZATCA_API_BASE_URL) {
-    // ── PRODUCTION (config-only, not exercised against the live API) ─────
+    // ── PRODUCTION (config-only, with retry for transient errors) ─────────
     const signedXml = signXmlIfConfigured(input.xml, credentials.privateKeyPem)
     const base = process.env.ZATCA_API_BASE_URL.replace(/\/$/, "")
     const endpoint = input.pipeline === "clearance"
@@ -152,21 +169,50 @@ export async function transmitToZatca(input: ZatcaTransmitInput): Promise<ZatcaT
     // password (Qoyod sandbox guide + Fatoora community: "the username will
     // be the binarysecuritytoken and the password will be the secret").
     const basicAuth = Buffer.from(`${credentials.csidBase64}:${credentials.secret}`).toString("base64")
-    const res = await fetch(`${base}${endpoint}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/xml",
-        Authorization: `Basic ${basicAuth}`,
-      },
-      body: signedXml,
-    })
-    if (!res.ok) {
-      throw new Error(`ZATCA transport error ${res.status}: ${await res.text()}`)
+
+    let lastError: Error | null = null
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      if (attempt > 0) {
+        // Exponential backoff: 1s, 2s, 4s…
+        await sleep(1000 * Math.pow(2, attempt - 1))
+      }
+
+      try {
+        const res = await fetch(`${base}${endpoint}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/xml",
+            Authorization: `Basic ${basicAuth}`,
+          },
+          body: signedXml,
+        })
+
+        if (res.ok) {
+          const raw: Record<string, unknown> = await res.json()
+          const uuid = String(raw.uuid ?? raw.reportedInvoiceUuid ?? "")
+          const status: ZatcaTransmissionStatus = input.pipeline === "clearance" ? "cleared" : "reported"
+          return { uuid, status, receivedAt: new Date().toISOString(), raw }
+        }
+
+        const errorBody = await res.text()
+        lastError = new Error(`ZATCA transport error ${res.status}: ${errorBody}`)
+
+        // Retry only on transient errors (429, 502, 503, 504)
+        if (!isRetryableStatus(res.status)) {
+          throw lastError
+        }
+      } catch (e) {
+        // Network errors are always retryable
+        if (e instanceof TypeError && attempt < MAX_RETRIES) {
+          lastError = e as Error
+          continue
+        }
+        throw e
+      }
     }
-    const raw: Record<string, unknown> = await res.json()
-    const uuid = String(raw.uuid ?? raw.reportedInvoiceUuid ?? "")
-    const status: ZatcaTransmissionStatus = input.pipeline === "clearance" ? "cleared" : "reported"
-    return { uuid, status, receivedAt: new Date().toISOString(), raw }
+
+    // All retries exhausted
+    throw lastError ?? new Error("ZATCA transport: all retries exhausted")
   }
 
   // ── SANDBOX mock ───────────────────────────────────────────────────────

@@ -10,7 +10,10 @@ import {
   TrendingDown,
   AlertTriangle,
   Info,
-  Truck,
+  UsersRound,
+  CarFront,
+  PackageSearch,
+  HandCoins,
   Menu,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -53,6 +56,14 @@ const toneStyles = {
   danger: "text-rose-600 dark:text-rose-400 bg-rose-500/10",
 } as const
 
+const kpiIcons = [UsersRound, CarFront, PackageSearch, HandCoins]
+const kpiColors = [
+  "from-blue-500 to-cyan-500",
+  "from-violet-500 to-purple-500",
+  "from-amber-500 to-orange-500",
+  "from-emerald-500 to-teal-500",
+]
+
 export function DashboardPreview({ className }: { className?: string }) {
   const { t, locale } = useTranslation()
   const c = landingContent[locale as "en" | "ar"]
@@ -91,7 +102,7 @@ export function DashboardPreview({ className }: { className?: string }) {
                 <div
                   key={item}
                   className={cn(
-                    "flex items-center gap-2.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+                    "flex items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors",
                     active
                       ? "bg-white/10 text-white ring-1 ring-inset ring-white/10"
                       : "text-white/60 hover:bg-white/5 hover:text-white/85"
@@ -143,12 +154,18 @@ export function DashboardPreview({ className }: { className?: string }) {
             <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
               {kpis.map((kpi, i) => {
                 const up = i !== 3
+                const KpiIcon = kpiIcons[i]
                 return (
                   <div
                     key={kpi.label}
-                    className="group rounded-xl border border-border/60 bg-card/70 p-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-elite-blue-500/30 hover:shadow-md hover:shadow-elite-blue-500/10"
+                    className="group card-premium p-3 transition-all duration-200"
                   >
-                    <p className="text-[10px] font-medium text-muted-foreground">{kpi.label}</p>
+                    <div className="flex items-center justify-between">
+                      <p className="text-[10px] font-medium text-muted-foreground">{kpi.label}</p>
+                      <div className={cn("flex h-6 w-6 items-center justify-center rounded-lg bg-gradient-to-br text-white text-[8px] shadow-sm", kpiColors[i])}>
+                        <KpiIcon className="h-3 w-3" />
+                      </div>
+                    </div>
                     <p className="mt-1 text-lg font-extrabold text-foreground sm:text-xl">
                       <CountUpNumber target={kpi.target} locale={locale} prefix={kpi.prefix} suffix={kpi.suffix} />
                     </p>
@@ -168,7 +185,7 @@ export function DashboardPreview({ className }: { className?: string }) {
 
             {/* Chart + alerts */}
             <div className="grid gap-2.5 lg:grid-cols-3">
-              <div className="rounded-xl border border-border/60 bg-card/70 p-3 lg:col-span-2">
+              <div className="card-premium p-3 lg:col-span-2">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs font-bold text-foreground">{c.preview.chartTitle}</p>
@@ -190,7 +207,7 @@ export function DashboardPreview({ className }: { className?: string }) {
                             className={cn(
                               "w-full rounded-t-md transition-all duration-500",
                               peak
-                                ? "bg-gradient-to-t from-elite-blue-600 to-elite-orange-500"
+                                ? "bg-gradient-to-t from-elite-blue-600 to-elite-orange-500 shadow-lg shadow-elite-blue-500/20"
                                 : "bg-gradient-to-t from-elite-blue-500/70 to-elite-blue-400/70 group-hover/bar:from-elite-blue-500 group-hover/bar:to-elite-blue-400"
                             )}
                             style={{ height: `${h}%` }}
@@ -203,7 +220,7 @@ export function DashboardPreview({ className }: { className?: string }) {
                 </div>
               </div>
 
-              <div className="rounded-xl border border-border/60 bg-card/70 p-3">
+              <div className="card-premium p-3">
                 <p className="flex items-center gap-1.5 text-xs font-bold text-foreground">
                   <Bell className="h-3.5 w-3.5 text-elite-orange-500" />
                   {c.preview.alertsTitle}
@@ -231,10 +248,10 @@ export function DashboardPreview({ className }: { className?: string }) {
             </div>
 
             {/* Driver table */}
-            <div className="overflow-hidden rounded-xl border border-border/60 bg-card/70">
+            <div className="overflow-hidden card-premium">
               <div className="flex items-center justify-between border-b border-border/60 px-3 py-2">
                 <p className="flex items-center gap-1.5 text-xs font-bold text-foreground">
-                  <Truck className="h-3.5 w-3.5 text-elite-blue-500" />
+                  <UsersRound className="h-3.5 w-3.5 text-elite-blue-500" />
                   {c.preview.tableTitle}
                 </p>
                 <span className="rounded-md border border-border/60 px-2 py-0.5 text-[9px] text-muted-foreground">

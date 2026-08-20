@@ -8,7 +8,7 @@ import { RevenueBreakdown } from "./components/revenue-breakdown"
 
 export default function Dashboard2() {
   return (
-    <div className="flex-1 space-y-6 px-6 pt-0">
+    <div className="page-enter flex-1 space-y-6 px-6 pt-0">
         {/* Enhanced Header */}
 
         <div className="flex md:flex-row flex-col md:items-center justify-between gap-4 md:gap-6">

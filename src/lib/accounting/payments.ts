@@ -108,6 +108,29 @@ export async function recordPayment(input: RecordPaymentInput): Promise<ActionRe
 
     const admin = createAdminClient()
 
+    // ── Over-allocation guard: each allocation must not exceed the
+    // outstanding balance of its target (defense-in-depth; the DB trigger
+    // PMT003 also enforces this).
+    for (const a of allocations) {
+      const table = a.receivable_id ? "receivables" : "payables"
+      const idCol = a.receivable_id ? "receivable_id" : "payable_id"
+      const targetId = a.receivable_id ?? a.payable_id
+      const { data: target } = await admin
+        .from(table)
+        .select("total_amount,paid_amount")
+        .eq("id", targetId!)
+        .eq("tenant_id", currentUser.tenantId)
+        .is("deleted_at", null)
+        .maybeSingle<{ total_amount: number; paid_amount: number }>()
+      if (!target) {
+        return { success: false, error: pmt("PMT005") }
+      }
+      const outstanding = Number(target.total_amount) - Number(target.paid_amount)
+      if (a.allocated_amount > outstanding + 0.01) {
+        return { success: false, error: pmt("PMT003") }
+      }
+    }
+
     // ── Party + bank belong to the tenant ────────────────────────────────
     if (input.customer_id) {
       const { data: c } = await admin

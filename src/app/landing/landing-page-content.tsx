@@ -17,6 +17,7 @@ import { PricingSection } from "@/components/landing/pricing-section"
 import { FaqSection } from "@/components/landing/faq-section"
 import { FinalCta } from "@/components/landing/final-cta"
 import { LandingFooter } from "@/components/landing/landing-footer"
+import { ScrollReveal } from "@/components/ui/scroll-reveal"
 
 export function LandingPageContent() {
   return (
@@ -24,20 +25,48 @@ export function LandingPageContent() {
       <LandingHeader />
       <main>
         <HeroSection />
-        <PlatformMarquee />
-        <PlatformOverview />
-        <Driver360Section />
-        <PayrollShowcase />
-        <FleetSection />
-        <OperationsSection />
-        <ComplianceSection />
-        <CostControl />
-        <ReportingSection />
-        <WorkflowSection />
-        <TrustSection />
-        <PricingSection />
-        <FaqSection />
-        <FinalCta />
+        <ScrollReveal direction="fade" duration={600}>
+          <PlatformMarquee />
+        </ScrollReveal>
+        <ScrollReveal direction="up" duration={700}>
+          <PlatformOverview />
+        </ScrollReveal>
+        <ScrollReveal direction="up" duration={700}>
+          <Driver360Section />
+        </ScrollReveal>
+        <ScrollReveal direction="up" duration={700}>
+          <PayrollShowcase />
+        </ScrollReveal>
+        <ScrollReveal direction="up" duration={700}>
+          <FleetSection />
+        </ScrollReveal>
+        <ScrollReveal direction="up" duration={700}>
+          <OperationsSection />
+        </ScrollReveal>
+        <ScrollReveal direction="up" duration={700}>
+          <ComplianceSection />
+        </ScrollReveal>
+        <ScrollReveal direction="up" duration={700}>
+          <CostControl />
+        </ScrollReveal>
+        <ScrollReveal direction="up" duration={700}>
+          <ReportingSection />
+        </ScrollReveal>
+        <ScrollReveal direction="up" duration={700}>
+          <WorkflowSection />
+        </ScrollReveal>
+        <ScrollReveal direction="up" duration={700}>
+          <TrustSection />
+        </ScrollReveal>
+        <ScrollReveal direction="up" duration={700}>
+          <PricingSection />
+        </ScrollReveal>
+        <ScrollReveal direction="up" duration={700}>
+          <FaqSection />
+        </ScrollReveal>
+        <ScrollReveal direction="scale" duration={700}>
+          <FinalCta />
+        </ScrollReveal>
       </main>
       <LandingFooter />
     </div>

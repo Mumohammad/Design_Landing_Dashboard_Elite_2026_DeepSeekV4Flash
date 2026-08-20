@@ -7,6 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { EnterpriseModulePage, type KpiCardData, type TableColumn } from "@/components/dashboard/enterprise-module-page"
 import { FileText, Clock, CheckCircle2, AlertTriangle, ReceiptText } from "lucide-react"
 import { InvoicesManager } from "./components/invoices-manager"
+import { ScrollReveal } from "@/components/ui/scroll-reveal"
 
 interface PaymentRow {
   id: string
@@ -115,38 +116,42 @@ export default function InvoicesPage() {
   const [tab, setTab] = useState("invoices")
 
   return (
-    <div className="px-4 lg:px-6 py-4 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">
-          {ar ? "الفواتير" : "Invoices"}
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          {ar
-            ? "محرك الفواتير: مسودة ← صادرة ← معتمدة، مع الإشعارات الدائنة والمدينة وتسوية مدفوعات المنصات"
-            : "Invoice engine: draft → issued → finalized, credit/debit notes, and platform payment reconciliation"}
-        </p>
-      </div>
-
-      <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="flex-wrap">
-          <TabsTrigger value="invoices" className="gap-2">
-            <ReceiptText className="h-4 w-4" />
+    <div className="px-4 lg:px-6 py-4 space-y-6 page-enter">
+      <ScrollReveal direction="fade" duration={400}>
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">
             {ar ? "الفواتير" : "Invoices"}
-          </TabsTrigger>
-          <TabsTrigger value="platforms" className="gap-2">
-            <FileText className="h-4 w-4" />
-            {ar ? "تسوية المنصات" : "Platform payments"}
-          </TabsTrigger>
-        </TabsList>
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            {ar
+              ? "محرك الفواتير: مسودة ← صادرة ← معتمدة، مع الإشعارات الدائنة والمدينة وتسوية مدفوعات المنصات"
+              : "Invoice engine: draft → issued → finalized, credit/debit notes, and platform payment reconciliation"}
+          </p>
+        </div>
+      </ScrollReveal>
 
-        <TabsContent value="invoices" className="mt-4">
-          <InvoicesManager />
-        </TabsContent>
+      <ScrollReveal direction="up" delay={60} duration={400}>
+        <Tabs value={tab} onValueChange={setTab}>
+          <TabsList className="flex-wrap">
+            <TabsTrigger value="invoices" className="gap-2">
+              <ReceiptText className="h-4 w-4" />
+              {ar ? "الفواتير" : "Invoices"}
+            </TabsTrigger>
+            <TabsTrigger value="platforms" className="gap-2">
+              <FileText className="h-4 w-4" />
+              {ar ? "تسوية المنصات" : "Platform payments"}
+            </TabsTrigger>
+          </TabsList>
 
-        <TabsContent value="platforms" className="mt-4">
-          <PlatformPaymentsTab />
-        </TabsContent>
-      </Tabs>
+          <TabsContent value="invoices" className="mt-4">
+            <InvoicesManager />
+          </TabsContent>
+
+          <TabsContent value="platforms" className="mt-4">
+            <PlatformPaymentsTab />
+          </TabsContent>
+        </Tabs>
+      </ScrollReveal>
     </div>
   )
 }

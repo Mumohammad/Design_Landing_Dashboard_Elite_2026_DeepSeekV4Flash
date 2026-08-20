@@ -6,6 +6,8 @@ import { SiteHeader } from "@/components/site-header"
 import { SiteFooter } from "@/components/site-footer"
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar"
 import { Toaster } from "@/components/ui/sonner"
+import { PageTransition } from "@/components/ui/page-transition"
+import { PageErrorBoundary } from "@/components/ui/error-boundary"
 import { useSidebarConfig } from "@/hooks/use-sidebar-config"
 import { useTranslation } from "@/hooks/use-translation"
 
@@ -37,7 +39,9 @@ export default function DashboardLayout({
       <div className="flex flex-1 flex-col">
         <div className="@container/main flex flex-1 flex-col gap-2">
           <div className="flex flex-col gap-6 py-4">
-            {children}
+            <PageTransition>
+              <PageErrorBoundary>{children}</PageErrorBoundary>
+            </PageTransition>
           </div>
         </div>
       </div>

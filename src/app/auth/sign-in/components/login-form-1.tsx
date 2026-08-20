@@ -55,6 +55,8 @@ export function LoginForm1({
       setErrorMessage(t.auth.accountLocked)
     } else if (code === "AUTH_ACCOUNT_INACTIVE") {
       setErrorMessage(t.auth.accountInactive)
+    } else if (code === "AUTH_PROFILE_NOT_FOUND") {
+      setErrorMessage(t.auth.profileNotFound)
     }
   }, [t])
 

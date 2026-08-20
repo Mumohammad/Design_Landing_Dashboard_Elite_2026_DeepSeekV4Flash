@@ -2,24 +2,25 @@
 
 import * as React from "react"
 import {
-  LayoutDashboard,
-  Truck,
-  CircleDot,
-  CalendarCheck,
-  Package,
+  Navigation,
+  UsersRound,
+  CarFront,
+  CalendarClock,
+  PackageSearch,
   LayoutTemplate,
-  CreditCard,
-  Wallet,
-  FileText,
+  HandCoins,
+  WalletCards,
+  FileBadge,
   Calculator,
   Wrench,
-  ShieldAlert,
+  Siren,
   Users,
-  BarChart3,
+  ChartLine,
   ShieldCheck,
   FileSearch,
-  Shield,
+  Fingerprint,
   Settings,
+  ChevronRight,
 } from "lucide-react"
 import Link from "next/link"
 import { Logo } from "@/components/logo"
@@ -37,6 +38,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
+import { cn } from "@/lib/utils"
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { t } = useTranslation()
@@ -46,11 +48,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       label: t.nav.operations,
       accentColor: "#1E5A99",
       items: [
-        { title: t.nav.dashboard, url: "/dashboard", icon: LayoutDashboard },
-        { title: t.nav.drivers, url: "/drivers", icon: Truck },
-        { title: t.nav.vehicles, url: "/vehicles", icon: CircleDot },
-        { title: t.nav.attendance, url: "/attendance", icon: CalendarCheck },
-        { title: t.nav.orders, url: "/orders", icon: Package },
+        { title: t.nav.dashboard, url: "/dashboard", icon: Navigation },
+        { title: t.nav.drivers, url: "/drivers", icon: UsersRound },
+        { title: t.nav.vehicles, url: "/vehicles", icon: CarFront },
+        { title: t.nav.attendance, url: "/attendance", icon: CalendarClock },
+        { title: t.nav.orders, url: "/orders", icon: PackageSearch },
         { title: t.nav.platforms, url: "/platforms", icon: LayoutTemplate },
       ],
     },
@@ -58,9 +60,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       label: t.nav.finance,
       accentColor: "#10B981",
       items: [
-        { title: t.nav.payroll, url: "/payroll", icon: CreditCard },
-        { title: t.nav.expenses, url: "/expenses", icon: Wallet },
-        { title: t.nav.invoices, url: "/invoices", icon: FileText },
+        { title: t.nav.payroll, url: "/payroll", icon: HandCoins },
+        { title: t.nav.expenses, url: "/expenses", icon: WalletCards },
+        { title: t.nav.invoices, url: "/invoices", icon: FileBadge },
         { title: t.nav.accounting, url: "/accounting", icon: Calculator },
       ],
     },
@@ -69,7 +71,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       accentColor: "#F59E0B",
       items: [
         { title: t.nav.maintenance, url: "/maintenance", icon: Wrench },
-        { title: t.nav.violations, url: "/violations", icon: ShieldAlert },
+        { title: t.nav.violations, url: "/violations", icon: Siren },
       ],
     },
     {
@@ -77,7 +79,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       accentColor: "#8B5CF6",
       items: [
         { title: t.nav.hrManagement, url: "/hr", icon: Users },
-        { title: t.nav.applications, url: "/applications", icon: FileText },
+        { title: t.nav.applications, url: "/applications", icon: FileBadge },
         { title: t.nav.templates, url: "/templates", icon: LayoutTemplate },
       ],
     },
@@ -85,17 +87,17 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       label: t.nav.analytics,
       accentColor: "#0EA5E9",
       items: [
-        { title: t.nav.reports, url: "/reports", icon: BarChart3 },
+        { title: t.nav.reports, url: "/reports", icon: ChartLine },
       ],
     },
     {
       label: t.nav.administration,
       accentColor: "#64748B",
       items: [
-        { title: t.nav.users, url: "/users", icon: Users },
+        { title: t.nav.users, url: "/users", icon: UsersRound },
         { title: t.nav.roles, url: "/roles", icon: ShieldCheck },
         { title: t.nav.auditLog, url: "/audit-log", icon: FileSearch },
-        { title: t.nav.security, url: "/security", icon: Shield },
+        { title: t.nav.security, url: "/security", icon: Fingerprint },
         { title: t.nav.settings, url: "/settings", icon: Settings },
       ],
     },
@@ -114,7 +116,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
               <Link href="/dashboard">
-                <div className="flex aspect-square size-8 items-center justify-center rounded-2xl bg-gradient-to-br from-elite-blue-500 to-elite-blue-700 text-white">
+                <div className="flex aspect-square size-8 items-center justify-center rounded-2xl bg-gradient-to-br from-elite-blue-500 to-elite-blue-700 text-white shadow-lg shadow-elite-blue-500/30">
                   <Logo size={24} className="text-current" />
                 </div>
                 <div className="grid flex-1 text-right text-sm leading-tight">

@@ -88,6 +88,8 @@ type TenantRow = {
   name_ar: string
   name_en: string | null
   vat_number: string | null
+  cr_number: string | null
+  phone: string | null
   address: string | null
   city: string | null
 }
@@ -129,7 +131,7 @@ export async function generateInvoiceDocument(invoiceId: string): Promise<Action
 
     const { data: tenant } = await admin
       .from("tenants")
-      .select("name_ar,name_en,vat_number,address,city")
+      .select("name_ar,name_en,vat_number,cr_number,phone,address,city")
       .eq("id", currentUser.tenantId)
       .maybeSingle<TenantRow>()
 
@@ -165,6 +167,8 @@ export async function generateInvoiceDocument(invoiceId: string): Promise<Action
       companyNameAr: tenant?.name_ar ?? "نخبة التطوير",
       companyNameEn: tenant?.name_en ?? "Elite Development",
       companyVatNumber: sellerVat,
+      companyCrNumber: tenant?.cr_number ?? null,
+      companyPhone: tenant?.phone ?? null,
       companyAddress: tenant?.address ?? "",
       companyCity: tenant?.city ?? "",
       partyNameAr: party?.name_ar ?? "—",

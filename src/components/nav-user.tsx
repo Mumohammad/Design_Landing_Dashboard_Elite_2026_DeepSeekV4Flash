@@ -3,8 +3,9 @@
 import {
   EllipsisVertical,
   LogOut,
-  CircleUser,
+  Fingerprint,
   Settings,
+  ChevronRight,
 } from "lucide-react"
 import Link from "next/link"
 
@@ -24,6 +25,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar"
+import { useTranslation } from "@/hooks/use-translation"
 
 export function NavUser({
   user,
@@ -35,6 +37,8 @@ export function NavUser({
   }
 }) {
   const { isMobile } = useSidebar()
+  const { locale } = useTranslation()
+  const ar = locale === "ar"
 
   return (
     <SidebarMenu>
@@ -46,7 +50,7 @@ export function NavUser({
               className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground cursor-pointer"
             >
               <div className="flex h-8 w-8 items-center justify-center rounded-lg">
-                < Logo size={28} />
+                <Logo size={28} />
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-medium">{user.name}</span>
@@ -58,7 +62,7 @@ export function NavUser({
             </SidebarMenuButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent
-            className="w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg"
+            className="w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-xl border-border/50 bg-card/95 backdrop-blur-xl shadow-xl"
             side={isMobile ? "bottom" : "right"}
             align="end"
             sideOffset={4}
@@ -66,7 +70,7 @@ export function NavUser({
             <DropdownMenuLabel className="p-0 font-normal">
               <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
                 <div className="h-8 w-8 rounded-lg">
-                  < Logo size={28} />
+                  <Logo size={28} />
                 </div>
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-medium">{user.name}</span>
@@ -78,24 +82,26 @@ export function NavUser({
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem asChild className="cursor-pointer">
-                <Link href="/settings/security">
-                  <CircleUser />
-                  Account
+              <DropdownMenuItem asChild className="cursor-pointer rounded-lg">
+                <Link href="/settings/security" className="flex items-center gap-2">
+                  <Fingerprint className="h-4 w-4 text-muted-foreground" />
+                  {ar ? "الأمان" : "Security"}
+                  <ChevronRight className="ms-auto h-3 w-3 text-muted-foreground rtl:rotate-180" />
                 </Link>
               </DropdownMenuItem>
-              <DropdownMenuItem asChild className="cursor-pointer">
-                <Link href="/settings">
-                  <Settings />
-                  Settings
+              <DropdownMenuItem asChild className="cursor-pointer rounded-lg">
+                <Link href="/settings" className="flex items-center gap-2">
+                  <Settings className="h-4 w-4 text-muted-foreground" />
+                  {ar ? "الإعدادات" : "Settings"}
+                  <ChevronRight className="ms-auto h-3 w-3 text-muted-foreground rtl:rotate-180" />
                 </Link>
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem asChild className="cursor-pointer">
-              <Link href="/auth/sign-in">
-                <LogOut />
-                Log out
+            <DropdownMenuItem asChild className="cursor-pointer rounded-lg text-red-600 dark:text-red-400">
+              <Link href="/auth/sign-in" className="flex items-center gap-2">
+                <LogOut className="h-4 w-4" />
+                {ar ? "تسجيل الخروج" : "Log out"}
               </Link>
             </DropdownMenuItem>
           </DropdownMenuContent>

@@ -44,8 +44,9 @@ describe("buildInvoiceHtml — document shell", () => {
     expect(html.startsWith("<!DOCTYPE html>")).toBe(true)
     expect(html).toContain('<html lang="ar" dir="rtl">')
     expect(html).toContain('@page { size: A4;')
-    expect(html).toContain("فاتورة بيع")
-    expect(html).toContain("Sales Invoice")
+    // Sales invoices use "فاتورة ضريبية" (Tax Invoice) — the ZATCA standard term
+    expect(html).toContain("فاتورة ضريبية")
+    expect(html).toContain("TAX Invoice")
   })
 
   it("renders the invoice number, parties, and totals", () => {

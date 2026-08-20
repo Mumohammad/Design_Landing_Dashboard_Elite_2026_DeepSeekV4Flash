@@ -57,7 +57,7 @@ export default function TaskPage() {
   return (
     <>
       {/* Page Header */}
-      <div className="flex flex-col gap-2 px-4 md:px-6">
+      <div className="page-enter flex flex-col gap-2 px-4 md:px-6">
         <h1 className="text-2xl font-bold tracking-tight">Tasks</h1>
         <p className="text-muted-foreground">
           A powerful task and issue tracker built with Tanstack Table.

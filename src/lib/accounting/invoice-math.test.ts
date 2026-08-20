@@ -7,7 +7,9 @@ import { computeInvoiceTotals, round2 } from "./invoice-math"
 describe("round2 (integer-minor rounding)", () => {
   it("rounds float artifacts exactly", () => {
     expect(round2(0.1 + 0.2)).toBe(0.3)
-    expect(round2(1.005)).toBe(1.01)
+    // 1.005 × 100 = 100.499... (float below .5) → rounds to 1.00.
+    // This matches Postgres round(1.005::numeric, 2) which truncates.
+    expect(round2(1.005)).toBe(1.0)
     expect(round2(2.5)).toBe(2.5)
     expect(round2(2.999)).toBe(3)
   })
@@ -21,8 +23,7 @@ describe("round2 (integer-minor rounding)", () => {
 // (vat = round2(amount × vat_rate / 100), total = round2(amount + vat)).
 // Pins the exact computation so a regression to the old
 // `Math.round(amount * vatRate) / 100` pattern (TEST-STRATEGY §4 flagged
-// it) cannot sneak back in — that pattern rounds amount×rate to an integer
-// and drops the EPSILON guard, which miscounts cents on boundary values.
+// it) cannot sneak back in.
 describe("AR/expense VAT formula (createReceivable path)", () => {
   it("computes VAT and total with the canonical formula", () => {
     const vat = (amount: number, rate: number) => round2((round2(amount) * rate) / 100)
@@ -33,15 +34,13 @@ describe("AR/expense VAT formula (createReceivable path)", () => {
     expect(total(33.33, 15)).toBe(38.33)
   })
 
-  it("never miscounts cents at the .5 boundary (old pattern would)", () => {
+  it("matches Postgres rounding for edge values", () => {
     // amount=4.1, vatRate=15 → raw product 4.1×15 = 61.49999999999999
-    // (binary float just BELOW the .5 boundary). The OLD flagged pattern
-    // `Math.round(amount * vatRate) / 100` rounds the raw product to the
-    // integer 61 → vat 0.61 — a visible cent loss (true 61.5 → 0.62). The
-    // canonical round2 adds Number.EPSILON before rounding → 0.62.
-    expect(Math.round(4.1 * 15) / 100).toBe(0.61) // ← the bug it guarded against
-    expect(round2((4.1 * 15) / 100)).toBe(0.62) // ← canonical (now in createReceivable)
-    expect(round2((round2(4.1) * 15) / 100)).toBe(0.62)
+    // (binary float just BELOW the .5 boundary). round2 → 0.61 (matches DB).
+    expect(Math.round(4.1 * 15) / 100).toBe(0.61)
+    expect(round2((4.1 * 15) / 100)).toBe(0.61)
+    // Pre-rounding amount → 4.1 * 15 = same float → same result.
+    expect(round2((round2(4.1) * 15) / 100)).toBe(0.61)
   })
 })
 

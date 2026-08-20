@@ -89,6 +89,7 @@ export type TranslationStrings = {
     emailNotConfirmed: string
     accountLocked: string
     accountInactive: string
+    profileNotFound: string
     rememberMe: string
     showPassword: string
     hidePassword: string
@@ -475,5 +476,77 @@ export type TranslationStrings = {
     fuelHybrid: string
     fuelElectric: string
     notAssigned: string
+    // Documents tab
+    docType: string
+    docNumber: string
+    issueDate: string
+    expiryDate: string
+    issuingAuthority: string
+    verified: string
+    unverified: string
+    noDocuments: string
+    docRegistration: string
+    docInsurance: string
+    docInspection: string
+    docOperatingCard: string
+    docOwnership: string
+    docModificationPermit: string
+    docOther: string
+    // Assignments tab
+    currentAssignment: string
+    pastAssignments: string
+    driverName: string
+    assignedAt: string
+    unassignedAt: string
+    assignmentReason: string
+    handoverOdometer: string
+    returnOdometer: string
+    noAssignments: string
+    active: string
+    ended: string
+    // Handover tab
+    handoverForm: string
+    returnForm: string
+    formDate: string
+    odometerReading: string
+    fuelLevel: string
+    overallCondition: string
+    defectsNoted: string
+    noHandoverForms: string
+    conditionOk: string
+    conditionMinorIssue: string
+    conditionMajorIssue: string
+    conditionMissing: string
+    fuelFull: string
+    fuelThreeQuarters: string
+    fuelHalf: string
+    fuelQuarter: string
+    fuelEmpty: string
+    // Maintenance tab
+    maintenanceType: string
+    reportedAt: string
+    faultDescription: string
+    provider: string
+    cost: string
+    dateIn: string
+    dateOut: string
+    noMaintenanceEvents: string
+    typePreventive: string
+    typeEmergency: string
+    typePeriodic: string
+    typeRepair: string
+    statusOpen: string
+    statusInProgress: string
+    statusCompleted: string
+    statusCancelled: string
+    // Odometer tab
+    reading: string
+    recordedAt: string
+    source: string
+    noOdometerLogs: string
+    sourceManual: string
+    sourceGps: string
+    sourceObd: string
+    sourceImport: string
   }
 }

@@ -71,7 +71,9 @@ export async function proxy(request: NextRequest) {
     // (schema plan) should have created it. Treat as unauthenticated and
     // force sign-out to avoid a half-state.
     await supabase.auth.signOut()
-    return NextResponse.redirect(new URL("/auth/sign-in", request.url))
+    const url = new URL("/auth/sign-in", request.url)
+    url.searchParams.set("error", "AUTH_PROFILE_NOT_FOUND")
+    return NextResponse.redirect(url)
   }
 
   // 4. Account status checks.

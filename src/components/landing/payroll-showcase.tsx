@@ -1,7 +1,7 @@
 "use client"
 
 import { cn } from "@/lib/utils"
-import { Plus, Minus, Equal, Settings2, Landmark } from "lucide-react"
+import { Plus, Minus, Equal, Settings2, HandCoins } from "lucide-react"
 import { landingContent } from "@/lib/landing-content"
 import { useTranslation } from "@/hooks/use-translation"
 import { Reveal, SectionHeading, DemoNote } from "./shared"
@@ -11,16 +11,16 @@ export function PayrollShowcase() {
   const c = landingContent[locale as "en" | "ar"]
 
   return (
-    <section id="payroll" className="mx-auto max-w-7xl scroll-mt-24 px-4 py-20 lg:px-8">
+    <section id="payroll" className="mx-auto max-w-7xl scroll-mt-24 px-4 py-24 lg:px-8">
       <SectionHeading tag={c.payroll.tag} title={c.payroll.title} subtitle={c.payroll.subtitle} />
 
-      <div className="mt-12 grid gap-6 lg:grid-cols-2">
+      <div className="mt-14 grid gap-6 lg:grid-cols-2">
         {/* Example calculation */}
         <Reveal>
-          <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-border/50 bg-card/70 backdrop-blur-sm">
+          <div className="card-premium flex h-full flex-col overflow-hidden p-0">
             <div className="flex items-center gap-2.5 border-b border-border/50 bg-elite-blue-500/5 px-6 py-4">
-              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-elite-blue-500 to-elite-blue-700 text-white shadow-lg shadow-elite-blue-500/20">
-                <Landmark className="h-4 w-4" />
+              <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-white shadow-lg shadow-emerald-500/20">
+                <HandCoins className="h-5 w-5" />
               </span>
               <div>
                 <p className="text-sm font-bold text-foreground">{c.payroll.calcTitle}</p>
@@ -32,7 +32,7 @@ export function PayrollShowcase() {
                 <div
                   key={row.label}
                   className={cn(
-                    "flex items-center justify-between gap-3 rounded-xl px-4 py-2.5",
+                    "flex items-center justify-between gap-3 rounded-xl px-4 py-3 transition-colors",
                     row.strong
                       ? "bg-gradient-to-r from-elite-blue-500/10 to-elite-orange-500/10 ring-1 ring-inset ring-elite-blue-500/20"
                       : "bg-background/50"
@@ -57,10 +57,10 @@ export function PayrollShowcase() {
 
         {/* Where the money goes */}
         <Reveal delay={120}>
-          <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-border/50 bg-background shadow-xl shadow-elite-blue-950/5">
+          <div className="card-premium flex h-full flex-col overflow-hidden p-0">
             <div className="flex items-center gap-2.5 border-b border-border/50 px-6 py-4">
-              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-elite-orange-500 to-elite-orange-600 text-white shadow-lg shadow-elite-orange-500/20">
-                <Settings2 className="h-4 w-4" />
+              <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-elite-orange-500 to-elite-orange-600 text-white shadow-lg shadow-elite-orange-500/20">
+                <Settings2 className="h-5 w-5" />
               </span>
               <div>
                 <p className="text-sm font-bold text-foreground">{c.payroll.formulaTitle}</p>
@@ -74,7 +74,7 @@ export function PayrollShowcase() {
                   <div
                     key={line.label}
                     className={cn(
-                      "flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-sm",
+                      "flex items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors",
                       line.kind === "total" && "bg-gradient-to-r from-elite-blue-500/15 to-elite-orange-500/15 ring-1 ring-inset ring-elite-blue-500/25"
                     )}
                   >

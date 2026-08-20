@@ -15,7 +15,7 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner"
 import {
   BookOpenText, ListTree, Scale, HandCoins, Wallet, Plus, Save, X, CheckCircle2, AlertTriangle, Percent, Landmark,
   RotateCcw, Send, Check, Ban, CalendarRange, Lock, Unlock, Loader2, Users, Store, ListChecks, Zap,
-  ArrowDownLeft, ArrowUpRight, Building2, FileCheck2, KeyRound,
+  ArrowDownLeft, ArrowUpRight, Building2, FileCheck2, KeyRound, Calculator,
 } from "lucide-react"
 import {
   postJournalEntry,
@@ -1073,15 +1073,20 @@ export default function AccountingPage() {
   const dialogBtn = "inline-flex h-8 items-center gap-1.5 rounded-xl bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 px-3 text-xs font-medium text-white shadow-sm transition-all hover:from-elite-blue-700 hover:to-elite-blue-800"
 
   return (
-    <div className="px-4 lg:px-6 py-4 space-y-6">
+    <div className="px-4 lg:px-6 py-4 space-y-6 page-enter">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            {ar ? "المحاسبة والمالية" : "Accounting & Finance"}
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            {ar ? "قيود اليومية، دليل الحسابات، الذمم، وضريبة القيمة المضافة" : "Journal entries, chart of accounts, AR/AP, and VAT"}
-          </p>
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-white shadow-lg shadow-emerald-500/25">
+            <Calculator className="h-5 w-5" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">
+              {ar ? "المحاسبة والمالية" : "Accounting & Finance"}
+            </h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              {ar ? "قيود اليومية، دليل الحسابات، الذمم، وضريبة القيمة المضافة" : "Journal entries, chart of accounts, AR/AP, and VAT"}
+            </p>
+          </div>
         </div>
         {feedback && (
           <div

@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   FileClock,
   Gauge,
+  LayoutDashboard,
   PackageCheck,
   ShieldAlert,
   TriangleAlert,
@@ -33,8 +34,23 @@ import { Insights } from "./components/insights"
 import { RecentActivity } from "./components/recent-activity"
 import { DriverTable } from "./components/driver-table"
 import { ChartSkeleton, KpiSkeleton } from "./components/states"
+import { ScrollReveal, StaggerContainer } from "@/components/ui/scroll-reveal"
 
 const DEFAULT_FILTERS: DashboardFilters = { period: "30d", platform: "all", category: "all" }
+
+function SectionHeader({ icon: Icon, title, subtitle }: { icon: React.ElementType; title: string; subtitle?: string }) {
+  return (
+    <div className="flex items-center gap-3">
+      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-elite-blue-500/10 to-elite-orange-500/10">
+        <Icon className="h-4.5 w-4.5 text-elite-blue-600 dark:text-elite-blue-400" />
+      </div>
+      <div>
+        <h2 className="text-sm font-bold text-foreground">{title}</h2>
+        {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
+      </div>
+    </div>
+  )
+}
 
 export default function DashboardPage() {
   const { t, locale } = useTranslation()
@@ -106,38 +122,51 @@ export default function DashboardPage() {
   )
 
   return (
-    <div className="space-y-6 px-4 lg:px-6">
-      {/* Page header */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-2xl font-extrabold tracking-tight text-foreground">{t.app.dashboardTitle}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{t.dashboard.welcomeMessage} · {today}</p>
+    <div className="page-enter space-y-8 px-4 lg:px-6">
+      {/* ── Page header ── */}
+      <ScrollReveal direction="fade" duration={400}>
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-2xl font-extrabold tracking-tight text-foreground lg:text-3xl">
+              {t.app.dashboardTitle}
+            </h1>
+            <p className="mt-1.5 text-sm text-muted-foreground">
+              {t.dashboard.welcomeMessage} · <span className="font-medium text-foreground/70">{today}</span>
+            </p>
+          </div>
+          <QuickActions />
         </div>
-        <QuickActions />
-      </div>
+      </ScrollReveal>
 
-      {/* Global filters */}
-      <FilterBar
-        filters={filters}
-        onChange={setFilters}
-        onRefresh={() => void load(filters, true)}
-        refreshing={refreshing}
-        platforms={platformOptions}
-        generatedAt={snapshot?.generatedAt ?? null}
-      />
+      {/* ── Global filters ── */}
+      <ScrollReveal direction="up" delay={50} duration={400}>
+        <FilterBar
+          filters={filters}
+          onChange={setFilters}
+          onRefresh={() => void load(filters, true)}
+          refreshing={refreshing}
+          platforms={platformOptions}
+          generatedAt={snapshot?.generatedAt ?? null}
+        />
+      </ScrollReveal>
 
       {loadError ? (
-        <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-6 text-center">
-          <p className="text-sm font-semibold text-red-600 dark:text-red-400">{t.dashboard.unableToLoad}</p>
-          <button
-            onClick={() => void load(filters)}
-            className="mt-2 text-xs font-semibold text-elite-blue-600 underline-offset-2 hover:underline dark:text-elite-blue-300"
-          >
-            {t.common.retry}
-          </button>
-        </div>
+        <ScrollReveal direction="scale" delay={100}>
+          <div className="rounded-2xl border border-red-500/30 bg-red-500/5 p-8 text-center backdrop-blur-sm">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-red-500/10">
+              <TriangleAlert className="h-6 w-6 text-red-500" />
+            </div>
+            <p className="text-sm font-semibold text-red-600 dark:text-red-400">{t.dashboard.unableToLoad}</p>
+            <button
+              onClick={() => void load(filters)}
+              className="mt-3 rounded-xl bg-red-500/10 px-4 py-2 text-xs font-semibold text-red-600 transition-colors hover:bg-red-500/20 dark:text-red-400"
+            >
+              {t.common.retry}
+            </button>
+          </div>
+        </ScrollReveal>
       ) : initialLoading || !snapshot || !k ? (
-        <>
+        <div className="space-y-8">
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
             {Array.from({ length: 8 }).map((_, i) => (
               <KpiSkeleton key={i} />
@@ -151,63 +180,118 @@ export default function DashboardPage() {
             <ChartSkeleton />
             <ChartSkeleton />
           </div>
-        </>
+        </div>
       ) : (
         <>
           {/* ── Executive KPI row ── */}
-          <section aria-label="Executive KPIs">
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-              <KpiCard label={t.dashboard.totalDrivers} metric={k.totalDrivers} icon={UsersRound} color="#1E5A99" href="/drivers" />
-              <KpiCard label={t.dashboard.activeDrivers} metric={k.activeDrivers} icon={CheckCircle2} color="#10B981" href="/drivers" />
-              <KpiCard label={t.dashboard.totalVehicles} metric={k.totalVehicles} icon={CarFront} color="#2F7BC4" href="/vehicles" />
-              <KpiCard label={t.dashboard.inMaintenance} metric={k.inMaintenance} icon={Wrench} color="#F59E0B" href="/maintenance" />
-              <KpiCard label={t.dashboard.totalOrders} metric={k.totalOrders} icon={PackageCheck} color="#1E5A99" href="/platforms" spark={ordersSpark} />
-              <KpiCard label={t.dashboard.completionRate} metric={k.completionRate} icon={Gauge} color="#10B981" href="/platforms" spark={completionSpark} deltaUnit="pp" />
-              <KpiCard label={t.dashboard.revenue} metric={k.revenue} icon={Banknote} color="#2F7BC4" href="/reports" spark={revenueSpark} currency />
-              <KpiCard label={t.dashboard.netPayroll} metric={k.netPayroll} icon={WalletCards} color="#E87D3E" href="/payroll" currency />
-            </div>
+          <section aria-label="Executive KPIs" className="space-y-3">
+            <ScrollReveal direction="up" delay={80}>
+              <SectionHeader
+                icon={LayoutDashboard}
+                title={locale === "ar" ? "مؤشرات الأداء الرئيسية" : "Executive Overview"}
+                subtitle={locale === "ar" ? "نظرة عامة على أداء المؤسسة" : "At-a-glance performance metrics"}
+              />
+            </ScrollReveal>
+            <StaggerContainer staggerDelay={60} direction="up">
+              <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                <KpiCard label={t.dashboard.totalDrivers} metric={k.totalDrivers} icon={UsersRound} color="#1E5A99" href="/drivers" />
+                <KpiCard label={t.dashboard.activeDrivers} metric={k.activeDrivers} icon={CheckCircle2} color="#10B981" href="/drivers" />
+                <KpiCard label={t.dashboard.totalVehicles} metric={k.totalVehicles} icon={CarFront} color="#2F7BC4" href="/vehicles" />
+                <KpiCard label={t.dashboard.inMaintenance} metric={k.inMaintenance} icon={Wrench} color="#F59E0B" href="/maintenance" />
+              </div>
+            </StaggerContainer>
           </section>
 
-          {/* ── Operational KPI row ── */}
-          <section aria-label="Operations KPIs">
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-              <KpiCard label={t.dashboard.openViolations} metric={k.openViolations} icon={TriangleAlert} color="#EF4444" href="/violations" />
-              <KpiCard label={t.dashboard.pendingApplications} metric={k.pendingApplications} icon={FileClock} color="#8B5CF6" href="/applications" />
-              <KpiCard label={t.dashboard.expiringDocuments} metric={k.expiringDocuments} icon={CalendarClock} color="#F59E0B" href="/drivers" />
-              <KpiCard label={t.dashboard.expiredDocuments} metric={k.expiredDocuments} icon={ShieldAlert} color="#EF4444" href="/drivers" />
-            </div>
+          {/* ── Financial KPI row ── */}
+          <section aria-label="Financial KPIs" className="space-y-3">
+            <ScrollReveal direction="up" delay={80}>
+              <SectionHeader
+                icon={WalletCards}
+                title={locale === "ar" ? "المؤشرات المالية" : "Financial Performance"}
+                subtitle={locale === "ar" ? "الإيرادات والمصروفات" : "Revenue and payroll at a glance"}
+              />
+            </ScrollReveal>
+            <StaggerContainer staggerDelay={60} direction="up">
+              <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                <KpiCard label={t.dashboard.totalOrders} metric={k.totalOrders} icon={PackageCheck} color="#1E5A99" href="/platforms" spark={ordersSpark} />
+                <KpiCard label={t.dashboard.completionRate} metric={k.completionRate} icon={Gauge} color="#10B981" href="/platforms" spark={completionSpark} deltaUnit="pp" />
+                <KpiCard label={t.dashboard.revenue} metric={k.revenue} icon={Banknote} color="#2F7BC4" href="/reports" spark={revenueSpark} currency />
+                <KpiCard label={t.dashboard.netPayroll} metric={k.netPayroll} icon={WalletCards} color="#E87D3E" href="/payroll" currency />
+              </div>
+            </StaggerContainer>
+          </section>
+
+          {/* ── Operational Alerts ── */}
+          <section aria-label="Operations" className="space-y-3">
+            <ScrollReveal direction="up" delay={80}>
+              <SectionHeader
+                icon={ShieldAlert}
+                title={locale === "ar" ? "تنبيهات التشغيل" : "Operational Alerts"}
+                subtitle={locale === "ar" ? "الانتهاكات والمستندات" : "Violations and document expiry"}
+              />
+            </ScrollReveal>
+            <StaggerContainer staggerDelay={60} direction="up">
+              <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                <KpiCard label={t.dashboard.openViolations} metric={k.openViolations} icon={TriangleAlert} color="#EF4444" href="/violations" />
+                <KpiCard label={t.dashboard.pendingApplications} metric={k.pendingApplications} icon={FileClock} color="#8B5CF6" href="/applications" />
+                <KpiCard label={t.dashboard.expiringDocuments} metric={k.expiringDocuments} icon={CalendarClock} color="#F59E0B" href="/drivers" />
+                <KpiCard label={t.dashboard.expiredDocuments} metric={k.expiredDocuments} icon={ShieldAlert} color="#EF4444" href="/drivers" />
+              </div>
+            </StaggerContainer>
           </section>
 
           {/* ── Primary analytics ── */}
           <section aria-label="Trends" className="grid gap-4 xl:grid-cols-2">
-            <OrdersTrend data={snapshot.trends.orders} available={snapshot.availability.orders} onRetry={() => void load(filters, true)} />
-            <RevenueTrend data={snapshot.trends.revenue} available={snapshot.availability.orders} onRetry={() => void load(filters, true)} />
+            <ScrollReveal direction="up" delay={100}>
+              <OrdersTrend data={snapshot.trends.orders} available={snapshot.availability.orders} onRetry={() => void load(filters, true)} />
+            </ScrollReveal>
+            <ScrollReveal direction="up" delay={160}>
+              <RevenueTrend data={snapshot.trends.revenue} available={snapshot.availability.orders} onRetry={() => void load(filters, true)} />
+            </ScrollReveal>
           </section>
 
           {/* ── Secondary analytics ── */}
           <section aria-label="Performance" className="grid gap-4 xl:grid-cols-2">
-            <PlatformPerformance data={snapshot.platforms} available={snapshot.availability.orders} onRetry={() => void load(filters, true)} />
-            <DriverTargets data={snapshot.driverTargets} buckets={snapshot.targetBuckets} available={snapshot.availability.payroll} onRetry={() => void load(filters, true)} />
+            <ScrollReveal direction="left" delay={100}>
+              <PlatformPerformance data={snapshot.platforms} available={snapshot.availability.orders} onRetry={() => void load(filters, true)} />
+            </ScrollReveal>
+            <ScrollReveal direction="right" delay={160}>
+              <DriverTargets data={snapshot.driverTargets} buckets={snapshot.targetBuckets} available={snapshot.availability.payroll} onRetry={() => void load(filters, true)} />
+            </ScrollReveal>
           </section>
 
           {/* ── Financial ── */}
-          <PayrollSummary payroll={snapshot.payroll} />
+          <ScrollReveal direction="up" delay={100}>
+            <PayrollSummary payroll={snapshot.payroll} />
+          </ScrollReveal>
 
           {/* ── Compliance + violations ── */}
           <section aria-label="Compliance" className="grid gap-4 xl:grid-cols-2">
-            <ComplianceRadar compliance={snapshot.compliance} available={snapshot.availability.drivers || snapshot.availability.vehicles} onRetry={() => void load(filters, true)} />
-            <ViolationsTrend data={snapshot.trends.violations} available={snapshot.availability.violations} onRetry={() => void load(filters, true)} />
+            <ScrollReveal direction="left" delay={100}>
+              <ComplianceRadar compliance={snapshot.compliance} available={snapshot.availability.drivers || snapshot.availability.vehicles} onRetry={() => void load(filters, true)} />
+            </ScrollReveal>
+            <ScrollReveal direction="right" delay={160}>
+              <ViolationsTrend data={snapshot.trends.violations} available={snapshot.availability.violations} onRetry={() => void load(filters, true)} />
+            </ScrollReveal>
           </section>
 
           {/* ── Action center + insights + activity ── */}
           <section aria-label="Actions and insights" className="grid gap-4 xl:grid-cols-3">
-            <ActionCenter actions={snapshot.actions} />
-            <Insights insights={snapshot.insights} />
-            <RecentActivity activity={snapshot.activity} />
+            <ScrollReveal direction="up" delay={80}>
+              <ActionCenter actions={snapshot.actions} />
+            </ScrollReveal>
+            <ScrollReveal direction="up" delay={140}>
+              <Insights insights={snapshot.insights} />
+            </ScrollReveal>
+            <ScrollReveal direction="up" delay={200}>
+              <RecentActivity activity={snapshot.activity} />
+            </ScrollReveal>
           </section>
 
           {/* ── Drill-down table ── */}
-          <DriverTable data={snapshot.driverTargets} available={snapshot.availability.payroll} onRetry={() => void load(filters, true)} />
+          <ScrollReveal direction="up" delay={100}>
+            <DriverTable data={snapshot.driverTargets} available={snapshot.availability.payroll} onRetry={() => void load(filters, true)} />
+          </ScrollReveal>
         </>
       )}
     </div>

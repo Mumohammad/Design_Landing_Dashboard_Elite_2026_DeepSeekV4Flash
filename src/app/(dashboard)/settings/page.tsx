@@ -4,8 +4,10 @@ import Link from "next/link"
 import { useTranslation } from "@/hooks/use-translation"
 import {
   Building2, Shield, Bell, Palette, CreditCard, KeyRound,
-  FileText, Users, Globe, Database, Clock, Lock
+  FileText, Users, Globe, Database, Clock, Lock, ArrowLeft
 } from "lucide-react"
+import { cn } from "@/lib/utils"
+import { ScrollReveal, StaggerContainer } from "@/components/ui/scroll-reveal"
 
 interface SettingCard {
   title: string
@@ -64,41 +66,60 @@ export default function SettingsPage() {
   ]
 
   return (
-    <div className="px-4 lg:px-6 py-4 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">{t.nav.settings}</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          {t.common.status === "الحالة" ? "إدارة إعدادات النظام والشركة والأمان" : "Manage system, company, and security settings"}
-        </p>
-      </div>
+    <div className="px-4 lg:px-6 py-4 space-y-6 page-enter">
+      <ScrollReveal direction="fade" duration={400}>
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-muted/50 to-muted/30 border border-border/50 backdrop-blur-sm">
+            <KeyRound className="h-5 w-5 text-muted-foreground" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">{t.nav.settings}</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              {t.common.status === "الحالة" ? "إدارة إعدادات النظام والشركة والأمان" : "Manage system, company, and security settings"}
+            </p>
+          </div>
+        </div>
+      </ScrollReveal>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {cards.map((card) => {
-          const Icon = card.icon
-          return (
-            <Link
-              key={card.href}
-              href={card.href}
-              className="group relative overflow-hidden rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm p-5 shadow-sm hover:shadow-md transition-all hover-lift"
-            >
-              <div
-                className="absolute top-0 right-0 w-20 h-20 rounded-full opacity-[0.06]"
-                style={{ backgroundColor: card.color, transform: "translate(30%, -30%)" }}
-              />
-              <div className="relative">
+      <StaggerContainer staggerDelay={60} direction="up">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {cards.map((card) => {
+            const Icon = card.icon
+            return (
+              <Link
+                key={card.href}
+                href={card.href}
+                className="group relative overflow-hidden rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm p-6 shadow-sm hover:shadow-lg hover:shadow-black/[0.04] transition-all duration-300 hover:-translate-y-0.5 hover:border-border/80"
+              >
+                {/* Animated gradient accent top line */}
                 <div
-                  className="flex h-10 w-10 items-center justify-center rounded-xl mb-3"
-                  style={{ backgroundColor: card.color + "15" }}
-                >
-                  <Icon className="h-5 w-5" style={{ color: card.color }} />
+                  className="absolute inset-x-0 top-0 h-[2px] opacity-0 group-hover:opacity-60 transition-opacity duration-300"
+                  style={{ background: `linear-gradient(90deg, transparent, ${card.color}, transparent)` }}
+                />
+                {/* Soft glow behind icon */}
+                <div
+                  className="absolute -top-6 -right-6 w-24 h-24 rounded-full opacity-[0.04] group-hover:opacity-[0.08] transition-opacity duration-500 blur-xl"
+                  style={{ backgroundColor: card.color }}
+                />
+                <div className="relative">
+                  <div
+                    className="flex h-12 w-12 items-center justify-center rounded-xl mb-4 transition-transform duration-300 group-hover:scale-110"
+                    style={{ backgroundColor: `${card.color}12` }}
+                  >
+                    <Icon className="h-6 w-6" style={{ color: card.color }} />
+                  </div>
+                  <h3 className="text-sm font-semibold text-foreground mb-1 group-hover:text-foreground transition-colors">{card.title}</h3>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{card.description}</p>
+                  <div className="mt-4 flex items-center gap-1 text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity duration-200" style={{ color: card.color }}>
+                    <span>{t.common.status === "الحالة" ? "الإعدادات" : "Settings"}</span>
+                    <ArrowLeft className="h-3 w-3 rtl:rotate-180" />
+                  </div>
                 </div>
-                <h3 className="text-sm font-semibold text-foreground mb-1">{card.title}</h3>
-                <p className="text-xs text-muted-foreground">{card.description}</p>
-              </div>
-            </Link>
-          )
-        })}
-      </div>
+              </Link>
+            )
+          })}
+        </div>
+      </StaggerContainer>
     </div>
   )
 }

@@ -5,22 +5,23 @@ import { useRouter } from "next/navigation"
 import { Command as CommandPrimitive } from "cmdk"
 import {
   Search,
-  LayoutDashboard,
-  Truck,
-  CircleDot,
-  CalendarCheck,
+  Navigation,
+  UsersRound,
+  CarFront,
+  CalendarClock,
+  PackageSearch,
   LayoutTemplate,
-  CreditCard,
-  Wallet,
-  FileText,
+  HandCoins,
+  WalletCards,
+  FileBadge,
   Calculator,
   Wrench,
-  ShieldAlert,
+  Siren,
   Users,
-  BarChart3,
+  ChartLine,
   ShieldCheck,
   FileSearch,
-  Shield,
+  Fingerprint,
   Settings,
   HelpCircle,
   ArrowUpRight,
@@ -135,39 +136,39 @@ export function CommandSearch({ open, onOpenChange }: CommandSearchProps) {
 
   const searchItems: SearchItem[] = [
     // Operations
-    { title: t.nav.dashboard, url: "/dashboard", group: t.nav.operations, icon: LayoutDashboard, accent: "#1E5A99" },
-    { title: t.nav.drivers, url: "/drivers", group: t.nav.operations, icon: Truck, accent: "#1E5A99" },
-    { title: t.nav.vehicles, url: "/vehicles", group: t.nav.operations, icon: CircleDot, accent: "#1E5A99" },
-    { title: t.nav.attendance, url: "/attendance", group: t.nav.operations, icon: CalendarCheck, accent: "#1E5A99" },
+    { title: t.nav.dashboard, url: "/dashboard", group: t.nav.operations, icon: Navigation, accent: "#1E5A99" },
+    { title: t.nav.drivers, url: "/drivers", group: t.nav.operations, icon: UsersRound, accent: "#1E5A99" },
+    { title: t.nav.vehicles, url: "/vehicles", group: t.nav.operations, icon: CarFront, accent: "#1E5A99" },
+    { title: t.nav.attendance, url: "/attendance", group: t.nav.operations, icon: CalendarClock, accent: "#1E5A99" },
     { title: t.nav.platforms, url: "/platforms", group: t.nav.operations, icon: LayoutTemplate, accent: "#1E5A99" },
 
     // Finance
-    { title: t.nav.payroll, url: "/payroll", group: t.nav.finance, icon: CreditCard, accent: "#10B981" },
-    { title: t.nav.expenses, url: "/expenses", group: t.nav.finance, icon: Wallet, accent: "#10B981" },
-    { title: t.nav.invoices, url: "/invoices", group: t.nav.finance, icon: FileText, accent: "#10B981" },
+    { title: t.nav.payroll, url: "/payroll", group: t.nav.finance, icon: HandCoins, accent: "#10B981" },
+    { title: t.nav.expenses, url: "/expenses", group: t.nav.finance, icon: WalletCards, accent: "#10B981" },
+    { title: t.nav.invoices, url: "/invoices", group: t.nav.finance, icon: FileBadge, accent: "#10B981" },
     { title: t.nav.accounting, url: "/accounting", group: t.nav.finance, icon: Calculator, accent: "#10B981" },
 
     // Fleet
     { title: t.nav.maintenance, url: "/maintenance", group: t.nav.fleet, icon: Wrench, accent: "#F59E0B" },
-    { title: t.nav.violations, url: "/violations", group: t.nav.fleet, icon: ShieldAlert, accent: "#F59E0B" },
+    { title: t.nav.violations, url: "/violations", group: t.nav.fleet, icon: Siren, accent: "#F59E0B" },
 
     // HR
     { title: t.nav.hrManagement, url: "/hr", group: t.nav.hr, icon: Users, accent: "#8B5CF6" },
     { title: t.nav.templates, url: "/templates", group: t.nav.hr, icon: LayoutTemplate, accent: "#8B5CF6" },
 
     // Analytics
-    { title: t.nav.reports, url: "/reports", group: t.nav.analytics, icon: BarChart3, accent: "#0EA5E9" },
+    { title: t.nav.reports, url: "/reports", group: t.nav.analytics, icon: ChartLine, accent: "#0EA5E9" },
 
     // Administration
-    { title: t.nav.users, url: "/users", group: t.nav.administration, icon: Users, accent: "#64748B" },
+    { title: t.nav.users, url: "/users", group: t.nav.administration, icon: UsersRound, accent: "#64748B" },
     { title: t.nav.roles, url: "/roles", group: t.nav.administration, icon: ShieldCheck, accent: "#64748B" },
     { title: t.nav.auditLog, url: "/audit-log", group: t.nav.administration, icon: FileSearch, accent: "#64748B" },
-    { title: t.nav.security, url: "/security", group: t.nav.administration, icon: Shield, accent: "#64748B" },
+    { title: t.nav.security, url: "/security", group: t.nav.administration, icon: Fingerprint, accent: "#64748B" },
     { title: t.nav.settings, url: "/settings", group: t.nav.administration, icon: Settings, accent: "#64748B" },
 
     // Pages
     { title: "FAQs", url: "/faqs", group: t.pages.help, icon: HelpCircle, accent: "#0EA5E9" },
-    { title: t.landing.navPricing, url: "/pricing", group: t.pages.help, icon: CreditCard, accent: "#E87D3E" },
+    { title: t.landing.navPricing, url: "/pricing", group: t.pages.help, icon: HandCoins, accent: "#E87D3E" },
   ]
 
   const groupedItems = searchItems.reduce((acc, item) => {
