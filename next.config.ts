@@ -1,4 +1,5 @@
-import type { NextConfig } from "next";
+import type { NextConfig } from "next"
+import { withSentryConfig } from "@sentry/nextjs"
 
 const nextConfig: NextConfig = {
   experimental: {
@@ -57,7 +58,7 @@ const nextConfig: NextConfig = {
           "style-src 'self' 'unsafe-inline'",
           "img-src 'self' data: blob: https://ui.shadcn.com https://images.unsplash.com",
           "font-src 'self'",
-          "connect-src 'self' https://*.supabase.co https://api.resend.com https://api.emailjs.com https://zatca.gov.sa",
+          "connect-src 'self' https://*.supabase.co https://api.resend.com https://api.emailjs.com https://zatca.gov.sa https://*.ingest.sentry.io",
           "frame-ancestors 'none'",
           "base-uri 'self'",
           "form-action 'self'",
@@ -114,4 +115,16 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default withSentryConfig(nextConfig, {
+  // Automatically tree-shake Sentry logger to reduce bundle size
+  silent: true,
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  // Upload source maps in production builds
+  widenClientFileUpload: true,
+  sourcemaps: {
+    deleteSourcemapsAfterUpload: true,
+  },
+  // Automatically inject Sentry in all pages and error handlers
+  automaticVercelMonitors: true,
+})

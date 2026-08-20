@@ -8,6 +8,8 @@
 //
 // Reference: docs/phase-2-auth-plan.md section 8 (Error code taxonomy mapping).
 
+import * as Sentry from "@sentry/nextjs"
+import { logger } from "@/lib/logger"
 import {
   ERROR_CODES,
   getErrorDefinition,
@@ -116,13 +118,24 @@ function isErrorLike(value: unknown): value is ErrorLike {
  *   (e.g. `AuthorizationError`, `RateLimitError`) → convert to the envelope.
  * - Anything else → `ERR_INTERNAL` (500). The original message is NOT exposed
  *   to the client; it is logged for Sentry.
+ *
+ * Structured logging: every error is logged with context for debugging.
+ * Sentry: unknown errors are captured for alerting.
  */
 export function handleError(error: unknown): ErrorResponse {
   if (error instanceof AppError) {
+    logger.error(
+      { code: error.code, statusCode: error.statusCode, name: error.name },
+      `[${error.code}] ${error.messageEn}`
+    )
     return errorToResponse(error)
   }
 
   if (isErrorLike(error)) {
+    logger.warn(
+      { code: error.code, statusCode: error.statusCode },
+      `[${error.code}] ${error.messageEn}`
+    )
     return {
       code: error.code,
       message_ar: error.messageAr,
@@ -133,11 +146,9 @@ export function handleError(error: unknown): ErrorResponse {
 
   // Unknown error — log the original (server-side only) and return the generic
   // envelope. The client never sees the raw message.
-  // TODO: forward `error` to Sentry when SENTRY_DSN is configured.
-  if (process.env.NODE_ENV !== "production") {
-    // eslint-disable-next-line no-console
-    console.error("[handleError] unhandled error:", error)
-  }
+  logger.error({ err: error }, "[ERR_INTERNAL] unhandled error")
+  Sentry.captureException(error)
+
   const internal = ERROR_CODES.ERR_INTERNAL
   return {
     code: internal.code,

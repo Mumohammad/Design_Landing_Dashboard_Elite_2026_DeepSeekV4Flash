@@ -1,6 +1,7 @@
 // REQUIRES: pnpm add @supabase/ssr (Phase 2 dependency — install before use)
 import { NextResponse, type NextRequest } from "next/server"
 import { createServerClient } from "@supabase/ssr"
+import crypto from "crypto"
 
 // Next 16: this file is `proxy.ts` (renamed from middleware.ts).
 // Exported function is `proxy`. See the `matcher` export at the bottom.
@@ -27,7 +28,9 @@ const SETTINGS_ROLE_GUARDS: Record<string, string[]> = {
 }
 
 export async function proxy(request: NextRequest) {
+  const requestId = crypto.randomUUID()
   const response = NextResponse.next({ request })
+  response.headers.set("X-Request-ID", requestId)
 
   // 1. Create the SSR server client bound to this request's cookies.
   //    setAll writes refreshed session cookies back to the response.

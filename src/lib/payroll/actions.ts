@@ -20,8 +20,11 @@ import { calculateDriverPayroll } from "./calculate"
 import { cancelPayrollPeriod } from "./deduction-rollback"
 import { generateWPSSIF, generateSIFFileName, type WPSPaymentRecord } from "./wps-generator"
 import { rateLimitPayroll } from "@/lib/auth/rate-limit"
+import { moduleLogger, logPerformance } from "@/lib/logger"
 
 type ActionResult = { success: boolean; error?: string }
+
+const log = moduleLogger("payroll")
 
 function errorMessage(e: unknown): string {
   if (e instanceof Error) return e.message
@@ -60,6 +63,9 @@ export async function calculatePayrollForPeriod(
     if (!currentUser) return { success: false, error: "Not authenticated." }
     const rl = await rateLimitPayroll(currentUser.id)
     if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
+
+    const t0 = Date.now()
+    log.info({ userId: currentUser.id, tenantId: currentUser.tenantId, periodYear, periodMonth }, "calculatePayrollForPeriod started")
 
     const admin = createAdminClient()
     const { data: drivers } = await admin

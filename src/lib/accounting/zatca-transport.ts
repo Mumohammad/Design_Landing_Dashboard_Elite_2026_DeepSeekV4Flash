@@ -25,6 +25,7 @@
 // No ZATCA compliance is claimed (ZATCA-BOUNDARY.md §5).
 
 import { computeInvoiceHash, signZatcaPayload, buildSigningInput } from "./zatca-crypto"
+import { moduleLogger } from "@/lib/logger"
 
 export type ZatcaTransmissionStatus = "reported" | "cleared" | "rejected"
 
@@ -153,6 +154,7 @@ function isRetryableStatus(status: number): boolean {
 const MAX_RETRIES = 2
 
 export async function transmitToZatca(input: ZatcaTransmitInput): Promise<ZatcaTransportResponse> {
+  const log = moduleLogger("zatca")
   // Explicit credentials (DB-backed) can activate production even without
   // env; otherwise env must be fully configured. Either way the gateway base
   // is required.
@@ -191,10 +193,12 @@ export async function transmitToZatca(input: ZatcaTransmitInput): Promise<ZatcaT
           const raw: Record<string, unknown> = await res.json()
           const uuid = String(raw.uuid ?? raw.reportedInvoiceUuid ?? "")
           const status: ZatcaTransmissionStatus = input.pipeline === "clearance" ? "cleared" : "reported"
+          log.info({ uuid, status, pipeline: input.pipeline }, "ZATCA transmission succeeded")
           return { uuid, status, receivedAt: new Date().toISOString(), raw }
         }
 
         const errorBody = await res.text()
+        log.warn({ status: res.status, body: errorBody, attempt: attempt + 1 }, "ZATCA transport error")
         lastError = new Error(`ZATCA transport error ${res.status}: ${errorBody}`)
 
         // Retry only on transient errors (429, 502, 503, 504)
@@ -219,6 +223,7 @@ export async function transmitToZatca(input: ZatcaTransmitInput): Promise<ZatcaT
   // Standard invoices are "reported" (compliance); simplified B2C invoices
   // would be "cleared" — we don't model B2C yet, so pipeline is always
   // reporting from the app. A stable UUID per doc keeps replays identical.
+  log.debug({ pipeline: input.pipeline }, "ZATCA sandbox mode — mock response")
   const status: ZatcaTransmissionStatus = input.pipeline === "clearance" ? "cleared" : "reported"
   return {
     uuid: sandboxUuid(input.docRef),

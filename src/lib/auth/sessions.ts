@@ -13,6 +13,7 @@
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { moduleLogger } from "@/lib/logger"
 
 type SupabaseSession = {
   access_token: string
@@ -97,10 +98,10 @@ export async function writeAuditLog(entry: AuditLogEntry): Promise<void> {
   })
   if (error) {
     // Audit failures are surfaced but not thrown — they must not break the
-    // user-facing operation that triggered them. Log for Sentry follow-up.
-    if (process.env.NODE_ENV !== "production") {
-      // eslint-disable-next-line no-console
-      console.error("[audit_log] insert failed:", error)
-    }
+    // user-facing operation that triggered them. Log for monitoring.
+    moduleLogger("audit").error(
+      { err: error, module: entry.module, action: entry.action, entityType: entry.entityType, entityId: entry.entityId },
+      "[audit_log] insert failed"
+    )
   }
 }

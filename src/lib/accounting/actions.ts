@@ -26,8 +26,11 @@ import { mapFinancialError, parseCsv, toCsv } from "@/lib/accounting/csv-utils"
 // slip in through a differently-rounded copy (TEST-STRATEGY §4).
 import { round2 } from "@/lib/accounting/invoice-math"
 import { rateLimitAccounting, rateLimitAccountingImport } from "@/lib/auth/rate-limit"
+import { moduleLogger, logPerformance } from "@/lib/logger"
 
 type ActionResult = { success: boolean; error?: string }
+
+const log = moduleLogger("accounting")
 
 // Types + the CONVENTIONAL_BALANCE map live in csv-utils.ts (a plain module)
 // because they are imported by client components — a "use server" file can
@@ -854,6 +857,9 @@ export async function postJournalEntry(input: {
     const rl = await rateLimitAccounting(currentUser.id)
     if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
 
+    const t0 = Date.now()
+    log.info({ userId: currentUser.id, tenantId: currentUser.tenantId }, "postJournalEntry started")
+
     const lines = input.lines.filter((l) => l.debit > 0 || l.credit > 0)
     if (lines.length < 2) {
       return { success: false, error: "A journal entry needs at least two lines." }
@@ -907,6 +913,8 @@ export async function postJournalEntry(input: {
       },
     })
 
+    log.info({ userId: currentUser.id, tenantId: currentUser.tenantId, durationMs: Date.now() - t0 }, "postJournalEntry completed")
+    logPerformance("postJournalEntry", Date.now() - t0, { tenantId: currentUser.tenantId })
     revalidatePath("/accounting")
     return { success: true }
   } catch (e) {
@@ -927,6 +935,9 @@ export async function createReceivable(input: {
     if (!currentUser) return { success: false, error: "Not authenticated." }
     const rl = await rateLimitAccounting(currentUser.id)
     if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
+
+    const t0 = Date.now()
+    log.info({ userId: currentUser.id, tenantId: currentUser.tenantId }, "createReceivable started")
 
     const amount = Number(input.amount)
     const vatRate = Number(input.vat_rate)

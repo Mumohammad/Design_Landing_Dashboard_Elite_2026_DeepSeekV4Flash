@@ -18,6 +18,7 @@
 // Reference: docs/phase-2-auth-plan.md section 5 (Rate limiting strategy).
 
 import { ERROR_CODES } from "@/lib/errors/error-codes"
+import { logger } from "@/lib/logger"
 
 export type RateLimitWindow = "minute" | "hour"
 
@@ -140,15 +141,10 @@ let memoryFallbackWarned = false
 function warnInMemoryFallbackOnce(err: unknown): void {
   if (memoryFallbackWarned) return
   memoryFallbackWarned = true
-  if (process.env.NODE_ENV !== "production") {
-    // eslint-disable-next-line no-console
-    console.warn(
-      "[rate-limit] Upstash Redis is not configured or failed to initialize. " +
-        "Falling back to in-memory rate limiting (development only — not safe " +
-        "for multi-instance production).",
-      err
-    )
-  }
+  logger.warn(
+    { err, component: "rate-limit" },
+    "Upstash Redis not configured — using in-memory rate limiting (dev only)"
+  )
 }
 
 function windowToMs(window: RateLimitWindow): number {
