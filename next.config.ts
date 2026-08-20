@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
     // Fix for Turbopack on Windows: multiple lockfiles in parent dirs make
     // Next infer the wrong workspace root, which breaks the PostCSS worker
     // (node exits 0xc0000142 during CSS compile). Pin the project root.
-    root: "C:/Users/Zbook/Downloads/shadcn-dashboard-landing-template-main (1)/shadcn-dashboard-landing-template-main/nextjs-version",
+    root: process.platform === 'win32' ? '.' : undefined,
   },
 
   // NOTE: Locale is handled client-side via LocaleProvider (localStorage +
@@ -48,6 +48,20 @@ const nextConfig: NextConfig = {
       {
         key: 'Permissions-Policy',
         value: 'camera=(), microphone=(), geolocation=(), payment=()',
+      },
+      {
+        key: 'Content-Security-Policy',
+        value: [
+          "default-src 'self'",
+          "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+          "style-src 'self' 'unsafe-inline'",
+          "img-src 'self' data: blob: https://ui.shadcn.com https://images.unsplash.com",
+          "font-src 'self'",
+          "connect-src 'self' https://*.supabase.co https://api.resend.com https://api.emailjs.com https://zatca.gov.sa",
+          "frame-ancestors 'none'",
+          "base-uri 'self'",
+          "form-action 'self'",
+        ].join('; '),
       },
     ];
 
