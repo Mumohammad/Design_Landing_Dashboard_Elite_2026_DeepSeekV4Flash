@@ -14,6 +14,7 @@ import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
 import { writeAuditLog } from "@/lib/auth/sessions"
 import { rateLimitDrivers } from "@/lib/auth/rate-limit"
 import { driverCreateSchema, type DriverCreateInput } from "@/types/drivers"
+import { emit } from "@/lib/webhooks/events"
 
 export type ActionResult = { success: boolean; error?: string; id?: string }
 
@@ -113,6 +114,13 @@ export async function createDriver(input: DriverCreateInput): Promise<ActionResu
         status: parsed.status,
         primary_mobile: parsed.primary_mobile.trim(),
       },
+    })
+
+    emit("driver.created", currentUser.tenantId, {
+      id: data.id,
+      name: parsed.full_name_ar.trim(),
+      code: parsed.driver_code?.trim() || "",
+      status: parsed.status,
     })
 
     revalidatePath("/drivers")

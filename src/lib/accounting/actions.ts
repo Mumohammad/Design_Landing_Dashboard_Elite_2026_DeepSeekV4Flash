@@ -27,6 +27,7 @@ import { mapFinancialError, parseCsv, toCsv } from "@/lib/accounting/csv-utils"
 import { round2 } from "@/lib/accounting/invoice-math"
 import { rateLimitAccounting, rateLimitAccountingImport } from "@/lib/auth/rate-limit"
 import { moduleLogger, logPerformance } from "@/lib/logger"
+import { emit } from "@/lib/webhooks/events"
 
 type ActionResult = { success: boolean; error?: string }
 
@@ -656,6 +657,12 @@ export async function submitJournalEntry(input: { entry_id: string }): Promise<A
       entityType: "journal_entries",
       entityId: input.entry_id,
     })
+
+    emit("journal_entry.submitted", currentUser.tenantId, {
+      id: input.entry_id,
+      referenceNumber: "",
+    })
+
     revalidatePath("/accounting")
     return { success: true }
   } catch (e) {
@@ -693,6 +700,13 @@ export async function approveJournalEntry(input: {
       entityId: input.entry_id,
       newValues: { entry_ref: row?.out_entry_ref ?? null },
     })
+
+    emit("journal_entry.approved", currentUser.tenantId, {
+      id: input.entry_id,
+      referenceNumber: row?.out_entry_ref ?? "",
+      approvedBy: currentUser.id,
+    })
+
     revalidatePath("/accounting")
     return { success: true }
   } catch (e) {
@@ -729,6 +743,14 @@ export async function rejectJournalEntry(input: {
       entityId: input.entry_id,
       newValues: { reason: input.reason.trim() },
     })
+
+    emit("journal_entry.rejected", currentUser.tenantId, {
+      id: input.entry_id,
+      referenceNumber: "",
+      rejectedBy: currentUser.id,
+      reason: input.reason.trim(),
+    })
+
     revalidatePath("/accounting")
     return { success: true }
   } catch (e) {
@@ -911,6 +933,13 @@ export async function postJournalEntry(input: {
         lines: lines.length,
         total: linesPayload.reduce((s, l) => s + l.debit, 0),
       },
+    })
+
+    emit("journal_entry.created", currentUser.tenantId, {
+      id: row.out_entry_id,
+      referenceNumber: row.out_entry_ref,
+      totalDebit: linesPayload.reduce((s, l) => s + l.debit, 0),
+      totalCredit: linesPayload.reduce((s, l) => s + l.credit, 0),
     })
 
     log.info({ userId: currentUser.id, tenantId: currentUser.tenantId, durationMs: Date.now() - t0 }, "postJournalEntry completed")

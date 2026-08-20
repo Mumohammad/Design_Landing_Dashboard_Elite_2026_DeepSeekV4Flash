@@ -25,6 +25,7 @@ import { idempotencyKey } from "@/lib/accounting/financial-events"
 import { runEventDispatcher } from "@/lib/accounting/dispatcher"
 import { round2 } from "@/lib/accounting/invoice-math"
 import { rateLimitExpenses } from "@/lib/auth/rate-limit"
+import { emit } from "@/lib/webhooks/events"
 
 type ActionResult = { success: boolean; error?: string }
 
@@ -207,6 +208,12 @@ export async function approveExpense(input: {
         coa_account_code: mapping.coa_account_code,
         vat_recoverability: finalRecoverability,
       },
+    })
+
+    emit("expense.approved", currentUser.tenantId, {
+      id: expense.id,
+      amount: total,
+      approvedBy: currentUser.id,
     })
 
     revalidatePath("/expenses")

@@ -21,6 +21,7 @@ import { cancelPayrollPeriod } from "./deduction-rollback"
 import { generateWPSSIF, generateSIFFileName, type WPSPaymentRecord } from "./wps-generator"
 import { rateLimitPayroll } from "@/lib/auth/rate-limit"
 import { moduleLogger, logPerformance } from "@/lib/logger"
+import { emit } from "@/lib/webhooks/events"
 
 type ActionResult = { success: boolean; error?: string }
 
@@ -104,6 +105,13 @@ export async function calculatePayrollForPeriod(
       },
     })
 
+    emit("payroll.calculated", currentUser.tenantId, {
+      id: currentUser.tenantId,
+      period: `${periodYear}-${String(periodMonth).padStart(2, "0")}`,
+      totalAmount: 0,
+      driverCount: calculated,
+    })
+
     revalidatePath("/payroll")
     return {
       success: true,
@@ -138,6 +146,12 @@ export async function cancelPayrollPeriodAction(
       return { success: false, error: "A cancellation reason is required." }
     }
     await cancelPayrollPeriod(periodId, reason.trim())
+
+    emit("payroll.cancelled", currentUser.tenantId, {
+      id: periodId,
+      period: "",
+    })
+
     revalidatePath("/payroll")
     return {
       success: true,
@@ -231,6 +245,13 @@ export async function generateWpsFile(
       action: "wps_file_generated",
       entityType: "payroll_run",
       newValues: { period: periodLabel, records: payments.length, filename },
+    })
+
+    emit("payroll.exported", currentUser.tenantId, {
+      id: currentUser.tenantId,
+      period: periodLabel,
+      format: "WPS_SIF",
+      recordCount: payments.length,
     })
 
     return { success: true, content, filename }

@@ -19,5 +19,10 @@
       ]
     }
   ],
-  "crons": []
+  "crons": [
+    {
+      "path": "/api/webhooks/cron",
+      "schedule": "*/5 * * * *"
+    }
+  ]
 }
