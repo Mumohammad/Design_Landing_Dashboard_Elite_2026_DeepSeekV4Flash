@@ -24,6 +24,7 @@ import { mapFinancialError } from "@/lib/accounting/csv-utils"
 import { idempotencyKey } from "@/lib/accounting/financial-events"
 import { runEventDispatcher } from "@/lib/accounting/dispatcher"
 import { round2 } from "@/lib/accounting/invoice-math"
+import { rateLimitExpenses } from "@/lib/auth/rate-limit"
 
 type ActionResult = { success: boolean; error?: string }
 
@@ -71,6 +72,8 @@ export async function approveExpense(input: {
     await requirePermission("expenses", "approve")
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
+    const rl = await rateLimitExpenses(currentUser.id)
+    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
 
     const vatRate = Number(input.vat_rate ?? 15)
     if (!Number.isFinite(vatRate) || vatRate < 0 || vatRate > 100) {
@@ -231,6 +234,8 @@ export async function createExpense(input: {
     await requirePermission("expenses", "create")
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
+    const rl = await rateLimitExpenses(currentUser.id)
+    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
 
     const amount = Number(input.amount)
     const vatRate = Number(input.vat_rate ?? 15)

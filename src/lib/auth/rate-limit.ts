@@ -246,3 +246,74 @@ export function rateLimitReports(userId: string): Promise<RateLimitResult> {
 export function rateLimitImports(userId: string): Promise<RateLimitResult> {
   return rateLimit(`imports:${userId}`, 30, "hour")
 }
+
+// ── Shared utilities ────────────────────────────────────────────────────────
+
+/** Best-effort client IP from request headers (for per-IP rate limits). */
+export async function getClientIp(): Promise<string> {
+  try {
+    const { headers } = await import("next/headers")
+    const h = await headers()
+    const fwd = h.get("x-forwarded-for")
+    if (fwd) return fwd.split(",")[0].trim()
+    return h.get("x-real-ip") ?? "unknown"
+  } catch {
+    return "unknown"
+  }
+}
+
+// ── Domain-specific rate limit helpers ──────────────────────────────────────
+//
+// Limits are deliberately conservative. Adjust in one place if workload
+// changes. All per-user limits use the authenticated user's id.
+
+/** Accounting mutations (journal entries, period close, receivables): 60 / minute, per user. */
+export function rateLimitAccounting(userId: string): Promise<RateLimitResult> {
+  return rateLimit(`accounting:${userId}`, 60, "minute")
+}
+
+/** Accounting CSV imports (bulk data): 5 / hour, per user. */
+export function rateLimitAccountingImport(userId: string): Promise<RateLimitResult> {
+  return rateLimit(`accounting-import:${userId}`, 5, "hour")
+}
+
+/** Dashboard snapshot: 30 / minute, per user. */
+export function rateLimitDashboard(userId: string): Promise<RateLimitResult> {
+  return rateLimit(`dashboard:${userId}`, 30, "minute")
+}
+
+/** Application reviews: 30 / minute, per user. */
+export function rateLimitApplications(userId: string): Promise<RateLimitResult> {
+  return rateLimit(`applications:${userId}`, 30, "minute")
+}
+
+/** Driver create/update: 20 / minute, per user. */
+export function rateLimitDrivers(userId: string): Promise<RateLimitResult> {
+  return rateLimit(`drivers:${userId}`, 20, "minute")
+}
+
+/** Expense create/approve: 30 / minute, per user. */
+export function rateLimitExpenses(userId: string): Promise<RateLimitResult> {
+  return rateLimit(`expenses:${userId}`, 30, "minute")
+}
+
+/** Order entry create/delete: 30 / minute, per user. */
+export function rateLimitOrders(userId: string): Promise<RateLimitResult> {
+  return rateLimit(`orders:${userId}`, 30, "minute")
+}
+
+/** Payroll operations (calculate, cancel, export WPS): 10 / minute, per user. */
+export function rateLimitPayroll(userId: string): Promise<RateLimitResult> {
+  return rateLimit(`payroll:${userId}`, 10, "minute")
+}
+
+/** Settings updates: 10 / minute, per user. */
+export function rateLimitSettings(userId: string): Promise<RateLimitResult> {
+  return rateLimit(`settings:${userId}`, 10, "minute")
+}
+
+/** Vehicle create/update: 20 / minute, per user. */
+export function rateLimitVehicles(userId: string): Promise<RateLimitResult> {
+  return rateLimit(`vehicles:${userId}`, 20, "minute")
+}
+

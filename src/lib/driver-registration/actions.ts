@@ -1,8 +1,7 @@
 "use server"
 
-import { headers } from "next/headers"
 import { createAdminClient } from "@/lib/supabase/admin"
-import { rateLimit } from "@/lib/auth/rate-limit"
+import { rateLimit, getClientIp } from "@/lib/auth/rate-limit"
 import { fullApplicationSchema, type FullApplication } from "./schema"
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -24,12 +23,7 @@ export type SubmitResult =
 
 const APPLICATION_NUMBER_REGEX = /^DRV-\d{4}-\d{6}$/
 
-async function getClientIp(): Promise<string> {
-  const h = await headers()
-  const fwd = h.get("x-forwarded-for")
-  if (fwd) return fwd.split(",")[0].trim()
-  return h.get("x-real-ip") ?? "unknown"
-}
+
 
 async function notifyByEmail(application: FullApplication, applicationNumber: string): Promise<void> {
   const serviceId = process.env.EMAILJS_SERVICE_ID

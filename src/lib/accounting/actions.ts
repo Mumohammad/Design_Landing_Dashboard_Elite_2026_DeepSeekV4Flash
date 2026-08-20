@@ -25,6 +25,7 @@ import { mapFinancialError, parseCsv, toCsv } from "@/lib/accounting/csv-utils"
 // passes through the SAME EPSILON-guarded function so no float artifact can
 // slip in through a differently-rounded copy (TEST-STRATEGY §4).
 import { round2 } from "@/lib/accounting/invoice-math"
+import { rateLimitAccounting, rateLimitAccountingImport } from "@/lib/auth/rate-limit"
 
 type ActionResult = { success: boolean; error?: string }
 
@@ -56,6 +57,8 @@ export async function createChartAccount(input: {
     await requirePermission("accounting", "create")
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
+    const rl = await rateLimitAccounting(currentUser.id)
+    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
 
     const code = input.account_code.trim()
     if (!/^\d{3,6}$/.test(code)) {
@@ -140,6 +143,8 @@ export async function updateChartAccount(input: {
     await requirePermission("accounting", "update")
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
+    const rl = await rateLimitAccounting(currentUser.id)
+    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
 
     const admin = createAdminClient()
 
@@ -232,6 +237,8 @@ export async function deactivateChartAccount(input: { account_id: string }): Pro
     await requirePermission("accounting", "update")
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
+    const rl = await rateLimitAccounting(currentUser.id)
+    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
 
     const admin = createAdminClient()
     const { error } = await admin
@@ -272,6 +279,8 @@ export async function exportChartAccountsCsv(): Promise<{ success: boolean; csv?
     await requirePermission("accounting", "export")
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
+    const rl = await rateLimitAccounting(currentUser.id)
+    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
 
     const admin = createAdminClient()
     const { data, error } = await admin
@@ -333,6 +342,8 @@ export async function importChartAccountsCsv(input: { csv: string }): Promise<Cs
     await requirePermission("accounting", "create")
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
+    const rl = await rateLimitAccountingImport(currentUser.id)
+    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
 
     const parsed = parseCsv(input.csv)
     if (parsed.length < 2) {
@@ -466,6 +477,8 @@ export async function initializeDefaultCoa(): Promise<ActionResult> {
     await requirePermission("accounting", "create")
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
+    const rl = await rateLimitAccounting(currentUser.id)
+    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
 
     const admin = createAdminClient()
     const { data, error } = await admin.rpc("ensure_default_chart_of_accounts", {
@@ -499,6 +512,8 @@ export async function postOpeningBalances(input: {
     await requirePermission("accounting", "create")
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
+    const rl = await rateLimitAccounting(currentUser.id)
+    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
 
     const lines = input.lines.filter((l) => l.debit > 0 || l.credit > 0)
     if (lines.length < 2) {
@@ -563,6 +578,8 @@ export async function createJournalDraft(input: {
     await requirePermission("accounting", "create")
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
+    const rl = await rateLimitAccounting(currentUser.id)
+    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
 
     const lines = input.lines.filter((l) => l.debit > 0 || l.credit > 0)
     if (lines.length < 2) {
@@ -617,6 +634,8 @@ export async function submitJournalEntry(input: { entry_id: string }): Promise<A
     await requirePermission("accounting", "update")
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
+    const rl = await rateLimitAccounting(currentUser.id)
+    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
 
     const admin = createAdminClient()
     const { error } = await admin.rpc("submit_journal_entry", {
@@ -649,6 +668,8 @@ export async function approveJournalEntry(input: {
     await requirePermission("accounting", "approve")
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
+    const rl = await rateLimitAccounting(currentUser.id)
+    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
 
     const admin = createAdminClient()
     const { data, error } = await admin.rpc("approve_journal_entry", {
@@ -684,6 +705,8 @@ export async function rejectJournalEntry(input: {
     await requirePermission("accounting", "approve")
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
+    const rl = await rateLimitAccounting(currentUser.id)
+    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
 
     const admin = createAdminClient()
     const { error } = await admin.rpc("reject_journal_entry", {
@@ -720,6 +743,8 @@ export async function reverseJournalEntry(input: {
     await requirePermission("accounting", "create")
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
+    const rl = await rateLimitAccounting(currentUser.id)
+    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
 
     const admin = createAdminClient()
     const { data, error } = await admin.rpc("reverse_journal_entry", {
@@ -754,6 +779,8 @@ export async function closeAccountingPeriod(input: { period_id: string }): Promi
     await requirePermission("accounting", "approve")
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
+    const rl = await rateLimitAccounting(currentUser.id)
+    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
 
     const admin = createAdminClient()
     const { error } = await admin.rpc("close_accounting_period", {
@@ -786,6 +813,8 @@ export async function reopenAccountingPeriod(input: {
     await requirePermission("accounting", "approve")
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
+    const rl = await rateLimitAccounting(currentUser.id)
+    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
 
     const admin = createAdminClient()
     const { error } = await admin.rpc("reopen_accounting_period", {
@@ -822,6 +851,8 @@ export async function postJournalEntry(input: {
     await requirePermission("accounting", "create")
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
+    const rl = await rateLimitAccounting(currentUser.id)
+    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
 
     const lines = input.lines.filter((l) => l.debit > 0 || l.credit > 0)
     if (lines.length < 2) {
@@ -894,6 +925,8 @@ export async function createReceivable(input: {
     await requirePermission("accounting", "create")
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
+    const rl = await rateLimitAccounting(currentUser.id)
+    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
 
     const amount = Number(input.amount)
     const vatRate = Number(input.vat_rate)

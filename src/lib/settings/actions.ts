@@ -13,6 +13,7 @@ import { revalidatePath } from "next/cache"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
 import { writeAuditLog } from "@/lib/auth/sessions"
+import { rateLimitSettings } from "@/lib/auth/rate-limit"
 
 type ActionResult = { success: boolean; error?: string }
 
@@ -52,6 +53,8 @@ export async function updateCompanyProfile(
     if (!currentUser) {
       return { success: false, error: "Not authenticated." }
     }
+    const rl = await rateLimitSettings(currentUser.id)
+    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
 
     const admin = createAdminClient()
     const { error } = await admin
@@ -108,6 +111,8 @@ export async function updateSystemSettings(
     if (!currentUser) {
       return { success: false, error: "Not authenticated." }
     }
+    const rl = await rateLimitSettings(currentUser.id)
+    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
 
     const admin = createAdminClient()
 
@@ -170,6 +175,8 @@ export async function updateCompanyWpsSettings(input: {
     if (!currentUser) {
       return { success: false, error: "Not authenticated." }
     }
+    const rl = await rateLimitSettings(currentUser.id)
+    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
 
     const molReference = input.molReference.trim()
     const wpsIban = input.wpsIban.trim().toUpperCase()

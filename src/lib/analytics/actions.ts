@@ -27,6 +27,7 @@ import type {
   PlatformMetric,
   TrendPoint,
 } from "./types"
+import { rateLimitDashboard, RateLimitError } from "@/lib/auth/rate-limit"
 
 const PERIOD_DAYS: Record<DashboardFilters["period"], number> = {
   "7d": 7,
@@ -90,6 +91,13 @@ export async function getDashboardSnapshot(
   filters: DashboardFilters,
 ): Promise<DashboardSnapshot> {
   const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (user) {
+    const rl = await rateLimitDashboard(user.id)
+    if (!rl.success) {
+      throw new RateLimitError(rl.resetAt, 30)
+    }
+  }
   const now = new Date()
   const days = PERIOD_DAYS[filters.period]
   const start = startOfDay(subDays(now, days - 1))

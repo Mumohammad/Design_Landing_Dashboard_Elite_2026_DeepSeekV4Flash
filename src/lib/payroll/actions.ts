@@ -19,6 +19,7 @@ import { writeAuditLog } from "@/lib/auth/sessions"
 import { calculateDriverPayroll } from "./calculate"
 import { cancelPayrollPeriod } from "./deduction-rollback"
 import { generateWPSSIF, generateSIFFileName, type WPSPaymentRecord } from "./wps-generator"
+import { rateLimitPayroll } from "@/lib/auth/rate-limit"
 
 type ActionResult = { success: boolean; error?: string }
 
@@ -57,6 +58,8 @@ export async function calculatePayrollForPeriod(
     await requirePermission("payroll", "create")
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
+    const rl = await rateLimitPayroll(currentUser.id)
+    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
 
     const admin = createAdminClient()
     const { data: drivers } = await admin
@@ -119,6 +122,12 @@ export async function cancelPayrollPeriodAction(
 ): Promise<ActionResult> {
   try {
     await requirePermission("payroll", "update")
+    // Note: cancelPayrollPeriod delegates to a module function; rate-limit at the action level.
+    // We need the user but cancelPayrollPeriodAction doesn't call getCurrentUser() — add it.
+    const currentUser = await getCurrentUser()
+    if (!currentUser) return { success: false, error: "Not authenticated." }
+    const rl = await rateLimitPayroll(currentUser.id)
+    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
     if (!reason.trim()) {
       return { success: false, error: "A cancellation reason is required." }
     }
@@ -145,6 +154,8 @@ export async function generateWpsFile(
     await requirePermission("payroll", "export")
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
+    const rl = await rateLimitPayroll(currentUser.id)
+    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
 
     const admin = createAdminClient()
 

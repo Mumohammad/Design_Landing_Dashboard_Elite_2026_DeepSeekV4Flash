@@ -22,11 +22,10 @@
 // GM-scoped operations (create / revoke / list) where RLS enforces tenancy.
 
 import crypto from "crypto"
-import { headers } from "next/headers"
 
 import { requirePermission, getCurrentUser } from "@/lib/auth/authorization"
 import { writeAuditLog } from "@/lib/auth/sessions"
-import { rateLimit } from "@/lib/auth/rate-limit"
+import { rateLimit, getClientIp } from "@/lib/auth/rate-limit"
 import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { hashInviteToken, verifyInviteToken } from "@/lib/auth/invite-tokens"
@@ -57,17 +56,7 @@ export type PendingInvite = {
 
 type ActionResult = { success: boolean; error?: string }
 
-/** Best-effort client IP from the request headers (for per-IP rate limits). */
-async function getClientIp(): Promise<string> {
-  try {
-    const h = await headers()
-    const fwd = h.get("x-forwarded-for")
-    if (fwd) return fwd.split(",")[0].trim()
-    return h.get("x-real-ip") ?? "unknown"
-  } catch {
-    return "unknown"
-  }
-}
+
 
 /**
  * Extract a human-readable message from an unknown thrown value. Avoids `any`

@@ -12,6 +12,7 @@ import { revalidatePath } from "next/cache"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
 import { writeAuditLog } from "@/lib/auth/sessions"
+import { rateLimitDrivers } from "@/lib/auth/rate-limit"
 import { driverCreateSchema, type DriverCreateInput } from "@/types/drivers"
 
 export type ActionResult = { success: boolean; error?: string; id?: string }
@@ -42,6 +43,8 @@ export async function createDriver(input: DriverCreateInput): Promise<ActionResu
     if (!currentUser) {
       return { success: false, error: "Not authenticated." }
     }
+    const rl = await rateLimitDrivers(currentUser.id)
+    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
 
     // Server-side re-validation — never trust the client.
     const parsed = driverCreateSchema.parse(input)

@@ -15,6 +15,7 @@ import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
 import { writeAuditLog } from "@/lib/auth/sessions"
 import { toCsv } from "@/lib/accounting/csv-utils"
+import { rateLimitOrders } from "@/lib/auth/rate-limit"
 import { orderEntryCreateSchema, type OrderEntryCreateInput } from "@/types/orders"
 
 export type ActionResult = { success: boolean; error?: string; id?: string }
@@ -35,6 +36,8 @@ export async function createOrderEntry(input: OrderEntryCreateInput): Promise<Ac
     await requirePermission("platforms", "create")
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
+    const rl = await rateLimitOrders(currentUser.id)
+    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
 
     const parsed = orderEntryCreateSchema.parse(input)
 
@@ -98,6 +101,8 @@ export async function deleteOrderEntry(id: string): Promise<ActionResult> {
     await requirePermission("platforms", "delete")
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
+    const rl = await rateLimitOrders(currentUser.id)
+    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
 
     const admin = createAdminClient()
     const { data, error } = await admin
@@ -154,6 +159,8 @@ export async function exportOrdersCsv(month: string): Promise<ExportResult> {
     await requirePermission("platforms", "export")
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
+    const rl = await rateLimitOrders(currentUser.id)
+    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
 
     const [yearStr, monthStr] = month.split("-")
     const year = Number(yearStr)

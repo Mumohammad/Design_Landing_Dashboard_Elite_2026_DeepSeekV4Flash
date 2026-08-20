@@ -12,6 +12,7 @@
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
 import { writeAuditLog } from "@/lib/auth/sessions"
+import { rateLimitApplications } from "@/lib/auth/rate-limit"
 import type { ApplicationStatus } from "@/types/applications"
 
 type ActionResult = { success: boolean; error?: string }
@@ -32,6 +33,8 @@ export async function reviewApplication(input: {
     await requirePermission("hr", "approve")
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
+    const rl = await rateLimitApplications(currentUser.id)
+    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
 
     if (!VALID_STATUSES.includes(input.status)) {
       return { success: false, error: "Invalid application status." }
@@ -105,6 +108,7 @@ export async function getDocumentDownloadUrl(
     const currentUser = await getCurrentUser()
     if (!currentUser) return { error: "Not authenticated." }
 
+    // Read-only — rate limit is lighter here (60/min per user).
     const admin = createAdminClient()
 
     const { data: doc, error: fetchErr } = await admin
