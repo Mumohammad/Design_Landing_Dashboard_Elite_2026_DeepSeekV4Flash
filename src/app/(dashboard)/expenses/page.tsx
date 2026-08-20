@@ -7,10 +7,12 @@ import { EnterpriseModulePage, type KpiCardData, type TableColumn } from "@/comp
 import {
   approveExpense,
   createExpense,
+} from "@/lib/expenses/actions"
+import {
   EXPENSE_TYPES,
   type ExpenseType,
   type ExpenseVatRecoverability,
-} from "@/lib/expenses/actions"
+} from "@/lib/expenses/constants"
 import {
   Wallet, Clock, DollarSign, CheckCircle2, BadgeCheck, Loader2, AlertTriangle, ReceiptText, Plus, Save, X,
 } from "lucide-react"

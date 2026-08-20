@@ -4,11 +4,15 @@ import { useEffect, useRef, useState, type ReactNode } from "react"
 import { cn } from "@/lib/utils"
 
 /** Respect prefers-reduced-motion: skip animations entirely. */
-const prefersReducedMotion = 
-  typeof window !== "undefined"
-    ? window.matchMedia("(prefers-reduced-motion: reduce)")
-    : null
-const reducedMotion = prefersReducedMotion?.matches ?? false
+// Lazy-initialise on first client render to avoid SSR/Node window issues
+let reducedMotion = false
+if (typeof window !== "undefined") {
+  try {
+    reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  } catch {
+    /* SSR or unsupported */
+  }
+}
 
 type RevealDirection = "up" | "down" | "left" | "right" | "scale" | "fade"
 

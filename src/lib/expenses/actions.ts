@@ -29,13 +29,9 @@ import { emit } from "@/lib/webhooks/events"
 
 type ActionResult = { success: boolean; error?: string }
 
-export type ExpenseVatRecoverability = "recoverable" | "non_recoverable" | "pending_review"
-
-export type ExpenseType = "fuel" | "advance" | "operational" | "platform_commission" | "maintenance" | "other"
-
-export const EXPENSE_TYPES: ExpenseType[] = ["fuel", "advance", "operational", "platform_commission", "maintenance", "other"]
-
-const RECOVERABILITY: ExpenseVatRecoverability[] = ["recoverable", "non_recoverable", "pending_review"]
+// Domain constants live in @/lib/expenses/constants (a regular module) so
+// client components can import them without hitting the server-action proxy.
+import { EXPENSE_TYPES, RECOVERABILITY, type ExpenseVatRecoverability, type ExpenseType } from "@/lib/expenses/constants"
 
 function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : "Unknown error"

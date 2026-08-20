@@ -152,8 +152,8 @@ export async function paginatedQuery<T extends Record<string, unknown>>(
   const resultRows = hasMore ? rows.slice(0, pageSize) : rows
 
   // Extract cursors from the result
-  const firstId = resultRows.length > 0 ? String((resultRows[0] as any).id) : null
-  const lastId = resultRows.length > 0 ? String((resultRows[resultRows.length - 1] as any).id) : null
+  const firstId = resultRows.length > 0 ? String((resultRows[0] as Record<string, unknown>).id) : null
+  const lastId = resultRows.length > 0 ? String((resultRows[resultRows.length - 1] as Record<string, unknown>).id) : null
 
   // For cursor-based pagination, nextCursor is the last row's id (forward)
   // or the first row's id (backward). prevCursor is the opposite.
