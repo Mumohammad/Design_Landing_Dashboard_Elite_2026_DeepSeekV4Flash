@@ -160,14 +160,30 @@ export async function collectReportData(
     }
 
     case "fleet_cost": {
-      const { data } = await admin
-        .from("vehicle_maintenance_events")
-        .select("vehicle:vehicles(vehicle_code,plate_number,make,model),maintenance_type,status,fault_description,provider,cost,odometer_at_service,date_in,date_out")
-        .eq("tenant_id", tenantId)
-        .is("deleted_at", null)
-        .order("created_at", { ascending: false })
-        .limit(1000)
-      const rows = ((data as unknown[]) ?? []).map((r) => {
+      // Cursor-based pagination: fetch maintenance events in batches
+      // to handle tenants with large vehicle fleets.
+      const allData: unknown[] = []
+      let cursor: string | null = null
+      const BATCH = 500
+      while (allData.length < 10_000) {
+        let q = admin
+          .from("vehicle_maintenance_events")
+          .select("id,vehicle:vehicles(vehicle_code,plate_number,make,model),maintenance_type,status,fault_description,provider,cost,odometer_at_service,date_in,date_out")
+          .eq("tenant_id", tenantId)
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false })
+          .order("id", { ascending: false })
+          .limit(BATCH + 1)
+        if (cursor) q = q.lt("id", cursor)
+        const { data } = await q
+        if (!data || data.length === 0) break
+        const hasMore = data.length > BATCH
+        const batch = hasMore ? data.slice(0, BATCH) : data
+        cursor = String(batch[batch.length - 1].id)
+        allData.push(...batch)
+        if (!hasMore) break
+      }
+      const rows = allData.map((r) => {
         const row = r as {
           maintenance_type: string | null; status: string | null
           fault_description: string | null; provider: string | null
@@ -230,14 +246,29 @@ export async function collectReportData(
     }
 
     case "violations_report": {
-      const { data } = await admin
-        .from("violations")
-        .select("violation_ref,incident_date,severity,status,deduction_amount,incident_description,driver:drivers(full_name_ar)")
-        .eq("tenant_id", tenantId)
-        .is("deleted_at", null)
-        .order("incident_date", { ascending: false })
-        .limit(1000)
-      const rows = ((data as unknown[]) ?? []).map((r) => {
+      // Cursor-based pagination for violations report
+      const allVData: unknown[] = []
+      let vCursor: string | null = null
+      const VBATCH = 500
+      while (allVData.length < 10_000) {
+        let vq = admin
+          .from("violations")
+          .select("id,violation_ref,incident_date,severity,status,deduction_amount,incident_description,driver:drivers(full_name_ar)")
+          .eq("tenant_id", tenantId)
+          .is("deleted_at", null)
+          .order("incident_date", { ascending: false })
+          .order("id", { ascending: false })
+          .limit(VBATCH + 1)
+        if (vCursor) vq = vq.lt("id", vCursor)
+        const { data: vBatch } = await vq
+        if (!vBatch || vBatch.length === 0) break
+        const hasMore = vBatch.length > VBATCH
+        const events = hasMore ? vBatch.slice(0, VBATCH) : vBatch
+        vCursor = String(events[events.length - 1].id)
+        allVData.push(...events)
+        if (!hasMore) break
+      }
+      const rows = allVData.map((r) => {
         const row = r as {
           violation_ref: string | null; incident_date: string | null
           severity: string | null; status: string | null

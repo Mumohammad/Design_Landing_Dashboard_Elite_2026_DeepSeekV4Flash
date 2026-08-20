@@ -91,16 +91,39 @@ export async function listVatReviewItems(): Promise<{ success: boolean; rows?: V
     if (!currentUser) return { success: false, error: "Not authenticated." }
 
     const admin = createAdminClient()
-    const { data, error } = await admin
-      .from("vat_input_ledger")
-      .select("id,invoice_ref,invoice_date,vat_base_amount,vat_rate,vat_amount,supplier_id")
-      .eq("tenant_id", currentUser.tenantId)
-      .eq("vat_recoverability", "pending_review")
-      .order("invoice_date", { ascending: true })
-      .limit(200)
-    if (error) return { success: false, error: error.message }
 
-    return { success: true, rows: (data ?? []) as unknown as VatReviewItem[] }
+    // Cursor-based pagination: fetch all pending_review rows in batches
+    // to handle tenants with large volumes of unrecoverable VAT.
+    const allRows: VatReviewItem[] = []
+    let cursor: string | null = null
+    const PAGE_SIZE = 200
+    const MAX_ROWS = 5000
+
+    while (allRows.length < MAX_ROWS) {
+      let query = admin
+        .from("vat_input_ledger")
+        .select("id,invoice_ref,invoice_date,vat_base_amount,vat_rate,vat_amount,supplier_id")
+        .eq("tenant_id", currentUser.tenantId)
+        .eq("vat_recoverability", "pending_review")
+        .order("invoice_date", { ascending: true })
+        .order("id", { ascending: true })
+        .limit(PAGE_SIZE + 1)
+
+      if (cursor) query = query.gt("id", cursor)
+
+      const { data, error } = await query
+      if (error) return { success: false, error: error.message }
+      if (!data || data.length === 0) break
+
+      const hasMore = data.length > PAGE_SIZE
+      const batch = hasMore ? data.slice(0, PAGE_SIZE) : data
+      cursor = String(batch[batch.length - 1].id)
+      allRows.push(...(batch as unknown as VatReviewItem[]))
+
+      if (!hasMore) break
+    }
+
+    return { success: true, rows: allRows }
   } catch (e) {
     return { success: false, error: errorMessage(e) }
   }

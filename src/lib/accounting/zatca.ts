@@ -128,21 +128,43 @@ export async function runZatcaAdapter(): Promise<ZatcaAdapterSummary> {
     // ZATCA-relevant events for this tenant (any processing status — the
     // accounting dispatcher owns that column; our ledger is the idempotency
     // boundary). Purchase invoices are never transmitted.
-    const { data: events, error: evErr } = await admin
-      .from("financial_events")
-      .select("id,event_type,source_type,source_id,payload")
-      .eq("tenant_id", currentUser.tenantId)
-      .in("event_type", [...ZATCA_EVENT_TYPES])
-      .order("created_at", { ascending: true })
-      .limit(200)
-    if (evErr) return { success: false, error: mapFinancialError(evErr.message) }
+    // Cursor-based pagination: process events in batches to handle tenants
+    // with large volumes of unprocessed financial events.
+    const allEvents: EventRow[] = []
+    let evCursor: string | null = null
+    const BATCH_SIZE = 200
+    const MAX_EVENTS = 10_000
+
+    while (allEvents.length < MAX_EVENTS) {
+      let evQuery = admin
+        .from("financial_events")
+        .select("id,event_type,source_type,source_id,payload")
+        .eq("tenant_id", currentUser.tenantId)
+        .in("event_type", [...ZATCA_EVENT_TYPES])
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .limit(BATCH_SIZE + 1)
+
+      if (evCursor) evQuery = evQuery.gt("id", evCursor)
+
+      const { data: batch, error: evErr } = await evQuery
+      if (evErr) return { success: false, error: mapFinancialError(evErr.message) }
+      if (!batch || batch.length === 0) break
+
+      const hasMore = batch.length > BATCH_SIZE
+      const events = hasMore ? batch.slice(0, BATCH_SIZE) : batch
+      evCursor = String(events[events.length - 1].id)
+      allEvents.push(...(events as unknown as EventRow[]))
+
+      if (!hasMore) break
+    }
 
     let processed = 0
     let skipped = 0
     let failed = 0
     let lastError: string | null = null
 
-    for (const ev of (events ?? []) as EventRow[]) {
+    for (const ev of allEvents) {
       try {
         const outcome = await processEvent(admin, currentUser.tenantId, currentUser.authUserId, ev, storedCsid)
         if (outcome === "processed") processed++

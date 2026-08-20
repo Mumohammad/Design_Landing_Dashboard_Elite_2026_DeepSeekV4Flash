@@ -894,48 +894,75 @@ export async function exportInvoicesCsv(): Promise<{ success: boolean; csv?: str
     if (!currentUser) return { success: false, error: "Not authenticated." }
 
     const admin = createAdminClient()
-    const { data, error } = await admin
-      .from("invoices")
-      .select("invoice_number,invoice_type,issue_date,due_date,status,subtotal,discount,vat_amount,total,currency,customers(name_ar),suppliers(name_ar)")
-      .eq("tenant_id", currentUser.tenantId)
-      .is("deleted_at", null)
-      .order("issue_date", { ascending: false })
-      .limit(500)
-    if (error) return { success: false, error: error.message }
 
-    const rows = (data ?? []).map((r) => {
-      const row = r as unknown as {
-        invoice_number: string
-        invoice_type: string
-        issue_date: string
-        due_date: string
-        status: string
-        subtotal: number
-        discount: number
-        vat_amount: number
-        total: number
-        currency: string
-        customers?: { name_ar: string | null } | null
-        suppliers?: { name_ar: string | null } | null
+    // Cursor-based pagination: fetch in batches of 500 using id > cursor
+    // to avoid OFFSET degradation on large datasets.
+    const allRows: (string | number | boolean | null)[][] = []
+    let cursor: string | null = null
+    const PAGE_SIZE = 500
+    const MAX_ROWS = 10_000 // Safety cap for CSV export
+
+    type InvoiceRow = {
+      id: string
+      invoice_number: string
+      invoice_type: string
+      issue_date: string
+      due_date: string
+      status: string
+      subtotal: number
+      discount: number
+      vat_amount: number
+      total: number
+      currency: string
+      customers?: { name_ar: string | null } | null
+      suppliers?: { name_ar: string | null } | null
+    }
+
+    while (allRows.length < MAX_ROWS) {
+      let query = admin
+        .from("invoices")
+        .select("id,invoice_number,invoice_type,issue_date,due_date,status,subtotal,discount,vat_amount,total,currency,customers(name_ar),suppliers(name_ar)")
+        .eq("tenant_id", currentUser.tenantId)
+        .is("deleted_at", null)
+        .order("issue_date", { ascending: false })
+        .order("id", { ascending: false })
+        .limit(PAGE_SIZE + 1)
+
+      if (cursor) {
+        query = query.lt("id", cursor)
       }
-      return [
-        row.invoice_number,
-        row.invoice_type,
-        row.issue_date,
-        row.due_date,
-        row.status,
-        row.subtotal,
-        row.discount,
-        row.vat_amount,
-        row.total,
-        row.currency,
-        row.customers?.name_ar ?? row.suppliers?.name_ar ?? "",
-      ]
-    })
+
+      const { data, error } = await query
+      if (error) return { success: false, error: error.message }
+      if (!data || data.length === 0) break
+
+      const hasMore = data.length > PAGE_SIZE
+      const batch = hasMore ? data.slice(0, PAGE_SIZE) : data
+      cursor = String(batch[batch.length - 1].id)
+
+      for (const r of batch) {
+        const row = r as unknown as InvoiceRow
+        allRows.push([
+          row.invoice_number,
+          row.invoice_type,
+          row.issue_date,
+          row.due_date,
+          row.status,
+          row.subtotal,
+          row.discount,
+          row.vat_amount,
+          row.total,
+          row.currency,
+          row.customers?.name_ar ?? row.suppliers?.name_ar ?? "",
+        ])
+      }
+
+      if (!hasMore) break
+    }
 
     const csv = "\uFEFF" + toCsv(
       ["invoice_number", "invoice_type", "issue_date", "due_date", "status", "subtotal", "discount", "vat_amount", "total", "currency", "party"],
-      rows
+      allRows
     )
 
     await writeAuditLog({
@@ -944,10 +971,119 @@ export async function exportInvoicesCsv(): Promise<{ success: boolean; csv?: str
       module: "invoices",
       action: "invoices_list_exported",
       entityType: "invoices",
-      newValues: { rows: (data ?? []).length },
+      newValues: { rows: allRows.length },
     })
 
     return { success: true, csv }
+  } catch (e) {
+    return { success: false, error: errorMessage(e) }
+  }
+}
+
+// ── Paginated invoice list ───────────────────────────────────────────────────
+
+export type InvoiceListResult = {
+  success: boolean
+  error?: string
+  data?: InvoiceRow[]
+  nextCursor?: string | null
+  totalEstimate?: number
+  hasMore?: boolean
+}
+
+type InvoiceRow = {
+  id: string
+  invoice_number: string
+  invoice_type: string
+  issue_date: string
+  due_date: string
+  status: string
+  subtotal: number
+  discount: number
+  vat_amount: number
+  total: number
+  currency: string
+  customer_name: string | null
+  supplier_name: string | null
+}
+
+/**
+ * Paginated invoice list using cursor-based pagination.
+ * Pass `cursor` from the previous page's `nextCursor` for the next page.
+ * First page: omit cursor.
+ */
+export async function listInvoices(input: {
+  cursor?: string | null
+  pageSize?: number
+}): Promise<InvoiceListResult> {
+  try {
+    await requirePermission("invoices", "read")
+    const currentUser = await getCurrentUser()
+    if (!currentUser) return { success: false, error: "Not authenticated." }
+
+    const pageSize = Math.min(Math.max(1, input.pageSize ?? 25), 100)
+    const admin = createAdminClient()
+
+    let query = admin
+      .from("invoices")
+      .select("id,invoice_number,invoice_type,issue_date,due_date,status,subtotal,discount,vat_amount,total,currency,customers(name_ar),suppliers(name_ar)")
+      .eq("tenant_id", currentUser.tenantId)
+      .is("deleted_at", null)
+      .order("issue_date", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(pageSize + 1)
+
+    if (input.cursor) {
+      query = query.lt("id", input.cursor)
+    }
+
+    const { data, error } = await query
+    if (error) return { success: false, error: error.message }
+    if (!data) return { success: true, data: [], nextCursor: null, totalEstimate: 0, hasMore: false }
+
+    const hasMore = data.length > pageSize
+    const rows = (hasMore ? data.slice(0, pageSize) : data).map((r) => {
+      const row = r as unknown as {
+        id: string; invoice_number: string; invoice_type: string
+        issue_date: string; due_date: string; status: string
+        subtotal: number; discount: number; vat_amount: number; total: number
+        currency: string
+        customers?: { name_ar: string | null } | null
+        suppliers?: { name_ar: string | null } | null
+      }
+      return {
+        id: row.id,
+        invoice_number: row.invoice_number,
+        invoice_type: row.invoice_type,
+        issue_date: row.issue_date,
+        due_date: row.due_date,
+        status: row.status,
+        subtotal: Number(row.subtotal),
+        discount: Number(row.discount),
+        vat_amount: Number(row.vat_amount),
+        total: Number(row.total),
+        currency: row.currency,
+        customer_name: row.customers?.name_ar ?? null,
+        supplier_name: row.suppliers?.name_ar ?? null,
+      }
+    })
+
+    const nextCursor = hasMore ? String(rows[rows.length - 1].id) : null
+
+    // Approximate total count (cached from the count query)
+    const { count } = await admin
+      .from("invoices")
+      .select("id", { count: "exact", head: true })
+      .eq("tenant_id", currentUser.tenantId)
+      .is("deleted_at", null)
+
+    return {
+      success: true,
+      data: rows,
+      nextCursor,
+      totalEstimate: count ?? rows.length,
+      hasMore,
+    }
   } catch (e) {
     return { success: false, error: errorMessage(e) }
   }
