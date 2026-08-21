@@ -12,7 +12,7 @@
 // Set TEST_USER_EMAIL and TEST_USER_PASSWORD env vars.
 
 import { test as base, expect, type Page } from "@playwright/test"
-import { waitForPageLoad, navigateToModule } from "./helpers"
+import { navigateToModule } from "./helpers"
 
 // Authenticated test fixture
 const test = base.extend<{ authed: Page }>({
@@ -26,7 +26,7 @@ const test = base.extend<{ authed: Page }>({
     await page.getByRole("button", { name: /sign in|login|تسجيل/i }).click()
     await page.waitForURL(/\/dashboard/, { timeout: 30_000 })
 
-    await use(page)
+    await use(page) // eslint-disable-line react-hooks/rules-of-hooks -- Playwright fixture `use`, not React
   },
 })
 

@@ -29,7 +29,7 @@ const DEFAULT_CREDENTIALS: TestCredentials = {
  *   })
  */
 export const test = base.extend<{ authenticatedPage: Page }>({
-  authenticatedPage: async ({ page, context }, use) => {
+  authenticatedPage: async ({ page }, use) => {
     // 1. Navigate to the login page
     await page.goto("/auth/sign-in")
 
@@ -44,7 +44,7 @@ export const test = base.extend<{ authenticatedPage: Page }>({
     await page.waitForURL(/\/dashboard/, { timeout: 30_000 })
 
     // 5. Provide the authenticated page to the test
-    await use(page)
+    await use(page) // eslint-disable-line react-hooks/rules-of-hooks -- Playwright fixture `use`, not React
   },
 })
 

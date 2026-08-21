@@ -19,7 +19,7 @@ const test = base.extend<{ authed: Page }>({
     await page.getByLabel(/password/i).fill(password)
     await page.getByRole("button", { name: /sign in|login|تسجيل/i }).click()
     await page.waitForURL(/\/dashboard/, { timeout: 30_000 })
-    await use(page)
+    await use(page) // eslint-disable-line react-hooks/rules-of-hooks -- Playwright fixture `use`, not React
   },
 })
 
