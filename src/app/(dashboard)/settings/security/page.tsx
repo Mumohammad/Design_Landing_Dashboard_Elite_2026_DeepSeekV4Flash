@@ -1,29 +1,12 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Shield, ShieldCheck, KeyRound, Lock, Clock, AlertTriangle } from "lucide-react"
 import { LoadingSpinner } from "@/components/ui/loading-spinner"
-
-interface SecurityPolicy {
-  key: string
-  value: string
-}
-
-interface MyAccount {
-  full_name_ar: string | null
-  full_name_en: string | null
-  email: string
-  two_factor_enabled: boolean
-  must_change_password: boolean
-  failed_login_attempts: number
-  locked_until: string | null
-  last_login_at: string | null
-  password_changed_at: string | null
-}
+import { fetchSecurityPageData, type SecurityAccount, type SecurityPolicy } from "@/lib/auth/user-reads"
 
 function fmtDate(date: string | null): string {
   if (!date) return "—"
@@ -44,39 +27,21 @@ export default function SecuritySettingsPage() {
   const { t, locale } = useTranslation()
   const ar = locale === "ar"
 
-  const [account, setAccount] = useState<MyAccount | null>(null)
+  const [account, setAccount] = useState<SecurityAccount | null>(null)
   const [policies, setPolicies] = useState<SecurityPolicy[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState(false)
 
   useEffect(() => {
     async function load() {
-      const supabase = createClient()
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-
-      if (user) {
-        const { data: me } = await supabase
-          .from("users")
-          .select(
-            "full_name_ar,full_name_en,email,two_factor_enabled,must_change_password,failed_login_attempts,locked_until,last_login_at,password_changed_at"
-          )
-          .eq("auth_user_id", user.id)
-          .is("deleted_at", null)
-          .maybeSingle<MyAccount>()
-        setAccount(me ?? null)
+      try {
+        const { account: acc, policies: pols } = await fetchSecurityPageData()
+        setAccount(acc)
+        setPolicies(pols)
+        if (!pols.length) setError(true)
+      } catch {
+        setError(true)
       }
-
-      const { data: policyRows } = await supabase
-        .from("system_settings")
-        .select("key,value")
-        .ilike("key", "security.%")
-        .is("deleted_at", null)
-        .order("key", { ascending: true })
-
-      if (!policyRows) setError(true)
-      else setPolicies(policyRows as SecurityPolicy[])
       setIsLoading(false)
     }
     load()
@@ -106,7 +71,7 @@ export default function SecuritySettingsPage() {
     return map[key] ?? { label: key }
   }
 
-  const isLocked = account?.locked_until ? new Date(account.locked_until) > new Date() : false
+  const isLocked = account?.is_locked ?? false
 
   return (
     <div className="page-enter px-4 lg:px-6 py-4 space-y-6">

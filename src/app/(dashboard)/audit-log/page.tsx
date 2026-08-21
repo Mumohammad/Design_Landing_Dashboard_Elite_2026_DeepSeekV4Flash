@@ -1,21 +1,10 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
 import { EnterpriseModulePage, type KpiCardData, type TableColumn } from "@/components/dashboard/enterprise-module-page"
 import { FileSearch, Plus, Edit, Trash2, ShieldCheck } from "lucide-react"
-
-interface AuditRow {
-  id: string
-  module: string
-  entity_type: string | null
-  action: string
-  actor_id: string | null
-  ip_address: string | null
-  created_at: string
-  new_values: Record<string, unknown> | null
-}
+import { fetchAuditLog, type AuditLogRow } from "@/lib/auth/user-reads"
 
 function fmtDateTime(iso: string): string {
   try {
@@ -34,20 +23,18 @@ const MODULE_AR: Record<string, string> = {
 
 export default function AuditLogPage() {
   const { t } = useTranslation()
-  const [data, setData] = useState<AuditRow[]>([])
+  const [data, setData] = useState<AuditLogRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [search, setSearch] = useState("")
 
   useEffect(() => {
     async function load() {
-      const supabase = createClient()
-      const { data: result, error } = await supabase
-        .from("audit_log")
-        .select("id,module,entity_type,action,actor_id,ip_address,created_at,new_values")
-        .order("created_at", { ascending: false })
-        .limit(200)
-      if (error) { console.error(error); setData([]) }
-      else { setData(result as AuditRow[] ?? []) }
+      try {
+        const result = await fetchAuditLog()
+        setData(result)
+      } catch {
+        setData([])
+      }
       setIsLoading(false)
     }
     load()
@@ -67,7 +54,7 @@ export default function AuditLogPage() {
     { label: "Deletes", value: data.filter(r => r.action === "deleted").length, icon: Trash2, color: "#EF4444" },
   ]
 
-  const columns: TableColumn<AuditRow>[] = [
+  const columns: TableColumn<AuditLogRow>[] = [
     { key: "created_at", header: "Timestamp", render: (r) => <span dir="ltr" className="text-xs tabular-nums text-muted-foreground">{fmtDateTime(r.created_at)}</span> },
     { key: "module", header: "Module", render: (r) => <span className="text-sm font-medium">{MODULE_AR[r.module] ?? r.module}</span> },
     { key: "action", header: "Action", render: (r) => <span dir="ltr" className="text-xs font-mono">{r.action}</span> },

@@ -1,22 +1,10 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
 import { EnterpriseModulePage, type KpiCardData, type TableColumn } from "@/components/dashboard/enterprise-module-page"
 import { Users, CheckCircle2, Clock, UserX } from "lucide-react"
-
-interface UserRow {
-  id: string
-  employee_code: string | null
-  full_name_ar: string | null
-  full_name_en: string | null
-  email: string
-  role: string
-  status: string
-  last_login_at: string | null
-  two_factor_enabled: boolean
-}
+import { fetchUsersForSettings, type SafeUserRow } from "@/lib/auth/user-reads"
 
 const ROLE_AR: Record<string, string> = {
   general_manager: "مدير عام",
@@ -45,21 +33,18 @@ function fmtDate(date: string | null): string {
 
 export default function UsersPage() {
   const { t } = useTranslation()
-  const [data, setData] = useState<UserRow[]>([])
+  const [data, setData] = useState<SafeUserRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [search, setSearch] = useState("")
 
   useEffect(() => {
     async function load() {
-      const supabase = createClient()
-      const { data: result, error } = await supabase
-        .from("users")
-        .select("id,employee_code,full_name_ar,full_name_en,email,role,status,last_login_at,two_factor_enabled")
-        .is("deleted_at", null)
-        .order("created_at", { ascending: false })
-        .limit(100)
-      if (error) { console.error(error); setData([]) }
-      else { setData(result as UserRow[] ?? []) }
+      try {
+        const result = await fetchUsersForSettings()
+        setData(result)
+      } catch {
+        setData([])
+      }
       setIsLoading(false)
     }
     load()
@@ -76,7 +61,7 @@ export default function UsersPage() {
     { label: t.common.inactive, value: data.filter(r => r.status === "locked" || r.status === "terminated").length, icon: UserX, color: "#EF4444" },
   ]
 
-  const columns: TableColumn<UserRow>[] = [
+  const columns: TableColumn<SafeUserRow>[] = [
     { key: "employee_code", header: "Code", render: (r) => <span dir="ltr" className="font-mono text-xs">{r.employee_code ?? "—"}</span> },
     { key: "full_name_ar", header: t.common.status, render: (r) => <span className="font-medium">{r.full_name_ar ?? r.full_name_en ?? r.email}</span> },
     { key: "email", header: "Email", render: (r) => <span dir="ltr" className="text-xs text-muted-foreground">{r.email}</span> },

@@ -1,19 +1,10 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
 import { EnterpriseModulePage, type KpiCardData, type TableColumn } from "@/components/dashboard/enterprise-module-page"
 import { ShieldCheck, Star, Lock, Eye } from "lucide-react"
-
-interface RoleRow {
-  id: string
-  name: string
-  name_ar: string
-  name_en: string
-  description: string | null
-  is_system_role: boolean
-}
+import { fetchRoles, type RoleRow } from "@/lib/auth/user-reads"
 
 const ROLE_AR: Record<string, string> = {
   general_manager: "مدير عام",
@@ -35,14 +26,12 @@ export default function RolesPage() {
 
   useEffect(() => {
     async function load() {
-      const supabase = createClient()
-      const { data: result, error } = await supabase
-        .from("roles")
-        .select("id,name,name_ar,name_en,description,is_system_role")
-        .is("deleted_at", null)
-        .order("name", { ascending: true })
-      if (error) { console.error(error); setData([]) }
-      else { setData(result as RoleRow[] ?? []) }
+      try {
+        const result = await fetchRoles()
+        setData(result)
+      } catch {
+        setData([])
+      }
       setIsLoading(false)
     }
     load()
