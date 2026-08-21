@@ -17,6 +17,7 @@ import { writeAuditLog } from "@/lib/auth/sessions"
 import { buildInvoiceHtml, type InvoiceDocData } from "./invoice-html"
 import { buildTaxQrPayload, qrPngDataUrl } from "./invoice-qr"
 import { mapFinancialError } from "./csv-utils"
+import { createHash, randomBytes } from "crypto"
 
 type ActionResult = {
   success: boolean
@@ -141,7 +142,11 @@ export async function generateInvoiceDocument(invoiceId: string): Promise<Action
       /^\d{15}$/.test(tenant?.vat_number ?? "") ? tenant!.vat_number! : "310122993400001"
 
     const docNumber = `INVDOC-${inv.invoice_number}`
-    const verifyUrl = `/verify-document/${docNumber}`
+
+    // High-entropy verify token — prevents enumeration of invoice documents.
+    const verifyToken = randomBytes(32).toString('hex')
+    const verifyTokenHash = createHash('sha256').update(verifyToken).digest('hex')
+    const verifyUrl = `/verify-document/${verifyToken}`
     const timestamp = new Date().toISOString()
     const status = STATUS_LABELS[inv.status] ?? { ar: inv.status, en: inv.status }
     const isSales = inv.invoice_type === "sales"
@@ -255,6 +260,7 @@ export async function generateInvoiceDocument(invoiceId: string): Promise<Action
           file_url: signed?.signedUrl ?? null,
           qr_code_url: null,
           verify_url: verifyUrl,
+          verify_token_hash: verifyTokenHash,
           status: "generated",
           printed_at: new Date().toISOString(),
           updated_by: currentUser.authUserId,
@@ -277,6 +283,7 @@ export async function generateInvoiceDocument(invoiceId: string): Promise<Action
           file_url: signed?.signedUrl ?? null,
           qr_code_url: null,
           verify_url: verifyUrl,
+          verify_token_hash: verifyTokenHash,
           status: "generated",
           generated_by: currentUser.authUserId,
           generated_at: new Date().toISOString(),

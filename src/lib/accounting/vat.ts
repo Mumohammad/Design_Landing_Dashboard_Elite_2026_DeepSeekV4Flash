@@ -24,6 +24,7 @@ import { mapFinancialError, toCsv } from "@/lib/accounting/csv-utils"
 import { netNature } from "@/lib/accounting/vat-math"
 import { buildVatReconciliationHtml, type VatReportRow } from "@/lib/accounting/vat-report-html"
 import { buildVatReturnHtml, type VatReturnFieldRow } from "@/lib/accounting/vat-return-html"
+import { createHash, randomBytes } from "crypto"
 
 type ActionResult = { success: boolean; error?: string }
 
@@ -513,7 +514,9 @@ export async function generateVatReturnReport(
 
     // Record in generated_documents so the return is re-openable + verifiable.
     const docNumber = `VAT-RET-${period}`
-    const verifyUrl = `/verify-document/${docNumber}`
+    const verifyToken = randomBytes(32).toString('hex')
+    const verifyTokenHash = createHash('sha256').update(verifyToken).digest('hex')
+    const verifyUrl = `/verify-document/${verifyToken}`
     const generatedData = {
       kind: "vat_return",
       period_year: row.period_year,
@@ -553,6 +556,7 @@ export async function generateVatReturnReport(
         .update({
           generated_data: generatedData,
           verify_url: verifyUrl,
+          verify_token_hash: verifyTokenHash,
           status: "generated",
           printed_at: new Date().toISOString(),
           updated_by: currentUser.authUserId,
@@ -575,6 +579,7 @@ export async function generateVatReturnReport(
           file_url: null,
           qr_code_url: null,
           verify_url: verifyUrl,
+          verify_token_hash: verifyTokenHash,
           status: "generated",
           generated_by: currentUser.authUserId,
           generated_at: new Date().toISOString(),

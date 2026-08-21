@@ -12,9 +12,11 @@ const PRINT_ONLY = "print-only"
 
 export function SuccessScreen({
   applicationNumber,
+  statusToken,
   applicantName,
 }: {
   applicationNumber: string
+  statusToken: string
   applicantName: string
 }) {
   const { dict, locale } = useDriverRegistration()
@@ -26,7 +28,7 @@ export function SuccessScreen({
     setOrigin(window.location.origin)
   }, [])
 
-  const statusUrl = `${origin}/driver-application-status/${encodeURIComponent(applicationNumber)}`
+  const statusUrl = `${origin}/driver-application-status/${encodeURIComponent(statusToken)}`
 
   React.useEffect(() => {
     if (!origin) return
@@ -111,7 +113,7 @@ export function SuccessScreen({
               <div className="h-28 w-28 animate-pulse rounded-xl border border-border bg-muted" />
             )}
             <p className="mt-2 max-w-60 text-[11px] leading-relaxed text-muted-foreground">
-              {dict.print.status} · /driver-application-status/{encodeURIComponent(applicationNumber)}
+              {dict.print.status} · /driver-application-status/{encodeURIComponent(statusToken)}
             </p>
           </div>
         </div>

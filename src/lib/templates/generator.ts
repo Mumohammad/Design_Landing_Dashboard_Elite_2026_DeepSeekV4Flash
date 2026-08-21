@@ -18,6 +18,7 @@ import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
 import { writeAuditLog } from "@/lib/auth/sessions"
 import { qrPngDataUrl } from "@/lib/accounting/invoice-qr"
 import { buildDocumentHtml, type DocumentEntityData } from "./document-html"
+import { createHash, randomBytes } from "crypto"
 
 type ActionResult = { success: boolean; error?: string; html?: string; docNumber?: string; verifyUrl?: string }
 
@@ -134,7 +135,11 @@ export async function generateDocumentAction(
     const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "")
     const rand = Math.floor(1000 + Math.random() * 9000).toString()
     const docNumber = `DOC-${stamp}-${rand}`
-    const verifyUrl = `/verify-document/${docNumber}`
+
+    // High-entropy verify token (64 hex chars) — prevents enumeration.
+    const verifyToken = randomBytes(32).toString('hex')
+    const verifyTokenHash = createHash('sha256').update(verifyToken).digest('hex')
+    const verifyUrl = `/verify-document/${verifyToken}`
 
     // QR content: absolute verify URL when a public base URL is configured,
     // otherwise the relative path (still resolves within the same origin).
@@ -172,6 +177,7 @@ export async function generateDocumentAction(
         },
         qr_code_url: qrDataUrl,
         verify_url: verifyUrl,
+        verify_token_hash: verifyTokenHash,
         status: "generated",
         generated_by: currentUser.authUserId,
         generated_at: new Date().toISOString(),

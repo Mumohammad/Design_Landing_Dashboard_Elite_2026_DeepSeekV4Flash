@@ -3,6 +3,7 @@
 import { createAdminClient } from "@/lib/supabase/admin"
 import { rateLimit, getClientIp } from "@/lib/auth/rate-limit"
 import { fullApplicationSchema, type FullApplication } from "./schema"
+import { createHash, randomBytes } from "crypto"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Submit a public driver application.
@@ -18,7 +19,7 @@ import { fullApplicationSchema, type FullApplication } from "./schema"
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type SubmitResult =
-  | { ok: true; applicationNumber: string; applicationId: string }
+  | { ok: true; applicationNumber: string; applicationId: string; statusToken: string }
   | { ok: false; error: string; fieldErrors?: Record<string, string[]> }
 
 const APPLICATION_NUMBER_REGEX = /^DRV-\d{4}-\d{6}$/
@@ -132,7 +133,10 @@ export async function submitDriverApplication(
     const fullName =
       `${app.personal.firstName} ${app.personal.middleName ?? ""} ${app.personal.lastName}`.replace(/\s+/g, " ")
 
-    // 4. Insert the application (DB trigger assigns application_number).
+    // 4. Insert the application (DB trigger assigns application_number + status_token_hash).
+    const statusToken = randomBytes(32).toString('hex')
+    const statusTokenHash = createHash('sha256').update(statusToken).digest('hex')
+
     const { data: inserted, error: insertError } = await admin
       .from("driver_applications")
       .insert({
@@ -174,6 +178,7 @@ export async function submitDriverApplication(
         consent_privacy: app.consent.consentPrivacy,
         consent_at: new Date().toISOString(),
         status: "submitted",
+        status_token_hash: statusTokenHash,
         ip_hash: clientIp,
       })
       .select("id, application_number")
@@ -234,7 +239,7 @@ export async function submitDriverApplication(
     // 6. Fire-and-forget EmailJS notification (never blocks / fails the submit).
     void notifyByEmail(app, inserted.application_number)
 
-    return { ok: true, applicationNumber: inserted.application_number, applicationId: inserted.id }
+    return { ok: true, applicationNumber: inserted.application_number, applicationId: inserted.id, statusToken }
   } catch (err) {
      
     console.error("[driver-registration] unexpected error:", err)
@@ -259,20 +264,28 @@ function mimeFromPath(path: string): string | null {
   }
 }
 
-/** Public status lookup for the QR / status page. */
-export async function getApplicationStatus(reference: string): Promise<{
+/** Public status lookup for the QR / status page.
+ *
+ * Accepts a high-entropy 64-hex-char status token (not the enumerable
+ * application_number). The token is hashed server-side and compared against
+ * the stored hash, preventing enumeration attacks.
+ */
+export async function getApplicationStatus(token: string): Promise<{
   found: boolean
   status?: string
   submittedAt?: string
   applicationNumber?: string
   fullName?: string
 }> {
-  if (!/^DRV-\d{4}-\d{6}$/.test(reference)) return { found: false }
+  // Reject tokens that don't match the expected format (64 hex chars).
+  if (!/^[0-9a-f]{64}$/.test(token)) return { found: false }
+
+  const tokenHash = createHash('sha256').update(token).digest('hex')
   const admin = createAdminClient()
   const { data } = await admin
     .from("driver_applications")
     .select("application_number, status, submitted_at, full_name")
-    .eq("application_number", reference)
+    .eq("status_token_hash", tokenHash)
     .maybeSingle()
 
   if (!data) return { found: false }

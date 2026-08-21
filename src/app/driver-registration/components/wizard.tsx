@@ -104,7 +104,7 @@ function ReviewPanel({
   const { dict, data, locale } = useDriverRegistration()
   const [phase, setPhase] = React.useState<"idle" | "validating" | "submitting" | "error">("idle")
   const [error, setError] = React.useState<string | null>(null)
-  const [result, setResult] = React.useState<{ applicationNumber: string; applicationId: string } | null>(null)
+  const [result, setResult] = React.useState<{ applicationNumber: string; applicationId: string; statusToken: string } | null>(null)
 
   const fullName =
     data.personal
@@ -234,7 +234,7 @@ function ReviewPanel({
 
     const res = await submitDriverApplication(payload)
     if (res.ok) {
-      setResult({ applicationNumber: res.applicationNumber, applicationId: res.applicationId })
+      setResult({ applicationNumber: res.applicationNumber, applicationId: res.applicationId, statusToken: res.statusToken })
     } else {
       setPhase("error")
       setError(dict.common.errorGeneric)
@@ -245,6 +245,7 @@ function ReviewPanel({
     return (
       <SuccessScreen
         applicationNumber={result.applicationNumber}
+        statusToken={result.statusToken}
         applicantName={fullName}
       />
     )

@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin"
+import { createHash } from "crypto"
 import { LogoMark } from "@/components/logo"
 import {
   BadgeCheck,
@@ -48,8 +49,13 @@ type GeneratedDocRow = {
   } | null
 }
 
-async function loadDocument(docNumber: string): Promise<GeneratedDocRow | null> {
+async function loadDocument(verifyToken: string): Promise<GeneratedDocRow | null> {
   const admin = createAdminClient()
+
+  // Look up by SHA-256 hash of the opaque token — doc_number is never exposed
+  // in the public URL, preventing enumeration attacks.
+  const tokenHash = createHash('sha256').update(verifyToken).digest('hex')
+
   const { data, error } = await admin
     .from("generated_documents")
     .select(
@@ -58,7 +64,7 @@ async function loadDocument(docNumber: string): Promise<GeneratedDocRow | null> 
         "vehicles(plate_number, make, model), " +
         "invoices(invoice_number, invoice_type, status, total, currency, customers(name_ar), suppliers(name_ar))",
     )
-    .eq("doc_number", docNumber)
+    .eq("verify_token_hash", tokenHash)
     .is("deleted_at", null)
     .maybeSingle<GeneratedDocRow>()
 
@@ -260,6 +266,12 @@ export default async function VerifyDocumentPage({
     decoded = decodeURIComponent(docNumber)
   } catch {
     decoded = docNumber // malformed %-encoding → render the not-found card, never a 500
+  }
+
+  // Reject tokens that don't look like a 64-hex-char hash token.
+  // This provides a fast-fail before the database query.
+  if (!/^[0-9a-f]{64}$/.test(decoded)) {
+    return <ResultCard doc={null} />
   }
 
   return <ResultCard doc={await loadDocument(decoded)} />
