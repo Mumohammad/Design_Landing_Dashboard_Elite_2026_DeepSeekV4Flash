@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react"
 import { useActionState } from "react"
-import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
 import { createInvite, revokeInvite, listPendingInvites, type PendingInvite } from "@/lib/auth/invites"
+import { fetchUsersForSettings, type SafeUserRow } from "@/lib/auth/user-reads"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -13,17 +13,6 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Users, Mail, Send, Ban, UserPlus, AlertTriangle } from "lucide-react"
 import { LoadingSpinner } from "@/components/ui/loading-spinner"
-
-interface UserRow {
-  id: string
-  employee_code: string | null
-  full_name_ar: string | null
-  full_name_en: string | null
-  email: string
-  role: string
-  status: string
-  last_login_at: string | null
-}
 
 const ROLE_AR: Record<string, string> = {
   general_manager: "مدير عام",
@@ -68,21 +57,27 @@ function fmtDate(date: string | null): string {
 
 // Shared data fetch — used by the initial effect AND the invite/revoke
 // handlers so both stay on one code path.
+// Uses server actions instead of direct browser Supabase reads
+// (migration 058: authenticated users should not read users table directly).
 async function fetchUsersAndInvites(
-  setUsers: (u: UserRow[]) => void,
+  setUsers: (u: SafeUserRow[]) => void,
   setInvites: (i: PendingInvite[]) => void,
   setIsLoading: (b: boolean) => void
 ): Promise<void> {
-  const supabase = createClient()
-  const { data } = await supabase
-    .from("users")
-    .select("id,employee_code,full_name_ar,full_name_en,email,role,status,last_login_at")
-    .is("deleted_at", null)
-    .order("created_at", { ascending: false })
-    .limit(100)
-  setUsers((data as UserRow[]) ?? [])
-  const pending = await listPendingInvites()
-  setInvites(pending)
+  try {
+    const users = await fetchUsersForSettings()
+    setUsers(users)
+  } catch (err) {
+    console.error("[settings/users] fetchUsersForSettings failed:", err)
+    setUsers([])
+  }
+  try {
+    const pending = await listPendingInvites()
+    setInvites(pending)
+  } catch (err) {
+    console.error("[settings/users] listPendingInvites failed:", err)
+    setInvites([])
+  }
   setIsLoading(false)
 }
 
@@ -90,7 +85,7 @@ export default function UsersSettingsPage() {
   const { t, locale } = useTranslation()
   const ar = locale === "ar"
 
-  const [users, setUsers] = useState<UserRow[]>([])
+  const [users, setUsers] = useState<SafeUserRow[]>([])
   const [invites, setInvites] = useState<PendingInvite[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [tab, setTab] = useState("users")

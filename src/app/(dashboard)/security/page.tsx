@@ -1,33 +1,15 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
 import { EnterpriseModulePage, type KpiCardData, type TableColumn } from "@/components/dashboard/enterprise-module-page"
 import { Shield, Lock, AlertTriangle, KeyRound } from "lucide-react"
-
-interface SecurityUserRow {
-  id: string
-  email: string
-  full_name_ar: string | null
-  role: string
-  status: string
-  two_factor_enabled: boolean
-  must_change_password: boolean
-  failed_login_attempts: number
-  locked_until: string | null
-  last_login_at: string | null
-}
+import { fetchSecurityOverview, type SecurityUserRow } from "@/lib/auth/user-reads"
 
 const ROLE_AR: Record<string, string> = {
   general_manager: "مدير عام", admin: "مدير نظام", accountant: "محاسب",
   supervisor: "مشرف", hr_officer: "موارد بشرية", operations_officer: "عمليات",
   payroll_officer: "رواتب", platform_coordinator: "منسق منصات", readonly_auditor: "مدقق",
-}
-
-function fmtDate(date: string | null): string {
-  if (!date) return "—"
-  try { return new Date(date).toLocaleDateString("en-GB") } catch { return date }
 }
 
 export default function SecurityPage() {
@@ -38,18 +20,16 @@ export default function SecurityPage() {
 
   useEffect(() => {
     async function load() {
-      const supabase = createClient()
-      const { data: result, error } = await supabase
-        .from("users")
-        .select("id,email,full_name_ar,role,status,two_factor_enabled,must_change_password,failed_login_attempts,locked_until,last_login_at")
-        .is("deleted_at", null)
-        .order("failed_login_attempts", { ascending: false })
-        .limit(100)
-      if (error) { console.error(error); setData([]) }
-      else { setData(result as SecurityUserRow[] ?? []) }
+      try {
+        const result = await fetchSecurityOverview()
+        setData(result)
+      } catch (err) {
+        console.error(err)
+        setData([])
+      }
       setIsLoading(false)
     }
-    load()
+    void load()
   }, [])
 
   const filtered = search
@@ -78,7 +58,7 @@ export default function SecurityPage() {
     },
     { key: "two_factor_enabled", header: "2FA", render: (r) => r.two_factor_enabled ? <span className="text-emerald-600 text-xs">✓</span> : <span className="text-muted-foreground text-xs">—</span> },
     { key: "failed_login_attempts", header: "Failed", render: (r) => r.failed_login_attempts > 0 ? <span className="text-red-600 font-medium tabular-nums">{r.failed_login_attempts}</span> : <span className="text-muted-foreground tabular-nums">0</span> },
-    { key: "locked_until", header: "Locked Until", render: (r) => r.locked_until ? <span dir="ltr" className="text-xs text-red-600">{fmtDate(r.locked_until)}</span> : <span className="text-muted-foreground">—</span> },
+
   ]
 
   return (
