@@ -71,7 +71,9 @@ function ChartContainer({
             {children}
           </RechartsPrimitive.ResponsiveContainer>
         ) : (
-          <div className="flex aspect-video items-center justify-center" />
+          <div className="flex aspect-video items-center justify-center">
+            <span className="text-xs text-muted-foreground/50">Loading chart…</span>
+          </div>
         )}
       </div>
     </ChartContext.Provider>
