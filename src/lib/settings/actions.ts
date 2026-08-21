@@ -22,6 +22,116 @@ function errorMessage(e: unknown): string {
   return "Unknown error"
 }
 
+// ─── Read Actions ───────────────────────────────────────────────────────
+
+export type CompanyProfile = {
+  id: string
+  name_ar: string
+  name_en: string
+  legal_name: string | null
+  cr_number: string | null
+  vat_number: string | null
+  address: string | null
+  city: string | null
+  region: string | null
+  country: string | null
+  phone: string | null
+  email: string | null
+  logo_url: string | null
+  timezone: string | null
+  default_locale: string | null
+  mol_reference: string
+  wps_iban: string
+}
+
+/**
+ * Fetch the current tenant's company profile + WPS settings.
+ * Requires settings.read permission. Uses admin client with tenant filter.
+ */
+export async function fetchCompanyProfile(): Promise<CompanyProfile | null> {
+  await requirePermission("settings", "read")
+  const currentUser = await getCurrentUser()
+  if (!currentUser) return null
+
+  const admin = createAdminClient()
+  const { data, error } = await admin
+    .from("tenants")
+    .select(
+      "id, name_ar, name_en, legal_name, cr_number, vat_number, address, city, region, country, phone, email, logo_url, timezone, default_locale"
+    )
+    .eq("id", currentUser.tenantId)
+    .is("deleted_at", null)
+    .maybeSingle<Record<string, unknown>>()
+
+  if (error || !data) return null
+
+  // Fetch WPS settings
+  const { data: wpsRows } = await admin
+    .from("system_settings")
+    .select("key, value")
+    .eq("tenant_id", currentUser.tenantId)
+    .in("key", ["company.mol_reference", "company.wps_iban"])
+    .is("deleted_at", null)
+
+  const wpsMap = new Map(
+    ((wpsRows as { key: string; value: string }[] | null) ?? []).map((r) => [r.key, r.value])
+  )
+
+  return {
+    id: data.id as string,
+    name_ar: (data.name_ar as string) ?? "",
+    name_en: (data.name_en as string) ?? "",
+    legal_name: data.legal_name as string | null,
+    cr_number: data.cr_number as string | null,
+    vat_number: data.vat_number as string | null,
+    address: data.address as string | null,
+    city: data.city as string | null,
+    region: data.region as string | null,
+    country: data.country as string | null,
+    phone: data.phone as string | null,
+    email: data.email as string | null,
+    logo_url: data.logo_url as string | null,
+    timezone: data.timezone as string | null,
+    default_locale: data.default_locale as string | null,
+    mol_reference: wpsMap.get("company.mol_reference") ?? "",
+    wps_iban: wpsMap.get("company.wps_iban") ?? "",
+  }
+}
+
+export type PayrollSetting = {
+  id: string
+  key: string
+  value: string
+  is_public: boolean
+}
+
+/**
+ * Fetch payroll default settings for the /settings/payroll-defaults page.
+ * Requires settings.read permission.
+ */
+export async function fetchPayrollDefaults(): Promise<PayrollSetting[]> {
+  await requirePermission("settings", "read")
+  const currentUser = await getCurrentUser()
+  if (!currentUser) return []
+
+  const admin = createAdminClient()
+  const { data, error } = await admin
+    .from("system_settings")
+    .select("id, key, value, is_public")
+    .eq("tenant_id", currentUser.tenantId)
+    .in("key", [
+      "payroll.default_working_days",
+      "payroll.saudi_minimum_wage",
+      "payroll.min_net_floor",
+      "payroll.waiver_threshold_admin",
+    ])
+    .is("deleted_at", null)
+    .order("key", { ascending: true })
+
+  if (error) return []
+  return (data ?? []) as PayrollSetting[]
+}
+
 export interface CompanyProfileInput {
   name_ar: string
   name_en: string

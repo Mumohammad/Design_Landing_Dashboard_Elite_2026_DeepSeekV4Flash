@@ -2,33 +2,14 @@
 
 import { useEffect, useState } from "react"
 import { useActionState } from "react"
-import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
-import { updateCompanyProfile, updateCompanyWpsSettings, type CompanyProfileInput } from "@/lib/settings/actions"
+import { updateCompanyProfile, updateCompanyWpsSettings, fetchCompanyProfile, type CompanyProfileInput, type CompanyProfile } from "@/lib/settings/actions"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { Building2, AlertTriangle, Save, CheckCircle2, Landmark } from "lucide-react"
 import { LoadingSpinner } from "@/components/ui/loading-spinner"
-
-interface TenantRow {
-  id: string
-  name_ar: string
-  name_en: string
-  legal_name: string | null
-  cr_number: string | null
-  vat_number: string | null
-  address: string | null
-  city: string | null
-  region: string | null
-  country: string | null
-  phone: string | null
-  email: string | null
-  logo_url: string | null
-  timezone: string | null
-  default_locale: string | null
-}
 
 function FormField({
   id,
@@ -67,7 +48,7 @@ export default function CompanySettingsPage() {
   const { t, locale } = useTranslation()
   const ar = locale === "ar"
 
-  const [tenant, setTenant] = useState<TenantRow | null>(null)
+  const [tenant, setTenant] = useState<CompanyProfile | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
 
@@ -89,44 +70,32 @@ export default function CompanySettingsPage() {
 
   useEffect(() => {
     async function load() {
-      const supabase = createClient()
-      const { data, error } = await supabase
-        .from("tenants")
-        .select(
-          "id,name_ar,name_en,legal_name,cr_number,vat_number,address,city,region,country,phone,email,logo_url,timezone,default_locale"
-        )
-        .limit(1)
-        .maybeSingle<TenantRow>()
-      if (error || !data) {
+      try {
+        const data = await fetchCompanyProfile()
+        if (!data) {
+          setLoadError(true)
+          setIsLoading(false)
+          return
+        }
+        setTenant(data)
+        setNameAr(data.name_ar ?? "")
+        setNameEn(data.name_en ?? "")
+        setLegalName(data.legal_name ?? "")
+        setCrNumber(data.cr_number ?? "")
+        setVatNumber(data.vat_number ?? "")
+        setAddress(data.address ?? "")
+        setCity(data.city ?? "")
+        setRegion(data.region ?? "")
+        setCountry(data.country ?? "")
+        setPhone(data.phone ?? "")
+        setEmail(data.email ?? "")
+        setTimezone(data.timezone ?? "Asia/Riyadh")
+        setDefaultLocale(data.default_locale ?? "ar")
+        setMolReference(data.mol_reference ?? "")
+        setWpsIban(data.wps_iban ?? "")
+      } catch {
         setLoadError(true)
-        setIsLoading(false)
-        return
       }
-      setTenant(data)
-      setNameAr(data.name_ar ?? "")
-      setNameEn(data.name_en ?? "")
-      setLegalName(data.legal_name ?? "")
-      setCrNumber(data.cr_number ?? "")
-      setVatNumber(data.vat_number ?? "")
-      setAddress(data.address ?? "")
-      setCity(data.city ?? "")
-      setRegion(data.region ?? "")
-      setCountry(data.country ?? "")
-      setPhone(data.phone ?? "")
-      setEmail(data.email ?? "")
-      setTimezone(data.timezone ?? "Asia/Riyadh")
-      setDefaultLocale(data.default_locale ?? "ar")
-
-      const { data: wpsRows } = await supabase
-        .from("system_settings")
-        .select("key,value")
-        .in("key", ["company.mol_reference", "company.wps_iban"])
-        .is("deleted_at", null)
-      const wpsMap = new Map(
-        ((wpsRows as { key: string; value: string }[] | null) ?? []).map((r) => [r.key, r.value])
-      )
-      setMolReference(wpsMap.get("company.mol_reference") ?? "")
-      setWpsIban(wpsMap.get("company.wps_iban") ?? "")
       setIsLoading(false)
     }
     load()

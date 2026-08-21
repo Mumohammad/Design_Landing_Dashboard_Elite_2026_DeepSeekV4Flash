@@ -2,21 +2,13 @@
 
 import { useEffect, useState } from "react"
 import { useActionState } from "react"
-import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
-import { updateSystemSettings } from "@/lib/settings/actions"
+import { updateSystemSettings, fetchPayrollDefaults, type PayrollSetting } from "@/lib/settings/actions"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { AlertTriangle, Save, CheckCircle2, CreditCard } from "lucide-react"
 import { LoadingSpinner } from "@/components/ui/loading-spinner"
-
-interface SettingRow {
-  id: string
-  key: string
-  value: string
-  is_public: boolean
-}
 
 const PAYROLL_KEYS = [
   "payroll.default_working_days",
@@ -68,30 +60,26 @@ export default function PayrollDefaultsSettingsPage() {
   const { t, locale } = useTranslation()
   const ar = locale === "ar"
 
-  const [rows, setRows] = useState<SettingRow[]>([])
+  const [rows, setRows] = useState<PayrollSetting[]>([])
   const [values, setValues] = useState<Record<string, string>>({})
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
 
   useEffect(() => {
     async function load() {
-      const supabase = createClient()
-      const { data } = await supabase
-        .from("system_settings")
-        .select("id,key,value,is_public")
-        .in("key", PAYROLL_KEYS)
-        .is("deleted_at", null)
-        .order("key", { ascending: true })
-      if (!data) {
+      try {
+        const list = await fetchPayrollDefaults()
+        if (!list.length) {
+          setLoadError(true)
+        } else {
+          setRows(list)
+          const v: Record<string, string> = {}
+          for (const r of list) v[r.key] = r.value
+          setValues(v)
+        }
+      } catch {
         setLoadError(true)
-        setIsLoading(false)
-        return
       }
-      const list = data as SettingRow[]
-      setRows(list)
-      const v: Record<string, string> = {}
-      for (const r of list) v[r.key] = r.value
-      setValues(v)
       setIsLoading(false)
     }
     load()

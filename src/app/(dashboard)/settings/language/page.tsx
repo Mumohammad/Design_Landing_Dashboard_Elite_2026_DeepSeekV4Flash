@@ -1,8 +1,8 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
+import { fetchCompanyProfile } from "@/lib/settings/actions"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Globe, Languages, Clock, CalendarDays } from "lucide-react"
@@ -22,13 +22,12 @@ export default function LanguageSettingsPage() {
 
   useEffect(() => {
     async function load() {
-      const supabase = createClient()
-      const { data } = await supabase
-        .from("tenants")
-        .select("timezone,default_locale")
-        .limit(1)
-        .maybeSingle<TenantRow>()
-      setTenant(data ?? null)
+      try {
+        const data = await fetchCompanyProfile()
+        setTenant(data ? { timezone: data.timezone, default_locale: data.default_locale } : null)
+      } catch {
+        setTenant(null)
+      }
       setIsLoading(false)
     }
     load()
