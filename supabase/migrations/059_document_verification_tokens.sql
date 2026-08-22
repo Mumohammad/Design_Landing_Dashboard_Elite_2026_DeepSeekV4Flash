@@ -17,15 +17,17 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- Generate a 32-byte hex token (64 hex chars) — high-entropy, non-enumerable.
+-- VOLATILE: calls gen_random_bytes() which must not be memoized by the planner.
 CREATE OR REPLACE FUNCTION generate_verify_token()
 RETURNS text
 LANGUAGE sql
-STABLE
+VOLATILE
 AS $$
   SELECT encode(gen_random_bytes(32), 'hex')
 $$;
 
 -- SHA-256 hash for storage (constant-time comparison).
+-- STABLE: deterministic for the same input — safe to index.
 CREATE OR REPLACE FUNCTION hash_token(token text)
 RETURNS text
 LANGUAGE sql

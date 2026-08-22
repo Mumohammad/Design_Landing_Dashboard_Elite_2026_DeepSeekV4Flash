@@ -26,7 +26,6 @@ import crypto from "crypto"
 import { requirePermission, getCurrentUser } from "@/lib/auth/authorization"
 import { writeAuditLog } from "@/lib/auth/sessions"
 import { rateLimit, getClientIp } from "@/lib/auth/rate-limit"
-import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { hashInviteToken, verifyInviteToken } from "@/lib/auth/invite-tokens"
 
@@ -160,10 +159,11 @@ export async function createInvite(
       return { success: false, error: "Not authenticated." }
     }
 
-    const supabase = await createClient()
+    // Use admin client — migration 058 dropped authenticated INSERT policy on invites.
+    const admin = createAdminClient()
 
     // Reject duplicate pending invites for the same email.
-    const { data: existing, error: lookupError } = await supabase
+    const { data: existing, error: lookupError } = await admin
       .from("invites")
       .select("id")
       .eq("email", email)
@@ -184,7 +184,7 @@ export async function createInvite(
     const tokenHash = await hashInviteToken(token)
     const expiresAt = new Date(Date.now() + INVITE_TTL_MS).toISOString()
 
-    const { data: invite, error: insertError } = await supabase
+    const { data: invite, error: insertError } = await admin
       .from("invites")
       .insert({
         tenant_id: currentUser.tenantId,
@@ -290,6 +290,8 @@ export async function acceptInvite(
 
     // 2. Create the auth.users entry (admin client bypasses RLS).
     //    email_confirm: true — the invite link proves email ownership.
+    // Mark the auth user as invite-provisioned so the hardened trigger
+    // (migration 060) does not reject or duplicate the provisioning.
     const {
       data: authUser,
       error: authError,
@@ -297,7 +299,10 @@ export async function acceptInvite(
       email: invite.email,
       password,
       email_confirm: true,
-      user_metadata: { full_name: fullName },
+      user_metadata: {
+        full_name: fullName,
+        _invite_provisioned: true,
+      },
     })
 
     if (authError) throw authError
@@ -434,13 +439,14 @@ export async function revokeInvite(inviteId: string): Promise<ActionResult> {
       return { success: false, error: "Not authenticated." }
     }
 
-    const supabase = await createClient()
-
-    // RLS scopes the update to the current user's tenant.
-    const { error } = await supabase
+    // Use admin client — migration 058 dropped authenticated UPDATE policy on invites.
+    // Tenant scoping is enforced by requirePermission + getCurrentUser above.
+    const admin = createAdminClient()
+    const { error } = await admin
       .from("invites")
       .update({ status: "revoked" })
       .eq("id", inviteId)
+      .eq("tenant_id", currentUser.tenantId)
       .eq("status", "pending")
 
     if (error) throw error
@@ -472,9 +478,9 @@ export async function listPendingInvites(): Promise<PendingInvite[]> {
       return []
     }
 
-    const supabase = await createClient()
-
-    const { data, error } = await supabase
+    // Use admin client for consistency with other invite operations.
+    const admin = createAdminClient()
+    const { data, error } = await admin
       .from("invites")
       .select("id, email, role, created_at, expires_at")
       .eq("status", "pending")

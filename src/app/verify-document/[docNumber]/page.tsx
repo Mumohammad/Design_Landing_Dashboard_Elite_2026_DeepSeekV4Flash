@@ -4,128 +4,59 @@ import { LogoMark } from "@/components/logo"
 import {
   BadgeCheck,
   FileQuestion,
-  Percent,
-  ReceiptText,
   ShieldCheck,
   Timer,
-  User,
 } from "lucide-react"
 
 // Public QR-verification page for generated documents.
 //
-// The URL is embedded in printed documents as a QR code (verify_url). Anyone
-// who scans it — including people without a login — must be able to confirm
-// whether a document is genuine. The lookup therefore runs server-side with
-// the service-role admin client (RLS is tenant-scoped and would block public
-// viewers), and only non-sensitive summary fields are rendered.
+// SECURITY (re-audit PUB-001 fix):
+//   Uses the narrow public_verify_document() RPC instead of a full
+//   service-role join. Returns only authenticity confirmation + minimal
+//   non-PII metadata. No customer names, invoice totals, driver PII,
+//   or vehicle details are exposed to public scanners.
+//
+//   The RPC is SECURITY DEFINER with fixed search_path, callable by anon.
+//   Rate limiting should be added at the edge/CDN layer.
 
 export const metadata = {
   title: "Document Verification | نخبة التطوير",
   robots: { index: false, follow: false },
 }
 
-type GeneratedDocRow = {
-  id: string
-  doc_number: string
-  status: string
-  generated_at: string
-  verify_url: string | null
-  template_id: string | null
-  driver_id: string | null
-  vehicle_id: string | null
-  invoice_id: string | null
-  generated_data?: Record<string, unknown> | null
-  document_templates?: { name_ar: string; name_en: string | null } | null
-  drivers?: { full_name_ar: string | null; full_name_en: string | null } | null
-  vehicles?: { plate_number: string | null; make: string | null; model: string | null } | null
-  invoices?: {
-    invoice_number: string
-    invoice_type: string
-    status: string
-    total: number
-    currency: string
-    customers?: { name_ar: string | null } | null
-    suppliers?: { name_ar: string | null } | null
-  } | null
+type VerifyResult = {
+  found: boolean
+  doc_number?: string
+  status?: string
+  generated_at?: string
+  template_name?: string
+  verified?: boolean
+  message?: string
 }
 
-async function loadDocument(verifyToken: string): Promise<GeneratedDocRow | null> {
-  const admin = createAdminClient()
+async function verifyDocument(verifyToken: string): Promise<VerifyResult> {
+  // Validate token format — reject non-hex early
+  if (!/^[a-f0-9]{64}$/i.test(verifyToken)) {
+    return { found: false, message: "Invalid verification token format." }
+  }
 
-  // Look up by SHA-256 hash of the opaque token — doc_number is never exposed
-  // in the public URL, preventing enumeration attacks.
   const tokenHash = createHash('sha256').update(verifyToken).digest('hex')
 
-  const { data, error } = await admin
-    .from("generated_documents")
-    .select(
-      "id, doc_number, status, generated_at, verify_url, template_id, driver_id, vehicle_id, invoice_id, generated_data, " +
-        "document_templates(name_ar, name_en), drivers(full_name_ar, full_name_en), " +
-        "vehicles(plate_number, make, model), " +
-        "invoices(invoice_number, invoice_type, status, total, currency, customers(name_ar), suppliers(name_ar))",
-    )
-    .eq("verify_token_hash", tokenHash)
-    .is("deleted_at", null)
-    .maybeSingle<GeneratedDocRow>()
+  // Use the narrow public RPC — no PII, no financial data, no join expansion.
+  const admin = createAdminClient()
+  const { data, error } = await admin.rpc('public_verify_document', {
+    p_token_hash: tokenHash,
+  })
 
-  if (error || !data) return null
-  return data
-}
-
-function VatReturnCard({ data }: { data: Record<string, unknown> }) {
-  const fmt = (v: unknown): string => {
-    const n = Number(v ?? 0)
-    return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " SAR"
+  if (error || !data) {
+    return { found: false, message: "Verification service unavailable." }
   }
-  const period = `${Number(data.period_year)}-${String(Number(data.period_month)).padStart(2, "0")}`
-  const net = Number(data.net_position ?? 0)
-  const nature = String(data.net_nature ?? "zero")
-  const netLabel =
-    nature === "payable" ? "Net VAT payable"
-    : nature === "receivable" ? "Net VAT receivable"
-    : "Net VAT position"
 
-  return (
-    <div className="rounded-xl border border-border/50 bg-muted/30 px-4 py-3">
-      <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        <Percent className="h-3 w-3" />
-        VAT Return
-      </p>
-      <p className="mt-0.5 font-mono text-sm font-bold text-foreground" dir="ltr">
-        Period {period}
-      </p>
-      <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-        <div>
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Output VAT</p>
-          <p className="font-medium text-foreground" dir="ltr">{fmt(data.output_vat)}</p>
-        </div>
-        <div>
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Recoverable input</p>
-          <p className="font-medium text-foreground" dir="ltr">{fmt(data.recoverable_input_vat)}</p>
-        </div>
-        <div>
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Adjustments</p>
-          <p className="font-medium text-foreground" dir="ltr">
-            {fmt(Number(data.adjustments_output) + Number(data.adjustments_input))}
-          </p>
-        </div>
-        <div>
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{netLabel}</p>
-          <p
-            className={`font-semibold ${net > 0 ? "text-red-600" : net < 0 ? "text-emerald-600" : "text-foreground"}`}
-            dir="ltr"
-          >
-            {fmt(Math.abs(net))}
-          </p>
-        </div>
-      </div>
-    </div>
-  )
+  return data as VerifyResult
 }
 
-function ResultCard({ doc }: { doc: GeneratedDocRow | null }) {
-  const valid = !!doc
-  const isAr = false // Verification results are rendered neutrally (English + numbers readable by all)
+function ResultCard({ result }: { result: VerifyResult }) {
+  const valid = result.found && result.verified
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-slate-50 to-slate-100 px-4 py-10 dark:from-slate-950 dark:to-slate-900">
@@ -154,7 +85,7 @@ function ResultCard({ doc }: { doc: GeneratedDocRow | null }) {
             <p className="mt-0.5 text-xs text-white/85">
               {valid
                 ? "This document is genuine and was issued by the company"
-                : "No matching document record exists — treat this copy with caution"}
+                : result.message ?? "No matching document record exists — treat this copy with caution"}
             </p>
           </div>
 
@@ -165,80 +96,31 @@ function ResultCard({ doc }: { doc: GeneratedDocRow | null }) {
                 Document number
               </p>
               <p className="mt-0.5 font-mono text-base font-bold text-foreground" dir="ltr">
-                {valid ? doc!.doc_number : "—"}
+                {valid ? result.doc_number : "—"}
               </p>
             </div>
 
             {valid && (
-              <>
-                {/* Template + issued date */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-xl border border-border/50 bg-muted/30 px-4 py-3">
-                    <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      <FileQuestion className="h-3 w-3" />
-                      {isAr ? "النوع" : "Type"}
-                    </p>
-                    <p className="mt-0.5 truncate text-sm font-semibold text-foreground">
-                      {doc!.document_templates?.name_en ?? doc!.document_templates?.name_ar ?? "—"}
-                    </p>
-                  </div>
-                  <div className="rounded-xl border border-border/50 bg-muted/30 px-4 py-3">
-                    <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      <Timer className="h-3 w-3" />
-                      {isAr ? "تاريخ الإصدار" : "Issued"}
-                    </p>
-                    <p className="mt-0.5 text-sm font-semibold text-foreground">
-                      {doc!.generated_at ? new Date(doc!.generated_at).toLocaleDateString("en-GB") : "—"}
-                    </p>
-                  </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl border border-border/50 bg-muted/30 px-4 py-3">
+                  <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    <FileQuestion className="h-3 w-3" />
+                    Type
+                  </p>
+                  <p className="mt-0.5 truncate text-sm font-semibold text-foreground">
+                    {result.template_name ?? "—"}
+                  </p>
                 </div>
-
-                {/* Entity: VAT return, invoice document, or template entity */}
-                {doc!.generated_data?.kind === "vat_return" ? (
-                  <VatReturnCard data={doc!.generated_data} />
-                ) : doc!.invoice_id && doc!.invoices ? (
-                  <div className="rounded-xl border border-border/50 bg-muted/30 px-4 py-3">
-                    <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      <ReceiptText className="h-3 w-3" />
-                      Invoice
-                    </p>
-                    <p className="mt-0.5 font-mono text-sm font-bold text-foreground" dir="ltr">
-                      {doc!.invoices.invoice_number}
-                    </p>
-                    <p className="mt-1 text-sm font-semibold text-foreground">
-                      {doc!.invoices.customers?.name_ar ?? doc!.invoices.suppliers?.name_ar ?? "—"}
-                    </p>
-                    <p className="mt-1 flex items-center gap-2 text-xs text-muted-foreground" dir="ltr">
-                      <span className="font-medium text-foreground">
-                        {Number(doc!.invoices.total).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </span>
-                      {doc!.invoices.currency}
-                      <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-600">
-                        {doc!.invoices.status}
-                      </span>
-                    </p>
-                  </div>
-                ) : (
-                  <div className="rounded-xl border border-border/50 bg-muted/30 px-4 py-3">
-                    <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      <User className="h-3 w-3" />
-                      {doc!.drivers ? "Driver" : "Vehicle"}
-                    </p>
-                    <p className="mt-0.5 text-sm font-semibold text-foreground">
-                      {doc!.drivers
-                        ? (doc!.drivers.full_name_en ?? doc!.drivers.full_name_ar ?? "—")
-                        : doc!.vehicles
-                          ? `${doc!.vehicles.make ?? ""} ${doc!.vehicles.model ?? ""}`.trim() || "—"
-                          : "—"}
-                    </p>
-                    {doc!.vehicles?.plate_number && (
-                      <p className="font-mono text-xs text-muted-foreground" dir="ltr">
-                        {doc!.vehicles.plate_number}
-                      </p>
-                    )}
-                  </div>
-                )}
-              </>
+                <div className="rounded-xl border border-border/50 bg-muted/30 px-4 py-3">
+                  <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    <Timer className="h-3 w-3" />
+                    Issued
+                  </p>
+                  <p className="mt-0.5 text-sm font-semibold text-foreground">
+                    {result.generated_at ? new Date(result.generated_at).toLocaleDateString("en-GB") : "—"}
+                  </p>
+                </div>
+              </div>
             )}
           </div>
         </div>
@@ -265,14 +147,13 @@ export default async function VerifyDocumentPage({
   try {
     decoded = decodeURIComponent(docNumber)
   } catch {
-    decoded = docNumber // malformed %-encoding → render the not-found card, never a 500
+    decoded = docNumber
   }
 
-  // Reject tokens that don't look like a 64-hex-char hash token.
-  // This provides a fast-fail before the database query.
-  if (!/^[0-9a-f]{64}$/.test(decoded)) {
-    return <ResultCard doc={null} />
+  if (!/^[0-9a-f]{64}$/i.test(decoded)) {
+    return <ResultCard result={{ found: false, message: "Invalid verification token format." }} />
   }
 
-  return <ResultCard doc={await loadDocument(decoded)} />
+  const result = await verifyDocument(decoded)
+  return <ResultCard result={result} />
 }
