@@ -28,6 +28,7 @@ import { round2 } from "@/lib/accounting/invoice-math"
 import { rateLimitAccounting, rateLimitAccountingImport } from "@/lib/auth/rate-limit"
 import { moduleLogger, logPerformance } from "@/lib/logger"
 import { emit } from "@/lib/webhooks/events"
+import { cacheGet, cacheInvalidate, CACHE_TTL } from "@/lib/cache"
 
 type ActionResult = { success: boolean; error?: string }
 
@@ -125,11 +126,13 @@ export async function createChartAccount(input: {
     })
 
     revalidatePath("/accounting")
+    await cacheInvalidate(`coa:${currentUser.tenantId}`)
     return { success: true }
   } catch (e) {
     return { success: false, error: errorMessage(e) }
   }
 }
+
 
 export async function updateChartAccount(input: {
   account_id: string
@@ -230,6 +233,7 @@ export async function updateChartAccount(input: {
     })
 
     revalidatePath("/accounting")
+    await cacheInvalidate(`coa:${currentUser.tenantId}`)
     return { success: true }
   } catch (e) {
     return { success: false, error: errorMessage(e) }
@@ -267,6 +271,7 @@ export async function deactivateChartAccount(input: { account_id: string }): Pro
     })
 
     revalidatePath("/accounting")
+    await cacheInvalidate(`coa:${currentUser.tenantId}`)
     return { success: true }
   } catch (e) {
     return { success: false, error: errorMessage(e) }
@@ -287,14 +292,22 @@ export async function exportChartAccountsCsv(): Promise<{ success: boolean; csv?
     if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
 
     const admin = createAdminClient()
-    const { data, error } = await admin
-      .from("chart_of_accounts")
-      .select("id,account_code,name_ar,name_en,account_type,normal_balance,parent_id,is_contra,is_active,description")
-      .eq("tenant_id", currentUser.tenantId)
-      .is("deleted_at", null)
-      .order("account_code", { ascending: true })
 
-    if (error) return { success: false, error: error.message }
+    // Cache chart of accounts for 5 min (hot path — read on every accounting page visit)
+    const data = await cacheGet(
+      `coa:${currentUser.tenantId}`,
+      async () => {
+        const { data, error } = await admin
+          .from("chart_of_accounts")
+          .select("id,account_code,name_ar,name_en,account_type,normal_balance,parent_id,is_contra,is_active,description")
+          .eq("tenant_id", currentUser.tenantId)
+          .is("deleted_at", null)
+          .order("account_code", { ascending: true })
+        if (error) throw new Error(error.message)
+        return data ?? []
+      },
+      CACHE_TTL.chartOfAccounts
+    )
 
     const byId = new Map((data ?? []).map((a) => [a.id, a] as const))
     const rows = (data ?? []).map((a) => {

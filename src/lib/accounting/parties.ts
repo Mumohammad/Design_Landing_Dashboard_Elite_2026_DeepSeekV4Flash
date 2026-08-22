@@ -20,6 +20,7 @@ import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
 import { writeAuditLog } from "@/lib/auth/sessions"
 import { mapFinancialError, toCsv } from "@/lib/accounting/csv-utils"
+import { cacheGet, cacheInvalidate, CACHE_TTL } from "@/lib/cache"
 
 type ActionResult = { success: boolean; error?: string }
 
@@ -153,11 +154,13 @@ async function createParty(kind: PartyKind, input: PartyInput): Promise<ActionRe
     })
 
     revalidatePath("/accounting")
+    await cacheInvalidate(`parties:${kind}:${currentUser.tenantId}`)
     return { success: true }
   } catch (e) {
     return { success: false, error: errorMessage(e) }
   }
 }
+
 
 export async function createCustomer(input: PartyInput): Promise<ActionResult> {
   return createParty("customers", input)
@@ -361,14 +364,22 @@ async function exportPartiesCsv(kind: PartyKind): Promise<{ success: boolean; cs
 
     const codeCol = kind === "customers" ? "customer_code" : "supplier_code"
     const admin = createAdminClient()
-    const { data, error } = await admin
-      .from(kind)
-      .select(`id,${codeCol},name_ar,name_en,phone,email,tax_number,address,credit_limit,is_active`)
-      .eq("tenant_id", currentUser.tenantId)
-      .is("deleted_at", null)
-      .order(codeCol, { ascending: true })
 
-    if (error) return { success: false, error: error.message }
+    // Cache parties list for 2 min (hot path — read on accounting page visit)
+    const data = await cacheGet(
+      `parties:${kind}:${currentUser.tenantId}`,
+      async () => {
+        const { data, error } = await admin
+          .from(kind)
+          .select(`id,${codeCol},name_ar,name_en,phone,email,tax_number,address,credit_limit,is_active`)
+          .eq("tenant_id", currentUser.tenantId)
+          .is("deleted_at", null)
+          .order(codeCol, { ascending: true })
+        if (error) throw new Error(error.message)
+        return data ?? []
+      },
+      CACHE_TTL.chartOfAccounts
+    )
 
     const rows = (data ?? []).map((r) => {
       const row = r as unknown as Record<string, unknown>
