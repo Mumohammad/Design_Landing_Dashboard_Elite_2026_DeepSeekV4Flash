@@ -37,8 +37,7 @@ export function NavUser({
   }
 }) {
   const { isMobile } = useSidebar()
-  const { locale } = useTranslation()
-  const ar = locale === "ar"
+  const { t } = useTranslation()
 
   return (
     <SidebarMenu>
@@ -85,14 +84,14 @@ export function NavUser({
               <DropdownMenuItem asChild className="cursor-pointer rounded-lg">
                 <Link href="/settings/security" className="flex items-center gap-2">
                   <Fingerprint className="h-4 w-4 text-muted-foreground" />
-                  {ar ? "الأمان" : "Security"}
+                  {t.nav.security}
                   <ChevronRight className="ms-auto h-3 w-3 text-muted-foreground rtl:rotate-180" />
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild className="cursor-pointer rounded-lg">
                 <Link href="/settings" className="flex items-center gap-2">
                   <Settings className="h-4 w-4 text-muted-foreground" />
-                  {ar ? "الإعدادات" : "Settings"}
+                  {t.nav.settings}
                   <ChevronRight className="ms-auto h-3 w-3 text-muted-foreground rtl:rotate-180" />
                 </Link>
               </DropdownMenuItem>
@@ -101,7 +100,7 @@ export function NavUser({
             <DropdownMenuItem asChild className="cursor-pointer rounded-lg text-red-600 dark:text-red-400">
               <Link href="/auth/sign-in" className="flex items-center gap-2">
                 <LogOut className="h-4 w-4" />
-                {ar ? "تسجيل الخروج" : "Log out"}
+                {t.nav.signOut}
               </Link>
             </DropdownMenuItem>
           </DropdownMenuContent>

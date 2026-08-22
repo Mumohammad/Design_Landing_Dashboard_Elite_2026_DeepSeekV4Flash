@@ -2,28 +2,42 @@
 
 import { Button } from "@/components/ui/button"
 import { useRouter } from "next/navigation"
-import Image from "next/image"
+import { ShieldAlert } from "lucide-react"
+import { useTranslation } from "@/hooks/use-translation"
 
 export function ForbiddenError() {
   const router = useRouter()
+  const { t } = useTranslation()
 
   return (
-    <div className='mx-auto flex min-h-dvh flex-col items-center justify-center gap-8 p-8 md:gap-12 md:p-16'>
-      <Image
-        src='https://ui.shadcn.com/placeholder.svg'
-        alt='placeholder image'
-        width={960}
-        height={540}
-        className='aspect-video w-240 rounded-xl object-cover dark:brightness-[0.95] dark:invert'
-      />
-      <div className='text-center'>
-        <h1 className='mb-4 text-3xl font-bold'>403</h1>
-        <h2 className="mb-3 text-2xl font-semibold">Forbidden</h2>
-        <p>Access to this resource is forbidden. You don&apos;t have the necessary permissions to view this page.</p>
-        <div className='mt-6 flex items-center justify-center gap-4 md:mt-8'>
-          <Button className='cursor-pointer' onClick={() => router.push('/dashboard')}>Go Back Home</Button>
-          <Button variant='outline' className='flex cursor-pointer items-center gap-1' onClick={() => router.push('#')}>
-            Contact Us
+    <div className="mx-auto flex min-h-dvh flex-col items-center justify-center gap-8 p-8 md:gap-12 md:p-16">
+      {/* Icon instead of external image — more reliable and accessible */}
+      <div className="flex h-24 w-24 items-center justify-center rounded-3xl bg-gradient-to-br from-red-500/15 to-amber-500/15 shadow-lg shadow-red-500/10">
+        <ShieldAlert className="h-12 w-12 text-red-500" />
+      </div>
+      <div className="text-center">
+        <h1 className="mb-4 text-3xl font-bold" aria-label="403">403</h1>
+        <h2 className="mb-3 text-2xl font-semibold">
+          {t.errors.forbiddenTitle}
+        </h2>
+        <p className="text-muted-foreground">
+          {t.errors.forbiddenDescription}
+        </p>
+        <div className="mt-6 flex items-center justify-center gap-4 md:mt-8">
+          <Button
+            className="cursor-pointer"
+            onClick={() => router.push("/dashboard")}
+            aria-label={t.errors.forbiddenGoHome}
+          >
+            {t.errors.forbiddenGoHome}
+          </Button>
+          <Button
+            variant="outline"
+            className="flex cursor-pointer items-center gap-1"
+            onClick={() => router.push("/auth/sign-in")}
+            aria-label={t.errors.forbiddenContactUs}
+          >
+            {t.errors.forbiddenContactUs}
           </Button>
         </div>
       </div>

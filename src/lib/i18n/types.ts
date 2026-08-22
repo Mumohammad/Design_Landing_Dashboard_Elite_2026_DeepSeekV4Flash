@@ -40,6 +40,7 @@ export type TranslationStrings = {
     settings: string
     accounting: string
     settlements: string
+    signOut: string
   }
   pages: {
     landing: string
@@ -548,5 +549,18 @@ export type TranslationStrings = {
     sourceGps: string
     sourceObd: string
     sourceImport: string
+  }
+  errors: {
+    forbiddenTitle: string
+    forbiddenDescription: string
+    forbiddenGoHome: string
+    forbiddenContactUs: string
+    notFoundTitle: string
+    notFoundDescription: string
+    notFoundGoDashboard: string
+  }
+  navExtra: {
+    faqs: string
+    pricing: string
   }
 }

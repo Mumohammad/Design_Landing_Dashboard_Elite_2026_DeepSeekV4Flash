@@ -193,7 +193,10 @@ export function LoginForm1({
                   </div>
                   {/* Error message */}
                   {errorMessage && (
-                    <div className="rounded-lg bg-destructive/10 border border-destructive/20 px-3 py-2 text-sm text-destructive">
+                    <div
+                      role="alert"
+                      className="rounded-lg bg-destructive/10 border border-destructive/20 px-3 py-2 text-sm text-destructive"
+                    >
                       {errorMessage}
                     </div>
                   )}

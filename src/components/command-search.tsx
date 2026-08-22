@@ -167,8 +167,8 @@ export function CommandSearch({ open, onOpenChange }: CommandSearchProps) {
     { title: t.nav.settings, url: "/settings", group: t.nav.administration, icon: Settings, accent: "#64748B" },
 
     // Pages
-    { title: "FAQs", url: "/faqs", group: t.pages.help, icon: HelpCircle, accent: "#0EA5E9" },
-    { title: t.landing.navPricing, url: "/pricing", group: t.pages.help, icon: HandCoins, accent: "#E87D3E" },
+    { title: t.navExtra.faqs, url: "/faqs", group: t.pages.help, icon: HelpCircle, accent: "#0EA5E9" },
+    { title: t.navExtra.pricing, url: "/pricing", group: t.pages.help, icon: HandCoins, accent: "#E87D3E" },
   ]
 
   const groupedItems = searchItems.reduce((acc, item) => {

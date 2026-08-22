@@ -4,6 +4,7 @@ import * as React from "react"
 import { AlertTriangle, RefreshCcw, Home } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { useTranslation } from "@/hooks/use-translation"
 
 interface ErrorBoundaryState {
   hasError: boolean
@@ -50,6 +51,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
 }
 
 function DefaultErrorFallback({ error, retry }: { error: Error; retry: () => void }) {
+  const { t } = useTranslation()
   return (
     <div className="flex min-h-[400px] items-center justify-center p-6">
       <div className="relative w-full max-w-md overflow-hidden rounded-2xl border border-border/50 bg-card/80 p-8 text-center backdrop-blur-sm shadow-xl">
@@ -62,10 +64,10 @@ function DefaultErrorFallback({ error, retry }: { error: Error; retry: () => voi
         </div>
 
         <h3 className="text-lg font-bold text-foreground">
-          Something went wrong
+          {t.common.error}
         </h3>
         <p className="mt-2 text-sm text-muted-foreground">
-          An unexpected error occurred while loading this page.
+          {t.auth.genericError}
         </p>
 
         {/* Error details */}
@@ -84,16 +86,17 @@ function DefaultErrorFallback({ error, retry }: { error: Error; retry: () => voi
             className="gap-2 rounded-xl bg-gradient-to-r from-elite-blue-500 to-elite-blue-600 text-white shadow-lg shadow-elite-blue-500/25 hover:from-elite-blue-600 hover:to-elite-blue-700"
           >
             <RefreshCcw className="h-3.5 w-3.5" />
-            Try Again
+            {t.common.retry}
           </Button>
           <Button
             onClick={() => window.location.href = "/dashboard"}
             variant="outline"
             size="sm"
             className="gap-2 rounded-xl"
+            aria-label={t.nav.dashboard}
           >
             <Home className="h-3.5 w-3.5" />
-            Dashboard
+            {t.nav.dashboard}
           </Button>
         </div>
       </div>

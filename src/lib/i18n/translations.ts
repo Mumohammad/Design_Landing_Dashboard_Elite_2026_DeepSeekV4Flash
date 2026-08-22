@@ -41,6 +41,7 @@ export const translations: Record<string, TranslationStrings> = {
       settings: "الإعدادات",
       accounting: "المحاسبة والمالية",
       settlements: "الدفعات التسوية",
+      signOut: "تسجيل الخروج",
     },
     pages: {
       landing: "الصفحة الرئيسية",
@@ -550,6 +551,19 @@ export const translations: Record<string, TranslationStrings> = {
       sourceObd: "OBD",
       sourceImport: "استيراد",
     },
+    errors: {
+      forbiddenTitle: "غير مصرح",
+      forbiddenDescription: "ليس لديك الصلاحية اللازمة للوصول إلى هذه الصفحة. يرجى التواصل مع المسؤول.",
+      forbiddenGoHome: "العودة للرئيسية",
+      forbiddenContactUs: "تواصل معنا",
+      notFoundTitle: "الصفحة غير موجودة",
+      notFoundDescription: "الصفحة المطلوبة غير موجودة أو تم نقلها.",
+      notFoundGoDashboard: "الذهاب للوحة التحكم",
+    },
+    navExtra: {
+      faqs: "الأسئلة الشائعة",
+      pricing: "الباقات",
+    },
   },
   en: {
     app: {
@@ -591,6 +605,7 @@ export const translations: Record<string, TranslationStrings> = {
       settings: "Settings",
       accounting: "Accounting & Finance",
       settlements: "Settlement Batches",
+      signOut: "Sign out",
     },
     pages: {
       landing: "Landing",
@@ -1099,6 +1114,19 @@ export const translations: Record<string, TranslationStrings> = {
       sourceGps: "GPS",
       sourceObd: "OBD",
       sourceImport: "Import",
+    },
+    errors: {
+      forbiddenTitle: "Forbidden",
+      forbiddenDescription: "You don\'t have the necessary permissions to view this page. Please contact your administrator.",
+      forbiddenGoHome: "Go to Dashboard",
+      forbiddenContactUs: "Contact Us",
+      notFoundTitle: "Page Not Found",
+      notFoundDescription: "The page you\'re looking for doesn\'t exist or has been moved.",
+      notFoundGoDashboard: "Go to Dashboard",
+    },
+    navExtra: {
+      faqs: "FAQs",
+      pricing: "Pricing",
     },
   },
 }
