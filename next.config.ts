@@ -120,6 +120,8 @@ export default withSentryConfig(nextConfig, {
   silent: true,
   org: process.env.SENTRY_ORG,
   project: process.env.SENTRY_PROJECT,
+  // Auth token for source map uploads (CI only — never commit)
+  authToken: process.env.SENTRY_AUTH_TOKEN,
   // Upload source maps in production builds
   widenClientFileUpload: true,
   sourcemaps: {

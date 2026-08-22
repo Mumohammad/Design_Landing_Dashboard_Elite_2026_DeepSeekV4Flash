@@ -117,7 +117,21 @@ export function PageErrorBoundary({ children }: { children: React.ReactNode }) {
   return (
     <ErrorBoundary
       onError={(error, info) => {
-        // Could send to error reporting service
+        // Capture to Sentry with component stack context
+        if (typeof window !== "undefined") {
+          import("@sentry/nextjs").then(({ captureException }) => {
+            captureException(error, {
+              contexts: {
+                react: {
+                  componentStack: info?.componentStack ?? "",
+                },
+              },
+              tags: {
+                errorBoundary: "page",
+              },
+            })
+          })
+        }
         console.error("[Page Error]", error.message, info?.componentStack)
       }}
     >
