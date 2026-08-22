@@ -120,6 +120,139 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: test-key
           NEXT_PUBLIC_APP_URL: http://localhost:3000
 
+  # ── pgTAP RLS tests (runs after CI passes, needs Docker) ─────────────────
+  pgtap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: ci
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install pnpm
+        run: corepack enable && corepack prepare pnpm@latest --activate
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Supabase CLI
+        run: |
+          # Install Supabase CLI via npm (uses Docker under the hood)
+          npm install -g supabase
+          supabase --version
+
+      - name: Start Supabase local stack
+        run: |
+          # Start Postgres + Auth + Storage + Realtime
+          supabase start 2>&1 | tail -20
+          echo "Supabase started successfully"
+
+      - name: Wait for database
+        run: |
+          # Wait for Postgres to accept connections
+          for i in $(seq 1 30); do
+            if supabase db ping 2>/dev/null | grep -q "alive"; then
+              echo "✅ Database is ready"
+              break
+            fi
+            if [ "$i" -eq 30 ]; then
+              echo "❌ Database did not become ready"
+              exit 1
+            fi
+            sleep 1
+          done
+
+      - name: Install pgTAP extension
+        run: |
+          # pgTAP is included in Supabase's Postgres image
+          # Verify it's available
+          supabase db execute -c "CREATE EXTENSION IF NOT EXISTS pgtap;" 2>&1
+          echo "✅ pgTAP extension ready"
+
+      - name: Apply migrations
+        run: |
+          # Reset database and apply all 60 migrations from scratch
+          supabase db reset 2>&1 | tail -15
+          echo "✅ All migrations applied"
+
+      - name: Run pgTAP RLS tests
+        run: |
+          echo "═══════════════════════════════════════════════════════════"
+          echo "  Running pgTAP RLS test suite"
+          echo "═══════════════════════════════════════════════════════════"
+          echo ""
+
+          TOTAL=0
+          PASSED=0
+          FAILED=0
+
+          for test_file in $(find supabase/tests -name "*.sql" -type f | sort); do
+            filename=$(basename "$test_file")
+            echo ""
+            echo "▶ Running: $filename"
+            echo "───────────────────────────────────────────────────────"
+
+            OUTPUT=$(supabase db execute -f "$test_file" 2>&1)
+            EXIT_CODE=$?
+
+            if [ $EXIT_CODE -eq 0 ]; then
+              # Parse pgTAP output
+              TESTS_RUN=$(echo "$OUTPUT" | grep -oP '^\d+\.\.\d+' | head -1 | cut -d. -f2)
+              FAILURES=$(echo "$OUTPUT" | grep -c "^not ok" || true)
+
+              if [ -n "$TESTS_RUN" ]; then
+                TOTAL=$((TOTAL + TESTS_RUN))
+                if [ "$FAILURES" -eq 0 ]; then
+                  PASSED=$((PASSED + TESTS_RUN))
+                  echo "  ✅ $filename — $TESTS_RUN/$TESTS_RUN passed"
+                else
+                  PASSED=$((PASSED + TESTS_RUN - FAILURES))
+                  FAILED=$((FAILED + FAILURES))
+                  echo "  ❌ $filename — $FAILURES failures in $TESTS_RUN tests"
+                  echo "$OUTPUT" | grep -E "^not ok|^#.*FAIL" | head -5
+                fi
+              else
+                TOTAL=$((TOTAL + 1))
+                PASSED=$((PASSED + 1))
+                echo "  ✅ $filename — completed"
+              fi
+
+              # Show errors if any
+              if echo "$OUTPUT" | grep -q "ERROR\|exception\|EXCEPTION"; then
+                echo "  ⚠️ Errors detected:"
+                echo "$OUTPUT" | grep -i "error\|exception" | head -5
+              fi
+            else
+              TOTAL=$((TOTAL + 1))
+              FAILED=$((FAILED + 1))
+              echo "  ❌ $filename — execution failed (exit code $EXIT_CODE)"
+              echo "$OUTPUT" | tail -10
+            fi
+          done
+
+          echo ""
+          echo "═══════════════════════════════════════════════════════════"
+          echo "  pgTAP Results: $PASSED/$TOTAL passed, $FAILED failed"
+          echo "═══════════════════════════════════════════════════════════"
+
+          if [ "$FAILED" -gt 0 ]; then
+            echo "❌ Some pgTAP tests failed"
+            exit 1
+          else
+            echo "✅ All pgTAP tests passed"
+          fi
+
+      - name: Stop Supabase
+        if: always()
+        run: supabase stop 2>/dev/null || true
+
   # ── E2E tests (runs on PRs only, needs staging env) ───────────────────────
   e2e:
     runs-on: ubuntu-latest
