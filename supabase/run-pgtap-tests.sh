@@ -100,9 +100,9 @@ CREATE EXTENSION IF NOT EXISTS pgtap SCHEMA public;
 
 # ── Step 4: Apply migrations ────────────────────────────────────
 if [ "$SKIP_MIGRATIONS" = false ]; then
-  log "Applying all migrations from scratch..."
+  log "Applying all migrations + seed data from scratch..."
   $SUPABASE_CMD db reset --project-id elitedev-local 2>&1 | tail -10
-  pass "Migrations applied"
+  pass "Migrations + seed applied (supabase/seed.sql)"
 else
   warn "Skipping migrations (SKIP_MIGRATIONS=true)"
 fi

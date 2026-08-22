@@ -176,11 +176,11 @@ jobs:
           supabase db execute -c "CREATE EXTENSION IF NOT EXISTS pgtap;" 2>&1
           echo "✅ pgTAP extension ready"
 
-      - name: Apply migrations
+      - name: Apply migrations + seed
         run: |
-          # Reset database and apply all 60 migrations from scratch
+          # Reset database, apply all 60 migrations, and seed test fixtures
           supabase db reset 2>&1 | tail -15
-          echo "✅ All migrations applied"
+          echo "✅ All migrations + seed data applied"
 
       - name: Run pgTAP RLS tests
         run: |
