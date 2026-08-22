@@ -49,3 +49,6 @@ blob-report/
 # Supabase local
 supabase/.temp/
 supabase/.branches/
+
+# Load test results
+loadtest/results/

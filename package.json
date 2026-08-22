@@ -15,7 +15,17 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "test:e2e:debug": "playwright test --debug"
+    "test:e2e:debug": "playwright test --debug",
+    "loadtest": "node loadtest/run.js",
+    "loadtest:dashboard": "node loadtest/run.js dashboard",
+    "loadtest:payroll": "node loadtest/run.js payroll",
+    "loadtest:accounting": "node loadtest/run.js accounting",
+    "loadtest:all": "node loadtest/run.js all",
+    "loadtest:setup": "bash loadtest/setup.sh",
+    "loadtest:k6": "k6 run loadtest/all.js",
+    "loadtest:k6:dashboard": "k6 run loadtest/dashboard.js",
+    "loadtest:k6:payroll": "k6 run loadtest/payroll.js",
+    "loadtest:k6:accounting": "k6 run loadtest/accounting.js"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
