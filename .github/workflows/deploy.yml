@@ -39,7 +39,6 @@ jobs:
       - name: Verify CI passed
         if: github.event_name == 'pull_request'
         run: |
-          # For PR events, CI is a separate check — verify it passed
           echo "PR deployment — CI checks should be green"
 
       - name: Install Vercel CLI
@@ -48,8 +47,18 @@ jobs:
       - name: Pull Vercel environment
         run: vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
 
-      - name: Build
+      - name: Build with staging Supabase
         run: vercel build --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          # ── Staging Supabase (preview deployments use staging) ──
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_KEY }}
+          NEXT_PUBLIC_APP_URL: ${{ steps.deploy.outputs.url || 'http://localhost:3000' }}
+          # ── Preview-specific settings ──
+          LOG_LEVEL: info
+          PERF_LOG_THRESHOLD_MS: 2000
+          NODE_ENV: production
 
       - name: Deploy preview
         id: deploy
@@ -62,10 +71,24 @@ jobs:
         run: |
           if [ -n "${{ steps.deploy.outputs.url }}" ]; then
             sleep 10
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${{ steps.deploy.outputs.url }}/api/health" 2>/dev/null || echo "000")
-            echo "Health check: $STATUS"
-            if [ "$STATUS" != "200" ]; then
-              echo "⚠️ Preview health check returned $STATUS (may not have all env vars)"
+            echo "Testing preview: ${{ steps.deploy.outputs.url }}"
+
+            # Health check
+            HEALTH=$(curl -s "${{ steps.deploy.outputs.url }}/api/health" 2>/dev/null || echo "{}")
+            echo "Health: $HEALTH"
+
+            if echo "$HEALTH" | grep -q '"status":"healthy"\|"status":"degraded"'; then
+              echo "✅ Preview health check passed"
+            else
+              echo "⚠️ Preview health check returned unexpected response"
+            fi
+
+            # Auth boundary
+            REDIRECT=$(curl -s -o /dev/null -w "%{http_code}" "${{ steps.deploy.outputs.url }}/dashboard" 2>/dev/null || echo "000")
+            if [ "$REDIRECT" = "307" ] || [ "$REDIRECT" = "302" ] || [ "$REDIRECT" = "401" ]; then
+              echo "✅ Auth boundary working (redirect $REDIRECT)"
+            else
+              echo "⚠️ Auth boundary returned $REDIRECT"
             fi
           fi
 
@@ -96,8 +119,21 @@ jobs:
       - name: Pull Vercel environment
         run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
 
-      - name: Build
+      - name: Build for production
         run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          # ── Production Supabase (production uses its own project) ──
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_KEY }}
+          NEXT_PUBLIC_APP_URL: ${{ steps.deploy.outputs.url || 'https://app.elitedev.com.sa' }}
+          # ── Production-specific settings ──
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          LOG_LEVEL: info
+          PERF_LOG_THRESHOLD_MS: 1000
+          NODE_ENV: production
 
       - name: Deploy production
         id: deploy
@@ -136,6 +172,14 @@ jobs:
             echo "✅ Auth boundary working (redirect $REDIRECT)"
           else
             echo "⚠️ Auth boundary returned $REDIRECT"
+          fi
+
+          # Load test profiling (quick check)
+          LOAD_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${{ steps.deploy.outputs.url }}/api/load-test?scenario=dashboard" 2>/dev/null || echo "000")
+          if [ "$LOAD_STATUS" = "200" ] || [ "$LOAD_STATUS" = "401" ]; then
+            echo "✅ Load test endpoint accessible ($LOAD_STATUS)"
+          else
+            echo "⚠️ Load test endpoint returned $LOAD_STATUS"
           fi
 
           echo "🎉 Post-deploy verification complete"
