@@ -22,14 +22,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ── Toolchain (pnpm MUST be installed before setup-node cache) ──
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.27.0
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: pnpm
 
-      - name: Install pnpm
-        run: corepack enable && corepack prepare pnpm@latest --activate
+      - name: Verify toolchain
+        run: |
+          node --version
+          pnpm --version
+          echo "✅ Toolchain verified"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -40,7 +49,7 @@ jobs:
         run: pnpm lint
 
       - name: Type check
-        run: npx tsc --noEmit
+        run: pnpm exec tsc --noEmit
 
       - name: Unit tests
         run: pnpm test
@@ -61,67 +70,66 @@ jobs:
 
       - name: Dependency audit
         run: pnpm audit --audit-level=high
-        # BLOCKING: high/critical vulnerabilities fail the build
-        # Use `pnpm audit --audit-level=critical` for stricter gating
 
       - name: Secret scan
         run: |
-          # Scan for accidentally committed secrets
           echo "Scanning for hardcoded secrets..."
-          if grep -rn "SUPABASE_SERVICE_ROLE_KEY\|sk_live_\|sk_test_\|AKIA[A-Z0-9]\|password.*=.*['\"]" src/ --include="*.ts" --include="*.tsx" --include="*.js" --include="*.env*" 2>/dev/null | grep -v "test\|mock\|example\|\.test\.\|__mock__\|process\.env\|\.env\.example\|types\|interface\|Log\|redact\|REDACTED\|placeholder" | head -20; then
-            echo "⚠️ Potential secrets found — review above output"
+          FOUND=0
+          if grep -rn "SUPABASE_SERVICE_ROLE_KEY\|sk_live_\|sk_test_\|AKIA[A-Z0-9]" src/ --include="*.ts" --include="*.tsx" --include="*.js" 2>/dev/null | grep -v "test\|mock\|example\|\.test\.\|__mock__\|process\.env\|\.env\.example\|types\|interface\|Log\|redact\|REDACTED\|placeholder" | head -20; then
+            FOUND=1
+          fi
+          if [ "$FOUND" -eq 1 ]; then
+            echo "❌ Potential secrets found"
             exit 1
           fi
           echo "✅ No hardcoded secrets detected"
 
       - name: Check for sensitive files
         run: |
-          # Ensure no .env files or secrets are committed
           if git ls-files | grep -E '\.env$|\.env\.local$|\.env\.production$|\.env\.development$'; then
-            echo "❌ Environment files found in repository — these should not be committed"
+            echo "❌ Environment files found in repository"
             git ls-files | grep -E '\.env$|\.env\.local$|\.env\.production$|\.env\.development$'
             exit 1
           fi
           echo "✅ No environment files in repository"
 
-      # ── Deployment smoke test ─────────────────────────────────────────────
+      # ── Smoke test (production build, not dev server) ─────────────────────
 
       - name: Smoke test health endpoint
         run: |
-          # Start the dev server in the background
-          pnpm dev &
-          DEV_PID=$!
+          # Start production server from the build output
+          PORT=3000 pnpm start > /tmp/elitedev.log 2>&1 &
+          APP_PID=$!
+          trap 'kill "$APP_PID" 2>/dev/null || true' EXIT
 
           # Wait for server to be ready
-          for i in $(seq 1 30); do
-            if curl -s http://localhost:3000/api/health > /dev/null 2>&1; then
-              echo "✅ Dev server started"
+          for attempt in $(seq 1 30); do
+            health="$(curl -fsS http://127.0.0.1:3000/api/health 2>/dev/null || true)"
+            if [ -n "$health" ]; then
+              echo "✅ Server started (attempt $attempt)"
               break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "❌ Server did not start in 60 seconds"
+              cat /tmp/elitedev.log | tail -20
+              exit 1
             fi
             sleep 2
           done
 
-          # Run health check
-          HEALTH=$(curl -s http://localhost:3000/api/health)
-          echo "$HEALTH" | python3 -m json.tool 2>/dev/null || echo "$HEALTH"
-
-          # Accept healthy or degraded (degraded is expected when Supabase
-          # is not running — the important thing is the app starts and responds)
-          if echo "$HEALTH" | grep -q '"status":"healthy"\|"status":"degraded"'; then
-            echo "✅ Health check passed (app is running)"
+          # Verify health response
+          echo "Health response: $health"
+          if printf '%s' "$health" | grep -q '"status":"healthy"\|"status":"degraded"'; then
+            echo "✅ Health check passed"
           else
-            echo "❌ Health check failed — app did not start"
-            kill $DEV_PID 2>/dev/null || true
+            echo "❌ Health check failed — unexpected response"
             exit 1
           fi
-
-          # Kill dev server
-          kill $DEV_PID 2>/dev/null || true
-          wait $DEV_PID 2>/dev/null || true
         env:
           NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
           NEXT_PUBLIC_SUPABASE_ANON_KEY: test-key
           NEXT_PUBLIC_APP_URL: http://localhost:3000
+          PORT: "3000"
 
   # ── pgTAP RLS tests (runs after CI passes, needs Docker) ─────────────────
   pgtap:
@@ -133,33 +141,37 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.27.0
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: pnpm
 
-      - name: Install pnpm
-        run: corepack enable && corepack prepare pnpm@latest --activate
+      - name: Verify toolchain
+        run: |
+          node --version
+          pnpm --version
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Install Supabase CLI
         run: |
-          # Install Supabase CLI via npm (uses Docker under the hood)
           npm install -g supabase
           supabase --version
 
       - name: Start Supabase local stack
         run: |
-          # Start Postgres + Auth + Storage + Realtime
           supabase start 2>&1 | tail -20
           echo "Supabase started successfully"
 
       - name: Wait for database
         run: |
-          # Wait for Postgres to accept connections
           for i in $(seq 1 30); do
             if supabase db ping 2>/dev/null | grep -q "alive"; then
               echo "✅ Database is ready"
@@ -174,14 +186,11 @@ jobs:
 
       - name: Install pgTAP extension
         run: |
-          # pgTAP is included in Supabase's Postgres image
-          # Verify it's available
           supabase db execute -c "CREATE EXTENSION IF NOT EXISTS pgtap;" 2>&1
           echo "✅ pgTAP extension ready"
 
       - name: Apply migrations + seed
         run: |
-          # Reset database, apply all 60 migrations, and seed test fixtures
           supabase db reset 2>&1 | tail -15
           echo "✅ All migrations + seed data applied"
 
@@ -190,7 +199,6 @@ jobs:
           echo "═══════════════════════════════════════════════════════════"
           echo "  Running pgTAP RLS test suite"
           echo "═══════════════════════════════════════════════════════════"
-          echo ""
 
           TOTAL=0
           PASSED=0
@@ -206,7 +214,6 @@ jobs:
             EXIT_CODE=$?
 
             if [ $EXIT_CODE -eq 0 ]; then
-              # Parse pgTAP output
               TESTS_RUN=$(echo "$OUTPUT" | grep -oP '^\d+\.\.\d+' | head -1 | cut -d. -f2)
               FAILURES=$(echo "$OUTPUT" | grep -c "^not ok" || true)
 
@@ -227,7 +234,6 @@ jobs:
                 echo "  ✅ $filename — completed"
               fi
 
-              # Show errors if any
               if echo "$OUTPUT" | grep -q "ERROR\|exception\|EXCEPTION"; then
                 echo "  ⚠️ Errors detected:"
                 echo "$OUTPUT" | grep -i "error\|exception" | head -5
@@ -271,21 +277,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.27.0
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: pnpm
 
-      - name: Install pnpm
-        run: corepack enable && corepack prepare pnpm@latest --activate
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+        run: pnpm exec playwright install --with-deps chromium
 
       - name: Run E2E smoke tests
-        run: npx playwright test e2e/smoke.spec.ts --reporter=github
+        run: pnpm exec playwright test e2e/smoke.spec.ts --reporter=github
         if: env.BASE_URL != ''

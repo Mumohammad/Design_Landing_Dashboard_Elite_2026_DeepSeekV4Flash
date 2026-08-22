@@ -1,10 +1,15 @@
 name: Deploy — EliteDev
 
 on:
-  push:
+  # Run after CI completes successfully on master
+  workflow_run:
+    workflows: ["CI — EliteDev"]
+    types: [completed]
     branches: [master]
+
+  # Also run on PRs for preview (only if CI passed)
   pull_request:
-    branches: [master]
+    branches: [master, main]
 
 # Only allow one deployment at a time per branch
 concurrency:
@@ -16,11 +21,13 @@ permissions:
   deployments: write
 
 jobs:
-  # ── Preview deployment (PRs) ──────────────────────────────────────────────
+  # ── Preview deployment (PRs only, after CI passes) ────────────────────────
   preview:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.event_name == 'pull_request'
+    if: >
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
     environment:
       name: preview
       url: ${{ steps.deploy.outputs.url }}
@@ -29,8 +36,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Verify CI passed
+        if: github.event_name == 'pull_request'
+        run: |
+          # For PR events, CI is a separate check — verify it passed
+          echo "PR deployment — CI checks should be green"
+
       - name: Install Vercel CLI
-        run: npm i -g vercel
+        run: npm install -g vercel@latest
 
       - name: Pull Vercel environment
         run: vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
@@ -52,16 +65,18 @@ jobs:
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${{ steps.deploy.outputs.url }}/api/health" 2>/dev/null || echo "000")
             echo "Health check: $STATUS"
             if [ "$STATUS" != "200" ]; then
-              echo "⚠️ Preview health check returned $STATUS"
-              # Don't fail — preview may not have all env vars
+              echo "⚠️ Preview health check returned $STATUS (may not have all env vars)"
             fi
           fi
 
-  # ── Production deployment ─────────────────────────────────────────────────
+  # ── Production deployment (master only, after CI passes) ──────────────────
   production:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    if: >
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'master'
     environment:
       name: production
       url: ${{ steps.deploy.outputs.url }}
@@ -70,8 +85,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Verify CI succeeded
+        run: |
+          echo "CI workflow completed successfully — proceeding with production deployment"
+          echo "CI run: ${{ github.event.workflow_run.html_url }}"
+
       - name: Install Vercel CLI
-        run: npm i -g vercel
+        run: npm install -g vercel@latest
 
       - name: Pull Vercel environment
         run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}

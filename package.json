@@ -2,6 +2,10 @@
   "name": "shadcn-dashboard-nextjs",
   "version": "1.0.0",
   "private": true,
+  "packageManager": "pnpm@10.27.0",
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
