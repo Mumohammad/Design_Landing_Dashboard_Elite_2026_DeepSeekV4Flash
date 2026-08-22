@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { useTranslation } from "@/hooks/use-translation"
 import {
-  Building2, Shield, Bell, Palette, CreditCard, KeyRound,
+  Building2, Shield, ShieldCheck, Bell, Palette, CreditCard, KeyRound,
   FileText, Users, Globe, Database, Clock, Lock, ArrowLeft
 } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -62,6 +62,13 @@ export default function SettingsPage() {
       href: "/audit-log",
       icon: FileText,
       color: "#F59E0B",
+    },
+    {
+      title: t.common.status === "الحالة" ? "التحقق الثنائي (MFA)" : "Two-Factor Auth",
+      description: t.common.status === "الحالة" ? "تطبيق المصادقة، QR، إدارة العوامل" : "Authenticator app, QR, factor management",
+      href: "/settings/mfa",
+      icon: ShieldCheck,
+      color: "#10B981",
     },
   ]
 
