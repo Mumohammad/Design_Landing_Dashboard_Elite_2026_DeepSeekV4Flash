@@ -10,10 +10,13 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   ci:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -31,6 +34,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # ── Code quality ──────────────────────────────────────────────────────
+
       - name: Lint
         run: pnpm lint
 
@@ -40,6 +45,8 @@ jobs:
       - name: Unit tests
         run: pnpm test
 
+      # ── Build ─────────────────────────────────────────────────────────────
+
       - name: Build
         run: pnpm build
         env:
@@ -47,6 +54,100 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: test-key
           NEXT_PUBLIC_APP_URL: http://localhost:3000
 
+      # ── Security gates ────────────────────────────────────────────────────
+
       - name: Dependency audit
-        run: pnpm audit --audit-level=high || true
-        continue-on-error: true
+        run: pnpm audit --audit-level=high
+        # BLOCKING: high/critical vulnerabilities fail the build
+        # Use `pnpm audit --audit-level=critical` for stricter gating
+
+      - name: Secret scan
+        run: |
+          # Scan for accidentally committed secrets
+          echo "Scanning for hardcoded secrets..."
+          if grep -rn "SUPABASE_SERVICE_ROLE_KEY\|sk_live_\|sk_test_\|AKIA[A-Z0-9]\|password.*=.*['\"]" src/ --include="*.ts" --include="*.tsx" --include="*.js" --include="*.env*" 2>/dev/null | grep -v "test\|mock\|example\|\.test\.\|__mock__\|process\.env\|\.env\.example\|types\|interface\|Log\|redact\|REDACTED\|placeholder" | head -20; then
+            echo "⚠️ Potential secrets found — review above output"
+            exit 1
+          fi
+          echo "✅ No hardcoded secrets detected"
+
+      - name: Check for sensitive files
+        run: |
+          # Ensure no .env files or secrets are committed
+          if git ls-files | grep -E '\.env$|\.env\.local$|\.env\.production$|\.env\.development$'; then
+            echo "❌ Environment files found in repository — these should not be committed"
+            git ls-files | grep -E '\.env$|\.env\.local$|\.env\.production$|\.env\.development$'
+            exit 1
+          fi
+          echo "✅ No environment files in repository"
+
+      # ── Deployment smoke test ─────────────────────────────────────────────
+
+      - name: Smoke test health endpoint
+        run: |
+          # Start the dev server in the background
+          pnpm dev &
+          DEV_PID=$!
+
+          # Wait for server to be ready
+          for i in $(seq 1 30); do
+            if curl -s http://localhost:3000/api/health > /dev/null 2>&1; then
+              echo "✅ Dev server started"
+              break
+            fi
+            sleep 2
+          done
+
+          # Run health check
+          HEALTH=$(curl -s http://localhost:3000/api/health)
+          echo "$HEALTH" | python3 -m json.tool 2>/dev/null || echo "$HEALTH"
+
+          if echo "$HEALTH" | grep -q '"status":"healthy"'; then
+            echo "✅ Health check passed"
+          else
+            echo "❌ Health check failed"
+            kill $DEV_PID 2>/dev/null || true
+            exit 1
+          fi
+
+          # Kill dev server
+          kill $DEV_PID 2>/dev/null || true
+          wait $DEV_PID 2>/dev/null || true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: test-key
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
+
+  # ── E2E tests (runs on PRs only, needs staging env) ───────────────────────
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: ci
+    if: github.event_name == 'pull_request'
+    env:
+      BASE_URL: ${{ secrets.STAGING_URL }}
+      TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
+      TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install pnpm
+        run: corepack enable && corepack prepare pnpm@latest --activate
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run E2E smoke tests
+        run: npx playwright test e2e/smoke.spec.ts --reporter=github
+        if: env.BASE_URL != ''

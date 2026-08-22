@@ -1,80 +1,114 @@
 # CI_CD_AUDIT.md — EliteDev Platform
 
 **Audit Date:** 2026-08-20
-**Status:** ❌ NOT IMPLEMENTED
+**Last Updated:** 2026-08-22
+**Status:** ✅ IMPLEMENTED (hardened)
 
 ---
 
 ## Current State
 
-| Check | Status |
-|-------|--------|
-| .github/workflows | ❌ **Does not exist** |
-| CI pipeline | ❌ Not configured |
-| CD pipeline | ❌ Not configured |
-| Pre-commit hooks | ❌ Not configured |
-| Branch protection | ⚠️ Unknown (depends on hosting) |
-| Deployment config | ⚠️ None found (no Dockerfile, no vercel.json, no netlify.toml) |
+| Check | Status | Details |
+|-------|--------|---------|
+| `.github/workflows/ci.yml` | ✅ | Lint, typecheck, unit tests, build, secret scan, audit, health endpoint test |
+| `.github/workflows/deploy.yml` | ✅ | Preview on PRs, production with approval gate, post-deploy verification |
+| CI pipeline | ✅ | Full quality gate: lint → typecheck → test → build → audit → smoke test |
+| CD pipeline | ✅ | Vercel preview (PRs) + production (master push with environment approval) |
+| Dependency audit | ✅ | `pnpm audit --audit-level=high` — BLOCKING (fails on high/critical) |
+| Secret scanning | ✅ | Grep-based scan for hardcoded secrets, env files check |
+| E2E smoke tests | ✅ | Playwright smoke tests on staging (when BASE_URL configured) |
+| Health endpoint | ✅ | `/api/health` — database, auth, app status with latency |
+| Deployment verification | ✅ | `scripts/deploy-verify.sh` — security headers, auth boundary, secrets leak check |
+| Pre-commit hooks | ⚠️ | Not configured (use `husky` + `lint-staged` for local development) |
 
-## Existing Quality Checks (Manual)
-
-| Check | Command | Status |
-|-------|---------|--------|
-| Type checking | `npx tsc --noEmit` | ✅ 0 errors |
-| Unit tests | `npx vitest run` | ✅ 195/195 pass |
-| Linting | `npm run lint` | ⚠️ Config exists but untested |
-| Build | `npm run build` | ⚠️ Untested in CI |
-| Dependency audit | `pnpm audit` | ❌ Not run |
-
-## Recommended CI Pipeline
+## CI Pipeline Architecture
 
 ```
 PR Created/Updated
    ↓
-Install Dependencies (pnpm install --frozen-lockfile)
+Install (pnpm install --frozen-lockfile)
    ↓
-Lint (eslint)
+Lint (pnpm lint)                          ← BLOCKING
    ↓
-Type Check (tsc --noEmit)
+Type Check (tsc --noEmit)                 ← BLOCKING
    ↓
-Unit Tests (vitest run)
+Unit Tests (vitest run)                   ← BLOCKING
    ↓
-Build (next build)
+Build (next build)                        ← BLOCKING
    ↓
-Dependency Audit (pnpm audit --audit-level=high)
+Dependency Audit (pnpm audit --high)      ← BLOCKING (new)
    ↓
-Security Scan (optional: CodeQL, Snyk)
+Secret Scan                               ← BLOCKING (new)
    ↓
-Deploy Preview (Vercel/Netlify)
+Sensitive Files Check                     ← BLOCKING (new)
    ↓
-Post-Deploy Smoke Test
+Smoke Test Health Endpoint                ← BLOCKING (new)
    ↓
-─── Manual Approval Gate ───
+Deploy Preview (Vercel)                   ← Auto on PRs
    ↓
-Production Deployment
+E2E Smoke Tests (Playwright)              ← On staging (new)
    ↓
-Post-Deploy Verification
+─── Manual Approval Gate (Vercel environment) ───
+   ↓
+Production Deployment                     ← Master push only
+   ↓
+Post-Deploy Verification                  ← Auto (new)
 ```
 
-## Deployment Target
+## Environment Variables Required for CI
 
-No deployment configuration found. Need to determine:
-- **Vercel** (recommended for Next.js)
-- **Docker** (self-hosted)
-- **Netlify**
-- **AWS/Cloudflare**
+| Variable | Source | Required |
+|----------|--------|----------|
+| `VERCEL_TOKEN` | Vercel dashboard | Yes (deploy job) |
+| `STAGING_URL` | Vercel staging | For E2E tests |
+| `TEST_USER_EMAIL` | Test credentials | For E2E tests |
+| `TEST_USER_PASSWORD` | Test credentials | For E2E tests |
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase | Set in build step |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase | Set in build step |
+
+## Security in CI
+
+| Check | Implementation |
+|-------|---------------|
+| Dependency vulnerabilities | `pnpm audit --audit-level=high` (blocking) |
+| Hardcoded secrets | `grep` scan for API keys, passwords, tokens |
+| Environment files | `git ls-files` check for `.env*` files |
+| Service-role exposure | Excluded from scan (server-only, never in browser) |
+| Dependency pinning | `--frozen-lockfile` prevents lockfile drift |
+
+## Deployment Strategy
+
+| Environment | Trigger | Approval | URL |
+|-------------|---------|----------|-----|
+| **Preview** | PR to master | Auto | `preview-xxx.vercel.app` |
+| **Production** | Push to master | Manual (Vercel environment) | `app.elitedev.com.sa` |
+| **Staging** | Separate branch | Manual | `staging.elitedev.com.sa` |
+
+## Post-Deploy Verification
+
+Automated checks after every production deployment:
+
+1. Health endpoint returns `{"status":"healthy"}`
+2. Security headers present (X-Frame-Options, CSP, etc.)
+3. Auth boundary working (unauthenticated → redirect)
+4. Landing page loads (200)
+5. No secrets in client bundles
 
 ## Recommendations
 
-### P0 — BLOCKER
-1. **Create CI/CD pipeline** — No automated quality gates
+### Implemented ✅
+- CI pipeline with all quality gates
+- CD pipeline with preview + production
+- Dependency audit (blocking)
+- Secret scanning
+- Health endpoint
+- Post-deploy smoke tests
+- E2E smoke tests on staging
+- Deployment verification script
 
-### P1
-2. **Add pre-commit hooks** — `husky` + `lint-staged`
-3. **Configure branch protection** — Require PR reviews
-4. **Add deployment configuration** — `vercel.json` or `Dockerfile`
-
-### P2
-5. **Add E2E testing** — Playwright or Cypress
-6. **Add security scanning** — Snyk, CodeQL
-7. **Add performance testing** — Lighthouse CI
+### Future Enhancements
+1. **Pre-commit hooks** — `husky` + `lint-staged` for local development
+2. **Lighthouse CI** — Performance regression detection
+3. **CodeQL / Snyk** — Advanced security scanning
+4. **Branch protection** — Require PR reviews, status checks
+5. **Canary deployment** — Gradual rollout for high-traffic changes
