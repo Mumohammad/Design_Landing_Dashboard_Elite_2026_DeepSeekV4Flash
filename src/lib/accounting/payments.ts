@@ -132,21 +132,26 @@ export async function recordPayment(input: RecordPaymentInput): Promise<ActionRe
     }
 
     // ── Party + bank belong to the tenant ────────────────────────────────
+    // IMPORTANT: These queries MUST scope by tenant_id to prevent
+    // cross-tenant entity references (service-role bypasses RLS).
     if (input.customer_id) {
       const { data: c } = await admin
         .from("customers").select("id").eq("id", input.customer_id)
+        .eq("tenant_id", currentUser.tenantId)
         .is("deleted_at", null).maybeSingle()
       if (!c) return { success: false, error: pmt("CUS001") }
     }
     if (input.supplier_id) {
       const { data: s } = await admin
         .from("suppliers").select("id").eq("id", input.supplier_id)
+        .eq("tenant_id", currentUser.tenantId)
         .is("deleted_at", null).maybeSingle()
       if (!s) return { success: false, error: pmt("SUP001") }
     }
     if (input.bank_account_id) {
       const { data: b } = await admin
         .from("bank_accounts").select("id").eq("id", input.bank_account_id)
+        .eq("tenant_id", currentUser.tenantId)
         .is("deleted_at", null).maybeSingle()
       if (!b) return { success: false, error: pmt("PMT006") }
     }
@@ -246,6 +251,7 @@ export async function voidPayment(input: { id: string }): Promise<ActionResult> 
       .from("finance_payments")
       .select("id,payment_ref,status,payment_date,amount")
       .eq("id", input.id)
+      .eq("tenant_id", currentUser.tenantId)
       .is("deleted_at", null)
       .maybeSingle()
     if (!pay) return { success: false, error: pmt("PMT005") }
@@ -261,6 +267,7 @@ export async function voidPayment(input: { id: string }): Promise<ActionResult> 
       .eq("id", pay.id)
     if (updErr) return { success: false, error: mapFinancialError(updErr.message) }
 
+    // Tenant-scoped event insert to prevent cross-tenant event emission
     if (hadEffects) {
       const { error: evtErr } = await admin.from("financial_events").insert({
         tenant_id: currentUser.tenantId,

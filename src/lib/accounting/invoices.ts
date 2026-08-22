@@ -98,13 +98,14 @@ async function emitEvent(input: {
 }
 
 /** Verify a party exists and belongs to the tenant. Returns an error string or null. */
-async function verifyParty(kind: "customers" | "suppliers", id: string | null | undefined): Promise<string | null> {
+async function verifyParty(kind: "customers" | "suppliers", id: string | null | undefined, tenantId: string): Promise<string | null> {
   if (!id) return null
   const admin = createAdminClient()
   const { data } = await admin
     .from(kind)
     .select("id")
     .eq("id", id)
+    .eq("tenant_id", tenantId)
     .is("deleted_at", null)
     .maybeSingle()
   return data ? null : mapInv(kind === "customers" ? "CUS001" : "SUP001")
@@ -142,7 +143,8 @@ export async function createInvoiceDraft(
 
     const partyErr = await verifyParty(
       input.invoice_type === "sales" ? "customers" : "suppliers",
-      input.invoice_type === "sales" ? input.customer_id : input.supplier_id
+      input.invoice_type === "sales" ? input.customer_id : input.supplier_id,
+      currentUser.tenantId
     )
     if (partyErr) return { success: false, error: partyErr }
 

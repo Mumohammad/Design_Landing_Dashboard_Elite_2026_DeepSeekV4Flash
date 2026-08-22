@@ -72,9 +72,19 @@ export async function rollbackPayrollDeductions(
     throw new Error(`Violation rollback failed: ${violError.message}`)
   }
 
-  // 4. Write audit entries for each rolled-back violation
+  // 4. Resolve the tenant_id for audit entries by looking up the parent
+  // payroll record (rollbackPayrollDeductions is a utility that receives
+  // only the payroll period ID, not the full user context).
+  const { data: payrollRow } = await admin
+    .from("driver_payroll_periods")
+    .select("tenant_id")
+    .eq("id", payrollPeriodId)
+    .maybeSingle<{ tenant_id: string }>()
+  const tenantId = payrollRow?.tenant_id ?? null
+
+  // 5. Write audit entries for each rolled-back violation
   const auditEntries = ledgerRows.map((row: { violation_id: string; deduction_amount: number }) => ({
-    tenant_id: null, // will be set by the caller context
+    tenant_id: tenantId,
     actor_id: cancelledBy,
     module: "violations",
     entity_type: "violation_deduction",
@@ -110,18 +120,25 @@ export async function cancelPayrollPeriod(
   }
   const cancelledBy = currentUser.authUserId
 
-  // 1. Get the payroll period record
+  // 1. Get the payroll period record — MUST verify tenant ownership
+  // (service-role client bypasses RLS, so we enforce tenant_id explicitly).
   const { data: payroll, error: payrollError } = await admin
     .from("driver_payroll_periods")
     .select("*")
     .eq("id", driverPayrollId)
+    .eq("tenant_id", currentUser.tenantId)
     .single()
 
   if (payrollError || !payroll) {
-    throw new Error("PAY001") // payroll not found
+    throw new Error("PAY001") // payroll not found or belongs to another tenant
   }
   if (payroll.status === "paid") {
     throw new Error("PAY005") // payroll already paid — cannot cancel
+  }
+  // Idempotency guard: if already cancelled, return early without
+  // creating duplicate rollback/audit rows.
+  if (payroll.status === "cancelled") {
+    return { rolledBackCount: 0, violationRefs: [], advanceCount: 0 }
   }
 
   // 2. Roll back violation deductions (M3)

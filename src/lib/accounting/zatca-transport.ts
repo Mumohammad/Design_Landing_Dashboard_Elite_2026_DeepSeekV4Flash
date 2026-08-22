@@ -161,6 +161,16 @@ export async function transmitToZatca(input: ZatcaTransmitInput): Promise<ZatcaT
   const credentials = resolveCredentials(input)
   if (credentials && process.env.ZATCA_API_BASE_URL) {
     // ── PRODUCTION (config-only, with retry for transient errors) ─────────
+    // ZATCA REQUIREMENT: every production transmission MUST be signed with
+    // a valid CSID private key. Transmitting unsigned XML to the live API
+    // would be rejected by ZATCA and could flag the tenant's CSID. Fail
+    // closed — never silently post unsigned payloads.
+    const signingKey = credentials.privateKeyPem || process.env.ZATCA_CSID_PRIVATE_KEY
+    if (!signingKey) {
+      const msg = "ZATCA production mode requires a signing private key (ZATCA_CSID_PRIVATE_KEY or per-tenant CSID key). Refusing to transmit unsigned XML."
+      log.error({ docRef: input.docRef }, msg)
+      throw new Error(msg)
+    }
     const signedXml = signXmlIfConfigured(input.xml, credentials.privateKeyPem)
     const base = process.env.ZATCA_API_BASE_URL.replace(/\/$/, "")
     const endpoint = input.pipeline === "clearance"

@@ -63,6 +63,7 @@ describe("transmitToZatca (production POST path — exercised with a mocked HTTP
     vi.stubEnv("ZATCA_API_BASE_URL", "https://zatca.example.test/") // trailing slash must be stripped
     vi.stubEnv("ZATCA_CSID_CERT", "TUlJQ1BUQ0NBZU9n--cert-b64")
     vi.stubEnv("ZATCA_CSID_SECRET", "secret-key-123")
+    vi.stubEnv("ZATCA_CSID_PRIVATE_KEY", generateZatcaKeyPair().privateKeyPem)
     const captured: { url: string; init: RequestInit } = { url: "", init: {} }
     const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
       captured.url = url
@@ -101,6 +102,7 @@ describe("transmitToZatca (production POST path — exercised with a mocked HTTP
     vi.stubEnv("ZATCA_API_BASE_URL", "https://zatca.example.test")
     vi.stubEnv("ZATCA_CSID_CERT", "cert-b64")
     vi.stubEnv("ZATCA_CSID_SECRET", "secret-key-123")
+    vi.stubEnv("ZATCA_CSID_PRIVATE_KEY", generateZatcaKeyPair().privateKeyPem)
     const captured: { url: string; init: RequestInit } = { url: "", init: {} }
     const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
       captured.url = url
@@ -129,7 +131,7 @@ describe("transmitToZatca (production POST path — exercised with a mocked HTTP
 
   it("explicit DB-backed credentials override env (Basic auth built from them)", async () => {
     // Fully misconfigured env — only the base URL is set; the DB credentials
-    // must activate the production path anyway.
+    // must activate the production path anyway. Signing key via DB credentials.
     vi.stubEnv("ZATCA_API_BASE_URL", "https://zatca.example.test")
     const captured: { url: string; init: RequestInit } = { url: "", init: {} }
     const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
@@ -139,11 +141,12 @@ describe("transmitToZatca (production POST path — exercised with a mocked HTTP
     })
     vi.stubGlobal("fetch", fetchMock)
 
+    const keyPair = generateZatcaKeyPair()
     const res = await transmitToZatca({
       xml: "<Invoice/>",
       pipeline: "reporting",
       docRef: "INV-2026-000013",
-      credentials: { csidBase64: "DB-CERT", secret: "DB-SECRET" },
+      credentials: { csidBase64: "DB-CERT", secret: "DB-SECRET", privateKeyPem: keyPair.privateKeyPem },
     })
 
     expect(captured.init.method).toBe("POST")
@@ -197,26 +200,22 @@ describe("transmitToZatca (production POST path — exercised with a mocked HTTP
     expect(windowSeconds.some((input) => verifyZatcaPayload(input, signatureBase64!, keyPair.publicKeyPem))).toBe(true)
   })
 
-  it("does not sign when no private key is available (env or DB)", async () => {
+  it("throws when no signing key is available in production mode (fail-closed)", async () => {
+    // ZATCA REQUIREMENT: production transmissions MUST be signed. Without a
+    // signing key the transport refuses to send unsigned XML to avoid ZATCA
+    // rejection and potential CSID flagging.
     vi.stubEnv("ZATCA_API_BASE_URL", "https://zatca.example.test")
     vi.stubEnv("ZATCA_CSID_CERT", "cert-b64")
     vi.stubEnv("ZATCA_CSID_SECRET", "secret-key-123")
-    const captured: { url: string; init: RequestInit } = { url: "", init: {} }
-    const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
-      captured.url = url
-      captured.init = init
-      return { ok: true, status: 200, json: async () => ({ uuid: "55555555-5555-4555-8555-555555555555" }) }
-    })
-    vi.stubGlobal("fetch", fetchMock)
+    // No ZATCA_CSID_PRIVATE_KEY — the guard must throw.
 
-    const xml = "<Invoice><cac:Signature><ds:SignatureValue></ds:SignatureValue></cac:Signature></Invoice>"
-    await transmitToZatca({ xml, pipeline: "reporting", docRef: "INV-2026-000016" })
-
-    // No private key → the placeholder is left untouched (unsigned payload).
-    expect(captured.init.body).toBe(xml)
+    await expect(
+      transmitToZatca({ xml: "<Invoice/>", pipeline: "reporting", docRef: "INV-2026-000016" })
+    ).rejects.toThrow("requires a signing private key")
   })
 
   it("stays in sandbox with explicit credentials but no gateway base URL", async () => {
+    // Empty base URL → sandbox (credentials alone don't activate production).
     vi.stubEnv("ZATCA_API_BASE_URL", "")
     const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) }))
     vi.stubGlobal("fetch", fetchMock)
@@ -236,6 +235,7 @@ describe("transmitToZatca (production POST path — exercised with a mocked HTTP
     vi.stubEnv("ZATCA_API_BASE_URL", "https://zatca.example.test")
     vi.stubEnv("ZATCA_CSID_CERT", "cert-b64")
     vi.stubEnv("ZATCA_CSID_SECRET", "secret-key-123")
+    vi.stubEnv("ZATCA_CSID_PRIVATE_KEY", generateZatcaKeyPair().privateKeyPem)
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => ({
