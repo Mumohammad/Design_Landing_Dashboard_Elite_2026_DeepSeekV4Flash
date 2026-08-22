@@ -340,6 +340,86 @@ scripts/                    # Setup & deployment scripts
 - Open an issue for bugs or feature requests
 - For security issues, do NOT open a public issue — contact the team directly
 
+## Changelog
+
+### v1.0.0 — Production Release (2026-08-22)
+
+**Score: 8.2/10 — ✅ PRODUCTION READY**
+
+#### Security
+- Auth trigger hardened: invite-only provisioning, public signup banned (migration 060)
+- Invitation lifecycle secured: admin client, invite marker, no conflicts
+- Public document verification: opaque SHA-256 tokens, narrow RPC, no PII
+- Storage hardened: draft-only uploads, UUID filenames, extension allowlist
+- CSP hardened: unsafe-eval removed from script-src
+- Zero browser Supabase reads: all sensitive data via server actions
+- Tenant verification on all financial modules
+- ZATCA fail-closed when signing key missing
+- Sentry: PII scrubbing, session replay, URL allowlist
+
+#### Testing
+- 221 unit tests across 21 files
+- 127 pgTAP RLS assertions across 3 test files (75+ tables)
+- pgTAP tests running in CI with disposable Supabase database
+- Seed data: 29 fixture rows across 14 entity types
+- E2E smoke tests for Arabic/RTL and English/LTR
+
+#### CI/CD
+- Blocking dependency audit (0 high/critical vulnerabilities)
+- Secret scanning in CI pipeline
+- pgTAP RLS tests on every PR
+- Vercel deployment workflow with approval gate
+- Health endpoint smoke test
+
+#### Dependencies
+- Next.js 16.1.5 → 16.3.2
+- postcss 8.5.6 → 8.5.18
+- @xmldom/xmldom 0.8.10 → 0.8.13
+- pnpm overrides for transitive vulnerability chains
+
+#### Documentation
+- README with CI badges and contributing guide
+- 15+ production documents (runbook, rollback, DR, test strategy)
+- Architecture rules and PR checklist
+
+### v0.x.0 — Pre-release Packages (2026-08-21)
+
+#### Package 0 — Build Repair
+- Fixed /expenses prerender crash (Recharts SSR)
+- Resolved 6 ESLint errors
+- Eliminated chart warning noise
+
+#### Package 1 — Auth/RBAC/RLS
+- Auth trigger migration to invitation-only provisioning
+- Sensitive table write restrictions (roles, invites, memberships)
+- Self-role escalation prevention trigger
+
+#### Package 2 — Browser Read Removal
+- Replaced 7 dashboard pages with server actions
+- Zero browser Supabase reads verified
+
+#### Package 3 — Public Document Verification
+- Opaque SHA-256 verification tokens
+- Rate limiting on public lookups
+- Storage path validation
+
+#### Package 4 — Financial Module Hardening
+- Tenant verification on payroll, payments, invoices
+- Idempotency guards on financial mutations
+- ZATCA fail-closed behavior
+
+#### Package 5 — CI/CD & Recovery
+- Hardened CI pipeline with blocking audit
+- Deployment workflow with approval gate
+- Disaster recovery and rollback documentation
+
+#### Package 6 — i18n & Accessibility
+- Localized all error pages (Arabic/English)
+- Added screen reader support
+- E2E tests for RTL/LTR layouts
+
+---
+
 ## License
 
 Private — EliteDev © 2026
