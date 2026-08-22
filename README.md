@@ -200,6 +200,146 @@ See [docs/PRODUCTION_READINESS_SCORE.md](docs/PRODUCTION_READINESS_SCORE.md) for
 3. Enable Vercel Analytics
 4. Configure uptime monitoring at `/api/health`
 
+## Contributing
+
+### Prerequisites
+
+- Node.js 24+
+- pnpm (via corepack)
+- Docker (for Supabase local / pgTAP tests)
+- Supabase CLI (`npm install -g supabase`)
+
+### Development Workflow
+
+```bash
+# 1. Create a feature branch
+ git checkout -b feat/my-feature master
+
+# 2. Start dev server
+ pnpm dev
+
+# 3. Make changes, then verify
+ pnpm lint            # Lint
+ npx tsc --noEmit     # Type check
+ pnpm test            # Unit tests
+
+# 4. Run pgTAP tests if you changed RLS/migrations
+ ./supabase/run-pgtap-tests.sh
+
+# 5. Commit with conventional message
+ git commit -m "feat: add new payroll export format"
+
+# 6. Push and open PR
+ git push origin feat/my-feature
+```
+
+### Commit Convention
+
+Use [Conventional Commits](https://www.conventionalcommits.org/):
+
+```
+type: short description
+
+optional body
+```
+
+| Type | When to Use |
+|------|-------------|
+| `feat` | New feature or module |
+| `fix` | Bug fix |
+| `security` | Security hardening, RLS, auth |
+| `test` | Adding/updating tests |
+| `docs` | Documentation changes |
+| `ci` | CI/CD pipeline changes |
+| `refactor` | Code restructuring (no behavior change) |
+| `perf` | Performance improvements |
+| `i18n` | Translation / localization |
+
+### PR Checklist
+
+Before requesting review, ensure:
+
+- [ ] `pnpm lint` passes with 0 errors
+- [ ] `npx tsc --noEmit` passes with 0 errors
+- [ ] `pnpm test` — all 221 unit tests pass
+- [ ] No browser Supabase reads added (check `grep src/ "@/lib/supabase/client"`)
+- [ ] Any new server action has `requirePermission()`
+- [ ] Any new mutation has `writeAuditLog()`
+- [ ] Any new table has RLS enabled and a pgTAP test
+- [ ] No secrets, tokens, or passwords in code
+- [ ] Arabic/English translations added for new strings
+- [ ] Responsive on mobile (375px minimum)
+- [ ] RTL layout works correctly
+
+### Architecture Rules
+
+| Rule | Why |
+|------|-----|
+| **Never use `@/lib/supabase/client` in dashboard pages** | All sensitive reads go through server actions |
+| **Always use `requirePermission()` in server actions** | Defense-in-depth beyond RLS |
+| **Always use `writeAuditLog()` for mutations** | Audit trail for compliance |
+| **Never edit applied migrations** | Create forward-only migrations with the next number |
+| **Use `round2()` for monetary values** | Avoid floating-point precision errors |
+| **Never expose `SUPABASE_SERVICE_ROLE_KEY` to client** | Server-only, bypasses RLS |
+| **Always scope queries by `tenant_id`** | Multi-tenant isolation |
+
+### pgTAP RLS Tests
+
+If you add a new table or modify RLS policies:
+
+1. Add the table to `supabase/tests/010_full_rls_test_suite.sql`
+2. Add cross-tenant denial test (Section 6 pattern)
+3. Add anonymous denial test (Section 4 pattern)
+4. If the table is service-role-only, add to Section 2
+5. Run `./supabase/run-pgtap-tests.sh` to verify
+
+### File Organization
+
+```
+src/
+├── app/                    # Next.js App Router pages
+│   ├── (dashboard)/        # Dashboard routes (protected)
+│   ├── auth/               # Auth pages (login, signup, etc.)
+│   ├── api/                # API routes (health, cron)
+│   └── landing/            # Public landing page
+├── components/             # Shared React components
+│   ├── ui/                 # shadcn/ui primitives
+│   ├── landing/            # Landing page sections
+│   └── dashboard/          # Dashboard-specific components
+├── lib/                    # Business logic & utilities
+│   ├── accounting/         # Invoice, VAT, ZATCA, journal
+│   ├── auth/               # Authorization, invites, sessions
+│   ├── payroll/            # Payroll calculation engine
+│   ├── expenses/           # Expense management
+│   ├── reports/            # Report generation
+│   ├── supabase/           # Supabase client factories
+│   ├── i18n/               # Translations & locale
+│   └── logger.ts           # Structured logging (pino)
+├── hooks/                  # Custom React hooks
+├── contexts/               # React contexts (locale)
+└── proxy.ts                # Route protection middleware
+
+supabase/
+├── migrations/             # 60 forward-only SQL migrations
+├── tests/                  # pgTAP RLS test files
+│   ├── 010_full_rls_test_suite.sql
+│   ├── 058_rls_security_tests.sql
+│   └── 060_behavioral_rls_tests.sql
+├── seed.sql                # Test fixture data
+├── config.toml             # Supabase CLI config
+└── run-pgtap-tests.sh      # pgTAP test runner
+
+docs/                       # Production documentation
+e2e/                        # Playwright E2E tests
+scripts/                    # Setup & deployment scripts
+```
+
+### Getting Help
+
+- Check existing [docs/](docs/) for deployment, rollback, and disaster recovery
+- Open an issue for bugs or feature requests
+- For security issues, do NOT open a public issue — contact the team directly
+
 ## License
 
 Private — EliteDev © 2026
