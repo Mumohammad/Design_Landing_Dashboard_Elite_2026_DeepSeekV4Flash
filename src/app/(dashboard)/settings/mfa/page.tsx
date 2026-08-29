@@ -64,9 +64,30 @@ export default function MfaSettingsPage() {
     setIsLoading(false)
   }, [ar])
 
-  // FIX: the previous effect referenced loadFactors without invoking it, so the
-  // page never loaded data and stayed on the spinner forever.
-  useEffect(() => { void loadFactors() }, [loadFactors])
+  // Initial load on mount. Two fixes live here:
+  //  1. The original effect referenced loadFactors without invoking it, so the
+  //     page stayed on the spinner forever.
+  //  2. react-hooks/set-state-in-effect forbids calling a state-setting
+  //     function synchronously in the effect body — so the fetch runs in
+  //     .then/.catch callbacks (allowed) with an `active` unmount guard.
+  useEffect(() => {
+    let active = true
+    Promise.all([listMfaFactors(), isMfaRequired()])
+      .then(([factorsResult, requiredResult]) => {
+        if (!active) return
+        if (factorsResult.success && factorsResult.factors) {
+          setFactors(factorsResult.factors)
+        }
+        setMfaRequired(requiredResult)
+        setIsLoading(false)
+      })
+      .catch(() => {
+        if (!active) return
+        setError(ar ? "تعذر تحميل بيانات MFA" : "Failed to load MFA data")
+        setIsLoading(false)
+      })
+    return () => { active = false }
+  }, [ar])
 
   const isEnabled = factors.some((f) => f.status === "verified")
 
