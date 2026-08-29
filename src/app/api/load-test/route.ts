@@ -3,26 +3,38 @@
  *
  * GET /api/load-test?scenario=dashboard|payroll|accounting|all
  *
- * This endpoint is meant for load testing and performance profiling.
- * It should be DISABLED in production by requiring LOAD_TEST_SECRET.
+ * Security model (FAIL CLOSED):
+ *   - Production: LOAD_TEST_SECRET must be configured — otherwise this route
+ *     answers 503. Requests must send `Authorization: Bearer <secret>` and the
+ *     comparison is timing-safe.
+ *   - Non-production (local/staging): open for profiling.
  *
- * Returns:
- *   - Array of query timings with latency, row counts, and status
- *   - Aggregate summary (total duration, p50/p95/p99 estimates)
- *   - Whether each query path is within acceptable latency budgets
- *
- * Security:
- *   - Requires LOAD_TEST_SECRET bearer token in production
- *   - Never exposed in public routes
- *   - Reads only — no mutations
+ * Responses never include raw database error messages (metadata leak).
+ * Reads only — no mutations.
  */
 
 import { NextResponse } from "next/server"
-import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { moduleLogger } from "@/lib/logger"
 
+export const runtime = "nodejs"
+export const dynamic = "force-dynamic"
+
 const log = moduleLogger("api/load-test")
+
+/**
+ * Timing-safe string comparison to prevent timing attacks.
+ * (Same helper as src/app/api/webhooks/cron/route.ts — extract to a shared
+ * util in a follow-up.)
+ */
+function safeCompare(a: string, b: string): boolean {
+  if (a.length !== b.length) return false
+  let result = 0
+  for (let i = 0; i < a.length; i++) {
+    result |= a.charCodeAt(i) ^ b.charCodeAt(i)
+  }
+  return result === 0
+}
 
 // ── Latency budgets (ms) — queries exceeding these are flagged ───────────────
 const BUDGETS = {
@@ -91,13 +103,15 @@ async function timeQuery(
           error: "table_missing",
         }
       }
+      // Never leak raw database errors to the client — log server-side only.
+      log.warn({ query: name, dbError: errObj?.message, code: errObj?.code }, "Load test query failed")
       return {
         name,
         durationMs,
         rows: 0,
         budget: BUDGETS[name as keyof typeof BUDGETS] ?? 500,
         withinBudget: false,
-        error: errObj?.message ?? "unknown_error",
+        error: "query_failed",
       }
     }
 
@@ -106,13 +120,14 @@ async function timeQuery(
     return { name, durationMs, rows, budget, withinBudget: durationMs <= budget }
   } catch (e) {
     const durationMs = Math.round(performance.now() - start)
+    log.error({ query: name, err: e }, "Load test query threw")
     return {
       name,
       durationMs,
       rows: 0,
       budget: BUDGETS[name as keyof typeof BUDGETS] ?? 500,
       withinBudget: false,
-      error: e instanceof Error ? e.message : "exception",
+      error: "exception",
     }
   }
 }
@@ -217,11 +232,15 @@ async function scenarioAccounting(): Promise<QueryTiming[]> {
 
 // ── Handler ──────────────────────────────────────────────────────────────────
 export async function GET(req: Request): Promise<NextResponse> {
-  // Gate: require LOAD_TEST_SECRET in production
+  // FAIL CLOSED in production: no secret configured → 503, never skip the gate.
   const secret = process.env.LOAD_TEST_SECRET
-  if (process.env.NODE_ENV === "production" && secret) {
+  if (process.env.NODE_ENV === "production") {
+    if (!secret) {
+      log.error("LOAD_TEST_SECRET is not configured — refusing to serve in production")
+      return NextResponse.json({ error: "Service unavailable" }, { status: 503 })
+    }
     const auth = req.headers.get("authorization")
-    if (!auth || auth !== `Bearer ${secret})`) {
+    if (!auth || !safeCompare(auth, `Bearer ${secret}`)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
   }
@@ -276,9 +295,6 @@ export async function GET(req: Request): Promise<NextResponse> {
     })
   } catch (e) {
     log.error({ err: e }, "Load test profiling failed")
-    return NextResponse.json(
-      { error: "Load test failed", details: e instanceof Error ? e.message : "unknown" },
-      { status: 500 },
-    )
+    return NextResponse.json({ error: "Load test failed" }, { status: 500 })
   }
 }
