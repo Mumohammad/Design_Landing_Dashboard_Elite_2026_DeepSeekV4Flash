@@ -81,13 +81,17 @@ SELECT is(
 
 -- ─── Tests 4-6: Trigger enforcement (AUTH001/002/005) ────────────
 --
--- RUN CONTEXT NOTE (fixed): the prevent_user_self_escalation trigger reads
+-- RUN CONTEXT (fixed): the prevent_user_self_escalation trigger reads
 -- request.jwt.claims — NOT the current role. After migration 058 dropped the
--- authenticated UPDATE policy on users, running these assertions as the
--- "authenticated" role makes the UPDATE a silent RLS no-op (0 rows, no
--- exception) and throws_ok would never fire. So we run as the table OWNER
--- (postgres, RLS bypassed — the row is actually reached) while SIMULATING the
--- caller's JWT claims; the trigger reads the claims and raises the guard.
+-- authenticated UPDATE policy on users, running these as "authenticated" makes
+-- the UPDATE a silent RLS no-op (0 rows, no exception). So we run as the table
+-- OWNER (postgres, RLS bypassed — the row is actually reached) while
+-- SIMULATING the caller's JWT claims.
+--
+-- NO-OP GUARD (fixed): both seed users are general_manager/active, so
+-- SET role='general_manager' / SET status='active' would be IS NOT DISTINCT
+-- no-ops and the trigger would never fire. Each assertion below mutates to a
+-- DIFFERENT value.
 
 -- ─── Test 4: Auth self-role-escalation UPDATE → DENY (trigger) ───
 RESET ROLE;
@@ -99,7 +103,7 @@ SELECT set_config('request.jwt.claims',
 );
 
 SELECT throws_ok(
-  $$UPDATE users SET role = 'general_manager' WHERE auth_user_id = '00000000-0000-0000-0000-000000000001'$$,
+  $$UPDATE users SET role = 'admin' WHERE auth_user_id = '00000000-0000-0000-0000-000000000001'$$,
   'AUTH001',
   'self-role-escalation UPDATE raises AUTH001'
 );
@@ -114,14 +118,19 @@ SELECT set_config('request.jwt.claims',
 );
 
 SELECT throws_ok(
-  $$UPDATE users SET status = 'active' WHERE auth_user_id = '00000000-0000-0000-0000-000000000001'$$,
+  $$UPDATE users SET status = 'inactive' WHERE auth_user_id = '00000000-0000-0000-0000-000000000001'$$,
   'AUTH002',
   'self-status-escalation UPDATE raises AUTH002'
 );
 
 -- ─── Test 6: Auth GM role assignment → DENY (trigger) ────────────
+-- Precondition: AUTH005 only fires when OLD.role <> 'general_manager', but
+-- both seed users are GMs. Demote fixture user 002 first under a service
+-- context (empty claims → trigger passes), then escalate with caller claims.
 RESET ROLE;
 SET LOCAL ROLE postgres;
+SELECT set_config('request.jwt.claims', '{}', true);
+UPDATE users SET role = 'supervisor' WHERE id = '00000000-0000-0000-0000-000000000002';
 
 SELECT set_config('request.jwt.claims',
   '{"sub": "00000000-0000-0000-0000-000000000001", "role": "authenticated"}',
@@ -129,7 +138,7 @@ SELECT set_config('request.jwt.claims',
 );
 
 SELECT throws_ok(
-  $$UPDATE users SET role = 'general_manager' WHERE id != '00000000-0000-0000-0000-000000000001'$$,
+  $$UPDATE users SET role = 'general_manager' WHERE id = '00000000-0000-0000-0000-000000000002'$$,
   'AUTH005',
   'GM role escalation via authenticated UPDATE raises AUTH005'
 );

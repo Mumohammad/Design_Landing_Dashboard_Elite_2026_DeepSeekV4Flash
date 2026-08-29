@@ -8,6 +8,8 @@
 --
 -- REQUIREMENTS:
 --   CREATE EXTENSION IF NOT EXISTS pgtap;
+--   Run in a SINGLE TRANSACTION (psql --single-transaction) so that
+--     SET LOCAL ROLE and request.jwt.claims persist across statements.
 --   Run against a disposable Supabase test database WITH fixtures:
 --     - tenant_001 (UUID: 00000000-0000-0000-0000-000000000001)
 --     - tenant_002 (UUID: 00000000-0000-0000-0000-000000000002)
@@ -55,6 +57,24 @@ BEGIN
   RESET ROLE;
   SET LOCAL ROLE postgres;
   PERFORM set_config('request.jwt.claims', '{}'::text, true);
+END;
+$$ LANGUAGE plpgsql;
+
+-- Simulate TABLE-OWNER context WITH authenticated JWT claims.
+-- Used by trigger-enforcement tests (section 5): after migration 058 dropped
+-- the authenticated users UPDATE policy, an "authenticated" UPDATE is a silent
+-- RLS no-op and no AUTH00x exception would fire. The owner bypasses RLS so the
+-- UPDATE reaches the row, while the trigger reads request.jwt.claims and
+-- raises the guard.
+CREATE OR REPLACE FUNCTION _set_owner_claims(p_auth_user_id UUID)
+RETURNS void AS $$
+BEGIN
+  RESET ROLE;
+  SET LOCAL ROLE postgres;
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub', p_auth_user_id, 'role', 'authenticated')::text,
+    true
+  );
 END;
 $$ LANGUAGE plpgsql;
 
@@ -326,8 +346,10 @@ SELECT is(
   'anon: vehicles returns 0 rows'
 );
 
+-- FIX: referenced non-existent table `payroll_periods` (SQLSTATE 42P01 aborts
+-- a single-transaction run). Correct table: driver_payroll_periods.
 SELECT is(
-  (SELECT count(*)::int FROM payroll_periods WHERE false)::int + 0,
+  (SELECT count(*)::int FROM driver_payroll_periods),
   0,
   'anon: driver_payroll_periods returns 0 rows'
 );
@@ -379,29 +401,39 @@ SELECT _set_admin();
 -- ═══════════════════════════════════════════════════════════════════
 -- SECTION 5: TRIGGER ENFORCEMENT — Self-escalation blocks
 -- ═══════════════════════════════════════════════════════════════════
+-- CONTEXT FIX: these run as the table OWNER with simulated JWT claims
+-- (_set_owner_claims). The trigger reads request.jwt.claims — not the current
+-- role — and after 058 the authenticated role has no users UPDATE policy, so
+-- as "authenticated" the UPDATE would be a silent RLS no-op and no AUTH00x
+-- exception would fire.
+-- NO-OP GUARD FIX: seed users are general_manager/active, so each assertion
+-- mutates to a DIFFERENT value (an IS NOT DISTINCT no-op never fires).
+
+SELECT _set_owner_claims('00000000-0000-0000-0000-000000000001'::uuid);
 
 -- 5.1 Self-role escalation is blocked
-SELECT _set_jwt(
-  '00000000-0000-0000-0000-000000000001'::uuid,
-  '00000000-0000-0000-0000-000000000001'::uuid
-);
-
 SELECT throws_ok(
-  $$UPDATE users SET role = 'general_manager' WHERE auth_user_id = '00000000-0000-0000-0000-000000000001'::uuid$$,
+  $$UPDATE users SET role = 'admin' WHERE auth_user_id = '00000000-0000-0000-0000-000000000001'::uuid$$,
   'AUTH001',
   'trigger blocks self-role escalation (AUTH001)'
 );
 
 -- 5.2 Self-status escalation is blocked
 SELECT throws_ok(
-  $$UPDATE users SET status = 'active' WHERE auth_user_id = '00000000-0000-0000-0000-000000000001'::uuid$$,
+  $$UPDATE users SET status = 'inactive' WHERE auth_user_id = '00000000-0000-0000-0000-000000000001'::uuid$$,
   'AUTH002',
   'trigger blocks self-status modification (AUTH002)'
 );
 
 -- 5.3 GM role assignment is blocked
+-- Precondition: AUTH005 fires only when OLD.role <> 'general_manager'; both
+-- seed users are GMs, so demote fixture user 002 first (service context).
+SELECT _set_admin();
+UPDATE users SET role = 'supervisor' WHERE id = '00000000-0000-0000-0000-000000000002'::uuid;
+SELECT _set_owner_claims('00000000-0000-0000-0000-000000000001'::uuid);
+
 SELECT throws_ok(
-  $$UPDATE users SET role = 'general_manager' WHERE id != '00000000-0000-0000-0000-000000000001'::uuid$$,
+  $$UPDATE users SET role = 'general_manager' WHERE id = '00000000-0000-0000-0000-000000000002'::uuid$$,
   'AUTH005',
   'trigger blocks GM role assignment (AUTH005)'
 );
@@ -881,5 +913,6 @@ SELECT _set_admin();
 DROP FUNCTION IF EXISTS _set_jwt(UUID, UUID);
 DROP FUNCTION IF EXISTS _set_anon();
 DROP FUNCTION IF EXISTS _set_admin();
+DROP FUNCTION IF EXISTS _set_owner_claims(UUID);
 
 SELECT * FROM finish();
