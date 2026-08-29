@@ -171,26 +171,29 @@ jobs:
 
       - name: Start Supabase local stack
         run: |
+          set -o pipefail
           supabase start 2>&1 | tail -20
           echo "Supabase started successfully"
 
       - name: Wait for database
         run: |
-          for i in $(seq 1 30); do
-            if supabase db ping 2>/dev/null | grep -q "alive"; then
-              echo "✅ Database is ready"
+          # NOTE: `supabase db ping` does not exist in the Supabase CLI.
+          # Probe Postgres directly via psql on the local Supabase port (54322).
+          for i in $(seq 1 60); do
+            if psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -tAc "SELECT 1" 2>/dev/null | grep -q "1"; then
+              echo "✅ Database is ready (attempt $i)"
               break
             fi
-            if [ "$i" -eq 30 ]; then
+            if [ "$i" -eq 60 ]; then
               echo "❌ Database did not become ready"
               exit 1
             fi
-            sleep 1
+            sleep 2
           done
 
       - name: Install pgTAP extension
         run: |
-          supabase db execute -c "CREATE EXTENSION IF NOT EXISTS pgtap;" 2>&1
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -c "CREATE EXTENSION IF NOT EXISTS pgtap;"
           echo "✅ pgTAP extension ready"
 
       - name: Apply migrations + seed
@@ -214,7 +217,7 @@ jobs:
             echo "▶ Running: $filename"
             echo "───────────────────────────────────────────────────────"
 
-            OUTPUT=$(supabase db execute -f "$test_file" 2>&1)
+            OUTPUT=$(psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -f "$test_file" 2>&1)
             EXIT_CODE=$?
 
             if [ $EXIT_CODE -eq 0 ]; then
