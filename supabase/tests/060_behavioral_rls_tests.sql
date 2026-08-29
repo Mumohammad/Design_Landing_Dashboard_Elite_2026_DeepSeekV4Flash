@@ -8,6 +8,8 @@
 -- REQUIREMENTS:
 --   - pgTAP extension must be installed: CREATE EXTENSION IF NOT EXISTS pgtap;
 --   - Run against a disposable test database WITH test fixtures.
+--   - Run in a SINGLE TRANSACTION (psql --single-transaction) so that
+--     SET LOCAL ROLE and request.jwt.claims persist across statements.
 --   - Do NOT run against production.
 --
 -- TEST MATRIX:
@@ -20,7 +22,7 @@
 --   7. Service-role INSERT on RBAC tables → ALLOW
 --   8. Auth INSERT on roles table → DENY (no policy)
 --   9. Auth UPDATE on invites table → DENY (no policy)
---  10. Auth trigger blocks direct public signup (INSERT on auth.users)
+--  10. RLS enabled on all business-critical tables
 -- ====================================================================
 
 -- Skip all tests if pgTAP is not available
@@ -77,11 +79,19 @@ SELECT is(
   'cross-tenant users query returns 0 rows (RLS blocks)'
 );
 
--- ─── Test 4: Auth self-role-escalation UPDATE → DENY (trigger) ───
--- An authenticated user trying to change their own role must fail.
+-- ─── Tests 4-6: Trigger enforcement (AUTH001/002/005) ────────────
+--
+-- RUN CONTEXT NOTE (fixed): the prevent_user_self_escalation trigger reads
+-- request.jwt.claims — NOT the current role. After migration 058 dropped the
+-- authenticated UPDATE policy on users, running these assertions as the
+-- "authenticated" role makes the UPDATE a silent RLS no-op (0 rows, no
+-- exception) and throws_ok would never fire. So we run as the table OWNER
+-- (postgres, RLS bypassed — the row is actually reached) while SIMULATING the
+-- caller's JWT claims; the trigger reads the claims and raises the guard.
 
+-- ─── Test 4: Auth self-role-escalation UPDATE → DENY (trigger) ───
 RESET ROLE;
-SET LOCAL ROLE authenticated;
+SET LOCAL ROLE postgres;
 
 SELECT set_config('request.jwt.claims',
   '{"sub": "00000000-0000-0000-0000-000000000001", "role": "authenticated"}',
@@ -95,10 +105,8 @@ SELECT throws_ok(
 );
 
 -- ─── Test 5: Auth self-status-escalation UPDATE → DENY (trigger) ─
--- An authenticated user trying to unlock their own account must fail.
-
 RESET ROLE;
-SET LOCAL ROLE authenticated;
+SET LOCAL ROLE postgres;
 
 SELECT set_config('request.jwt.claims',
   '{"sub": "00000000-0000-0000-0000-000000000001", "role": "authenticated"}',
@@ -112,11 +120,8 @@ SELECT throws_ok(
 );
 
 -- ─── Test 6: Auth GM role assignment → DENY (trigger) ────────────
--- Even a service-role-equivalent authenticated user cannot promote
--- to general_manager via direct UPDATE.
-
 RESET ROLE;
-SET LOCAL ROLE authenticated;
+SET LOCAL ROLE postgres;
 
 SELECT set_config('request.jwt.claims',
   '{"sub": "00000000-0000-0000-0000-000000000001", "role": "authenticated"}',
@@ -188,6 +193,9 @@ SELECT lives_ok(
 -- FIX: the original list referenced table names that do not exist
 -- (payroll_periods, payments, documents). Corrected to the real schema
 -- names (driver_payroll_periods, finance_payments, document_templates).
+RESET ROLE;
+SET LOCAL ROLE postgres;
+
 SELECT is(
   (SELECT count(*)::int FROM pg_tables
    WHERE schemaname = 'public'

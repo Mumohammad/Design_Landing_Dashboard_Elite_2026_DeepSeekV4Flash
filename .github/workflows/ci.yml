@@ -217,7 +217,11 @@ jobs:
             echo "▶ Running: $filename"
             echo "───────────────────────────────────────────────────────"
 
-            OUTPUT=$(psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -f "$test_file" 2>&1)
+            # --single-transaction: SET LOCAL ROLE and request.jwt.claims must
+            # persist across statements (in autocommit each statement is its
+            # own transaction, so role/JWT context would evaporate and every
+            # anon/authenticated assertion would run as superuser).
+            OUTPUT=$(psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" --single-transaction -f "$test_file" 2>&1)
             EXIT_CODE=$?
 
             if [ $EXIT_CODE -eq 0 ]; then

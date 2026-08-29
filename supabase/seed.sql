@@ -16,13 +16,20 @@
 --   user_002:   00000000-0000-0000-0000-000000000002 (auth_user_id)
 --
 -- This seed runs AFTER all migrations via `supabase db reset`.
--- It must run as a superuser to bypass RLS and create auth.users.
 -- ====================================================================
 
 -- ═══════════════════════════════════════════════════════════════════
--- Disable the auth trigger temporarily to prevent interference
+-- Auth trigger handling during seeding
+--
+-- DO NOT use ALTER TABLE auth.users DISABLE TRIGGER — that requires
+-- OWNING auth.users (owned by supabase_auth_admin, not the migration role)
+-- and fails with SQLSTATE 42501 "must be owner of table users".
+--
+-- Instead, fixture auth.users carry the "_invite_provisioned": true marker
+-- in raw_user_meta_data — the hardened auth trigger (migration 060)
+-- explicitly lets invite-provisioned inserts pass through, so seeding works
+-- WITH the guard instead of around it.
 -- ═══════════════════════════════════════════════════════════════════
-ALTER TABLE auth.users DISABLE TRIGGER on_auth_user_changed;
 
 -- ═══════════════════════════════════════════════════════════════════
 -- 1. Tenants
@@ -40,6 +47,7 @@ ON CONFLICT (id) DO NOTHING;
 -- ═══════════════════════════════════════════════════════════════════
 -- These are the identities that auth.uid() returns.
 -- The password hash is bcrypt of "Test1234!" — used only for testing.
+-- raw_user_meta_data carries _invite_provisioned: true (see header note).
 
 INSERT INTO auth.users (
   id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -55,7 +63,7 @@ VALUES
     'admin@tenant001.test',
     crypt('Test1234!', gen_salt('bf')),
     now(),
-    '{"full_name": "Admin User 001", "email": "admin@tenant001.test"}'::jsonb,
+    '{"full_name": "Admin User 001", "email": "admin@tenant001.test", "_invite_provisioned": true}'::jsonb,
     '{"provider": "email", "providers": ["email"]}'::jsonb,
     now(), now(), '', ''
   ),
@@ -67,7 +75,7 @@ VALUES
     'admin@tenant002.test',
     crypt('Test1234!', gen_salt('bf')),
     now(),
-    '{"full_name": "Admin User 002", "email": "admin@tenant002.test"}'::jsonb,
+    '{"full_name": "Admin User 002", "email": "admin@tenant002.test", "_invite_provisioned": true}'::jsonb,
     '{"provider": "email", "providers": ["email"]}'::jsonb,
     now(), now(), '', ''
   )
@@ -264,10 +272,7 @@ VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- ═══════════════════════════════════════════════════════════════════
--- 11. Re-enable the auth trigger
--- ═══════════════════════════════════════════════════════════════════
-ALTER TABLE auth.users ENABLE TRIGGER on_auth_user_changed;
-
--- ═══════════════════════════════════════════════════════════════════
 -- Done — seed data ready for pgTAP tests
+-- (No trigger re-enable needed: the auth trigger was never disabled —
+-- fixture users pass through via the _invite_provisioned marker.)
 -- ═══════════════════════════════════════════════════════════════════
