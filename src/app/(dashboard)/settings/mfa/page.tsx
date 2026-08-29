@@ -4,6 +4,10 @@
 //
 // For admin/owner roles, MFA is mandatory and cannot be disabled.
 // For other roles, MFA is optional.
+//
+// The QR code is the SVG returned by our own Supabase Auth server inside the
+// enroll response and is rendered locally. The TOTP URI/secret is NEVER sent
+// to third-party QR services (the previous api.qrserver.com usage leaked it).
 
 import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "@/hooks/use-translation"
@@ -36,7 +40,7 @@ export default function MfaSettingsPage() {
   const [mfaRequired, setMfaRequired] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [enrolling, setEnrolling] = useState(false)
-  const [totpUri, setTotpUri] = useState<string | null>(null)
+  const [qrSvg, setQrSvg] = useState<string | null>(null)
   const [secret, setSecret] = useState<string | null>(null)
   const [enrollFactorId, setEnrollFactorId] = useState<string | null>(null)
   const [verifyCode, setVerifyCode] = useState("")
@@ -60,7 +64,30 @@ export default function MfaSettingsPage() {
     setIsLoading(false)
   }, [ar])
 
-  useEffect(() => { loadFactors }, [loadFactors])
+  // Initial load on mount. Two fixes live here:
+  //  1. The original effect referenced loadFactors without invoking it, so the
+  //     page stayed on the spinner forever.
+  //  2. react-hooks/set-state-in-effect forbids calling a state-setting
+  //     function synchronously in the effect body — so the fetch runs in
+  //     .then/.catch callbacks (allowed) with an `active` unmount guard.
+  useEffect(() => {
+    let active = true
+    Promise.all([listMfaFactors(), isMfaRequired()])
+      .then(([factorsResult, requiredResult]) => {
+        if (!active) return
+        if (factorsResult.success && factorsResult.factors) {
+          setFactors(factorsResult.factors)
+        }
+        setMfaRequired(requiredResult)
+        setIsLoading(false)
+      })
+      .catch(() => {
+        if (!active) return
+        setError(ar ? "تعذر تحميل بيانات MFA" : "Failed to load MFA data")
+        setIsLoading(false)
+      })
+    return () => { active = false }
+  }, [ar])
 
   const isEnabled = factors.some((f) => f.status === "verified")
 
@@ -71,8 +98,8 @@ export default function MfaSettingsPage() {
 
     const result = await enrollMfa()
 
-    if (result.success && result.totpUri) {
-      setTotpUri(result.totpUri)
+    if (result.success && result.qrCode) {
+      setQrSvg(result.qrCode)
       setSecret(result.secret ?? null)
       setEnrollFactorId(result.factorId ?? null)
     } else {
@@ -91,7 +118,7 @@ export default function MfaSettingsPage() {
 
     if (result.success) {
       setSuccess(ar ? "تم تفعيل التحقق الثنائي بنجاح" : "Two-factor authentication enabled successfully")
-      setTotpUri(null)
+      setQrSvg(null)
       setSecret(null)
       setEnrollFactorId(null)
       setVerifyCode("")
@@ -185,7 +212,7 @@ export default function MfaSettingsPage() {
           </div>
 
           {/* Enroll Button */}
-          {!isEnabled && !totpUri && (
+          {!isEnabled && !qrSvg && (
             <Button
               onClick={handleEnroll}
               disabled={enrolling}
@@ -227,7 +254,7 @@ export default function MfaSettingsPage() {
       </Card>
 
       {/* Enrollment QR Code */}
-      {totpUri && (
+      {qrSvg && (
         <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm">
           <CardHeader className="pb-4">
             <div className="flex items-center gap-3">
@@ -247,13 +274,12 @@ export default function MfaSettingsPage() {
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            {/* QR Code */}
+            {/* QR Code — SVG from our own auth server, rendered locally */}
             <div className="flex justify-center">
-              <div className="rounded-xl border border-border/50 bg-white p-4">
-                <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(totpUri)}`}
-                  alt="MFA QR Code"
-                  className="h-[200px] w-[200px]"
+              <div className="rounded-xl border border-border/50 bg-white p-4" dir="ltr">
+                <div
+                  className="h-[200px] w-[200px] [&>svg]:h-full [&>svg]:w-full"
+                  dangerouslySetInnerHTML={{ __html: qrSvg }}
                 />
               </div>
             </div>
@@ -303,7 +329,7 @@ export default function MfaSettingsPage() {
 
             <Button
               onClick={() => {
-                setTotpUri(null)
+                setQrSvg(null)
                 setSecret(null)
                 setEnrollFactorId(null)
                 setVerifyCode("")
@@ -326,7 +352,7 @@ export default function MfaSettingsPage() {
         </div>
       )}
       {success && (
-        <div className="flex items-center gap-2 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-600">
+        <div className="flex items-center gap-2 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-600" role="alert">
           <CheckCircle2 className="h-4 w-4 shrink-0" />
           {success}
         </div>

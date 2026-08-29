@@ -4,9 +4,13 @@ import nextTs from "eslint-config-next/typescript";
 const eslintConfig = [
   {
     ignores: [
-      "deepseek_package_0_build_repair/**",
       "**/node_modules/**",
       ".next/**",
+      // Operational tooling, not shipped app code: k6 load scripts (k6 globals)
+      // and one-off .mjs/.js verification scripts. App code in src/ and e2e/
+      // remains fully linted.
+      "loadtest/**",
+      "scripts/**",
     ],
   },
   ...nextVitals,

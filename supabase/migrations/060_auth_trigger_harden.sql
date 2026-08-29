@@ -122,6 +122,13 @@ COMMENT ON FUNCTION sync_auth_user_to_custom_users() IS
 -- The caller (Next.js page) can enrich with tenant-controlled data
 -- if needed, but the PUBLIC RPC is intentionally minimal.
 
+-- IMPORTANT: migration 059 created this function with RETURNS jsonb and
+-- parameter name `token`. PostgreSQL forbids CREATE OR REPLACE from changing
+-- a function's return type (SQLSTATE 42P13), so we must DROP first, then
+-- recreate with the narrowed JSON shape. Without this DROP, migration 060
+-- fails on every fresh database (CI, staging, first production push).
+DROP FUNCTION IF EXISTS public_verify_document(text);
+
 CREATE OR REPLACE FUNCTION public_verify_document(p_token_hash TEXT)
 RETURNS JSON
 LANGUAGE plpgsql
@@ -198,6 +205,10 @@ CREATE POLICY "anon_insert_driver_drafts" ON storage.objects
     AND (storage.filename(name)) ~* '\.(jpg|jpeg|png|pdf|webp)$'
   );
 
-COMMENT ON POLICY "anon_insert_driver_drafts" ON storage.objects IS
-  'Restricts anonymous uploads to driver-applications/drafts/ with UUID filenames '
-  'and allowed extensions only (migration 060). Re-audit STOR-001 fix.';
+-- NOTE (documentation — intentionally NOT a COMMENT ON POLICY statement):
+-- storage.objects is owned by the storage_admin role, not the migration role,
+-- so COMMENT ON POLICY on it fails with SQLSTATE 42501 (must be owner of
+-- relation objects) during `supabase start` / `db reset`.
+-- Policy documentation: "anon_insert_driver_drafts" restricts anonymous uploads
+-- to driver-applications/drafts/ with UUID filenames and allowed extensions
+-- only (migration 060, re-audit STOR-001 fix).
