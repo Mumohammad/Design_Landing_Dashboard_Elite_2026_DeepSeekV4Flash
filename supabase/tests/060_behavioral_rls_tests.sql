@@ -185,6 +185,9 @@ SELECT lives_ok(
 );
 
 -- ─── Test 10: RLS enabled on all business-critical tables ────────
+-- FIX: the original list referenced table names that do not exist
+-- (payroll_periods, payments, documents). Corrected to the real schema
+-- names (driver_payroll_periods, finance_payments, document_templates).
 SELECT is(
   (SELECT count(*)::int FROM pg_tables
    WHERE schemaname = 'public'
@@ -193,8 +196,8 @@ SELECT is(
        'tenants', 'users', 'roles', 'role_permissions',
        'user_role_assignments', 'tenant_memberships',
        'invites', 'audit_log', 'drivers', 'vehicles',
-       'payroll_periods', 'expenses', 'invoices',
-       'payments', 'documents', 'generated_documents'
+       'driver_payroll_periods', 'expenses', 'invoices',
+       'finance_payments', 'document_templates', 'generated_documents'
      )),
   16,
   'RLS is enabled on all 16 business-critical tables'

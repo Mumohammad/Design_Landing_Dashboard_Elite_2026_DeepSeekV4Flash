@@ -122,6 +122,13 @@ COMMENT ON FUNCTION sync_auth_user_to_custom_users() IS
 -- The caller (Next.js page) can enrich with tenant-controlled data
 -- if needed, but the PUBLIC RPC is intentionally minimal.
 
+-- IMPORTANT: migration 059 created this function with RETURNS jsonb and
+-- parameter name `token`. PostgreSQL forbids CREATE OR REPLACE from changing
+-- a function's return type (SQLSTATE 42P13), so we must DROP first, then
+-- recreate with the narrowed JSON shape. Without this DROP, migration 060
+-- fails on every fresh database (CI, staging, first production push).
+DROP FUNCTION IF EXISTS public_verify_document(text);
+
 CREATE OR REPLACE FUNCTION public_verify_document(p_token_hash TEXT)
 RETURNS JSON
 LANGUAGE plpgsql
