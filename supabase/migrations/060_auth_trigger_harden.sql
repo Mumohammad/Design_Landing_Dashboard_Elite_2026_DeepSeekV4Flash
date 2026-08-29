@@ -205,6 +205,10 @@ CREATE POLICY "anon_insert_driver_drafts" ON storage.objects
     AND (storage.filename(name)) ~* '\.(jpg|jpeg|png|pdf|webp)$'
   );
 
-COMMENT ON POLICY "anon_insert_driver_drafts" ON storage.objects IS
-  'Restricts anonymous uploads to driver-applications/drafts/ with UUID filenames '
-  'and allowed extensions only (migration 060). Re-audit STOR-001 fix.';
+-- NOTE (documentation — intentionally NOT a COMMENT ON POLICY statement):
+-- storage.objects is owned by the storage_admin role, not the migration role,
+-- so COMMENT ON POLICY on it fails with SQLSTATE 42501 (must be owner of
+-- relation objects) during `supabase start` / `db reset`.
+-- Policy documentation: "anon_insert_driver_drafts" restricts anonymous uploads
+-- to driver-applications/drafts/ with UUID filenames and allowed extensions
+-- only (migration 060, re-audit STOR-001 fix).
