@@ -16,20 +16,18 @@
 --   user_002:   00000000-0000-0000-0000-000000000002 (auth_user_id)
 --
 -- This seed runs AFTER all migrations via `supabase db reset`.
+--
+-- IDEMPOTENCY (round-8 CI fix, SQLSTATE 23505): earlier migrations
+-- (013_seed_defaults) may already have seeded default roles/tenants.
+-- Every INSERT therefore uses plain ON CONFLICT DO NOTHING (all unique
+-- constraints, not just the PK), and role assignments resolve role_id by
+-- natural key (tenant_id + name) so they bind to whichever row exists.
+--
+-- Auth trigger handling: fixture auth.users carry "_invite_provisioned": true
+-- in raw_user_meta_data — the hardened trigger (060) lets invite-marked
+-- inserts pass. Never ALTER TABLE auth.users DISABLE TRIGGER (requires
+-- ownership → 42501).
 -- ====================================================================
-
--- ═══════════════════════════════════════════════════════════════════
--- Auth trigger handling during seeding
---
--- DO NOT use ALTER TABLE auth.users DISABLE TRIGGER — that requires
--- OWNING auth.users (owned by supabase_auth_admin, not the migration role)
--- and fails with SQLSTATE 42501 "must be owner of table users".
---
--- Instead, fixture auth.users carry the "_invite_provisioned": true marker
--- in raw_user_meta_data — the hardened auth trigger (migration 060)
--- explicitly lets invite-provisioned inserts pass through, so seeding works
--- WITH the guard instead of around it.
--- ═══════════════════════════════════════════════════════════════════
 
 -- ═══════════════════════════════════════════════════════════════════
 -- 1. Tenants
@@ -40,7 +38,7 @@ VALUES
    'Elite Transport Company LLC', 'SA', 'active', 'single_tenant', now()),
   ('00000000-0000-0000-0000-000000000002', 'شركة الفجر للخدمات', 'Al Fajr Services Co.',
    'Al Fajr Services Company LLC', 'SA', 'active', 'single_tenant', now())
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 -- ═══════════════════════════════════════════════════════════════════
 -- 2. Auth users (Supabase Auth)
@@ -79,7 +77,7 @@ VALUES
     '{"provider": "email", "providers": ["email"]}'::jsonb,
     now(), now(), '', ''
   )
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 -- ═══════════════════════════════════════════════════════════════════
 -- 3. Public users (application users table)
@@ -115,10 +113,12 @@ VALUES
     false,
     now(), now()
   )
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 -- ═══════════════════════════════════════════════════════════════════
 -- 4. Roles (general_manager in each tenant)
+--    May already exist from 013_seed_defaults → plain ON CONFLICT DO NOTHING
+--    (covers idx_roles_tenant_name, not just the PK).
 -- ═══════════════════════════════════════════════════════════════════
 INSERT INTO roles (id, tenant_id, name, name_en, name_ar, is_system_role, created_at, updated_at)
 VALUES
@@ -128,7 +128,7 @@ VALUES
   ('00000000-0000-0000-0000-000000000020',
    '00000000-0000-0000-0000-000000000002',
    'general_manager', 'General Manager', 'المدير العام', true, now(), now())
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 -- ═══════════════════════════════════════════════════════════════════
 -- 5. Tenant memberships
@@ -143,24 +143,37 @@ VALUES
    '00000000-0000-0000-0000-000000000002',
    '00000000-0000-0000-0000-000000000002',
    true, now(), now(), now())
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 -- ═══════════════════════════════════════════════════════════════════
 -- 6. User role assignments
+--    role_id resolved by natural key (tenant_id + name) so the assignment
+--    binds to whichever GM role row actually exists (ours or the one
+--    pre-seeded by 013_seed_defaults with a different id).
 -- ═══════════════════════════════════════════════════════════════════
 INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, assigned_at, created_at, updated_at)
-VALUES
-  ('00000000-0000-0000-0000-000000000012',
-   '00000000-0000-0000-0000-000000000001',
-   '00000000-0000-0000-0000-000000000001',
-   '00000000-0000-0000-0000-000000000010',
-   now(), now(), now()),
-  ('00000000-0000-0000-0000-000000000022',
-   '00000000-0000-0000-0000-000000000002',
-   '00000000-0000-0000-0000-000000000002',
-   '00000000-0000-0000-0000-000000000020',
-   now(), now(), now())
-ON CONFLICT (id) DO NOTHING;
+SELECT
+  '00000000-0000-0000-0000-000000000012',
+  '00000000-0000-0000-0000-000000000001',
+  '00000000-0000-0000-0000-000000000001',
+  r.id,
+  now(), now(), now()
+FROM roles r
+WHERE r.tenant_id = '00000000-0000-0000-0000-000000000001' AND r.name = 'general_manager'
+LIMIT 1
+ON CONFLICT DO NOTHING;
+
+INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, assigned_at, created_at, updated_at)
+SELECT
+  '00000000-0000-0000-0000-000000000022',
+  '00000000-0000-0000-0000-000000000002',
+  '00000000-0000-0000-0000-000000000002',
+  r.id,
+  now(), now(), now()
+FROM roles r
+WHERE r.tenant_id = '00000000-0000-0000-0000-000000000002' AND r.name = 'general_manager'
+LIMIT 1
+ON CONFLICT DO NOTHING;
 
 -- ═══════════════════════════════════════════════════════════════════
 -- 7. Permissions (system-wide catalog)
@@ -173,7 +186,7 @@ VALUES
   ('00000000-0000-0000-0000-0000000000f2', 'drivers',   'create', 'Create drivers', now()),
   ('00000000-0000-0000-0000-0000000000f3', 'payroll',   'read',   'View payroll',   now()),
   ('00000000-0000-0000-0000-0000000000f4', 'invoices',  'read',   'View invoices',  now())
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 -- ═══════════════════════════════════════════════════════════════════
 -- 8. System settings (at least one public, one private)
@@ -189,7 +202,7 @@ VALUES
   ('00000000-0000-0000-0000-0000000000a3',
    '00000000-0000-0000-0000-000000000002',
    'company_name', 'Al Fajr Services Co.', true, now(), now())
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 -- ═══════════════════════════════════════════════════════════════════
 -- 9. Audit log entries (at least one per tenant for SEL test)
@@ -204,7 +217,7 @@ VALUES
    '00000000-0000-0000-0000-000000000002',
    '00000000-0000-0000-0000-000000000002',
    'settings', 'system_setting', '00000000-0000-0000-0000-0000000000a3', 'created', now())
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 -- ═══════════════════════════════════════════════════════════════════
 -- 10. Some business table rows for cross-tenant SEL tests
@@ -219,7 +232,7 @@ VALUES
   ('00000000-0000-0000-0000-0000000000c2',
    '00000000-0000-0000-0000-000000000002',
    'Mohammed', 'محمد', 'active', now(), now())
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 -- Vehicles
 INSERT INTO vehicles (id, tenant_id, make, model, plate_number, status, created_at, updated_at)
@@ -230,7 +243,7 @@ VALUES
   ('00000000-0000-0000-0000-0000000000d2',
    '00000000-0000-0000-0000-000000000002',
    'Honda', 'Accord', 'XYZ-5678', 'active', now(), now())
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 -- Expenses
 INSERT INTO expenses (id, tenant_id, driver_id, expense_type, amount, expense_date, description, created_at, updated_at)
@@ -243,7 +256,7 @@ VALUES
    '00000000-0000-0000-0000-000000000002',
    '00000000-0000-0000-0000-0000000000c2',
    'maintenance', 200.00, current_date, 'Tire change', now(), now())
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 -- Document templates
 INSERT INTO document_templates (id, tenant_id, code, name_en, name_ar, category, created_at, updated_at)
@@ -254,7 +267,7 @@ VALUES
   ('00000000-0000-0000-0000-0000000000f2',
    '00000000-0000-0000-0000-000000000002',
    'HR-CONTRACT-001', 'Employment Contract', 'عقد عمل', 'hr', now(), now())
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 -- Report generation log
 INSERT INTO report_generation_log (id, tenant_id, report_type, report_params, output_format, generated_by, status, expires_at, created_at, updated_at)
@@ -269,7 +282,7 @@ VALUES
    'payroll_summary', '{}'::jsonb, 'pdf',
    '00000000-0000-0000-0000-000000000002',
    'completed', now() + interval '24 hours', now(), now())
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 -- ═══════════════════════════════════════════════════════════════════
 -- Done — seed data ready for pgTAP tests
