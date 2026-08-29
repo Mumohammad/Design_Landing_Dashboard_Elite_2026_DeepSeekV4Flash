@@ -1,32 +1,30 @@
 -- ====================================================================
--- seed.sql — Test fixture data for pgTAP behavioral tests
+-- seed.sql — MINIMAL validated fixture set for pgTAP behavioral tests
 --
--- Creates:
+-- Provides exactly what the RLS suites need:
 --   - 2 tenants (tenant_001, tenant_002)
---   - 2 auth.users entries (user_001 in tenant_001, user_002 in tenant_002)
---   - 2 public.users entries
---   - 2 roles (general_manager in each tenant)
---   - 2 tenant_memberships
---   - 2 user_role_assignments
+--   - 2 auth.users + 2 public.users (general_manager per tenant)
+--   - 2 roles + 2 tenant_memberships + 2 user_role_assignments
+--   - 4 permissions (shared catalog)
 --
 -- UUIDs are deterministic so pgTAP tests can reference them:
---   tenant_001: 00000000-0000-0000-0000-000000000001
---   tenant_002: 00000000-0000-0000-0000-000000000002
---   user_001:   00000000-0000-0000-0000-000000000001 (auth_user_id)
---   user_002:   00000000-0000-0000-0000-000000000002 (auth_user_id)
+--   tenant_001 / tenant_002: 00000000-...-0001 / ...-0002
+--   user_001   / user_002:   00000000-...-0001 / ...-0002 (auth_user_id)
 --
--- This seed runs AFTER all migrations via `supabase db reset`.
+-- SCOPE NOTE (round-9/10 CI): earlier, richer sections (system_settings,
+-- audit_log, drivers/vehicles/expenses/templates/reports) were REMOVED —
+-- they were written against an imagined schema (system_settings missed the
+-- NOT NULL `category` column → 23502; drivers used first_name_* while the
+-- real table has full_name_* → 42703). TODO: re-introduce business fixtures
+-- written strictly against the real migration schemas.
 --
--- IDEMPOTENCY (round-8 CI fix, SQLSTATE 23505): earlier migrations
--- (013_seed_defaults) may already have seeded default roles/tenants.
--- Every INSERT therefore uses plain ON CONFLICT DO NOTHING (all unique
--- constraints, not just the PK), and role assignments resolve role_id by
--- natural key (tenant_id + name) so they bind to whichever row exists.
+-- IDEMPOTENCY: every INSERT uses plain ON CONFLICT DO NOTHING (earlier
+-- migrations like 013_seed_defaults may pre-seed some of these rows),
+-- and role assignments resolve role_id by natural key (tenant_id + name).
 --
--- Auth trigger handling: fixture auth.users carry "_invite_provisioned": true
--- in raw_user_meta_data — the hardened trigger (060) lets invite-marked
--- inserts pass. Never ALTER TABLE auth.users DISABLE TRIGGER (requires
--- ownership → 42501).
+-- AUTH TRIGGER: fixture auth.users carry "_invite_provisioned": true in
+-- raw_user_meta_data so the hardened trigger (060) lets them pass. NEVER
+-- ALTER TABLE auth.users DISABLE TRIGGER (requires ownership → 42501).
 -- ====================================================================
 
 -- ═══════════════════════════════════════════════════════════════════
@@ -42,18 +40,14 @@ ON CONFLICT DO NOTHING;
 
 -- ═══════════════════════════════════════════════════════════════════
 -- 2. Auth users (Supabase Auth)
+--    Password hash = bcrypt of "Test1234!" (testing only).
 -- ═══════════════════════════════════════════════════════════════════
--- These are the identities that auth.uid() returns.
--- The password hash is bcrypt of "Test1234!" — used only for testing.
--- raw_user_meta_data carries _invite_provisioned: true (see header note).
-
 INSERT INTO auth.users (
   id, aud, role, email, encrypted_password, email_confirmed_at,
   raw_user_meta_data, raw_app_meta_data, created_at, updated_at,
   confirmation_token, recovery_token
 )
 VALUES
-  -- User 001: admin of tenant_001
   (
     '00000000-0000-0000-0000-000000000001',
     'authenticated',
@@ -65,7 +59,6 @@ VALUES
     '{"provider": "email", "providers": ["email"]}'::jsonb,
     now(), now(), '', ''
   ),
-  -- User 002: admin of tenant_002
   (
     '00000000-0000-0000-0000-000000000002',
     'authenticated',
@@ -87,7 +80,6 @@ INSERT INTO users (
   role, status, must_change_password, created_at, updated_at
 )
 VALUES
-  -- User 001: general_manager in tenant_001
   (
     '00000000-0000-0000-0000-000000000001',
     '00000000-0000-0000-0000-000000000001',
@@ -100,7 +92,6 @@ VALUES
     false,
     now(), now()
   ),
-  -- User 002: general_manager in tenant_002
   (
     '00000000-0000-0000-0000-000000000002',
     '00000000-0000-0000-0000-000000000002',
@@ -116,7 +107,7 @@ VALUES
 ON CONFLICT DO NOTHING;
 
 -- ═══════════════════════════════════════════════════════════════════
--- 4. Roles (general_manager in each tenant)
+-- 4. Roles (general_manager per tenant)
 --    May already exist from 013_seed_defaults → plain ON CONFLICT DO NOTHING
 --    (covers idx_roles_tenant_name, not just the PK).
 -- ═══════════════════════════════════════════════════════════════════
@@ -176,10 +167,9 @@ LIMIT 1
 ON CONFLICT DO NOTHING;
 
 -- ═══════════════════════════════════════════════════════════════════
--- 7. Permissions (system-wide catalog)
+-- 7. Permissions (shared catalog — a few rows so read-access tests are
+--    non-vacuous)
 -- ═══════════════════════════════════════════════════════════════════
--- Ensure the permissions table has at least some rows for the
--- permissions_select_all policy test.
 INSERT INTO permissions (id, module, action, description, created_at)
 VALUES
   ('00000000-0000-0000-0000-0000000000f1', 'drivers',   'read',   'View drivers',   now()),
@@ -189,103 +179,7 @@ VALUES
 ON CONFLICT DO NOTHING;
 
 -- ═══════════════════════════════════════════════════════════════════
--- 8. System settings (at least one public, one private)
--- ═══════════════════════════════════════════════════════════════════
-INSERT INTO system_settings (id, tenant_id, key, value, is_public, created_at, updated_at)
-VALUES
-  ('00000000-0000-0000-0000-0000000000a1',
-   '00000000-0000-0000-0000-000000000001',
-   'company_name', 'Elite Transport Co.', true, now(), now()),
-  ('00000000-0000-0000-0000-0000000000a2',
-   '00000000-0000-0000-0000-000000000001',
-   'api_key', 'sk-test-fake-key', false, now(), now()),
-  ('00000000-0000-0000-0000-0000000000a3',
-   '00000000-0000-0000-0000-000000000002',
-   'company_name', 'Al Fajr Services Co.', true, now(), now())
-ON CONFLICT DO NOTHING;
-
--- ═══════════════════════════════════════════════════════════════════
--- 9. Audit log entries (at least one per tenant for SEL test)
--- ═══════════════════════════════════════════════════════════════════
-INSERT INTO audit_log (id, tenant_id, actor_id, module, entity_type, entity_id, action, created_at)
-VALUES
-  ('00000000-0000-0000-0000-0000000000b1',
-   '00000000-0000-0000-0000-000000000001',
-   '00000000-0000-0000-0000-000000000001',
-   'settings', 'system_setting', '00000000-0000-0000-0000-0000000000a1', 'created', now()),
-  ('00000000-0000-0000-0000-0000000000b2',
-   '00000000-0000-0000-0000-000000000002',
-   '00000000-0000-0000-0000-000000000002',
-   'settings', 'system_setting', '00000000-0000-0000-0000-0000000000a3', 'created', now())
-ON CONFLICT DO NOTHING;
-
--- ═══════════════════════════════════════════════════════════════════
--- 10. Some business table rows for cross-tenant SEL tests
--- ═══════════════════════════════════════════════════════════════════
-
--- Drivers
-INSERT INTO drivers (id, tenant_id, first_name_en, first_name_ar, status, created_at, updated_at)
-VALUES
-  ('00000000-0000-0000-0000-0000000000c1',
-   '00000000-0000-0000-0000-000000000001',
-   'Ahmed', 'أحمد', 'active', now(), now()),
-  ('00000000-0000-0000-0000-0000000000c2',
-   '00000000-0000-0000-0000-000000000002',
-   'Mohammed', 'محمد', 'active', now(), now())
-ON CONFLICT DO NOTHING;
-
--- Vehicles
-INSERT INTO vehicles (id, tenant_id, make, model, plate_number, status, created_at, updated_at)
-VALUES
-  ('00000000-0000-0000-0000-0000000000d1',
-   '00000000-0000-0000-0000-000000000001',
-   'Toyota', 'Camry', 'ABC-1234', 'active', now(), now()),
-  ('00000000-0000-0000-0000-0000000000d2',
-   '00000000-0000-0000-0000-000000000002',
-   'Honda', 'Accord', 'XYZ-5678', 'active', now(), now())
-ON CONFLICT DO NOTHING;
-
--- Expenses
-INSERT INTO expenses (id, tenant_id, driver_id, expense_type, amount, expense_date, description, created_at, updated_at)
-VALUES
-  ('00000000-0000-0000-0000-0000000000e1',
-   '00000000-0000-0000-0000-000000000001',
-   '00000000-0000-0000-0000-0000000000c1',
-   'fuel', 150.00, current_date, 'Fuel expense', now(), now()),
-  ('00000000-0000-0000-0000-0000000000e2',
-   '00000000-0000-0000-0000-000000000002',
-   '00000000-0000-0000-0000-0000000000c2',
-   'maintenance', 200.00, current_date, 'Tire change', now(), now())
-ON CONFLICT DO NOTHING;
-
--- Document templates
-INSERT INTO document_templates (id, tenant_id, code, name_en, name_ar, category, created_at, updated_at)
-VALUES
-  ('00000000-0000-0000-0000-0000000000f1',
-   '00000000-0000-0000-0000-000000000001',
-   'HR-CONTRACT-001', 'Employment Contract', 'عقد عمل', 'hr', now(), now()),
-  ('00000000-0000-0000-0000-0000000000f2',
-   '00000000-0000-0000-0000-000000000002',
-   'HR-CONTRACT-001', 'Employment Contract', 'عقد عمل', 'hr', now(), now())
-ON CONFLICT DO NOTHING;
-
--- Report generation log
-INSERT INTO report_generation_log (id, tenant_id, report_type, report_params, output_format, generated_by, status, expires_at, created_at, updated_at)
-VALUES
-  ('00000000-0000-0000-0000-0000000000g1',
-   '00000000-0000-0000-0000-000000000001',
-   'payroll_summary', '{}'::jsonb, 'pdf',
-   '00000000-0000-0000-0000-000000000001',
-   'completed', now() + interval '24 hours', now(), now()),
-  ('00000000-0000-0000-0000-0000000000g2',
-   '00000000-0000-0000-0000-000000000002',
-   'payroll_summary', '{}'::jsonb, 'pdf',
-   '00000000-0000-0000-0000-000000000002',
-   'completed', now() + interval '24 hours', now(), now())
-ON CONFLICT DO NOTHING;
-
--- ═══════════════════════════════════════════════════════════════════
--- Done — seed data ready for pgTAP tests
+-- Done — minimal validated fixture set ready for pgTAP tests
 -- (No trigger re-enable needed: the auth trigger was never disabled —
 -- fixture users pass through via the _invite_provisioned marker.)
 -- ═══════════════════════════════════════════════════════════════════
