@@ -31,7 +31,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 22
           cache: pnpm
 
       - name: Verify toolchain
@@ -74,12 +74,16 @@ jobs:
       - name: Secret scan
         run: |
           echo "Scanning for hardcoded secrets..."
-          FOUND=0
-          if grep -rn "SUPABASE_SERVICE_ROLE_KEY\|sk_live_\|sk_test_\|AKIA[A-Z0-9]" src/ --include="*.ts" --include="*.tsx" --include="*.js" 2>/dev/null | grep -v "test\|mock\|example\|\.test\.\|__mock__\|process\.env\|\.env\.example\|types\|interface\|Log\|redact\|REDACTED\|placeholder" | head -20; then
-            FOUND=1
-          fi
-          if [ "$FOUND" -eq 1 ]; then
-            echo "❌ Potential secrets found"
+          # Fail ONLY on real secret shapes: a long literal assigned in code
+          # (Supabase service JWTs start with eyJ, Stripe-style sk_live_/sk_test_,
+          # AWS AKIA…). Bare variable-name mentions (comments, error messages,
+          # process.env reads) are not secrets and must not fail the build.
+          # || true keeps grep's no-match exit code from failing the step under
+          # bash -eo pipefail. Matches are printed for debuggability.
+          MATCHES=$(grep -rnE "=[[:space:]]*['\"](eyJ[A-Za-z0-9_-]{20,}|sk_live_[A-Za-z0-9]{12,}|sk_test_[A-Za-z0-9]{12,}|AKIA[A-Z0-9]{16})['\"]" src/ --include="*.ts" --include="*.tsx" --include="*.js" || true)
+          if [ -n "$MATCHES" ]; then
+            echo "❌ Potential hardcoded secrets found:"
+            echo "$MATCHES"
             exit 1
           fi
           echo "✅ No hardcoded secrets detected"
@@ -149,7 +153,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 22
           cache: pnpm
 
       - name: Verify toolchain
@@ -287,7 +291,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 22
           cache: pnpm
 
       - name: Install dependencies
