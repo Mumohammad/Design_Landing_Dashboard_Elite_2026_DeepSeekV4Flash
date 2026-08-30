@@ -22,6 +22,7 @@ CREATE OR REPLACE FUNCTION generate_verify_token()
 RETURNS text
 LANGUAGE sql
 VOLATILE
+SET search_path = public, extensions
 AS $$
   SELECT encode(gen_random_bytes(32), 'hex')
 $$;
@@ -32,6 +33,7 @@ CREATE OR REPLACE FUNCTION hash_token(token text)
 RETURNS text
 LANGUAGE sql
 STABLE
+SET search_path = public, extensions
 AS $$
   SELECT encode(digest(token, 'sha256'), 'hex')
 $$;
@@ -159,7 +161,7 @@ CREATE OR REPLACE FUNCTION public_verify_document(token text)
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER  -- runs as owner, bypasses RLS
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
   v_ip text;
@@ -225,7 +227,7 @@ CREATE OR REPLACE FUNCTION public_application_status(token text)
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
   v_ip text;
