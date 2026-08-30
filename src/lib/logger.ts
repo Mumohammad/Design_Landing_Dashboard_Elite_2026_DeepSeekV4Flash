@@ -22,7 +22,13 @@ const isDev = process.env.NODE_ENV !== "production"
  * In production, outputs JSON for structured log aggregation.
  */
 export const logger = pino({
-  level: process.env.LOG_LEVEL ?? (isDev ? "debug" : "info"),
+  // NB: `||` not `??` — .env.example ships `LOG_LEVEL=` (empty). After copying
+  // it to .env.local, Next.js exposes the var as an EMPTY STRING, which `??`
+  // passes straight through; pino then receives level: "" and throws at
+  // module evaluation ("default level: must be included in custom levels"),
+  // crashing every server action importing this chain. `||` treats "" as
+  // unset and falls back correctly.
+  level: process.env.LOG_LEVEL || (isDev ? "debug" : "info"),
   ...(isDev
     ? {
         transport: {
@@ -145,7 +151,9 @@ export function logSecurityEvent(event: {
  * "warn" level; others at "debug".
  */
 export function logPerformance(operation: string, durationMs: number, meta?: Record<string, unknown>): void {
-  const threshold = Number(process.env.PERF_LOG_THRESHOLD_MS ?? 1000)
+  // Same empty-string trap as LOG_LEVEL above: Number("") === 0 would make
+  // EVERY operation "slow". `||` treats an empty value as unset.
+  const threshold = Number(process.env.PERF_LOG_THRESHOLD_MS || 1000)
   if (durationMs > threshold) {
     logger.warn({ operation, durationMs, ...meta }, `[SLOW] ${operation} took ${durationMs}ms`)
   } else {
