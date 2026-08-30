@@ -1,6 +1,7 @@
 import type { NextConfig } from "next"
 import { withSentryConfig } from "@sentry/nextjs"
 
+
 const nextConfig: NextConfig = {
   experimental: {
     optimizePackageImports: ["lucide-react", "@radix-ui/react-icons"],
@@ -12,9 +13,11 @@ const nextConfig: NextConfig = {
     root: process.platform === 'win32' ? '.' : undefined,
   },
 
+
   // NOTE: Locale is handled client-side via LocaleProvider (localStorage +
   // lang/dir attributes). The legacy `i18n` config block was removed — it is
   // unsupported in App Router and generated bogus /ar/* prerender routes.
+
 
   // Image optimization
   images: {
@@ -30,6 +33,7 @@ const nextConfig: NextConfig = {
     ],
     formats: ['image/webp', 'image/avif'],
   },
+
 
   // Headers for better security and performance
   async headers() {
@@ -54,7 +58,10 @@ const nextConfig: NextConfig = {
         key: 'Content-Security-Policy',
         value: [
           "default-src 'self'",
-          "script-src 'self' 'unsafe-inline'",
+          // React dev mode + Turbopack HMR need eval() (source-map
+          // reconstruction) — allow it only outside production. The
+          // production CSP below stays strict, same as the HSTS gate.
+          `script-src 'self' 'unsafe-inline'${process.env.NODE_ENV === 'development' ? " 'unsafe-eval'" : ''}`,
           "style-src 'self' 'unsafe-inline'",
           "img-src 'self' data: blob: https://ui.shadcn.com https://images.unsplash.com",
           "font-src 'self'",
@@ -66,6 +73,7 @@ const nextConfig: NextConfig = {
       },
     ];
 
+
     // HSTS is only safe over real HTTPS deployments; skip it on localhost.
     if (process.env.NODE_ENV === 'production') {
       headers.push({
@@ -74,6 +82,7 @@ const nextConfig: NextConfig = {
       });
     }
 
+
     return [
       {
         source: '/(.*)',
@@ -81,6 +90,7 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+
 
   // Redirects for better SEO
   async redirects() {
@@ -114,6 +124,7 @@ const nextConfig: NextConfig = {
     ];
   },
 };
+
 
 export default withSentryConfig(nextConfig, {
   // Automatically tree-shake Sentry logger to reduce bundle size
