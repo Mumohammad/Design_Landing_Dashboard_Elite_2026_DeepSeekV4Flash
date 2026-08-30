@@ -97,9 +97,11 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
+  // Path of the current request — shared by the gates below (declared once).
+  const pathname = request.nextUrl.pathname
+
   // 5. Must-change-password gate.
   if (profile.must_change_password) {
-    const pathname = request.nextUrl.pathname
     const allowed = "/settings/security"
     if (!pathname.startsWith(allowed)) {
       const url = new URL(allowed, request.url)
@@ -108,8 +110,46 @@ export async function proxy(request: NextRequest) {
     }
   }
 
+  // 5.5. MFA gate (AAL2) — enforces the TOTP layer at the routing boundary.
+  //
+  //    getAuthenticatorAssuranceLevel() semantics:
+  //      - nextLevel === "aal2" ONLY when the user holds a verified TOTP factor
+  //      - currentLevel === "aal1" means the session never stepped up
+  //
+  //    Rules:
+  //      a) Verified factor + session still aal1 → force /auth/mfa-challenge
+  //         (step-up) before any module page. That page is outside this
+  //         proxy's matcher and no-ops to /dashboard when no verified factor
+  //         exists — so no redirect loop is possible.
+  //      b) Privileged roles (general_manager, admin) with NO verified factor
+  //         → pushed to /settings/mfa to enroll (that route is exempted below
+  //         so enrollment itself is never blocked).
+  //
+  //    Failure mode: if the assurance check itself errors, the gate FAILS OPEN
+  //    (availability first) with a console.warn — the hard boundary remains
+  //    RLS + authentication; MFA here is defense-in-depth.
+  if (pathname !== "/auth/mfa-challenge" && pathname !== "/settings/mfa") {
+    const { data: aal, error: aalError } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+
+    if (aalError) {
+      console.warn("[proxy] MFA assurance check failed — failing open:", aalError.message)
+    } else if (aal) {
+      const hasVerifiedFactor = aal.nextLevel === "aal2"
+      const privileged = profile.role === "general_manager" || profile.role === "admin"
+
+      if (hasVerifiedFactor && aal.currentLevel === "aal1") {
+        return NextResponse.redirect(new URL("/auth/mfa-challenge", request.url))
+      }
+
+      if (privileged && !hasVerifiedFactor) {
+        const url = new URL("/settings/mfa", request.url)
+        url.searchParams.set("require", "mfa_enroll")
+        return NextResponse.redirect(url)
+      }
+    }
+  }
+
   // 6. Role guards for /settings/* subroutes.
-  const pathname = request.nextUrl.pathname
   for (const [prefix, allowedRoles] of Object.entries(SETTINGS_ROLE_GUARDS)) {
     if (pathname.startsWith(prefix)) {
       if (!allowedRoles.includes(profile.role)) {
