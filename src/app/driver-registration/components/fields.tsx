@@ -137,6 +137,10 @@ export function Field({
 // ── Date field with year/month dropdowns + validity status ──────────────────
 // react-day-picker v9: captionLayout="dropdown" gives instant year/month jumps
 // instead of stepping month-by-month (critical for birth dates).
+//
+// NOTE on windows: the DEFAULT window is deliberately wide (1950 → +15y) so no
+// existing call site can ever be trapped (steps.tsx does not yet pass birthDate).
+// Pass birthDate for DOB-style fields to tighten the window and open at 2000.
 export function DateField({
   label,
   value,
@@ -161,10 +165,8 @@ export function DateField({
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
-  // Sensible year windows: birth dates look backwards, document expiries forwards.
-  const startMonth = birthDate
-    ? new Date(1950, 0)
-    : new Date(today.getFullYear() - 2, 0)
+  // Wide default window (safe for every field); birthDate tightens to the past.
+  const startMonth = new Date(1950, 0)
   const endMonth = birthDate
     ? new Date(today.getFullYear() - 16, 11)
     : new Date(today.getFullYear() + 15, 11)
