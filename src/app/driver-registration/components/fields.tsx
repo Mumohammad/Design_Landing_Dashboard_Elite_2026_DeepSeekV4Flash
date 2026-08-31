@@ -161,7 +161,7 @@ export function DateField({
   const id = React.useId()
   const [open, setOpen] = React.useState(false)
 
-  const parsed = value ? new Date(`${value}T00:00:00`) : null
+  const parsed = value ? new Date(`${value}T00:00:00") : null
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
@@ -421,9 +421,7 @@ export function UploadCard({
               <UploadCloud className="h-6 w-6" />
             </span>
             <div>
-              <p className="text-sm font-semibold text-foreground">
-                {dragOver ? dict.common.dropHere ?? dict.common.dragDrop : dict.common.dragDrop}
-              </p>
+              <p className="text-sm font-semibold text-foreground">{dict.common.dragDrop}</p>
               <p className="text-xs text-muted-foreground">
                 {dict.common.or} · JPG, PNG, WEBP, PDF · 5 MB
               </p>
