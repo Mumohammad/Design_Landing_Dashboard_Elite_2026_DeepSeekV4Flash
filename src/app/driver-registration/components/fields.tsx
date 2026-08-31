@@ -121,7 +121,12 @@ export function Field({
       <Input
         id={id}
         aria-invalid={!!error}
-        className={cn("h-11 rounded-xl", error && "border-destructive focus-visible:ring-destructive/30")}
+        className={cn(
+          "h-12 rounded-2xl border-border/70 bg-card/60 shadow-sm transition-all duration-200",
+          "hover:border-elite-blue-500/40 hover:shadow",
+          "focus-visible:border-elite-blue-500/60 focus-visible:ring-4 focus-visible:ring-elite-blue-500/15",
+          error && "border-destructive focus-visible:ring-destructive/30"
+        )}
         {...props}
       />
       {error && <p className="text-xs font-medium text-destructive" role="alert">{error}</p>}
@@ -129,19 +134,24 @@ export function Field({
   )
 }
 
-// ── Date field with validity status ─────────────────────────────────────────
+// ── Date field with year/month dropdowns + validity status ──────────────────
+// react-day-picker v9: captionLayout="dropdown" gives instant year/month jumps
+// instead of stepping month-by-month (critical for birth dates).
 export function DateField({
   label,
   value,
   onChange,
   error,
   checkValidity = false,
+  birthDate = false,
 }: {
   label: string
   value: string
   onChange: (v: string) => void
   error?: string
   checkValidity?: boolean
+  /** true for date-of-birth style fields: past window (1950 → now−16y), opens at 2000 */
+  birthDate?: boolean
 }) {
   const { dict, locale } = useDriverRegistration()
   const id = React.useId()
@@ -150,6 +160,15 @@ export function DateField({
   const parsed = value ? new Date(`${value}T00:00:00`) : null
   const today = new Date()
   today.setHours(0, 0, 0, 0)
+
+  // Sensible year windows: birth dates look backwards, document expiries forwards.
+  const startMonth = birthDate
+    ? new Date(1950, 0)
+    : new Date(today.getFullYear() - 2, 0)
+  const endMonth = birthDate
+    ? new Date(today.getFullYear() - 16, 11)
+    : new Date(today.getFullYear() + 15, 11)
+  const defaultMonth = parsed ?? (birthDate ? new Date(2000, 0) : today)
 
   let validity: "valid" | "expiring" | "expired" | null = null
   if (checkValidity && parsed) {
@@ -169,12 +188,14 @@ export function DateField({
             id={id}
             variant="outline"
             className={cn(
-              "h-11 w-full justify-start rounded-xl px-3 text-start font-normal",
+              "h-12 w-full justify-start rounded-2xl border-border/70 bg-card/60 px-4 text-start font-normal shadow-sm transition-all duration-200",
+              "hover:border-elite-blue-500/40 hover:shadow",
+              "focus-visible:border-elite-blue-500/60 focus-visible:ring-4 focus-visible:ring-elite-blue-500/15",
               !value && "text-muted-foreground",
               error && "border-destructive focus-visible:ring-destructive/30"
             )}
           >
-            <CalendarIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <CalendarIcon className="h-4 w-4 shrink-0 text-elite-blue-500" />
             {value ? format(parsed!, "dd/MM/yyyy") : dict.common.select}
             {validity && (
               <span
@@ -194,16 +215,32 @@ export function DateField({
             )}
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-auto p-0" align="start">
+        <PopoverContent
+          className="w-auto rounded-2xl border-border/70 p-2 shadow-2xl shadow-elite-blue-900/10"
+          align="start"
+        >
           <Calendar
             mode="single"
             locale={dateLocales[locale]}
+            dir={locale === "ar" || locale === "ur" ? "rtl" : "ltr"}
             selected={parsed ?? undefined}
             onSelect={(d) => {
               if (d) onChange(format(d, "yyyy-MM-dd"))
               setOpen(false)
             }}
             autoFocus
+            captionLayout="dropdown"
+            startMonth={startMonth}
+            endMonth={endMonth}
+            defaultMonth={defaultMonth}
+            reverseYears={birthDate}
+            classNames={{
+              dropdowns:
+                "flex w-full items-center justify-center gap-2 pb-1",
+              dropdown_root: "relative inline-flex items-center",
+              dropdown:
+                "h-9 cursor-pointer appearance-none rounded-lg border border-border/70 bg-card px-2.5 text-[13px] font-bold text-foreground shadow-sm transition-colors hover:border-elite-blue-500/50 hover:bg-elite-blue-500/5 focus:outline-none focus:ring-2 focus:ring-elite-blue-500/30",
+            }}
           />
         </PopoverContent>
       </Popover>
@@ -233,6 +270,8 @@ export function SelectionCard({
       aria-pressed={selected}
       className={cn(
         "group relative flex w-full flex-col items-start gap-1 rounded-2xl border p-5 text-start transition-all duration-200",
+        "focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-elite-blue-500/20",
+        "active:scale-[0.99]",
         selected
           ? "border-elite-blue-500 bg-elite-blue-500/5 shadow-lg shadow-elite-blue-500/10"
           : "border-border bg-card hover:-translate-y-0.5 hover:border-elite-blue-500/40 hover:shadow-md"
@@ -250,7 +289,7 @@ export function SelectionCard({
   )
 }
 
-// ── File upload card (with progress + success check) ────────────────────────
+// ── File upload card (with progress + success check + real drag-drop) ───────
 export function UploadCard({
   label,
   hint,
@@ -274,6 +313,7 @@ export function UploadCard({
   const inputRef = React.useRef<HTMLInputElement>(null)
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [dragOver, setDragOver] = React.useState(false)
 
   const handleFiles = async (files: FileList | null) => {
     const f = files?.[0]
@@ -320,11 +360,24 @@ export function UploadCard({
       </div>
 
       <div
+        onDragOver={(e) => {
+          e.preventDefault()
+          setDragOver(true)
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault()
+          setDragOver(false)
+          void handleFiles(e.dataTransfer.files)
+        }}
         className={cn(
-          "relative flex min-h-28 flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed p-4 text-center transition-colors",
-          file
-            ? "border-emerald-500/50 bg-emerald-500/5"
-            : "border-border bg-card/60 hover:border-elite-blue-500/50"
+          "relative flex min-h-28 flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed p-4 text-center transition-all duration-200",
+          dragOver &&
+            "scale-[1.01] border-elite-blue-500 bg-elite-blue-500/10 shadow-lg shadow-elite-blue-500/10",
+          !dragOver &&
+            (file
+              ? "border-emerald-500/50 bg-emerald-500/5"
+              : "border-border bg-card/60 hover:border-elite-blue-500/50 hover:bg-elite-blue-500/[0.03]")
         )}
       >
         {busy ? (
@@ -362,11 +415,13 @@ export function UploadCard({
           </div>
         ) : (
           <>
-            <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-elite-blue-500/10 text-elite-blue-600 dark:text-elite-blue-300">
+            <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-elite-blue-500/10 text-elite-blue-600 transition-transform duration-200 dark:text-elite-blue-300">
               <UploadCloud className="h-6 w-6" />
             </span>
             <div>
-              <p className="text-sm font-semibold text-foreground">{dict.common.dragDrop}</p>
+              <p className="text-sm font-semibold text-foreground">
+                {dragOver ? dict.common.dropHere ?? dict.common.dragDrop : dict.common.dragDrop}
+              </p>
               <p className="text-xs text-muted-foreground">
                 {dict.common.or} · JPG, PNG, WEBP, PDF · 5 MB
               </p>
@@ -390,11 +445,6 @@ export function UploadCard({
           accept={ALLOWED_TYPES.join(",")}
           className="sr-only"
           onChange={(e) => void handleFiles(e.target.files)}
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={(e) => {
-            e.preventDefault()
-            void handleFiles(e.dataTransfer.files)
-          }}
         />
       </div>
       {hint && !error && <p className="text-xs text-muted-foreground">{hint}</p>}
