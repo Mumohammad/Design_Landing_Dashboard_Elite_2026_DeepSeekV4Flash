@@ -1,16 +1,6 @@
-import { FAQList } from "./components/faq-list"
-import { FeaturesGrid } from "./components/features-grid"
+import { redirect } from "next/navigation"
 
-// Import data
-import categoriesData from "./data/categories.json"
-import faqsData from "./data/faqs.json"
-import featuresData from "./data/features.json"
-
-export default function FAQsPage() {
-  return (
-    <div className="page-enter px-4 lg:px-6">
-      <FAQList faqs={faqsData} categories={categoriesData} />
-      <FeaturesGrid features={featuresData} />
-    </div>
-  )
+// Template demo route retired — redirect to the real dashboard.
+export default function Page() {
+  redirect("/dashboard")
 }
