@@ -4,8 +4,9 @@ import { createAdminClient } from "@/lib/supabase/admin"
 import { rateLimit, getClientIp } from "@/lib/auth/rate-limit"
 import { fullApplicationSchema, type FullApplication } from "./schema"
 import { createHash, randomBytes } from "crypto"
+import { notifyApplicantByEmail } from "@/lib/notifications/applicant-email"
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
 // Submit a public driver application.
 //
 // Security:
@@ -14,9 +15,9 @@ import { createHash, randomBytes } from "crypto"
 //   * Written via the service-role client (RLS never blocks the insert).
 //   * tenant_id resolved server-side to the default tenant — never from the
 //     applicant.
-//   * EmailJS is fire-and-forget: if the email fails the application is still
-//     SUBMITTED (Supabase is the source of truth).
-// ─────────────────────────────────────────────────────────────────────────────
+//   * Notifications are awaited via Promise.allSettled: a failed channel is
+//     logged but never fails the submission (Supabase is the source of truth).
+// ─────────────────────────────────────────────────────────────────────────
 
 export type SubmitResult =
   | { ok: true; applicationNumber: string; applicationId: string; statusToken: string }
@@ -34,7 +35,6 @@ async function notifyByEmail(application: FullApplication, applicationNumber: st
 
   if (!serviceId || !templateId || !publicKey) {
     if (process.env.NODE_ENV !== "production") {
-       
       console.warn(
         "[driver-registration] EmailJS not configured (EMAILJS_SERVICE_ID / TEMPLATE_ID / PUBLIC_KEY) — skipping notification."
       )
@@ -76,14 +76,12 @@ async function notifyByEmail(application: FullApplication, applicationNumber: st
     })
 
     if (!res.ok) {
-       
       console.error(
         `[driver-registration] EmailJS send failed (${res.status}) for ${applicationNumber} — application remains SUBMITTED.`
       )
     }
   } catch (err) {
     // Notification failure must NEVER fail the application.
-     
     console.error("[driver-registration] EmailJS exception — application remains SUBMITTED.", err)
   }
 }
@@ -185,13 +183,11 @@ export async function submitDriverApplication(
       .single()
 
     if (insertError || !inserted) {
-       
       console.error("[driver-registration] insert failed:", insertError?.message)
       return { ok: false, error: "insert", fieldErrors: {} }
     }
 
     if (!APPLICATION_NUMBER_REGEX.test(inserted.application_number)) {
-       
       console.error("[driver-registration] unexpected application_number:", inserted.application_number)
     }
 
@@ -232,16 +228,21 @@ export async function submitDriverApplication(
     const { error: docError } = await admin.from("driver_application_documents").insert(docRows)
     if (docError) {
       // Document mirror failure shouldn't fail the application either.
-       
       console.error("[driver-registration] document mirror insert failed:", docError.message)
     }
 
-    // 6. Fire-and-forget EmailJS notification (never blocks / fails the submit).
-    void notifyByEmail(app, inserted.application_number)
+    // 6. Notifications: staff (EmailJS) + applicant (Resend). Awaited via allSettled so
+    //    a serverless freeze cannot silently kill them; failures never fail the submit.
+    const notifyResults = await Promise.allSettled([
+      notifyByEmail(app, inserted.application_number),
+      notifyApplicantByEmail(app, inserted.application_number, statusToken),
+    ])
+    for (const r of notifyResults) {
+      if (r.status === "rejected") console.error("[driver-registration] notification channel failed:", r.reason)
+    }
 
     return { ok: true, applicationNumber: inserted.application_number, applicationId: inserted.id, statusToken }
   } catch (err) {
-     
     console.error("[driver-registration] unexpected error:", err)
     return { ok: false, error: "generic", fieldErrors: {} }
   }
