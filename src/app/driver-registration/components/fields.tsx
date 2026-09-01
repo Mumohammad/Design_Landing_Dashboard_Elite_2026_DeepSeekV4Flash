@@ -23,7 +23,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { createClient } from "@/lib/supabase/client";
-import { useDriverRegistration } from "../provider";
+import { useDriverRegistration } from "@/contexts/driver-registration-context";
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
