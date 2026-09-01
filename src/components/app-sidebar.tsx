@@ -80,7 +80,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       items: [
         { title: t.nav.hrManagement, url: "/hr", icon: Users },
         { title: t.nav.applications, url: "/applications", icon: FileBadge },
-        { title: t.nav.templates, url: "/templates", icon: LayoutTemplate },
       ],
     },
     {
