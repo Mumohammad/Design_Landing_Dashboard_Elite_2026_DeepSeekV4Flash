@@ -17,9 +17,15 @@ export interface UploadedFile {
   size: number
 }
 
-export type UploadResult =
-  | { ok: true; file: UploadedFile }
-  | { ok: false; error: "type" | "size" | "network" | "unknown" }
+// NOTE: keep the original "bag" shape (optional fields) rather than a
+// discriminated union — callers access result.error/result.file after a
+// combined `!result.ok || !result.file` guard, which only typechecks when
+// both members are always present (optionally) on the type.
+export interface UploadResult {
+  ok: boolean
+  file?: UploadedFile
+  error?: "type" | "size" | "network" | "unknown"
+}
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
