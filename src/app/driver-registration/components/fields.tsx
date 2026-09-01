@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useFormContext } from "react-hook-form"
 import { format } from "date-fns"
 import { ar, bn, enUS } from "date-fns/locale"
 import type { Locale } from "date-fns"
@@ -211,8 +212,8 @@ export function DateField({
                 {validity === "valid"
                   ? dict.common.valid
                   : validity === "expiring"
-                    ? dict.common.expiringSoon
-                    : dict.common.expired}
+                  ? dict.common.expiringSoon
+                  : dict.common.expired}
               </span>
             )}
           </Button>
@@ -292,6 +293,13 @@ export function SelectionCard({
 }
 
 // ── File upload card (with progress + success check + real drag-drop) ───────
+//
+// Continue-button fix: the uploaded path used to live only in this card's
+// local state, so the surrounding form's identityAttachment/licenseAttachment
+// stayed "" and zod blocked submit with NO visible error. We now sync the
+// path into the form when a matching field exists (no-op outside a
+// FormProvider — the vehicle/documents steps manage their own state), and the
+// missing-attachment error renders under the dropzone.
 export function UploadCard({
   label,
   hint,
@@ -317,6 +325,24 @@ export function UploadCard({
   const [error, setError] = React.useState<string | null>(null)
   const [dragOver, setDragOver] = React.useState(false)
 
+  const form = useFormContext()
+  const formField =
+    documentType === "identity"
+      ? "identityAttachment"
+      : documentType === "license"
+      ? "licenseAttachment"
+      : null
+  const attachmentError = formField
+    ? (form?.formState.errors as Record<string, { message?: string } | undefined>)[formField]?.message
+    : undefined
+
+  const syncToForm = (path: string) => {
+    if (!form || !formField) return
+    form.setValue(formField, path, { shouldDirty: true })
+    if (path) form.clearErrors(formField)
+    else void form.trigger(formField)
+  }
+
   const handleFiles = async (files: FileList | null) => {
     const f = files?.[0]
     if (!f) return
@@ -341,6 +367,7 @@ export function UploadCard({
       return
     }
     onFile(result.file)
+    syncToForm(result.file.path)
   }
 
   return (
@@ -409,6 +436,7 @@ export function UploadCard({
               onClick={() => {
                 onFile(null)
                 onLocalPreview?.(null)
+                syncToForm("")
               }}
               aria-label={dict.common.remove}
             >
@@ -449,6 +477,11 @@ export function UploadCard({
       </div>
       {hint && !error && <p className="text-xs text-muted-foreground">{hint}</p>}
       {error && <p className="text-xs font-medium text-destructive" role="alert">{error}</p>}
+      {!error && !file && attachmentError && (
+        <p className="text-xs font-medium text-destructive" role="alert">
+          {attachmentError === "errorRequired" ? dict.common.errorRequired : dict.common.errorGeneric}
+        </p>
+      )}
     </div>
   )
 }
