@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ company, user });
   } catch (error) {
     console.error('API error:', error);
-    if (error instanceof z.ZodError) return NextResponse.json({ message: 'Validation failed', errors: error.errors }, { status: 400 });
+    if (error instanceof z.ZodError) return NextResponse.json({ message: 'Validation failed', errors: error.issues }, { status: 400 });
     return NextResponse.json({ message: 'Internal server error' }, { status: 500 });
   }
 }
