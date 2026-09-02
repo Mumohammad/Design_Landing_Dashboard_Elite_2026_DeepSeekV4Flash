@@ -1,4 +1,5 @@
 import type { FullApplication } from "@/lib/driver-registration/schema"
+import { notifyAdminsByEmail } from "./admin-email"
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails"
 
@@ -12,15 +13,32 @@ const RESEND_ENDPOINT = "https://api.resend.com/emails"
 //   * Sends only when the applicant provided an email address.
 //   * The tracking URL carries the PLAINTEXT status token (only available
 //     at submit time; the DB stores its SHA-256 hash — migration 059).
+//   * Also fans out the staff alert (admin-email.ts) in the same allSettled
+//     batch — one submit, both channels, neither can fail the other.
 //
 // Env:
 //   RESEND_API_KEY        — server-only (never NEXT_PUBLIC)
-//   RESEND_FROM_EMAIL     — optional; defaults to Resend's free onboarding
-//                           sender until a domain is verified
-//   NEXT_PUBLIC_APP_URL   — base for the tracking link
+//   RESEND_FROM_EMAIL   — optional; defaults to Resend's free onboarding
+//                         sender until a domain is verified
+//   NEXT_PUBLIC_APP_URL — base for the tracking link
 // ─────────────────────────────────────────────────────────────────────────
 
 export async function notifyApplicantByEmail(
+  application: FullApplication,
+  applicationNumber: string,
+  statusToken: string
+): Promise<void> {
+  const results = await Promise.allSettled([
+    sendApplicantConfirmation(application, applicationNumber, statusToken),
+    notifyAdminsByEmail(application, applicationNumber),
+  ])
+  for (const r of results) {
+    if (r.status === "rejected")
+      console.error("[applicant-email] notification channel failed:", r.reason)
+  }
+}
+
+async function sendApplicantConfirmation(
   application: FullApplication,
   applicationNumber: string,
   statusToken: string
