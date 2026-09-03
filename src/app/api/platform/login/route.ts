@@ -20,27 +20,31 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: authError.message }, { status: 401 });
     }
 
+    if (!authData.user) {
+      return NextResponse.json({ error: 'Invalid user' }, { status: 401 });
+    }
+
     // Get tenant info
-    const { data: membership } = await supabase
+    const { data: membership, error: membershipError } = await supabase
       .from('tenant_memberships')
       .select('tenant_id, tenants(name, logo_url, brand_colors, slug)')
       .eq('user_id', authData.user.id)
       .single();
 
-    if (!membership) {
+    if (membershipError || !membership) {
       return NextResponse.json({ error: 'User not associated with any company' }, { status: 403 });
     }
 
-    const tenant = membership.tenants;
+    const tenantData = membership.tenants as any;
 
     return NextResponse.json({
       user: authData.user,
       tenant: {
         id: membership.tenant_id,
-        name: tenant.name,
-        logo_url: tenant.logo_url,
-        brand_colors: tenant.brand_colors,
-        slug: tenant.slug,
+        name: tenantData.name,
+        logo_url: tenantData.logo_url,
+        brand_colors: tenantData.brand_colors,
+        slug: tenantData.slug,
       },
     });
   } catch (error) {
