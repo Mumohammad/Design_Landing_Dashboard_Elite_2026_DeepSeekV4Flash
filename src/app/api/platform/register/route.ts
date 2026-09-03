@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
       password,
       options: {
         data: { company_name, domain },
-        email_redirect_to: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard`,
+        emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard`,
       },
     });
 
