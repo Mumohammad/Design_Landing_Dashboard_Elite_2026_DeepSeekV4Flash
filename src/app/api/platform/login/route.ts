@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       user: authData.user,
       tenant: {
-        id: tenant.id,
+        id: membership.tenant_id,
         name: tenant.name,
         logo_url: tenant.logo_url,
         brand_colors: tenant.brand_colors,
