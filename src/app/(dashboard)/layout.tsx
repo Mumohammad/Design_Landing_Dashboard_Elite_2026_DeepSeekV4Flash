@@ -1,77 +1,63 @@
-"use client"
+'use client';
 
-import React from "react"
-import { AppSidebar } from "@/components/app-sidebar"
-import { SiteHeader } from "@/components/site-header"
-import { SiteFooter } from "@/components/site-footer"
-import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar"
-import { Toaster } from "@/components/ui/sonner"
-import { PageTransition } from "@/components/ui/page-transition"
-import { PageErrorBoundary } from "@/components/ui/error-boundary"
-import { useSidebarConfig } from "@/hooks/use-sidebar-config"
-import { useTranslation } from "@/hooks/use-translation"
+import { useEffect, useState } from 'react';
+import { createClient } from '@/lib/supabase/client';
+import Sidebar from '@/components/sidebar';
+import TopNav from '@/components/top-nav';
 
-export default function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
-  const { config } = useSidebarConfig()
-  const { locale } = useTranslation()
-  const isRtl = locale === "ar"
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const [tenant, setTenant] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
-  // The sidebar layout gap is an in-flow element, so in RTL the sidebar must be
-  // rendered first in the DOM for its gap to land on the reading-start edge
-  // (right in Arabic). In LTR the sidebar comes first when it sits on the left.
-  const sidebarFirst = isRtl ? config.side === "right" : config.side === "left"
+  useEffect(() => {
+    async function fetchTenant() {
+      try {
+        const supabase = createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
 
-  const sidebar = (
-    <AppSidebar
-      variant={config.variant}
-      collapsible={config.collapsible}
-      side={config.side}
-    />
-  )
+        const { data: membership } = await supabase
+          .from('tenant_memberships')
+          .select('tenant_id, tenants(name, logo_url, brand_colors)')
+          .eq('user_id', user.id)
+          .single();
 
-  const inset = (
-    <SidebarInset>
-      <SiteHeader />
-      <div className="flex flex-1 flex-col">
-        <div className="@container/main flex flex-1 flex-col gap-2">
-          <div className="flex flex-col gap-6 py-4">
-            <PageTransition>
-              <PageErrorBoundary>{children}</PageErrorBoundary>
-            </PageTransition>
-          </div>
-        </div>
+        if (membership?.tenants) {
+          setTenant(membership.tenants);
+        }
+      } catch (error) {
+        console.error('Error fetching tenant:', error);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchTenant();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+        <div className="text-white text-xl">Loading...</div>
       </div>
-      <SiteFooter />
-    </SidebarInset>
-  )
+    );
+  }
+
+  const primaryColor = tenant?.brand_colors?.primary || '#3b82f6';
+  const secondaryColor = tenant?.brand_colors?.secondary || '#64748b';
+  const backgroundColor = tenant?.brand_colors?.background || '#0f172a';
 
   return (
-    <>
-      <Toaster position={isRtl ? "top-left" : "top-right"} richColors />
-      <SidebarProvider
-      style={{
-        "--sidebar-width": "16rem",
-        "--sidebar-width-icon": "3rem",
-        "--header-height": "4rem",
-      } as React.CSSProperties}
-      className={config.collapsible === "none" ? "sidebar-none-mode" : ""}
-    >
-      {sidebarFirst ? (
-        <>
-          {sidebar}
-          {inset}
-        </>
-      ) : (
-        <>
-          {inset}
-          {sidebar}
-        </>
-      )}
-      </SidebarProvider>
-    </>
-  )
+    <div className="min-h-screen bg-slate-900" style={{ '--tenant-primary': primaryColor, '--tenant-secondary': secondaryColor, '--tenant-bg': backgroundColor } as React.CSSProperties}>
+      <Sidebar tenant={tenant} />
+      <div className="lg:pl-64">
+        <TopNav tenant={tenant} />
+        <main className="py-6">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            {children}
+          </div>
+        </main>
+      </div>
+    </div>
+  );
 }
