@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import Sidebar from '@/components/dashboard/Sidebar';
+import Sidebar from '@/components/sidebar';
 import Header from '@/components/dashboard/Header';
 
 interface Tenant {
