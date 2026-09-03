@@ -10,7 +10,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Email and password are required' }, { status: 400 });
     }
 
-    // Authenticate user
     const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -24,10 +23,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid user' }, { status: 401 });
     }
 
-    // Get tenant info
     const { data: membership, error: membershipError } = await supabase
       .from('tenant_memberships')
-      .select('tenant_id, tenants(name, logo_url, brand_colors, slug)')
+      .select('tenant_id, tenants(name_en, name_ar, logo_url, brand_colors, slug)')
       .eq('user_id', authData.user.id)
       .single();
 
@@ -41,7 +39,8 @@ export async function POST(req: NextRequest) {
       user: authData.user,
       tenant: {
         id: membership.tenant_id,
-        name: tenantData.name,
+        name: tenantData.name_en || tenantData.name_ar,
+        name_ar: tenantData.name_ar,
         logo_url: tenantData.logo_url,
         brand_colors: tenantData.brand_colors,
         slug: tenantData.slug,

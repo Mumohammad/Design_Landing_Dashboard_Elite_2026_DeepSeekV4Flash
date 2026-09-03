@@ -10,12 +10,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'All fields are required' }, { status: 400 });
     }
 
-    // Create tenant (company)
     const slug = companyName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-    
+
     const { data: tenant, error: tenantError } = await supabase
       .from('tenants')
-      .insert({ name: companyName, slug })
+      .insert({ name_en: companyName, slug })
       .select()
       .single();
 
@@ -23,7 +22,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: tenantError.message }, { status: 400 });
     }
 
-    // Create user
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password,
@@ -37,7 +35,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Failed to create user' }, { status: 400 });
     }
 
-    // Create tenant membership
     const { error: membershipError } = await supabase
       .from('tenant_memberships')
       .insert({ user_id: authData.user.id, tenant_id: tenant.id, role: 'owner' });
@@ -50,7 +47,7 @@ export async function POST(req: NextRequest) {
       user: authData.user,
       tenant: {
         id: tenant.id,
-        name: tenant.name,
+        name: tenant.name_en,
         logo_url: tenant.logo_url,
         brand_colors: tenant.brand_colors,
         slug: tenant.slug,
