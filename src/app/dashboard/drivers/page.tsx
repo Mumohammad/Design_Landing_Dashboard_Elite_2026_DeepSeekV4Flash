@@ -1,37 +1,73 @@
 'use client';
 
-import { useState } from 'react';
-import { Users, Plus, Search, Filter, Phone, Mail, Star, MoreVertical } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { createClient } from '@/lib/supabase/client';
+import { Users, Plus, Search, Phone, Mail, MoreVertical } from 'lucide-react';
 
 interface Driver {
-  id: number;
-  name: string;
-  phone: string;
-  email: string;
-  status: 'Active' | 'On Trip' | 'Off Duty' | 'Pending';
-  rating: number;
-  trips: number;
-  vehicle: string;
+  id: string;
+  driver_code: string | null;
+  full_name_en: string | null;
+  full_name_ar: string | null;
+  primary_mobile: string | null;
+  work_email: string | null;
+  status: string | null;
+  operational_state: string | null;
+  current_city: string | null;
+  profile_completeness_score: number | null;
 }
 
 export default function DriversPage() {
   const [search, setSearch] = useState('');
-  const [drivers] = useState<Driver[]>([
-    { id: 1, name: 'Ahmed Hassan', phone: '+966 50 123 4567', email: 'ahmed@fleet.com', status: 'On Trip', rating: 4.8, trips: 342, vehicle: 'Truck #A-101' },
-    { id: 2, name: 'Mohammed Ali', phone: '+966 55 234 5678', email: 'mohammed@fleet.com', status: 'Active', rating: 4.9, trips: 528, vehicle: 'Van #B-203' },
-    { id: 3, name: 'Khalid Omar', phone: '+966 54 345 6789', email: 'khalid@fleet.com', status: 'Off Duty', rating: 4.6, trips: 215, vehicle: 'Truck #A-105' },
-    { id: 4, name: 'Sara Ahmed', phone: '+966 56 456 7890', email: 'sara@fleet.com', status: 'Active', rating: 5.0, trips: 189, vehicle: 'Van #B-210' },
-    { id: 5, name: 'Omar Youssef', phone: '+966 59 567 8901', email: 'omar@fleet.com', status: 'Pending', rating: 0, trips: 0, vehicle: 'Unassigned' },
-  ]);
+  const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  const filtered = drivers.filter(d => d.name.toLowerCase().includes(search.toLowerCase()) || d.email.toLowerCase().includes(search.toLowerCase()));
+  useEffect(() => {
+    loadDrivers();
+  }, []);
 
-  const statusColor = (s: Driver['status']) => ({
-    'Active': 'bg-green-500/20 text-green-400',
-    'On Trip': 'bg-blue-500/20 text-blue-400',
-    'Off Duty': 'bg-slate-500/20 text-slate-400',
-    'Pending': 'bg-yellow-500/20 text-yellow-400',
-  }[s]);
+  const loadDrivers = async () => {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from('drivers')
+      .select('id, driver_code, full_name_en, full_name_ar, primary_mobile, work_email, status, operational_state, current_city, profile_completeness_score')
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false });
+
+    if (error) setError(error.message);
+    setDrivers(data || []);
+    setLoading(false);
+  };
+
+  const filtered = drivers.filter(d => {
+    const name = (d.full_name_en || d.full_name_ar || '').toLowerCase();
+    const email = (d.work_email || '').toLowerCase();
+    const q = search.toLowerCase();
+    return name.includes(q) || email.includes(q) || (d.driver_code || '').toLowerCase().includes(q);
+  });
+
+  const statusColor = (s: string | null) => {
+    const v = (s || '').toLowerCase();
+    if (v.includes('active') || v.includes('on_trip') || v.includes('on trip')) return 'bg-green-500/20 text-green-400';
+    if (v.includes('pending') || v.includes('onboarding')) return 'bg-yellow-500/20 text-yellow-400';
+    if (v.includes('suspend') || v.includes('terminat')) return 'bg-red-500/20 text-red-400';
+    return 'bg-slate-500/20 text-slate-400';
+  };
+
+  const activeCount = drivers.filter(d => (d.status || '').toLowerCase().includes('active')).length;
+
+  if (loading) {
+    return (
+      <div className="space-y-6 animate-pulse">
+        <div className="h-10 bg-white/5 rounded w-64" />
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map(i => <div key={i} className="h-24 bg-white/5 rounded-xl" />)}
+        </div>
+        <div className="h-96 bg-white/5 rounded-xl" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -46,12 +82,16 @@ export default function DriversPage() {
         </button>
       </div>
 
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 rounded-lg text-sm">{error}</div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         {[
           { label: 'Total Drivers', value: drivers.length },
-          { label: 'Active Now', value: drivers.filter(d => d.status === 'Active' || d.status === 'On Trip').length },
-          { label: 'On Trip', value: drivers.filter(d => d.status === 'On Trip').length },
-          { label: 'Avg Rating', value: '4.8' },
+          { label: 'Active', value: activeCount },
+          { label: 'With Vehicle', value: drivers.filter(d => d.operational_state).length },
+          { label: 'Avg Completeness', value: drivers.length ? `${Math.round(drivers.reduce((s, d) => s + (d.profile_completeness_score || 0), 0) / drivers.length)}%` : '0%' },
         ].map((stat, i) => (
           <div key={i} className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-xl p-5">
             <div className="text-white/60 text-sm mb-2">{stat.label}</div>
@@ -60,54 +100,52 @@ export default function DriversPage() {
         ))}
       </div>
 
-      <div className="flex items-center gap-4">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-white/40" />
-          <input type="text" placeholder="Search drivers..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-lg py-3 pl-10 pr-4 text-white placeholder:text-white/30 focus:outline-none focus:border-blue-500 transition" />
-        </div>
-        <button className="flex items-center gap-2 bg-white/5 border border-white/10 text-white px-4 py-3 rounded-lg hover:bg-white/10 transition">
-          <Filter className="w-4 h-4" />
-          Filter
-        </button>
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-white/40" />
+        <input type="text" placeholder="Search drivers..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-lg py-3 pl-10 pr-4 text-white placeholder:text-white/30 focus:outline-none focus:border-blue-500 transition" />
       </div>
 
       <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-xl overflow-hidden">
-        <div className="divide-y divide-white/5">
-          {filtered.map((driver) => (
-            <div key={driver.id} className="flex items-center justify-between p-4 hover:bg-white/5 transition">
-              <div className="flex items-center gap-4">
-                <div className="w-11 h-11 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold">
-                  {driver.name.split(' ').map(n => n[0]).join('')}
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-white font-medium">{driver.name}</span>
-                    {driver.rating > 0 && (
-                      <span className="flex items-center gap-1 text-yellow-400 text-xs">
-                        <Star className="w-3 h-3 fill-current" />
-                        {driver.rating}
-                      </span>
-                    )}
+        {filtered.length === 0 ? (
+          <div className="text-center py-16 text-white/40">
+            <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
+            <p className="text-lg">{drivers.length === 0 ? 'No drivers yet' : 'No results found'}</p>
+            <p className="text-sm mt-1">{drivers.length === 0 ? 'Add your first driver to get started.' : 'Try a different search.'}</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-white/5">
+            {filtered.map((driver) => {
+              const name = driver.full_name_en || driver.full_name_ar || 'Unnamed';
+              const initials = name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+              return (
+                <div key={driver.id} className="flex items-center justify-between p-4 hover:bg-white/5 transition">
+                  <div className="flex items-center gap-4">
+                    <div className="w-11 h-11 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm">
+                      {initials}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-white font-medium">{name}</span>
+                        {driver.driver_code && <span className="text-xs text-white/40">#{driver.driver_code}</span>}
+                      </div>
+                      <div className="flex items-center gap-3 text-sm text-white/50">
+                        {driver.primary_mobile && <span className="flex items-center gap-1"><Phone className="w-3 h-3" />{driver.primary_mobile}</span>}
+                        {driver.work_email && <span className="flex items-center gap-1"><Mail className="w-3 h-3" />{driver.work_email}</span>}
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-3 text-sm text-white/50">
-                    <span className="flex items-center gap-1"><Phone className="w-3 h-3" />{driver.phone}</span>
-                    <span className="flex items-center gap-1"><Mail className="w-3 h-3" />{driver.email}</span>
+                  <div className="flex items-center gap-4">
+                    {driver.current_city && <span className="text-white/50 text-sm hidden md:block">{driver.current_city}</span>}
+                    <span className={`text-xs px-3 py-1 rounded-full ${statusColor(driver.status)}`}>{driver.status || 'Unknown'}</span>
+                    <button className="p-2 hover:bg-white/10 rounded-lg transition">
+                      <MoreVertical className="w-4 h-4 text-white/60" />
+                    </button>
                   </div>
                 </div>
-              </div>
-              <div className="flex items-center gap-4">
-                <div className="text-right hidden md:block">
-                  <div className="text-white text-sm">{driver.vehicle}</div>
-                  <div className="text-white/50 text-xs">{driver.trips} trips</div>
-                </div>
-                <span className={`text-xs px-3 py-1 rounded-full ${statusColor(driver.status)}`}>{driver.status}</span>
-                <button className="p-2 hover:bg-white/10 rounded-lg transition">
-                  <MoreVertical className="w-4 h-4 text-white/60" />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
