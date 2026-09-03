@@ -33,6 +33,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: authError.message }, { status: 400 });
     }
 
+    if (!authData.user) {
+      return NextResponse.json({ error: 'Failed to create user' }, { status: 400 });
+    }
+
     // Create tenant membership
     const { error: membershipError } = await supabase
       .from('tenant_memberships')
