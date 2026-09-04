@@ -9,7 +9,7 @@ import { PayrollShowcase } from '@/components/landing/payroll-showcase';
 import { FleetSection } from '@/components/landing/fleet-section';
 import { OperationsSection } from '@/components/landing/operations-section';
 import { ComplianceSection } from '@/components/landing/compliance-section';
-import { CostControlSection } from '@/components/landing/cost-control';
+import { CostControl } from '@/components/landing/cost-control';
 import { ReportingSection } from '@/components/landing/reporting-section';
 import { WorkflowSection } from '@/components/landing/workflow-section';
 import { TrustSection } from '@/components/landing/trust-section';
@@ -31,7 +31,7 @@ export default function LandingPageContent() {
         <FleetSection />
         <OperationsSection />
         <ComplianceSection />
-        <CostControlSection />
+        <CostControl />
         <ReportingSection />
         <WorkflowSection />
         <TrustSection />
