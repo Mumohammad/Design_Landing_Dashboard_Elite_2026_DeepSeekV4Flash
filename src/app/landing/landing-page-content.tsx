@@ -15,7 +15,7 @@ import { WorkflowSection } from '@/components/landing/workflow-section';
 import { TrustSection } from '@/components/landing/trust-section';
 import { PricingSection } from '@/components/landing/pricing-section';
 import { FaqSection } from '@/components/landing/faq-section';
-import { FinalCtaSection } from '@/components/landing/final-cta';
+import { FinalCta } from '@/components/landing/final-cta';
 import { LandingFooter } from '@/components/landing/landing-footer';
 
 export default function LandingPageContent() {
@@ -37,7 +37,7 @@ export default function LandingPageContent() {
         <TrustSection />
         <PricingSection />
         <FaqSection />
-        <FinalCtaSection />
+        <FinalCta />
       </main>
       <LandingFooter />
     </div>
