@@ -2,86 +2,88 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Building2, Mail, Lock, ArrowLeft, Loader2 } from 'lucide-react';
 import Link from 'next/link';
+import { createClient } from '@supabase/supabase-js';
+import { ArrowLeft, Building2, Loader2, LogIn } from 'lucide-react';
 
-export default function PlatformLogin() {
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
+export default function PlatformLoginPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [formData, setFormData] = useState({ email: '', password: '' });
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError('');
-
-    try {
-      const res = await fetch('/api/platform/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || 'Login failed');
-      }
-
-      localStorage.setItem('tenant', JSON.stringify(data.tenant));
-      router.push('/dashboard');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed');
-    } finally {
+    const { error: signInErr } = await supabase.auth.signInWithPassword({ email, password });
+    if (signInErr) {
+      setError('بيانات الدخول غير صحيحة أو الحساب غير مفعّل');
       setLoading(false);
+      return;
     }
-  };
+    router.push('/dashboard');
+    router.refresh();
+  }
+
+  const inputCls =
+    'w-full rounded-xl border border-border/60 bg-background px-4 py-3 text-sm outline-none transition focus:border-elite-blue-500 focus:ring-2 focus:ring-elite-blue-500/20 placeholder:text-muted-foreground/60';
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 flex items-center justify-center py-12 px-6">
-      <div className="max-w-md w-full">
-        <Link href="/platform" className="inline-flex items-center gap-2 text-white/70 hover:text-white mb-8 transition">
-          <ArrowLeft className="w-4 h-4" /> Back to Platform
+    <main className="relative min-h-screen bg-background text-foreground">
+      <div className="absolute inset-0 gradient-mesh" />
+      <div className="absolute inset-0 dot-grid-premium opacity-40" />
+      <div className="relative mx-auto flex min-h-screen max-w-md flex-col justify-center px-4 py-10">
+        <Link href="/platform" className="mb-8 inline-flex w-fit items-center gap-2 text-sm text-muted-foreground transition hover:text-foreground">
+          <ArrowLeft className="h-4 w-4 rtl:-scale-x-100" /> العودة للمنصة
         </Link>
 
-        <div className="text-center mb-10">
-          <div className="inline-flex items-center gap-3 bg-white/10 backdrop-blur-sm px-5 py-2.5 rounded-full mb-4">
-            <Building2 className="w-5 h-5 text-blue-400" />
-            <span className="text-white font-medium">Company Login</span>
-          </div>
-          <h1 className="text-4xl font-bold text-white mb-3">Welcome Back</h1>
-          <p className="text-white/60 text-lg">Sign in to your company dashboard</p>
-        </div>
+        <div className="card-premium p-8 sm:p-10">
+          <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-elite-blue-500 via-elite-blue-400 to-elite-orange-500 shadow-xl shadow-elite-blue-500/25">
+            <Building2 className="h-7 w-7 text-white" />
+          </span>
+          <h1 className="mt-6 text-3xl font-extrabold tracking-tight">دخول الشركات</h1>
+          <p className="mt-2 text-sm text-muted-foreground">ادخل إلى مساحة عمل شركتك على لوحة التحكم.</p>
 
-        <form onSubmit={handleSubmit} className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6 space-y-4">
           {error && (
-            <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 rounded-lg text-sm">
+            <div className="mt-6 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-600 dark:text-rose-400">
               {error}
             </div>
           )}
-          <div>
-            <label className="block text-white/80 text-sm font-medium mb-2">Email Address</label>
-            <div className="relative">
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-white/40" />
-              <input type="email" required value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-lg py-3 pl-10 pr-4 text-white placeholder:text-white/30 focus:outline-none focus:border-blue-500 transition" placeholder="admin@company.com" />
+
+          <form onSubmit={handleSubmit} className="mt-8 space-y-5">
+            <div>
+              <label className="mb-2 block text-sm font-semibold">البريد العملي</label>
+              <input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={inputCls} placeholder="you@company.com" dir="ltr" />
             </div>
-          </div>
-          <div>
-            <label className="block text-white/80 text-sm font-medium mb-2">Password</label>
-            <div className="relative">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-white/40" />
-              <input type="password" required value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-lg py-3 pl-10 pr-4 text-white placeholder:text-white/30 focus:outline-none focus:border-blue-500 transition" placeholder="••••••••" />
+            <div>
+              <label className="mb-2 block text-sm font-semibold">كلمة المرور</label>
+              <input required type="password" value={password} onChange={(e) => setPassword(e.target.value)} className={inputCls} placeholder="••••••••" dir="ltr" />
             </div>
-          </div>
-          <button type="submit" disabled={loading} className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/50 text-white py-3 rounded-lg font-semibold transition flex items-center justify-center gap-2">
-            {loading ? (<><Loader2 className="w-5 h-5 animate-spin" /> Signing in...</>) : ('Sign In')}
-          </button>
-          <p className="text-white/50 text-sm text-center">
-            Don't have an account? <Link href="/platform/register" className="text-blue-400 hover:underline">Register here</Link>
+            <button
+              disabled={loading}
+              type="submit"
+              className="flex h-13 w-full items-center justify-center gap-2.5 rounded-2xl bg-gradient-to-r from-elite-blue-500 to-elite-blue-600 text-sm font-bold text-white shadow-xl shadow-elite-blue-500/30 transition hover:scale-[1.01] hover:from-elite-blue-600 hover:to-elite-blue-700 disabled:opacity-60"
+            >
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
+              {loading ? 'جارٍ الدخول…' : 'دخول إلى لوحة التحكم'}
+            </button>
+          </form>
+
+          <p className="mt-6 text-center text-sm text-muted-foreground">
+            شركة جديدة؟{' '}
+            <Link href="/platform/register" className="font-semibold text-elite-blue-600 dark:text-elite-blue-300">
+              سجّل شركتك
+            </Link>
           </p>
-        </form>
+        </div>
       </div>
-    </div>
+    </main>
   );
 }

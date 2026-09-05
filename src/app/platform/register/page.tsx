@@ -3,69 +3,135 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Building2, Upload, ArrowLeft, CheckCircle2, Loader2 } from 'lucide-react';
+import { createClient } from '@supabase/supabase-js';
+import { ArrowLeft, Building2, CheckCircle2, Loader2 } from 'lucide-react';
 
-export default function RegisterPage() {
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
+export default function PlatformRegisterPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [formData, setFormData] = useState({
+  const [form, setForm] = useState({
     company_name: '',
     domain: '',
     email: '',
     password: '',
     logo_url: '',
-    brand_colors: '#2563eb',
+    brand_colors: '#1E5A99',
   });
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError('');
-
     try {
       const res = await fetch('/api/platform/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(form),
       });
-
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Registration failed');
+      if (!res.ok) throw new Error(data.error || 'فشل التسجيل');
 
+      const { error: signInErr } = await supabase.auth.signInWithPassword({
+        email: form.email,
+        password: form.password,
+      });
+      if (signInErr) {
+        router.push('/platform/login?registered=1');
+        return;
+      }
       router.push('/dashboard');
+      router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong');
-    } finally {
+      setError(err instanceof Error ? err.message : 'حدث خطأ غير متوقع');
       setLoading(false);
     }
-  };
+  }
+
+  const inputCls =
+    'w-full rounded-xl border border-border/60 bg-background px-4 py-3 text-sm outline-none transition focus:border-elite-blue-500 focus:ring-2 focus:ring-elite-blue-500/20 placeholder:text-muted-foreground/60';
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white">
-      <header className="border-b border-white/10 bg-slate-950/80 backdrop-blur-xl">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
-          <Link href="/landing" className="flex items-center gap-2 font-bold"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-purple-600"><Building2 className="h-5 w-5" /></span>Elite Fleet</Link>
-          <Link href="/platform/login" className="text-sm text-white/75 hover:text-white">Already have an account? Log in</Link>
+    <main className="relative min-h-screen bg-background text-foreground">
+      <div className="absolute inset-0 gradient-mesh" />
+      <div className="absolute inset-0 dot-grid-premium opacity-40" />
+      <div className="relative mx-auto flex min-h-screen max-w-2xl flex-col px-4 py-10">
+        <div className="flex items-center justify-between">
+          <Link href="/platform" className="inline-flex items-center gap-2 text-sm text-muted-foreground transition hover:text-foreground">
+            <ArrowLeft className="h-4 w-4 rtl:-scale-x-100" /> العودة للمنصة
+          </Link>
+          <Link href="/platform/login" className="text-sm font-semibold text-elite-blue-600 dark:text-elite-blue-300">
+            لديك حساب؟ دخول
+          </Link>
         </div>
-      </header>
 
-      <section className="mx-auto max-w-2xl px-6 py-16">
-        <Link href="/landing" className="inline-flex items-center gap-2 text-sm text-white/65 hover:text-white mb-8"><ArrowLeft className="h-4 w-4" /> Back to landing</Link>
-        <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-8"><div className="mb-6"><h1 className="text-3xl font-bold">Create your company workspace</h1><p className="mt-2 text-white/60">Set up your multi-tenant workspace with your company branding.</p></div>
-          {error && <div className="mb-6 rounded-lg bg-red-500/10 border border-red-500/25 p-4 text-sm text-red-300">{error}</div>}
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <div><label className="block text-sm font-medium mb-2">Company Name *</label><input required type="text" value={formData.company_name} onChange={e => setFormData({...formData, company_name: e.target.value})} className="w-full rounded-lg border border-white/15 bg-slate-950/50 px-4 py-3 text-white placeholder:text-white/40 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" placeholder="e.g. Acme Logistics" /></div>
-            <div><label className="block text-sm font-medium mb-2">Company Domain *</label><input required type="text" value={formData.domain} onChange={e => setFormData({...formData, domain: e.target.value})} className="w-full rounded-lg border border-white/15 bg-slate-950/50 px-4 py-3 text-white placeholder:text-white/40 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" placeholder="e.g. acme.com" /></div>
-            <div><label className="block text-sm font-medium mb-2">Work Email *</label><input required type="email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full rounded-lg border border-white/15 bg-slate-950/50 px-4 py-3 text-white placeholder:text-white/40 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" placeholder="you@company.com" /></div>
-            <div><label className="block text-sm font-medium mb-2">Password *</label><input required type="password" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full rounded-lg border border-white/15 bg-slate-950/50 px-4 py-3 text-white placeholder:text-white/40 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" placeholder="Min. 8 characters" minLength={8} /></div>
-            <div><label className="block text-sm font-medium mb-2">Company Logo URL</label><div className="flex gap-3"><input type="url" value={formData.logo_url} onChange={e => setFormData({...formData, logo_url: e.target.value})} className="flex-1 rounded-lg border border-white/15 bg-slate-950/50 px-4 py-3 text-white placeholder:text-white/40 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" placeholder="https://cdn.example.com/logo.png" /><span className="inline-flex items-center justify-center rounded-lg border border-white/15 bg-white/5 px-4"><Upload className="h-5 w-5 text-white/50" /></span></div><p className="mt-2 text-xs text-white/40">Upload your logo to a CDN and paste the URL here.</p></div>
-            <div><label className="block text-sm font-medium mb-2">Brand Color</label><div className="flex items-center gap-3"><input type="color" value={formData.brand_colors} onChange={e => setFormData({...formData, brand_colors: e.target.value})} className="h-10 w-16 rounded border border-white/15 bg-slate-950/50" /><input type="text" value={formData.brand_colors} onChange={e => setFormData({...formData, brand_colors: e.target.value})} className="flex-1 rounded-lg border border-white/15 bg-slate-950/50 px-4 py-2 text-white focus:border-blue-500 focus:outline-none" /></div></div>
-            <div className="pt-4"><button disabled={loading} type="submit" className="w-full rounded-lg bg-blue-600 px-6 py-3 font-semibold transition hover:bg-blue-500 disabled:opacity-50"><span className="flex items-center justify-center gap-2">{loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />} {loading ? 'Creating workspace...' : 'Create workspace'}</span></button></div>
-            <p className="text-xs text-center text-white/40">By registering, you agree to our Terms and Privacy Policy. Your data is isolated through multi-tenant RLS.</p>
+        <div className="card-premium mt-8 p-8 sm:p-10">
+          <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-elite-blue-500 via-elite-blue-400 to-elite-orange-500 shadow-xl shadow-elite-blue-500/25">
+            <Building2 className="h-7 w-7 text-white" />
+          </span>
+          <h1 className="mt-6 text-3xl font-extrabold tracking-tight">سجّل شركتك</h1>
+          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+            أنشئ مساحة عمل شركتك المعزولة — بشعارك وألوانك ودومينك. تبدأ بالخطة التجريبية مجانًا.
+          </p>
+
+          {error && (
+            <div className="mt-6 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-600 dark:text-rose-400">
+              {error}
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="mt-8 space-y-5">
+            <div>
+              <label className="mb-2 block text-sm font-semibold">اسم الشركة *</label>
+              <input required value={form.company_name} onChange={set('company_name')} className={inputCls} placeholder="مثال: شركة النخبة للوجستيات" />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-semibold">دومين الشركة</label>
+              <input value={form.domain} onChange={set('domain')} className={inputCls} placeholder="example.com" dir="ltr" />
+            </div>
+            <div className="grid gap-5 sm:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-sm font-semibold">البريد العملي *</label>
+                <input required type="email" value={form.email} onChange={set('email')} className={inputCls} placeholder="you@company.com" dir="ltr" />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-semibold">كلمة المرور *</label>
+                <input required type="password" minLength={8} value={form.password} onChange={set('password')} className={inputCls} placeholder="8 أحرف على الأقل" dir="ltr" />
+              </div>
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-semibold">رابط الشعار (اختياري)</label>
+              <input type="url" value={form.logo_url} onChange={set('logo_url')} className={inputCls} placeholder="https://cdn.example.com/logo.png" dir="ltr" />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-semibold">لون العلامة</label>
+              <div className="flex items-center gap-3">
+                <input type="color" value={form.brand_colors} onChange={set('brand_colors')} className="h-11 w-16 cursor-pointer rounded-lg border border-border/60 bg-background" />
+                <input value={form.brand_colors} onChange={set('brand_colors')} className={inputCls} dir="ltr" />
+              </div>
+            </div>
+            <button
+              disabled={loading}
+              type="submit"
+              className="flex h-13 w-full items-center justify-center gap-2.5 rounded-2xl bg-gradient-to-r from-elite-blue-500 to-elite-blue-600 text-sm font-bold text-white shadow-xl shadow-elite-blue-500/30 transition hover:scale-[1.01] hover:from-elite-blue-600 hover:to-elite-blue-700 disabled:opacity-60"
+            >
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+              {loading ? 'جارٍ إنشاء مساحتك…' : 'أنشئ مساحة عمل شركتي'}
+            </button>
+            <p className="text-center text-xs leading-relaxed text-muted-foreground">
+              بالتسجيل أنت توافق على الشروط والخصوصية. بيانات شركتك معزولة تمامًا عبر RLS.
+            </p>
           </form>
         </div>
-      </section>
+      </div>
     </main>
   );
 }
