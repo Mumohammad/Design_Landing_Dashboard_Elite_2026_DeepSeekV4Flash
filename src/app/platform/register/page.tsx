@@ -3,14 +3,14 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Building2, CheckCircle2, Loader2 } from 'lucide-react';
+import { Building2, ArrowRight, Loader2, CheckCircle2, ArrowLeft } from 'lucide-react';
 import { getBrowserSupabase } from '@/lib/platform/browser';
 
-export default function PlatformRegisterPage() {
+export default function RegisterPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [form, setForm] = useState({
+  const [formData, setFormData] = useState({
     company_name: '',
     domain: '',
     email: '',
@@ -19,114 +19,75 @@ export default function PlatformRegisterPage() {
     brand_colors: '#1E5A99',
   });
 
-  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setForm((f) => ({ ...f, [k]: e.target.value }));
-
-  async function handleSubmit(e: React.FormEvent) {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
+
     try {
       const res = await fetch('/api/platform/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify(formData),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'فشل التسجيل');
+      if (!res.ok) throw new Error(data.error || 'Registration failed');
 
       const supabase = getBrowserSupabase();
-      if (supabase) {
-        const { error: signInErr } = await supabase.auth.signInWithPassword({
-          email: form.email,
-          password: form.password,
-        });
-        if (!signInErr) {
-          router.push('/dashboard');
-          router.refresh();
-          return;
-        }
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: formData.email,
+        password: formData.password,
+      });
+      if (signInError) {
+        router.push('/platform/login?registered=1');
+        return;
       }
-      router.push('/platform/login?registered=1');
+      router.push('/dashboard');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'حدث خطأ غير متوقع');
+      setError(err instanceof Error ? err.message : 'Something went wrong');
+    } finally {
       setLoading(false);
     }
-  }
+  };
 
-  const inputCls =
-    'w-full rounded-xl border border-border/60 bg-background px-4 py-3 text-sm outline-none transition focus:border-elite-blue-500 focus:ring-2 focus:ring-elite-blue-500/20 placeholder:text-muted-foreground/60';
+  const inputCls = 'w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-900 placeholder:text-slate-400 focus:border-[#1E5A99] focus:outline-none focus:ring-2 focus:ring-[#1E5A99]/15 transition';
 
   return (
-    <main className="relative min-h-screen bg-background text-foreground">
-      <div className="absolute inset-0 gradient-mesh" />
-      <div className="absolute inset-0 dot-grid-premium opacity-40" />
-      <div className="relative mx-auto flex min-h-screen max-w-2xl flex-col px-4 py-10">
-        <div className="flex items-center justify-between">
-          <Link href="/platform" className="inline-flex items-center gap-2 text-sm text-muted-foreground transition hover:text-foreground">
-            <ArrowLeft className="h-4 w-4 rtl:-scale-x-100" /> العودة للمنصة
+    <main dir="rtl" className="min-h-screen bg-[#f6f8fb] text-slate-900">
+      <header className="border-b border-slate-200/70 bg-white/80 backdrop-blur-xl sticky top-0 z-50">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
+          <Link href="/platform" className="flex items-center gap-2.5 font-bold">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[#1E5A99] to-[#E87D3E] text-white"><Building2 className="h-5 w-5" /></span>
+            <span>نخبة التطوير <span className="text-slate-400 font-medium">· منصة الشركات</span></span>
           </Link>
-          <Link href="/platform/login" className="text-sm font-semibold text-elite-blue-600 dark:text-elite-blue-300">
-            لديك حساب؟ دخول
-          </Link>
+          <Link href="/platform/login" className="text-sm font-semibold text-[#1E5A99] hover:text-[#174a7e] transition">لديك حساب؟ دخول</Link>
         </div>
-        <div className="card-premium mt-8 p-8 sm:p-10">
-          <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-elite-blue-500 via-elite-blue-400 to-elite-orange-500 shadow-xl shadow-elite-blue-500/25">
-            <Building2 className="h-7 w-7 text-white" />
-          </span>
-          <h1 className="mt-6 text-3xl font-extrabold tracking-tight">سجّل شركتك</h1>
-          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-            أنشئ مساحة عمل شركتك المعزولة — بشعارك وألوانك ودومينك. تبدأ بالخطة التجريبية مجانًا.
-          </p>
-          {error && (
-            <div className="mt-6 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-600 dark:text-rose-400">
-              {error}
-            </div>
-          )}
-          <form onSubmit={handleSubmit} className="mt-8 space-y-5">
-            <div>
-              <label className="mb-2 block text-sm font-semibold">اسم الشركة *</label>
-              <input required value={form.company_name} onChange={set('company_name')} className={inputCls} placeholder="مثال: شركة النخبة للوجستيات" />
-            </div>
-            <div>
-              <label className="mb-2 block text-sm font-semibold">دومين الشركة</label>
-              <input value={form.domain} onChange={set('domain')} className={inputCls} placeholder="example.com" dir="ltr" />
-            </div>
-            <div className="grid gap-5 sm:grid-cols-2">
-              <div>
-                <label className="mb-2 block text-sm font-semibold">البريد العملي *</label>
-                <input required type="email" value={form.email} onChange={set('email')} className={inputCls} placeholder="you@company.com" dir="ltr" />
-              </div>
-              <div>
-                <label className="mb-2 block text-sm font-semibold">كلمة المرور *</label>
-                <input required type="password" minLength={8} value={form.password} onChange={set('password')} className={inputCls} placeholder="8 أحرف على الأقل" dir="ltr" />
-              </div>
-            </div>
-            <div>
-              <label className="mb-2 block text-sm font-semibold">رابط الشعار (اختياري)</label>
-              <input type="url" value={form.logo_url} onChange={set('logo_url')} className={inputCls} placeholder="https://cdn.example.com/logo.png" dir="ltr" />
-            </div>
-            <div>
-              <label className="mb-2 block text-sm font-semibold">لون العلامة</label>
-              <div className="flex items-center gap-3">
-                <input type="color" value={form.brand_colors} onChange={set('brand_colors')} className="h-11 w-16 cursor-pointer rounded-lg border border-border/60 bg-background" />
-                <input value={form.brand_colors} onChange={set('brand_colors')} className={inputCls} dir="ltr" />
-              </div>
-            </div>
-            <button
-              disabled={loading}
-              type="submit"
-              className="flex h-13 w-full items-center justify-center gap-2.5 rounded-2xl bg-gradient-to-r from-elite-blue-500 to-elite-blue-600 text-sm font-bold text-white shadow-xl shadow-elite-blue-500/30 transition hover:scale-[1.01] hover:from-elite-blue-600 hover:to-elite-blue-700 disabled:opacity-60"
-            >
-              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-              {loading ? 'جارٍ إنشاء مساحتك…' : 'أنشئ مساحة عمل شركتي'}
-            </button>
-            <p className="text-center text-xs leading-relaxed text-muted-foreground">
-              بالتسجيل أنت توافق على الشروط والخصوصية. بيانات شركتك معزولة تمامًا عبر RLS.
-            </p>
+      </header>
+
+      <section className="mx-auto max-w-xl px-6 py-14">
+        <Link href="/platform" className="inline-flex items-center gap-2 text-sm text-slate-500 hover:text-slate-800 transition mb-8"><ArrowLeft className="h-4 w-4 -scale-x-100" /> العودة للمنصة</Link>
+
+        <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-xl shadow-slate-200/60">
+          <div className="mb-8">
+            <span className="inline-flex items-center gap-2 rounded-full border border-[#1E5A99]/20 bg-[#1E5A99]/5 px-3.5 py-1.5 text-xs font-bold text-[#1E5A99]">تجربة مجانية 14 يوم</span>
+            <h1 className="mt-4 text-2xl font-extrabold tracking-tight">أنشئ مساحة عمل شركتك</h1>
+            <p className="mt-2 text-sm leading-6 text-slate-500">اسم الشركة، الدومين، والهوية البصرية — وتنطلق مباشرة إلى لوحة التحكم.</p>
+          </div>
+
+          {error && <div className="mb-6 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm font-medium text-rose-700">{error}</div>}
+
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div><label className="mb-2 block text-sm font-bold">اسم الشركة *</label><input required type="text" value={formData.company_name} onChange={e => setFormData({ ...formData, company_name: e.target.value })} className={inputCls} placeholder="مثال: أكمي للوجستيات" /></div>
+            <div><label className="mb-2 block text-sm font-bold">دومين الشركة *</label><input required type="text" value={formData.domain} onChange={e => setFormData({ ...formData, domain: e.target.value })} className={inputCls} placeholder="acme.com" dir="ltr" /></div>
+            <div><label className="mb-2 block text-sm font-bold">البريد الإلكتروني للعمل *</label><input required type="email" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} className={inputCls} placeholder="you@company.com" dir="ltr" /></div>
+            <div><label className="mb-2 block text-sm font-bold">كلمة المرور *</label><input required type="password" value={formData.password} onChange={e => setFormData({ ...formData, password: e.target.value })} className={inputCls} placeholder="8 أحرف على الأقل" minLength={8} /></div>
+            <div><label className="mb-2 block text-sm font-bold">رابط شعار الشركة</label><input type="url" value={formData.logo_url} onChange={e => setFormData({ ...formData, logo_url: e.target.value })} className={inputCls} placeholder="https://cdn.example.com/logo.png" dir="ltr" /><p className="mt-1.5 text-xs text-slate-400">ارفع الشعار إلى CDN والصق الرابط هنا.</p></div>
+            <div><label className="mb-2 block text-sm font-bold">لون العلامة</label><div className="flex items-center gap-3"><input type="color" value={formData.brand_colors} onChange={e => setFormData({ ...formData, brand_colors: e.target.value })} className="h-11 w-16 cursor-pointer rounded-lg border border-slate-200 bg-white" /><input type="text" value={formData.brand_colors} onChange={e => setFormData({ ...formData, brand_colors: e.target.value })} className={inputCls} dir="ltr" /></div></div>
+            <div className="pt-3"><button disabled={loading} type="submit" className="group flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#1E5A99] to-[#174a7e] px-6 py-3.5 font-bold text-white shadow-lg shadow-[#1E5A99]/25 transition hover:shadow-xl hover:shadow-[#1E5A99]/35 disabled:opacity-60">{loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />} {loading ? 'جارٍ إنشاء المساحة…' : 'أنشئ المساحة'} {!loading && <ArrowRight className="h-4 w-4 -scale-x-100 transition-transform group-hover:-translate-x-0.5" />}</button></div>
+            <p className="text-center text-xs leading-5 text-slate-400">بالتسجيل أنت توافق على الشروط وسياسة الخصوصية. بياناتك معزولة عبر RLS متعدد المستأجرين.</p>
           </form>
         </div>
-      </div>
+      </section>
     </main>
   );
 }
