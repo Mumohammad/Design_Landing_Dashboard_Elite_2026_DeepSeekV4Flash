@@ -3,13 +3,8 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { createClient } from '@supabase/supabase-js';
 import { ArrowLeft, Building2, CheckCircle2, Loader2 } from 'lucide-react';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+import { getBrowserSupabase } from '@/lib/platform/browser';
 
 export default function PlatformRegisterPage() {
   const router = useRouter();
@@ -40,16 +35,19 @@ export default function PlatformRegisterPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'فشل التسجيل');
 
-      const { error: signInErr } = await supabase.auth.signInWithPassword({
-        email: form.email,
-        password: form.password,
-      });
-      if (signInErr) {
-        router.push('/platform/login?registered=1');
-        return;
+      const supabase = getBrowserSupabase();
+      if (supabase) {
+        const { error: signInErr } = await supabase.auth.signInWithPassword({
+          email: form.email,
+          password: form.password,
+        });
+        if (!signInErr) {
+          router.push('/dashboard');
+          router.refresh();
+          return;
+        }
       }
-      router.push('/dashboard');
-      router.refresh();
+      router.push('/platform/login?registered=1');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'حدث خطأ غير متوقع');
       setLoading(false);
@@ -72,7 +70,6 @@ export default function PlatformRegisterPage() {
             لديك حساب؟ دخول
           </Link>
         </div>
-
         <div className="card-premium mt-8 p-8 sm:p-10">
           <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-elite-blue-500 via-elite-blue-400 to-elite-orange-500 shadow-xl shadow-elite-blue-500/25">
             <Building2 className="h-7 w-7 text-white" />
@@ -81,13 +78,11 @@ export default function PlatformRegisterPage() {
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
             أنشئ مساحة عمل شركتك المعزولة — بشعارك وألوانك ودومينك. تبدأ بالخطة التجريبية مجانًا.
           </p>
-
           {error && (
             <div className="mt-6 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-600 dark:text-rose-400">
               {error}
             </div>
           )}
-
           <form onSubmit={handleSubmit} className="mt-8 space-y-5">
             <div>
               <label className="mb-2 block text-sm font-semibold">اسم الشركة *</label>

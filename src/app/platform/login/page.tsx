@@ -3,13 +3,8 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { createClient } from '@supabase/supabase-js';
 import { ArrowLeft, Building2, Loader2, LogIn } from 'lucide-react';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+import { getBrowserSupabase } from '@/lib/platform/browser';
 
 export default function PlatformLoginPage() {
   const router = useRouter();
@@ -22,6 +17,12 @@ export default function PlatformLoginPage() {
     e.preventDefault();
     setLoading(true);
     setError('');
+    const supabase = getBrowserSupabase();
+    if (!supabase) {
+      setError('إعدادات النظام غير مكتملة — تواصل مع الدعم');
+      setLoading(false);
+      return;
+    }
     const { error: signInErr } = await supabase.auth.signInWithPassword({ email, password });
     if (signInErr) {
       setError('بيانات الدخول غير صحيحة أو الحساب غير مفعّل');
@@ -43,20 +44,17 @@ export default function PlatformLoginPage() {
         <Link href="/platform" className="mb-8 inline-flex w-fit items-center gap-2 text-sm text-muted-foreground transition hover:text-foreground">
           <ArrowLeft className="h-4 w-4 rtl:-scale-x-100" /> العودة للمنصة
         </Link>
-
         <div className="card-premium p-8 sm:p-10">
           <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-elite-blue-500 via-elite-blue-400 to-elite-orange-500 shadow-xl shadow-elite-blue-500/25">
             <Building2 className="h-7 w-7 text-white" />
           </span>
           <h1 className="mt-6 text-3xl font-extrabold tracking-tight">دخول الشركات</h1>
           <p className="mt-2 text-sm text-muted-foreground">ادخل إلى مساحة عمل شركتك على لوحة التحكم.</p>
-
           {error && (
             <div className="mt-6 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-600 dark:text-rose-400">
               {error}
             </div>
           )}
-
           <form onSubmit={handleSubmit} className="mt-8 space-y-5">
             <div>
               <label className="mb-2 block text-sm font-semibold">البريد العملي</label>
@@ -75,7 +73,6 @@ export default function PlatformLoginPage() {
               {loading ? 'جارٍ الدخول…' : 'دخول إلى لوحة التحكم'}
             </button>
           </form>
-
           <p className="mt-6 text-center text-sm text-muted-foreground">
             شركة جديدة؟{' '}
             <Link href="/platform/register" className="font-semibold text-elite-blue-600 dark:text-elite-blue-300">
