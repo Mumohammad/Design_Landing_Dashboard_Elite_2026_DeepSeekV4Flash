@@ -91,7 +91,12 @@ export default function PlatformPage() {
         </div>
       </section>
 
-      <footer className="border-t border-slate-200/70 px-6 py-8 text-center text-xs text-slate-400">© {new Date().getFullYear()} نخبة التطوير — منصة الشركات. جميع الحقوق محفوظة.</footer>
+      <footer className="border-t border-slate-200/70 px-6 py-8">
+        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 text-xs text-slate-400 sm:flex-row">
+          <p>© {new Date().getFullYear()} نخبة التطوير — منصة الشركات. جميع الحقوق محفوظة.</p>
+          <Link href="/platform/admin" className="inline-flex items-center gap-1.5 font-semibold text-slate-400 transition hover:text-[#1E5A99]"><ShieldCheck className="h-3.5 w-3.5" /> إدارة المنصة</Link>
+        </div>
+      </footer>
     </main>
   );
 }
