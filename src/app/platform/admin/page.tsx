@@ -2,16 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { createClient } from '@supabase/supabase-js';
 import {
   Building2, ShieldCheck, Users, TrendingUp, PauseCircle, PlayCircle,
   Plus, Loader2, LogOut, Search, X, AlertTriangle, CheckCircle2, Crown,
 } from 'lucide-react';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+import { getBrowserSupabase } from '@/lib/platform/browser';
 
 type Stats = { total: number; active: number; suspended: number; terminated: number; trial: number; new_this_month: number };
 type Company = {
@@ -36,6 +31,8 @@ export default function PlatformAdminPage() {
   const [form, setForm] = useState({ company_name: '', owner_email: '', domain: '' });
 
   const authHeader = useCallback(async () => {
+    const supabase = getBrowserSupabase();
+    if (!supabase) return null;
     const { data: { session } } = await supabase.auth.getSession();
     return session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : null;
   }, []);
@@ -54,7 +51,8 @@ export default function PlatformAdminPage() {
 
     const statsData = await statsRes.json();
     const companiesData = await companiesRes.json();
-    const { data: { user } } = await supabase.auth.getUser();
+    const supabase = getBrowserSupabase();
+    const { data: { user } } = supabase ? await supabase.auth.getUser() : { data: { user: null } };
 
     setStats(statsData.stats);
     setCompanies(companiesData.companies || []);
@@ -112,7 +110,8 @@ export default function PlatformAdminPage() {
   }
 
   async function signOut() {
-    await supabase.auth.signOut();
+    const supabase = getBrowserSupabase();
+    if (supabase) await supabase.auth.signOut();
     router.replace('/platform/login');
   }
 
@@ -157,7 +156,6 @@ export default function PlatformAdminPage() {
   return (
     <main className="min-h-screen bg-elite-blue-950 text-white" dir="rtl">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_0%,rgba(30,90,153,.35),transparent_45%),radial-gradient(circle_at_90%_20%,rgba(232,125,62,.15),transparent_35%)]" />
-
       <header className="relative border-b border-white/10 bg-white/5 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-7xl items-center gap-4 px-4 lg:px-8">
           <span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-gradient-to-br from-elite-blue-500 to-elite-orange-500 shadow-lg shadow-elite-blue-500/25">
@@ -175,7 +173,6 @@ export default function PlatformAdminPage() {
           </div>
         </div>
       </header>
-
       <div className="relative mx-auto max-w-7xl px-4 py-8 lg:px-8">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
           {kpis.map((k) => (
@@ -190,7 +187,6 @@ export default function PlatformAdminPage() {
             </div>
           ))}
         </div>
-
         <div className="mt-8 rounded-3xl border border-white/10 bg-white/5 backdrop-blur-xl">
           <div className="flex flex-wrap items-center gap-3 border-b border-white/10 px-5 py-4">
             <div>
@@ -213,7 +209,6 @@ export default function PlatformAdminPage() {
               <Plus className="h-4 w-4" /> إضافة شركة
             </button>
           </div>
-
           <div className="overflow-x-auto">
             <table className="w-full min-w-[760px] text-start">
               <thead>
@@ -285,7 +280,6 @@ export default function PlatformAdminPage() {
           </div>
         </div>
       </div>
-
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" onClick={() => setModalOpen(false)}>
           <div className="w-full max-w-md rounded-3xl border border-white/15 bg-elite-blue-950 p-8 shadow-2xl" onClick={(e) => e.stopPropagation()}>
@@ -294,10 +288,8 @@ export default function PlatformAdminPage() {
               <button onClick={() => setModalOpen(false)} className="rounded-lg p-1.5 text-white/50 transition hover:bg-white/10 hover:text-white"><X className="h-5 w-5" /></button>
             </div>
             <p className="mt-2 text-sm text-white/55">للعملاء الذين لا يستطيعون التسجيل بأنفسهم — نرسل دعوة للمالك تلقائيًا.</p>
-
             {createErr && <div className="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">{createErr}</div>}
             {createMsg && <div className="mt-4 flex items-start gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />{createMsg}</div>}
-
             <form onSubmit={createCompany} className="mt-6 space-y-4">
               <div>
                 <label className="mb-1.5 block text-sm font-semibold">اسم الشركة *</label>
