@@ -23,8 +23,9 @@ export default function PlatformPage() {
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[#1E5A99] to-[#E87D3E] text-white"><Building2 className="h-5 w-5" /></span>
             <span>نخبة التطوير <span className="text-slate-400 font-medium">· منصة الشركات</span></span>
           </Link>
-          <div className="flex items-center gap-3">
-            <Link href="/platform/login" className="inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-100"><LogIn className="h-4 w-4" /> دخول</Link>
+          <div className="flex items-center gap-2 sm:gap-3">
+            <Link href="/platform/admin" className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-bold text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"><ShieldCheck className="h-4 w-4" /> الإدارة</Link>
+            <Link href="/platform/login" className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-100"><LogIn className="h-4 w-4" /> دخول</Link>
             <Link href="/platform/register" className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-[#1E5A99] to-[#174a7e] px-4 py-2 text-sm font-bold text-white shadow-lg shadow-[#1E5A99]/25 transition hover:shadow-xl"><Rocket className="h-4 w-4" /> سجّل شركتك</Link>
           </div>
         </div>
