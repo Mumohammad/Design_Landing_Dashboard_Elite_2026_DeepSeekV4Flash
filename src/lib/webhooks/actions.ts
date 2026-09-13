@@ -119,7 +119,7 @@ export async function createWebhookRegistration(input: CreateWebhookInput): Prom
     // Log audit trail.
     await writeAuditLog({
       tenantId: currentUser.tenantId,
-      actorId: currentUser.id,
+      actorId: currentUser.authUserId,
       module: "webhooks",
       action: "created",
       entityType: "webhook_registration",
@@ -179,7 +179,7 @@ export async function updateWebhookRegistration(
     // Log audit trail.
     await writeAuditLog({
       tenantId: currentUser.tenantId,
-      actorId: currentUser.id,
+      actorId: currentUser.authUserId,
       module: "webhooks",
       action: "updated",
       entityType: "webhook_registration",
@@ -216,7 +216,7 @@ export async function deleteWebhookRegistration(webhookId: string): Promise<
     // Log audit trail.
     await writeAuditLog({
       tenantId: currentUser.tenantId,
-      actorId: currentUser.id,
+      actorId: currentUser.authUserId,
       module: "webhooks",
       action: "deleted",
       entityType: "webhook_registration",
@@ -252,7 +252,7 @@ export async function regenerateWebhookSecretAction(webhookId: string): Promise<
     // Log audit trail (secret itself is NOT logged).
     await writeAuditLog({
       tenantId: currentUser.tenantId,
-      actorId: currentUser.id,
+      actorId: currentUser.authUserId,
       module: "webhooks",
       action: "secret_regenerated",
       entityType: "webhook_registration",
