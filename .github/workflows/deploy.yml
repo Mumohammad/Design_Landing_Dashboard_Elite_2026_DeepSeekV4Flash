@@ -1,15 +1,22 @@
 name: Deploy — EliteDev
 
 on:
-  # Run after CI completes successfully on master
-  workflow_run:
-    workflows: ["CI — EliteDev"]
-    types: [completed]
-    branches: [master]
-
   # Also run on PRs for preview (only if CI passed)
   pull_request:
     branches: [master, main]
+
+# ⚠️ The `workflow_run` trigger (master production deploys) is intentionally
+# disabled as of 2026-09-13:
+#   1. Vercel's native Git integration already deploys master to production
+#      ("Production – elite-dashboard" commit status = success), so this job
+#      duplicates an existing deployment path.
+#   2. The `production` job has NEVER succeeded on a master push — it fails
+#      closed at "Verify production Supabase secrets" because the repo's
+#      `production` GitHub environment has no PRODUCTION_SUPABASE_* secrets
+#      configured (docs/P0-1-production-supabase-runbook.md Step 4), leaving
+#      a permanent red X on every master commit.
+# To re-enable: complete runbook Step 4 (environment secrets) AND verify the
+# job adds value over Vercel-native deploys (e.g. bundle-staging guard).
 
 # Only allow one deployment at a time per branch
 concurrency:
@@ -105,10 +112,10 @@ jobs:
   production:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: >
-      github.event_name == 'workflow_run' &&
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_branch == 'master'
+    # Disabled with the workflow_run trigger — see the note at the top of
+    # this file. Never auto-revive this job without configuring the
+    # production environment secrets first (fail-closed guard below).
+    if: false
     environment:
       name: production
       url: ${{ steps.deploy.outputs.url }}
