@@ -48,6 +48,11 @@ jobs:
     - name: Deploy config check
       run: node scripts/verify-deploy-config.mjs
 
+    # ── FX-10: every API route must self-guard or be explicitly allowlisted ──
+
+    - name: API route guard check
+      run: node scripts/verify-api-guards.mjs
+
     # ── Code quality ──────────────────────────────────────────────────────
 
     - name: Lint
