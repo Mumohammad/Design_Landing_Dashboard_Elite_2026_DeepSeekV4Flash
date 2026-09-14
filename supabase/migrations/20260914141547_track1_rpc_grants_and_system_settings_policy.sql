@@ -8,11 +8,12 @@
 -- Principles (mirrors 062/063 conventions):
 --   * REVOKE from PUBLIC/anon/authenticated first, GRANT narrowly after.
 --   * Exact function signatures in every GRANT/REVOKE (overload safety).
---   * Idempotent: REVOKE/GRANT on privileges are no-ops when absent;
---     DROP POLICY IF EXISTS guards each policy create.
---   * Functions that may not exist in every environment (fresh `supabase
---     db reset` vs production) are handled via to_regprocedure() guards,
---     so the migration never fails on a missing function.
+--   * Idempotent: DROP POLICY IF EXISTS guards each policy create.
+--   * Every function-level REVOKE/GRANT is guarded via to_regprocedure():
+--     on environments where the function is absent (e.g. a fresh `supabase
+--     db reset` before seed) the statements are skipped with a NOTICE
+--     instead of failing the migration. When the function exists, the
+--     revokes and grants are re-applied idempotently.
 --
 -- ⚠️  NEVER applied by this task: no SQL/DDL was executed against any
 --     Supabase project. This file is applied only by the normal migration
@@ -25,18 +26,16 @@
 
 -- compute_driver_completeness(uuid): created in 015 (driver compliance),
 -- search_path pinned in 061. SECURITY DEFINER helper; no client needs it.
-REVOKE ALL ON FUNCTION public.compute_driver_completeness(uuid)
-  FROM PUBLIC, anon, authenticated;
-
--- compute_driver_completeness(uuid) may not exist on a fresh reset before
--- seed; guard so the migration never aborts on a missing function.
+-- Guarded: the function may be absent on a fresh/reset database.
 DO $$
 BEGIN
   IF to_regprocedure('public.compute_driver_completeness(uuid)') IS NOT NULL THEN
+    REVOKE ALL ON FUNCTION public.compute_driver_completeness(uuid)
+      FROM PUBLIC, anon, authenticated;
     GRANT EXECUTE ON FUNCTION public.compute_driver_completeness(uuid)
       TO service_role;
   ELSE
-    RAISE NOTICE 'track1: public.compute_driver_completeness(uuid) not present; EXECUTE grant to service_role skipped';
+    RAISE NOTICE 'track1: public.compute_driver_completeness(uuid) not present; grants/revokes skipped';
   END IF;
 END;
 $$;
@@ -45,8 +44,17 @@ $$;
 -- chart_of_accounts. Trigger invocation does NOT require EXECUTE for the
 -- firing role — only the table owner needs it. It must remain un-granted
 -- to anon/authenticated/service_role RPC callers.
-REVOKE ALL ON FUNCTION public.validate_chart_account()
-  FROM PUBLIC, anon, authenticated;
+-- Guarded: the function may be absent on a fresh/reset database.
+DO $$
+BEGIN
+  IF to_regprocedure('public.validate_chart_account()') IS NOT NULL THEN
+    REVOKE ALL ON FUNCTION public.validate_chart_account()
+      FROM PUBLIC, anon, authenticated;
+  ELSE
+    RAISE NOTICE 'track1: public.validate_chart_account() not present; revoke skipped';
+  END IF;
+END;
+$$;
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- 2. RLS helper functions — authenticated + service_role only
@@ -80,9 +88,12 @@ $$;
 -- 3. Intentional public token-verification functions
 -- ═══════════════════════════════════════════════════════════════════
 -- public_verify_document(text) / public_application_status(text) (059) are
--- SECURITY DEFINER endpoints behind opaque 256-bit tokens with built-in
--- per-IP rate limiting. Anonymous execution is INTENTIONAL: they power the
--- unauthenticated /verify-document and application-status pages.
+-- SECURITY DEFINER endpoints behind opaque 256-bit tokens. Rate limiting:
+-- public_application_status(text) rate-limits per IP inside the function;
+-- public_verify_document(text) has no in-function rate limiter (any
+-- rate-limiting for it would have to come from a proven external guard).
+-- Anonymous execution is INTENTIONAL: they power the unauthenticated
+-- /verify-document and application-status pages.
 
 REVOKE EXECUTE ON FUNCTION public.public_verify_document(text) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.public_application_status(text) FROM PUBLIC;
@@ -93,7 +104,7 @@ GRANT EXECUTE ON FUNCTION public.public_application_status(text)
   TO anon, authenticated, service_role;
 
 COMMENT ON FUNCTION public.public_verify_document(text) IS
-  'Track 1: anonymous EXECUTE is intentional — public QR/document verification by opaque high-entropy token (059), SECURITY DEFINER, rate-limited per IP, returns minimum safe fields.';
+  'Track 1: anonymous EXECUTE is intentional — public QR/document verification by opaque high-entropy token (059), SECURITY DEFINER, returns minimum safe fields. No per-IP rate limiter inside the function.';
 
 COMMENT ON FUNCTION public.public_application_status(text) IS
   'Track 1: anonymous EXECUTE is intentional — public application status lookup by opaque high-entropy token (059), SECURITY DEFINER, rate-limited per IP, returns minimum safe fields.';
