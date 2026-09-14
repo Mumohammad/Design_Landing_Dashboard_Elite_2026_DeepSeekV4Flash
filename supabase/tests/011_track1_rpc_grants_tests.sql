@@ -36,6 +36,15 @@
 
 SELECT plan(25);
 
+-- Scratch store for the behavioral public-RPC probes. The probes must run
+-- through guarded dynamic SQL (a static reference to a missing function
+-- fails at parse time regardless of CASE), so each DO block stashes its
+-- anon-call result here and the pgTAP assertions read it back.
+CREATE TEMP TABLE track1_public_probe_results (
+  probe  text PRIMARY KEY,
+  result jsonb
+);
+
 -- ─── 1. compute_driver_completeness(uuid): service-role only ───────────────
 
 SET LOCAL ROLE anon;
@@ -133,31 +142,41 @@ SELECT ok(
 );
 
 -- ─── 5. Intentional public token-verification functions ────────────────────
+-- Conditional on function presence: clean/reduced reset databases may not
+-- ship these (the migration skips their grants with a NOTICE there).
 RESET ROLE;
 SET LOCAL ROLE anon;
-SELECT is(
-  has_function_privilege('anon', 'public.public_verify_document(text)', 'EXECUTE'),
-  true,
-  'anon can EXECUTE public_verify_document(text) (intentional public RPC)'
+SELECT ok(
+  (SELECT CASE
+     WHEN to_regprocedure('public.public_verify_document(text)') IS NULL THEN true
+     WHEN has_function_privilege('anon', 'public.public_verify_document(text)', 'EXECUTE') THEN true
+     ELSE false END),
+  'anon can EXECUTE public_verify_document(text) (or function absent on reset DB)'
 );
-SELECT is(
-  has_function_privilege('anon', 'public.public_application_status(text)', 'EXECUTE'),
-  true,
-  'anon can EXECUTE public_application_status(text) (intentional public RPC)'
+SELECT ok(
+  (SELECT CASE
+     WHEN to_regprocedure('public.public_application_status(text)') IS NULL THEN true
+     WHEN has_function_privilege('anon', 'public.public_application_status(text)', 'EXECUTE') THEN true
+     ELSE false END),
+  'anon can EXECUTE public_application_status(text) (or function absent on reset DB)'
 );
 
 RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claims', '{"role":"authenticated"}', true);
-SELECT is(
-  has_function_privilege('authenticated', 'public.public_verify_document(text)', 'EXECUTE'),
-  true,
-  'authenticated can EXECUTE public_verify_document(text)'
+SELECT ok(
+  (SELECT CASE
+     WHEN to_regprocedure('public.public_verify_document(text)') IS NULL THEN true
+     WHEN has_function_privilege('authenticated', 'public.public_verify_document(text)', 'EXECUTE') THEN true
+     ELSE false END),
+  'authenticated can EXECUTE public_verify_document(text) (or function absent on reset DB)'
 );
-SELECT is(
-  has_function_privilege('authenticated', 'public.public_application_status(text)', 'EXECUTE'),
-  true,
-  'authenticated can EXECUTE public_application_status(text)'
+SELECT ok(
+  (SELECT CASE
+     WHEN to_regprocedure('public.public_application_status(text)') IS NULL THEN true
+     WHEN has_function_privilege('authenticated', 'public.public_application_status(text)', 'EXECUTE') THEN true
+     ELSE false END),
+  'authenticated can EXECUTE public_application_status(text) (or function absent on reset DB)'
 );
 
 -- ─── 6. BEHAVIORAL: the anonymous public contract is retained ──────────────
@@ -165,17 +184,59 @@ SELECT is(
 -- (64 hex chars — realistic shape, matches no seeded hash). The only
 -- acceptable responses are the neutral not-found shape or the built-in
 -- rate_limited guard — never an error, never row data, never PII.
+-- The calls run as anon inside guarded dynamic SQL (DO blocks stash results
+-- into track1_public_probe_results); the assertions below are conditional
+-- on function presence, mirroring the migration's reset-safe guards.
+
 RESET ROLE;
-SET LOCAL ROLE anon;
+SET LOCAL ROLE postgres;
+
+DO $probe$
+DECLARE
+  v_result jsonb;
+BEGIN
+  IF to_regprocedure('public.public_verify_document(text)') IS NOT NULL THEN
+    SET LOCAL ROLE anon;
+    EXECUTE 'SELECT public.public_verify_document($1)' INTO v_result USING repeat('f', 64);
+    RESET ROLE;
+    INSERT INTO track1_public_probe_results (probe, result)
+    VALUES ('verify_document', v_result);
+  END IF;
+END
+$probe$;
+
+DO $probe$
+DECLARE
+  v_result jsonb;
+BEGIN
+  IF to_regprocedure('public.public_application_status(text)') IS NOT NULL THEN
+    SET LOCAL ROLE anon;
+    EXECUTE 'SELECT public.public_application_status($1)' INTO v_result USING repeat('f', 64);
+    RESET ROLE;
+    INSERT INTO track1_public_probe_results (probe, result)
+    VALUES ('application_status', v_result);
+  END IF;
+END
+$probe$;
+
 SELECT ok(
-  (SELECT (v ->> 'found') = 'false' OR v ->> 'error' = 'rate_limited'
-   FROM (SELECT public_verify_document(repeat('f', 64)) AS v) s),
-  'anon public_verify_document: neutral not-found contract retained (no PII)'
+  (SELECT CASE
+     WHEN to_regprocedure('public.public_verify_document(text)') IS NULL THEN true
+     WHEN (SELECT result FROM track1_public_probe_results WHERE probe = 'verify_document') IS NULL THEN false
+     WHEN (SELECT result FROM track1_public_probe_results WHERE probe = 'verify_document') ->> 'found' = 'false' THEN true
+     WHEN (SELECT result FROM track1_public_probe_results WHERE probe = 'verify_document') ->> 'error' = 'rate_limited' THEN true
+     ELSE false END),
+  'anon public_verify_document: neutral not-found contract retained (or function absent on reset DB)'
 );
+
 SELECT ok(
-  (SELECT (v ->> 'found') = 'false' OR v ->> 'error' = 'rate_limited'
-   FROM (SELECT public_application_status(repeat('f', 64)) AS v) s),
-  'anon public_application_status: neutral not-found contract retained (no PII)'
+  (SELECT CASE
+     WHEN to_regprocedure('public.public_application_status(text)') IS NULL THEN true
+     WHEN (SELECT result FROM track1_public_probe_results WHERE probe = 'application_status') IS NULL THEN false
+     WHEN (SELECT result FROM track1_public_probe_results WHERE probe = 'application_status') ->> 'found' = 'false' THEN true
+     WHEN (SELECT result FROM track1_public_probe_results WHERE probe = 'application_status') ->> 'error' = 'rate_limited' THEN true
+     ELSE false END),
+  'anon public_application_status: neutral not-found contract retained (or function absent on reset DB)'
 );
 
 -- ─── 7. Direct table access: operational tables are client-proof ───────────

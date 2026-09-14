@@ -10,10 +10,11 @@
 --   * Exact function signatures in every GRANT/REVOKE (overload safety).
 --   * Idempotent: DROP POLICY IF EXISTS guards each policy create.
 --   * Every function-level REVOKE/GRANT is guarded via to_regprocedure():
---     on environments where the function is absent (e.g. a fresh `supabase
---     db reset` before seed) the statements are skipped with a NOTICE
+--     on environments where the function is absent (e.g. a clean/reduced
+--     `supabase db reset`) the statements are skipped with a NOTICE
 --     instead of failing the migration. When the function exists, the
---     revokes and grants are re-applied idempotently.
+--     revokes, grants, and (for the public verifiers) comments are
+--     re-applied idempotently as a group.
 --
 -- ⚠️  NEVER applied by this task: no SQL/DDL was executed against any
 --     Supabase project. This file is applied only by the normal migration
@@ -94,20 +95,37 @@ $$;
 -- rate-limiting for it would have to come from a proven external guard).
 -- Anonymous execution is INTENTIONAL: they power the unauthenticated
 -- /verify-document and application-status pages.
+-- Guarded as a group: REVOKE, GRANT, and COMMENT on each verifier are all
+-- inside one to_regprocedure() block — clean/reduced reset databases may
+-- not contain these functions at all.
 
-REVOKE EXECUTE ON FUNCTION public.public_verify_document(text) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.public_application_status(text) FROM PUBLIC;
+DO $$
+BEGIN
+  IF to_regprocedure('public.public_verify_document(text)') IS NOT NULL THEN
+    REVOKE EXECUTE ON FUNCTION public.public_verify_document(text) FROM PUBLIC;
+    GRANT EXECUTE ON FUNCTION public.public_verify_document(text)
+      TO anon, authenticated, service_role;
+    COMMENT ON FUNCTION public.public_verify_document(text) IS
+      'Track 1: anonymous EXECUTE is intentional — public QR/document verification by opaque high-entropy token, SECURITY DEFINER, returns minimum safe fields. No per-IP rate limiter inside the function.';
+  ELSE
+    RAISE NOTICE 'track1: public.public_verify_document(text) not present; grants/revokes/comment skipped';
+  END IF;
+END;
+$$;
 
-GRANT EXECUTE ON FUNCTION public.public_verify_document(text)
-  TO anon, authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.public_application_status(text)
-  TO anon, authenticated, service_role;
-
-COMMENT ON FUNCTION public.public_verify_document(text) IS
-  'Track 1: anonymous EXECUTE is intentional — public QR/document verification by opaque high-entropy token (059), SECURITY DEFINER, returns minimum safe fields. No per-IP rate limiter inside the function.';
-
-COMMENT ON FUNCTION public.public_application_status(text) IS
-  'Track 1: anonymous EXECUTE is intentional — public application status lookup by opaque high-entropy token (059), SECURITY DEFINER, rate-limited per IP, returns minimum safe fields.';
+DO $$
+BEGIN
+  IF to_regprocedure('public.public_application_status(text)') IS NOT NULL THEN
+    REVOKE EXECUTE ON FUNCTION public.public_application_status(text) FROM PUBLIC;
+    GRANT EXECUTE ON FUNCTION public.public_application_status(text)
+      TO anon, authenticated, service_role;
+    COMMENT ON FUNCTION public.public_application_status(text) IS
+      'Track 1: anonymous EXECUTE is intentional — public application status lookup by opaque high-entropy token, SECURITY DEFINER, rate-limited per IP, returns minimum safe fields.';
+  ELSE
+    RAISE NOTICE 'track1: public.public_application_status(text) not present; grants/revokes/comment skipped';
+  END IF;
+END;
+$$;
 
 -- ═══════════════════════════════════════════════════════════════════
 -- 4. Direct table grants — backend/service-role operational tables
@@ -141,6 +159,10 @@ COMMENT ON TABLE public.zatca_csids IS
 
 DROP POLICY IF EXISTS system_settings_select_private ON public.system_settings;
 DROP POLICY IF EXISTS system_settings_select_public ON public.system_settings;
+-- Drop-then-create makes this migration re-runnable (CREATE POLICY has no
+-- IF NOT EXISTS); the definition is deterministic, so a re-apply converges
+-- to the same policy rather than failing on an existing one.
+DROP POLICY IF EXISTS system_settings_select_own_tenant ON public.system_settings;
 
 CREATE POLICY system_settings_select_own_tenant
   ON public.system_settings
