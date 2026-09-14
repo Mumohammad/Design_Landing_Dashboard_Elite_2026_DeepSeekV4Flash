@@ -285,6 +285,22 @@ describe("POST /api/platform/register (FX-08)", () => {
     expect(Number(res.headers.get("retry-after"))).toBeGreaterThanOrEqual(1)
   })
 
+  it("ORDER LOCK: exhausted limiter → 429 even when the payload is also invalid (limiter runs BEFORE zod)", async () => {
+    // Regression lock for the mandated execution order:
+    //   IP extraction → rate limit → 429 → zod → Supabase/auth/tenant work.
+    // If validation were ever moved ahead of the limiter, this request would
+    // start returning 400 instead of 429 — making the limit trivially
+    // bypassable for malformed payloads (free probing of the endpoint).
+    rlState.registerResult = {
+      success: false,
+      remaining: 0,
+      resetAt: Date.now() + 30_000,
+    }
+    const res = await post("a")
+    expect(res.status).toBe(429)
+    expect((await res.json()).code).toBe("AUTH_RATE_LIMITED")
+  })
+
   it("limiter backend unavailable → fail closed 503", async () => {
     const mod = (await import("@/lib/auth/rate-limit")) as unknown as {
       RateLimitUnavailableError: new () => Error
