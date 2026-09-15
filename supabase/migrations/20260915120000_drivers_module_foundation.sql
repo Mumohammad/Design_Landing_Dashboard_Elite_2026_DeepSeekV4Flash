@@ -9,8 +9,10 @@
 --
 -- Conventions (Track 1):
 --   * Idempotent: IF NOT EXISTS / DROP POLICY IF EXISTS / guarded DO blocks.
---   * New tables: RLS enabled, tenant policies via get_my_tenant_id(),
---     soft-delete only (no DELETE policy), audit columns.
+--   * New mutable tables: RLS enabled, tenant policies via
+--     get_my_tenant_id(), soft-delete where the table supports deleted_at.
+--   * Append-only tables: RLS enabled, tenant policies via
+--     get_my_tenant_id(), and no hard-DELETE policy.
 --   * Internal SECURITY DEFINER engine: service_role EXECUTE only.
 --   * No data seeds; no production data touched.
 -- ============================================================================
@@ -217,7 +219,7 @@ CREATE INDEX IF NOT EXISTS idx_driver_cards_tenant              ON public.driver
 CREATE INDEX IF NOT EXISTS idx_driver_card_prints_card          ON public.driver_card_prints (card_id);
 CREATE INDEX IF NOT EXISTS idx_driver_card_prints_tenant        ON public.driver_card_prints (tenant_id);
 
--- ─── 5. RLS — tenant isolation, soft-delete only ────────────────────────────
+-- ─── 5. RLS — tenant isolation and delete restriction ───────────────────────
 
 ALTER TABLE public.driver_consents             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.driver_compliance_results   ENABLE ROW LEVEL SECURITY;
@@ -229,26 +231,83 @@ ALTER TABLE public.driver_card_prints          ENABLE ROW LEVEL SECURITY;
 
 DO $$
 DECLARE
-  v_tables text[] := ARRAY[
-    'driver_consents', 'driver_compliance_results', 'driver_compliance_overrides',
-    'driver_calendar_events', 'driver_assets', 'driver_cards', 'driver_card_prints'
+  v_soft_delete_tables text[] := ARRAY[
+    'driver_compliance_overrides',
+    'driver_calendar_events',
+    'driver_assets',
+    'driver_cards'
+  ];
+  v_plain_tables text[] := ARRAY[
+    'driver_consents',
+    'driver_compliance_results',
+    'driver_card_prints'
   ];
   v_t text;
 BEGIN
-  FOREACH v_t IN ARRAY v_tables LOOP
+  FOREACH v_t IN ARRAY v_soft_delete_tables LOOP
     EXECUTE format('DROP POLICY IF EXISTS %I_tenant_sel ON public.%I', v_t, v_t);
     EXECUTE format(
-      'CREATE POLICY %I_tenant_sel ON public.%I FOR SELECT TO authenticated USING (tenant_id = get_my_tenant_id() AND deleted_at IS NULL)',
-      v_t, v_t);
+      'CREATE POLICY %I_tenant_sel
+       ON public.%I
+       FOR SELECT
+       TO authenticated
+       USING (tenant_id = get_my_tenant_id() AND deleted_at IS NULL)',
+      v_t, v_t
+    );
+
     EXECUTE format('DROP POLICY IF EXISTS %I_tenant_ins ON public.%I', v_t, v_t);
     EXECUTE format(
-      'CREATE POLICY %I_tenant_ins ON public.%I FOR INSERT TO authenticated WITH CHECK (tenant_id = get_my_tenant_id())',
-      v_t, v_t);
+      'CREATE POLICY %I_tenant_ins
+       ON public.%I
+       FOR INSERT
+       TO authenticated
+       WITH CHECK (tenant_id = get_my_tenant_id())',
+      v_t, v_t
+    );
+
     EXECUTE format('DROP POLICY IF EXISTS %I_tenant_upd ON public.%I', v_t, v_t);
     EXECUTE format(
-      'CREATE POLICY %I_tenant_upd ON public.%I FOR UPDATE TO authenticated USING (tenant_id = get_my_tenant_id()) WITH CHECK (tenant_id = get_my_tenant_id())',
-      v_t, v_t);
-    -- No DELETE policy: hard deletes are denied by default; use deleted_at.
+      'CREATE POLICY %I_tenant_upd
+       ON public.%I
+       FOR UPDATE
+       TO authenticated
+       USING (tenant_id = get_my_tenant_id() AND deleted_at IS NULL)
+       WITH CHECK (tenant_id = get_my_tenant_id())',
+      v_t, v_t
+    );
+  END LOOP;
+
+  FOREACH v_t IN ARRAY v_plain_tables LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I_tenant_sel ON public.%I', v_t, v_t);
+    EXECUTE format(
+      'CREATE POLICY %I_tenant_sel
+       ON public.%I
+       FOR SELECT
+       TO authenticated
+       USING (tenant_id = get_my_tenant_id())',
+      v_t, v_t
+    );
+
+    EXECUTE format('DROP POLICY IF EXISTS %I_tenant_ins ON public.%I', v_t, v_t);
+    EXECUTE format(
+      'CREATE POLICY %I_tenant_ins
+       ON public.%I
+       FOR INSERT
+       TO authenticated
+       WITH CHECK (tenant_id = get_my_tenant_id())',
+      v_t, v_t
+    );
+
+    EXECUTE format('DROP POLICY IF EXISTS %I_tenant_upd ON public.%I', v_t, v_t);
+    EXECUTE format(
+      'CREATE POLICY %I_tenant_upd
+       ON public.%I
+       FOR UPDATE
+       TO authenticated
+       USING (tenant_id = get_my_tenant_id())
+       WITH CHECK (tenant_id = get_my_tenant_id())',
+      v_t, v_t
+    );
   END LOOP;
 END;
 $$;
