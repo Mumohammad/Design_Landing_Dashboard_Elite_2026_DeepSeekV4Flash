@@ -7,6 +7,7 @@ import { useTranslation } from "@/hooks/use-translation"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
+import { DriverComplianceEngine } from "@/components/drivers/driver-compliance-engine"
 import type { Driver } from "@/types/drivers"
 import {
   Banknote,
@@ -1028,7 +1029,8 @@ export function DriverTabs({
       <TabsContent value="odometer" className="mt-4">
         <OdometerTab driverId={driver.id} isAr={isAr} />
       </TabsContent>
-      <TabsContent value="compliance" className="mt-4">
+      <TabsContent value="compliance" className="mt-4 space-y-4">
+        <DriverComplianceEngine driver={driver} isAr={isAr} />
         <ComplianceTab driver={driver} isAr={isAr} />
       </TabsContent>
     </Tabs>
