@@ -1,78 +1,73 @@
-import { createClient } from '@/lib/supabase/server';
+// Shared types for the Phase A Saudi-2026 driver compliance engine.
+// Client-safe: no server code is imported from here. OVERRIDABLE_REQUIREMENTS
+// is a value export but contains plain string literals only.
 
 export type ComplianceLevel =
-  | 'fully_compliant'
-  | 'compliant_warnings'
-  | 'pending_review'
-  | 'non_compliant'
-  | 'critical_block'
-  | 'suspended';
+  | "fully_compliant"
+  | "compliant_warnings"
+  | "pending_review"
+  | "non_compliant"
+  | "critical_block"
+  | "suspended"
 
-export type ComplianceRequirementStatus =
-  | 'valid'
-  | 'missing'
-  | 'expired'
-  | 'expiring'
-  | 'pending_review'
-  | 'not_required'
-  | 'override_active'
-  | 'suspended'
-  | 'blocked';
-
-export type ComplianceRequirement = {
-  key: string;
-  status: ComplianceRequirementStatus;
-  blocker: boolean;
-  detail?: string | null;
-  override: boolean;
-};
-
-export type ComplianceResult = {
-  id: string;
-  driver_id: string;
-  run_at: string;
-  level: ComplianceLevel;
-  score: number;
-  details: {
-    level?: string;
-    score?: number;
-    blockers?: number;
-    missing?: number;
-    pending?: number;
-    warnings?: number;
-    requirements?: ComplianceRequirement[];
-    computed_at?: string;
-  };
-  triggered_by: string | null;
-  created_at: string;
-};
-
-/**
- * Fetches the most recent compliance results for a driver, scoped to the
- * caller's tenant by RLS (tenant policy via public.get_my_tenant_id()).
- */
-export async function listRecentResults(
-  driverId: string,
-  limit = 5
-): Promise<{ data: ComplianceResult[] | null; error: Error | null }> {
-  const supabase = await createClient();
-
-  const { data, error } = await supabase
-    .from('driver_compliance_results')
-    .select('*')
-    .eq('driver_id', driverId)
-    .order('run_at', { ascending: false })
-    .limit(limit);
-
-  return { data: (data as ComplianceResult[] | null) ?? null, error };
+export interface ComplianceRequirement {
+  key: string
+  status:
+    | "valid"
+    | "expiring"
+    | "expired"
+    | "missing"
+    | "pending_review"
+    | "blocked"
+    | "suspended"
+    | "override_active"
+    | "not_required"
+  blocker?: boolean
+  detail?: string | null
+  override?: boolean
 }
 
-/**
- * Returns the latest compliance result for a driver, or null if none exists.
- */
-export async function getLatestResult(
-  driverId: string
-): Promise<{ data: ComplianceResult | null; error: Error | null }> {
-  const { data, error } = await listRecentResults(driverId, 1);
-  return { data: data?.[0] ?? null, error };
+export interface ComplianceResultDetails {
+  requirements?: ComplianceRequirement[]
+  blockers?: number
+  missing?: number
+  pending?: number
+  warnings?: number
+  [key: string]: unknown
+}
+
+export interface ComplianceResult {
+  id: string
+  tenant_id: string
+  driver_id: string
+  level: ComplianceLevel
+  score: number
+  details: ComplianceResultDetails
+  triggered_by: string | null
+  run_at: string
+}
+
+// Requirements the engine upgrades to override_active when an authorized,
+// unexpired, unrevoked row exists in driver_compliance_overrides
+// (20260915120000_drivers_module_foundation.sql).
+export const OVERRIDABLE_REQUIREMENTS = [
+  "identity",
+  "driving_license",
+  "health_certificate",
+  "home_delivery_permit",
+  "ajeer_permit",
+] as const
+
+export type OverridableRequirement = (typeof OVERRIDABLE_REQUIREMENTS)[number]
+
+export interface ComplianceOverride {
+  id: string
+  driver_id: string
+  requirement: string
+  reason: string
+  attachment_url: string | null
+  approved_by: string
+  approved_at: string
+  expires_at: string
+  revoked_at: string | null
 }
