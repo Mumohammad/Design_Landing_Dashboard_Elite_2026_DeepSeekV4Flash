@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { logger } from '@/lib/logger';
 
 const inputSchema = z.object({
   driverId: z.uuid('driverId must be a valid UUID'),
@@ -63,7 +64,7 @@ export async function recomputeDriverCompliance(input: unknown): Promise<Recompu
   });
 
   if (rpcError) {
-    console.error('compute_driver_compliance failed', { driverId, message: rpcError.message });
+    logger.error({ driverId, message: rpcError.message }, 'compute_driver_compliance failed');
     return { ok: false, error: 'Compliance engine unavailable' };
   }
 
