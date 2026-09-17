@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { issueDriverCard, recordCardPrint, revokeDriverCard } from "@/app/actions/drivers/driver-cards"
-import type { DriverCard, DriverCardPrint } from "@/lib/drivers/cards"
+import type { DriverCard, DriverCardPerson, DriverCardPrint } from "@/lib/drivers/cards"
+import { buildCardPrintHtml, DriverCardPreview } from "@/components/drivers/driver-card-preview"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -11,7 +12,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { CreditCard, Printer } from "lucide-react"
+import { CreditCard, Eye, Printer } from "lucide-react"
 
 const cardStatusCls: Record<string, string> = {
   active: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
@@ -27,14 +28,18 @@ const cardStatusLabels: Record<string, { en: string; ar: string }> = {
   expired: { en: "Expired", ar: "منتهية" },
 }
 
+const str = (v: unknown): string | null => (typeof v === "string" && v.trim() !== "" ? v.trim() : null)
+
 export function DriverCardPanel({ driverId, isAr }: { driverId: string; isAr: boolean }) {
   const [card, setCard] = useState<DriverCard | null>(null)
   const [prints, setPrints] = useState<DriverCardPrint[]>([])
+  const [person, setPerson] = useState<DriverCardPerson | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [revokeOpen, setRevokeOpen] = useState(false)
   const [revokeReason, setRevokeReason] = useState("")
+  const [previewOpen, setPreviewOpen] = useState(false)
   const [format, setFormat] = useState<"pvc" | "a4" | "screen">("pvc")
 
   // Pure queries: no setState here (react-hooks set-state-in-effect rule).
@@ -62,36 +67,69 @@ export function DriverCardPanel({ driverId, isAr }: { driverId: string; isAr: bo
     return (data ?? []) as DriverCardPrint[]
   }, [])
 
+  // Card fields (name / mobile / id number / photo) with tolerant fallbacks:
+  // driver column naming varies, so read the row and pick what exists.
+  const fetchPerson = useCallback(async (): Promise<DriverCardPerson | null> => {
+    const supabase = createClient()
+    const { data } = await supabase.from("drivers").select("*").eq("id", driverId).maybeSingle()
+    if (!data) return null
+    const row = data as Record<string, unknown>
+
+    const photoRaw = str(row.photo_url)
+    let photoUrl: string | null = null
+    if (photoRaw) {
+      if (/^https?:\/\//.test(photoRaw)) {
+        photoUrl = photoRaw
+      } else {
+        const { data: signed } = await supabase.storage.from("driver-photos").createSignedUrl(photoRaw, 300)
+        photoUrl = signed?.signedUrl ?? null
+      }
+    }
+
+    return {
+      name: str(row.full_name_en) ?? str(row.full_name) ?? str(row.name) ?? str(row.full_name_ar) ?? "—",
+      phone: str(row.phone) ?? str(row.mobile) ?? str(row.mobile_number),
+      idNumber: str(row.identity_number) ?? str(row.national_id) ?? str(row.id_number) ?? str(row.iqama_number),
+      photoUrl,
+    }
+  }, [driverId])
+
   useEffect(() => {
     let cancelled = false
     const refresh = async () => {
-      const c = await fetchCard()
-      const p = await fetchPrints(c?.id ?? null)
+      const [c, p] = await Promise.all([fetchCard(), fetchPerson()])
+      const pr = await fetchPrints(c?.id ?? null)
       if (cancelled) return
       setCard(c)
-      setPrints(p)
+      setPerson(p)
+      setPrints(pr)
       setLoading(false)
     }
     void refresh()
     return () => {
       cancelled = true
     }
-  }, [fetchCard, fetchPrints])
+  }, [fetchCard, fetchPerson, fetchPrints])
 
   const refreshAll = async () => {
-    const c = await fetchCard()
-    const p = await fetchPrints(c?.id ?? null)
+    const [c, p] = await Promise.all([fetchCard(), fetchPerson()])
+    const pr = await fetchPrints(c?.id ?? null)
     setCard(c)
-    setPrints(p)
+    setPerson(p)
+    setPrints(pr)
   }
 
   const onIssue = async () => {
     setBusy(true)
     setError(null)
     const res = await issueDriverCard({ driverId })
-    if (!res.ok) setError(res.error)
     setBusy(false)
+    if (!res.ok) {
+      setError(res.error)
+      return
+    }
     await refreshAll()
+    setPreviewOpen(true) // show the printable card right after issuing
   }
 
   const onRevoke = async () => {
@@ -108,13 +146,22 @@ export function DriverCardPanel({ driverId, isAr }: { driverId: string; isAr: bo
     await refreshAll()
   }
 
-  const onPrint = async () => {
+  const onPrintCard = async () => {
     if (!card) return
     setBusy(true)
     setError(null)
     const res = await recordCardPrint({ cardId: card.id, format })
-    if (!res.ok) setError(res.error)
     setBusy(false)
+    if (!res.ok) {
+      setError(res.error)
+      return
+    }
+    const w = window.open("", "_blank", "width=760,height=620")
+    if (w) {
+      w.document.write(buildCardPrintHtml(card, person))
+      w.document.close()
+      w.focus()
+    }
     await refreshAll()
   }
 
@@ -161,19 +208,9 @@ export function DriverCardPanel({ driverId, isAr }: { driverId: string; isAr: bo
 
               {card.status === "active" && (
                 <div className="flex flex-wrap items-center gap-2 pt-1">
-                  <Select value={format} onValueChange={(v) => setFormat(v as "pvc" | "a4" | "screen")}>
-                    <SelectTrigger className="h-8 w-28 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="pvc">PVC</SelectItem>
-                      <SelectItem value="a4">A4</SelectItem>
-                      <SelectItem value="screen">{isAr ? "شاشة" : "Screen"}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Button size="sm" variant="outline" onClick={onPrint} disabled={busy}>
-                    <Printer className="h-3.5 w-3.5" />
-                    {isAr ? "تسجيل طباعة" : "Record print"}
+                  <Button size="sm" variant="outline" onClick={() => setPreviewOpen(true)} disabled={busy}>
+                    <Eye className="h-3.5 w-3.5" />
+                    {isAr ? "معاينة البطاقة" : "Preview card"}
                   </Button>
                   <Button size="sm" variant="outline" onClick={() => { setRevokeOpen(true); setError(null) }} disabled={busy} className="text-red-600 dark:text-red-400">
                     {isAr ? "إلغاء البطاقة" : "Revoke card"}
@@ -211,6 +248,33 @@ export function DriverCardPanel({ driverId, isAr }: { driverId: string; isAr: bo
       )}
 
       {error && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{error}</p>}
+
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{isAr ? "معاينة بطاقة السائق" : "Driver card preview"}</DialogTitle>
+          </DialogHeader>
+          {card && <DriverCardPreview card={card} person={person} />}
+          <DialogFooter>
+            <div className="flex w-full items-center justify-between gap-2">
+              <Select value={format} onValueChange={(v) => setFormat(v as "pvc" | "a4" | "screen")}>
+                <SelectTrigger className="h-9 w-28 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pvc">PVC</SelectItem>
+                  <SelectItem value="a4">A4</SelectItem>
+                  <SelectItem value="screen">{isAr ? "شاشة" : "Screen"}</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button onClick={() => void onPrintCard()} disabled={busy}>
+                <Printer className="h-3.5 w-3.5" />
+                {busy ? (isAr ? "جارٍ التجهيز…" : "Preparing…") : isAr ? "طباعة" : "Print"}
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={revokeOpen} onOpenChange={setRevokeOpen}>
         <DialogContent>
