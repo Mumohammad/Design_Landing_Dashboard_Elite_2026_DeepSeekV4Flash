@@ -1,7 +1,8 @@
 "use server"
 
 import { z } from "zod"
-import { createAdminClient, createClient } from "@/lib/supabase/server"
+import { createClient } from "@/lib/supabase/server"
+import { createAdminClient } from "@/lib/supabase/admin"
 import { logger } from "@/lib/logger"
 
 // Roles allowed to approve/revoke compliance overrides (002_enums.sql user_role).
@@ -36,7 +37,7 @@ async function requireApprover() {
   const {
     data: { user },
   } = await supabase.auth.getUser()
-  if (!user) return { error: "Not authenticated" } as const
+  if (!user) return { ok: false as const, error: "Not authenticated" }
 
   const { data: me } = await supabase
     .from("users")
@@ -45,9 +46,9 @@ async function requireApprover() {
     .maybeSingle()
 
   if (!me || me.status !== "active" || !APPROVER_ROLES.has(me.role)) {
-    return { error: "Not authorized to manage compliance overrides" } as const
+    return { ok: false as const, error: "Not authorized to manage compliance overrides" }
   }
-  return { supabase, user, me } as const
+  return { ok: true as const, supabase, user, me }
 }
 
 async function recompute(driverId: string) {
@@ -63,7 +64,7 @@ export async function createComplianceOverride(input: unknown): Promise<Result> 
   if (!parsed.success) return { ok: false, error: "Invalid input" }
 
   const auth = await requireApprover()
-  if ("error" in auth) return { ok: false, error: auth.error }
+  if (!auth.ok) return { ok: false, error: auth.error }
   const { supabase, user, me } = auth
   const { driverId, requirement, reason, days, attachmentUrl } = parsed.data
 
@@ -132,7 +133,7 @@ export async function revokeComplianceOverride(input: unknown): Promise<Result> 
   if (!parsed.success) return { ok: false, error: "Invalid input" }
 
   const auth = await requireApprover()
-  if ("error" in auth) return { ok: false, error: auth.error }
+  if (!auth.ok) return { ok: false, error: auth.error }
   const { supabase, user, me } = auth
   const { overrideId } = parsed.data
 
