@@ -22,3 +22,12 @@ export interface DriverCardPrint {
   printed_at: string
   batch_ref: string | null
 }
+
+// Person details rendered on the printable card. Resolved client-side with
+// fallbacks because driver column naming varies across deployments.
+export interface DriverCardPerson {
+  name: string
+  phone: string | null
+  idNumber: string | null
+  photoUrl: string | null
+}
