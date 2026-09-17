@@ -49,7 +49,9 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
+  // Pure query: no setState here so the effect below never triggers the
+  // react-hooks set-state-in-effect rule.
+  const fetchLatest = useCallback(async (): Promise<ComplianceResult | null> => {
     const supabase = createClient()
     const { data } = await supabase
       .from("driver_compliance_results")
@@ -57,20 +59,32 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
       .eq("driver_id", driver.id)
       .order("run_at", { ascending: false })
       .limit(1)
-    setLatest((data?.[0] as ComplianceResult | undefined) ?? null)
-    setLoading(false)
+    return (data?.[0] as ComplianceResult | undefined) ?? null
   }, [driver.id])
 
   useEffect(() => {
-    void load()
-  }, [load])
+    let cancelled = false
+    const refresh = async () => {
+      const result = await fetchLatest()
+      if (cancelled) return
+      setLatest(result)
+      setLoading(false)
+    }
+    void refresh()
+    return () => {
+      cancelled = true
+    }
+  }, [fetchLatest])
 
   const onRecompute = async () => {
     setRunning(true)
     setError(null)
     const res = await recomputeDriverCompliance({ driverId: driver.id })
-    if (!res.ok) setError(res.error)
-    else await load()
+    if (!res.ok) {
+      setError(res.error)
+    } else {
+      setLatest(await fetchLatest())
+    }
     setRunning(false)
   }
 
