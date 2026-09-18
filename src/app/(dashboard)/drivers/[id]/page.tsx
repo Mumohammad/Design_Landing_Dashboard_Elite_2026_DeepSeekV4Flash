@@ -9,8 +9,17 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Skeleton } from "@/components/ui/skeleton"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
-import { updateDriverPhoto } from "@/app/actions/drivers/driver-photo"
+import {
+  removeDriverPhoto,
+  updateDriverPhoto,
+} from "@/app/actions/drivers/driver-photo"
 import { DriverTabs } from "./driver-tabs"
 import type { Driver, DriverCategory, DriverStatus } from "@/types/drivers"
 import type { LucideIcon } from "lucide-react"
@@ -22,8 +31,10 @@ import {
   Car,
   Loader2,
   Phone,
+  Trash2,
   User,
   Wallet,
+  ZoomIn,
 } from "lucide-react"
 
 const PHOTO_BUCKET = "driver-photos"
@@ -173,6 +184,8 @@ export default function DriverDetailPage() {
   const [error, setError] = useState<string | null>(null)
   const [resolvedPhotoUrl, setResolvedPhotoUrl] = useState<string | null>(null)
   const [photoUploading, setPhotoUploading] = useState(false)
+  const [photoRemoving, setPhotoRemoving] = useState(false)
+  const [photoPreviewOpen, setPhotoPreviewOpen] = useState(false)
   const photoInputRef = useRef<HTMLInputElement>(null)
   const objectUrlRef = useRef<string | null>(null)
 
@@ -252,6 +265,7 @@ export default function DriverDetailPage() {
       return
     }
 
+    // Instant optimistic preview — the photo shows the moment it is picked.
     if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current)
     const objectUrl = URL.createObjectURL(file)
     objectUrlRef.current = objectUrl
@@ -293,6 +307,32 @@ export default function DriverDetailPage() {
       toast.error(err instanceof Error ? err.message : t.common.error)
     } finally {
       setPhotoUploading(false)
+    }
+  }
+
+  const onPhotoRemove = async () => {
+    if (!driver) return
+    setPhotoRemoving(true)
+    try {
+      const result = await removeDriverPhoto({ driverId: driver.id })
+      if (!result.ok) {
+        toast.error(result.error)
+        return
+      }
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current)
+        objectUrlRef.current = null
+      }
+      setResolvedPhotoUrl(null)
+      setDriver((prev) =>
+        prev ? { ...prev, photo_url: null as Driver["photo_url"] } : prev,
+      )
+      setPhotoPreviewOpen(false)
+      toast.success(isAr ? "تمت إزالة الصورة" : "Photo removed")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t.common.error)
+    } finally {
+      setPhotoRemoving(false)
     }
   }
 
@@ -398,19 +438,35 @@ export default function DriverDetailPage() {
         />
         <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-4">
-            <div className="relative shrink-0">
-              <Avatar className="h-16 w-16 rounded-full ring-2 ring-border/40">
-                {resolvedPhotoUrl && (
-                  <AvatarImage
-                    src={resolvedPhotoUrl}
-                    alt={driver.full_name_ar}
-                    className="rounded-full object-cover"
-                  />
+            <div className="group relative shrink-0">
+              <button
+                type="button"
+                onClick={() => resolvedPhotoUrl && setPhotoPreviewOpen(true)}
+                title={resolvedPhotoUrl ? (isAr ? "معاينة الصورة" : "Preview photo") : undefined}
+                aria-label={resolvedPhotoUrl ? (isAr ? "معاينة الصورة" : "Preview photo") : undefined}
+                className={cn(
+                  "block rounded-full transition-transform duration-200",
+                  resolvedPhotoUrl && "cursor-zoom-in group-hover:scale-[1.03]",
                 )}
-                <AvatarFallback className="rounded-full bg-gradient-to-br from-elite-blue-500 to-elite-orange-500 text-lg font-semibold text-white">
-                  {initials}
-                </AvatarFallback>
-              </Avatar>
+              >
+                <Avatar className="h-16 w-16 rounded-full bg-muted ring-2 ring-elite-blue-500/30 ring-offset-2 ring-offset-background">
+                  {resolvedPhotoUrl && (
+                    <AvatarImage
+                      src={resolvedPhotoUrl}
+                      alt={driver.full_name_ar}
+                      className="rounded-full bg-muted object-contain"
+                    />
+                  )}
+                  <AvatarFallback className="rounded-full bg-gradient-to-br from-elite-blue-500 to-elite-orange-500 text-lg font-semibold text-white">
+                    {initials}
+                  </AvatarFallback>
+                </Avatar>
+                {resolvedPhotoUrl && (
+                  <span className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-full bg-black/0 opacity-0 transition-all duration-200 group-hover:bg-black/25 group-hover:opacity-100">
+                    <ZoomIn className="h-5 w-5 text-white drop-shadow" />
+                  </span>
+                )}
+              </button>
               <input
                 ref={photoInputRef}
                 type="file"
@@ -428,7 +484,7 @@ export default function DriverDetailPage() {
                 onClick={() => photoInputRef.current?.click()}
                 title={isAr ? "تغيير الصورة" : "Change photo"}
                 aria-label={isAr ? "تغيير الصورة" : "Change photo"}
-                className="absolute -bottom-1 -end-1 flex h-6 w-6 items-center justify-center rounded-full border border-border/60 bg-card text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground disabled:opacity-60"
+                className="absolute -bottom-1 -end-1 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-border/60 bg-card text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground disabled:opacity-60"
               >
                 {photoUploading ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -487,6 +543,58 @@ export default function DriverDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* Full-size photo lightbox */}
+      <Dialog open={photoPreviewOpen} onOpenChange={setPhotoPreviewOpen}>
+        <DialogContent className="overflow-hidden border-border/40 bg-background/95 p-0 backdrop-blur-xl sm:max-w-lg">
+          <DialogHeader className="border-b border-border/40 px-5 py-4">
+            <DialogTitle className="text-base">{driver.full_name_ar}</DialogTitle>
+          </DialogHeader>
+          <div className="relative flex items-center justify-center bg-gradient-to-br from-elite-blue-500/5 via-transparent to-elite-orange-500/5 p-6">
+            {resolvedPhotoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element -- dynamic signed URL
+              <img
+                src={resolvedPhotoUrl}
+                alt={driver.full_name_ar}
+                className="max-h-[65vh] w-auto max-w-full rounded-2xl object-contain shadow-2xl ring-1 ring-border/40"
+              />
+            ) : (
+              <div className="flex h-48 items-center justify-center">
+                <User className="h-12 w-12 text-muted-foreground/40" />
+              </div>
+            )}
+          </div>
+          <div className="flex items-center justify-between gap-2 border-t border-border/40 px-5 py-4">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              disabled={photoUploading || photoRemoving}
+              onClick={() => {
+                setPhotoPreviewOpen(false)
+                photoInputRef.current?.click()
+              }}
+            >
+              <Camera className="h-3.5 w-3.5" />
+              {isAr ? "تغيير الصورة" : "Change photo"}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5 text-red-600 hover:bg-red-500/10 hover:text-red-600 dark:text-red-400 dark:hover:bg-red-500/10"
+              disabled={photoRemoving || photoUploading || !resolvedPhotoUrl}
+              onClick={() => void onPhotoRemove()}
+            >
+              {photoRemoving ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Trash2 className="h-3.5 w-3.5" />
+              )}
+              {isAr ? "إزالة الصورة" : "Remove photo"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <DriverTabs
         driver={driver}
