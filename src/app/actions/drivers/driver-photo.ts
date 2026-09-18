@@ -3,8 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { createClient as createServerClient } from "@/lib/supabase/server"
-import { createClient as createAdminClient } from "@/lib/supabase/admin"
-import { recomputeDriverCompliance } from "@/lib/compliance/recompute"
+import { createAdminClient } from "@/lib/supabase/admin"
 
 const inputSchema = z.object({
   driverId: z.string().uuid(),
@@ -94,12 +93,6 @@ export async function updateDriverPhoto(input: unknown): Promise<Result> {
   const { data: signed } = await service.storage
     .from("driver-photos")
     .createSignedUrl(filePath, 3600)
-
-  try {
-    await recomputeDriverCompliance(service, tenantId, driverId)
-  } catch (err) {
-    console.error("Compliance recompute after photo update failed:", err)
-  }
 
   console.info("Driver photo updated", {
     driverId,
