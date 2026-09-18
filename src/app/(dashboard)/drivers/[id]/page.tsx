@@ -1,18 +1,68 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import type { ReactNode } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
+import { updateDriverPhoto } from "@/app/actions/drivers/driver-photo"
 import { DriverTabs } from "./driver-tabs"
 import type { Driver, DriverCategory, DriverStatus } from "@/types/drivers"
 import type { LucideIcon } from "lucide-react"
-import { ArrowLeft, BadgeCheck, Briefcase, Car, Phone, User, Wallet } from "lucide-react"
+import {
+  ArrowLeft,
+  BadgeCheck,
+  Briefcase,
+  Camera,
+  Car,
+  Loader2,
+  Phone,
+  User,
+  Wallet,
+} from "lucide-react"
+
+const PHOTO_BUCKET = "driver-photos"
+const PHOTO_MAX_BYTES = 10 * 1024 * 1024
+
+const IMAGE_EXTENSIONS = new Set([
+  "jpg",
+  "jpeg",
+  "png",
+  "webp",
+  "gif",
+  "avif",
+  "heic",
+  "heif",
+  "bmp",
+  "svg",
+])
+
+const EXT_MIME: Record<string, string> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  gif: "image/gif",
+  avif: "image/avif",
+  heic: "image/heic",
+  heif: "image/heif",
+  bmp: "image/bmp",
+  svg: "image/svg+xml",
+}
+
+function imageMeta(file: File): { ok: boolean; contentType: string } {
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? ""
+  if (/^image\//.test(file.type)) return { ok: true, contentType: file.type }
+  if (IMAGE_EXTENSIONS.has(ext)) {
+    return { ok: true, contentType: EXT_MIME[ext] ?? "image/jpeg" }
+  }
+  return { ok: false, contentType: "image/jpeg" }
+}
 
 const STATUS_META: Record<DriverStatus, { ar: string; en: string; className: string }> = {
   active: {
@@ -39,7 +89,7 @@ const STATUS_META: Record<DriverStatus, { ar: string; en: string; className: str
       "bg-gray-500/15 text-gray-700 dark:text-gray-300 border border-gray-500/20",
   },
   terminated: {
-    ar: "منهى",
+    ar: "منهي",
     en: "Terminated",
     className: "bg-red-500/15 text-red-700 dark:text-red-400 border border-red-500/20",
   },
@@ -121,6 +171,10 @@ export default function DriverDetailPage() {
   const [driver, setDriver] = useState<Driver | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [resolvedPhotoUrl, setResolvedPhotoUrl] = useState<string | null>(null)
+  const [photoUploading, setPhotoUploading] = useState(false)
+  const photoInputRef = useRef<HTMLInputElement>(null)
+  const objectUrlRef = useRef<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -153,6 +207,94 @@ export default function DriverDetailPage() {
       cancelled = true
     }
   }, [id])
+
+  // photo_url may be a storage object path (driver-photos bucket) or a full URL
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const value = driver?.photo_url
+      if (!value) {
+        if (!cancelled && !objectUrlRef.current) setResolvedPhotoUrl(null)
+        return
+      }
+      if (/^https?:\/\//i.test(value)) {
+        if (!cancelled) setResolvedPhotoUrl(value)
+        return
+      }
+      const supabase = createClient()
+      const { data } = await supabase.storage
+        .from(PHOTO_BUCKET)
+        .createSignedUrl(value, 3600)
+      if (!cancelled && data?.signedUrl) {
+        if (objectUrlRef.current) {
+          URL.revokeObjectURL(objectUrlRef.current)
+          objectUrlRef.current = null
+        }
+        setResolvedPhotoUrl(data.signedUrl)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [driver?.photo_url])
+
+  const onPhotoFile = async (file: File) => {
+    if (!driver) return
+    const meta = imageMeta(file)
+    if (!meta.ok) {
+      toast.error(isAr ? "يُسمح بالصور فقط" : "Only image files are allowed")
+      return
+    }
+    if (file.size > PHOTO_MAX_BYTES) {
+      toast.error(
+        isAr ? "الصورة كبيرة جدًا (الحد الأقصى 10MB)" : "Image is too large (max 10MB)",
+      )
+      return
+    }
+
+    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current)
+    const objectUrl = URL.createObjectURL(file)
+    objectUrlRef.current = objectUrl
+    setResolvedPhotoUrl(objectUrl)
+
+    setPhotoUploading(true)
+    try {
+      const supabase = createClient()
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+      const tenantId =
+        (session?.user?.user_metadata?.tenant_id as string | undefined) ?? ""
+      if (!tenantId) {
+        toast.error(t.common.error)
+        return
+      }
+      const safeName = file.name.replace(/[^\w.\-]+/g, "-").toLowerCase()
+      const path = `${tenantId}/${driver.id}/photo-${Date.now()}-${safeName}`
+      const { error: uploadError } = await supabase.storage
+        .from(PHOTO_BUCKET)
+        .upload(path, file, {
+          cacheControl: "3600",
+          upsert: true,
+          contentType: meta.contentType,
+        })
+      if (uploadError) {
+        toast.error(uploadError.message)
+        return
+      }
+      const result = await updateDriverPhoto({ driverId: driver.id, filePath: path })
+      if (!result.ok) {
+        toast.error(result.error)
+        return
+      }
+      setDriver((prev) => (prev ? { ...prev, photo_url: result.filePath } : prev))
+      toast.success(isAr ? "تم تحديث الصورة" : "Photo updated")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t.common.error)
+    } finally {
+      setPhotoUploading(false)
+    }
+  }
 
   const fmt = (v: string | null | undefined) =>
     v !== null && v !== undefined && v.length > 0 ? v : "—"
@@ -256,14 +398,45 @@ export default function DriverDetailPage() {
         />
         <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-4">
-            <Avatar className="h-16 w-16 ring-2 ring-border/40">
-              {driver.photo_url && (
-                <AvatarImage src={driver.photo_url} alt={driver.full_name_ar} />
-              )}
-              <AvatarFallback className="bg-gradient-to-br from-elite-blue-500 to-elite-orange-500 text-lg font-semibold text-white">
-                {initials}
-              </AvatarFallback>
-            </Avatar>
+            <div className="relative shrink-0">
+              <Avatar className="h-16 w-16 rounded-full ring-2 ring-border/40">
+                {resolvedPhotoUrl && (
+                  <AvatarImage
+                    src={resolvedPhotoUrl}
+                    alt={driver.full_name_ar}
+                    className="rounded-full object-cover"
+                  />
+                )}
+                <AvatarFallback className="rounded-full bg-gradient-to-br from-elite-blue-500 to-elite-orange-500 text-lg font-semibold text-white">
+                  {initials}
+                </AvatarFallback>
+              </Avatar>
+              <input
+                ref={photoInputRef}
+                type="file"
+                accept="image/*,.heic,.heif,.avif"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  event.target.value = ""
+                  if (file) void onPhotoFile(file)
+                }}
+              />
+              <button
+                type="button"
+                disabled={photoUploading}
+                onClick={() => photoInputRef.current?.click()}
+                title={isAr ? "تغيير الصورة" : "Change photo"}
+                aria-label={isAr ? "تغيير الصورة" : "Change photo"}
+                className="absolute -bottom-1 -end-1 flex h-6 w-6 items-center justify-center rounded-full border border-border/60 bg-card text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground disabled:opacity-60"
+              >
+                {photoUploading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Camera className="h-3.5 w-3.5" />
+                )}
+              </button>
+            </div>
             <div className="min-w-0">
               <h1 className="text-xl font-bold tracking-tight text-foreground">
                 {driver.full_name_ar}

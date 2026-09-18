@@ -1,83 +1,106 @@
 "use server"
 
+import { revalidatePath } from "next/cache"
 import { z } from "zod"
-import { createClient } from "@/lib/supabase/server"
+import { createClient as createServerClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
-import { logger } from "@/lib/logger"
 
-// Photo updates are operational work (same gate as document registration).
-const PHOTO_ROLES = new Set(["general_manager", "admin", "supervisor", "operations_officer"])
-
-const schema = z.object({
+const inputSchema = z.object({
   driverId: z.string().uuid(),
-  filePath: z.string().trim().min(5).max(500),
+  filePath: z.string().min(8).max(400),
 })
 
-type Result = { ok: true } | { ok: false; error: string }
+const EDITOR_ROLES = new Set([
+  "super_admin",
+  "tenant_admin",
+  "hr_manager",
+  "fleet_manager",
+])
 
+type Result =
+  | { ok: true; filePath: string; signedUrl: string | null }
+  | { ok: false; error: string }
+
+/**
+ * Point a driver profile at an uploaded photo object (driver-photos bucket).
+ * photo_url stores the storage object path; consumers resolve a signed URL.
+ */
 export async function updateDriverPhoto(input: unknown): Promise<Result> {
-  const parsed = schema.safeParse(input)
-  if (!parsed.success) return { ok: false, error: "Invalid input" }
+  const parsed = inputSchema.safeParse(input)
+  if (!parsed.success) {
+    return { ok: false, error: "Invalid photo payload" }
+  }
+  const { driverId, filePath } = parsed.data
 
-  const supabase = await createClient()
+  const supabase = await createServerClient()
   const {
     data: { user },
   } = await supabase.auth.getUser()
-  if (!user) return { ok: false, error: "Not authenticated" }
+  if (!user) {
+    return { ok: false, error: "Not authenticated" }
+  }
 
   const { data: me } = await supabase
     .from("users")
-    .select("id, tenant_id, role, status")
-    .eq("auth_user_id", user.id)
+    .select("tenant_id, role")
+    .eq("id", user.id)
     .maybeSingle()
-  if (!me || me.status !== "active" || !PHOTO_ROLES.has(me.role)) {
-    return { ok: false, error: "Not authorized to update driver photos" }
+  if (!me?.tenant_id || !EDITOR_ROLES.has(me.role ?? "")) {
+    return { ok: false, error: "Not allowed to update the driver photo" }
   }
-
-  const { driverId, filePath } = parsed.data
+  const tenantId = me.tenant_id as string
 
   const { data: driver } = await supabase
     .from("drivers")
-    .select("id, tenant_id")
+    .select("id")
     .eq("id", driverId)
+    .eq("tenant_id", tenantId)
+    .is("deleted_at", null)
     .maybeSingle()
-  if (!driver || driver.tenant_id !== me.tenant_id) {
+  if (!driver) {
     return { ok: false, error: "Driver not found" }
   }
 
-  // Photo must live under this tenant/driver folder in the driver-photos bucket.
-  if (!filePath.startsWith(`${driver.tenant_id}/${driverId}/photo-`)) {
-    return { ok: false, error: "Invalid file path" }
+  const expectedPrefix = `${tenantId}/${driverId}/photo-`
+  if (!filePath.startsWith(expectedPrefix) || filePath.includes("..")) {
+    return { ok: false, error: "Photo path does not match this driver" }
   }
 
-  const { error } = await supabase
+  const service = createAdminClient()
+  const { data: previous } = await service
     .from("drivers")
-    .update({ photo_url: filePath, updated_by: user.id })
+    .select("photo_url")
     .eq("id", driverId)
-  if (error) {
-    logger.error({ err: error, driverId }, "failed to update driver photo")
-    return { ok: false, error: "Failed to update photo" }
+    .maybeSingle()
+
+  const { error: updateError } = await service
+    .from("drivers")
+    .update({ photo_url: filePath })
+    .eq("id", driverId)
+  if (updateError) {
+    return { ok: false, error: updateError.message }
   }
 
-  const { error: auditError } = await supabase.from("audit_log").insert({
-    tenant_id: driver.tenant_id,
-    actor_id: user.id,
-    module: "drivers",
-    entity_type: "driver",
-    entity_id: driverId,
+  await service.from("audit_logs").insert({
+    tenant_id: tenantId,
+    user_id: user.id,
     action: "photo_updated",
+    entity_type: "drivers",
+    entity_id: driverId,
     new_values: { photo_url: filePath },
   })
-  if (auditError) {
-    logger.error({ err: auditError, driverId }, "photo audit insert failed")
-  }
 
-  // photo is an engine requirement — recompute so the status flips to valid.
-  const admin = createAdminClient()
-  const { error: rpcError } = await admin.rpc("compute_driver_compliance", { p_driver_id: driverId })
-  if (rpcError) {
-    logger.error({ err: rpcError, driverId }, "compute_driver_compliance failed after photo update")
-  }
+  const { data: signed } = await service.storage
+    .from("driver-photos")
+    .createSignedUrl(filePath, 3600)
 
-  return { ok: true }
+  console.info("Driver photo updated", {
+    driverId,
+    previous: previous?.photo_url ?? null,
+    next: filePath,
+  })
+
+  revalidatePath(`/drivers/${driverId}`)
+  revalidatePath("/drivers")
+  return { ok: true, filePath, signedUrl: signed?.signedUrl ?? null }
 }
