@@ -43,7 +43,7 @@ function FrontCard({ card, person }: { card: DriverCard; person: DriverCardPerso
       <div style={{ margin: "50px auto 0", width: 118, height: 118, borderRadius: 18, background: "#ffffff", border: `5px solid ${MAROON}`, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
         {person?.photoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element -- dynamic signed URL, not optimizable at build time
-          <img src={person.photoUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+          <img src={person.photoUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
         ) : (
           <User style={{ width: 52, height: 52, color: "#cbd5e1" }} />
         )}
@@ -127,7 +127,7 @@ export function buildCardPrintHtml(card: DriverCard, person: DriverCardPerson | 
   <div style="${cardCss}">
     <div style="${slot}"></div>
     <div style="margin:50px auto 0;width:118px;height:118px;border-radius:18px;background:#fff;border:5px solid ${MAROON};overflow:hidden;display:flex;align-items:center;justify-content:center;">
-      ${photo ? `<img src="${photo}" style="width:100%;height:100%;object-fit:cover;" alt="" />` : ""}
+      ${photo ? `<img src="${photo}" style="width:100%;height:100%;object-fit:contain;" alt="" />` : ""}
     </div>
     <div style="padding:14px 24px 0;font-size:14.5px;font-weight:700;line-height:1.85;">
       <div><span style="color:${BLUE}">Name: </span><span style="color:${BROWN}">${name}</span></div>
