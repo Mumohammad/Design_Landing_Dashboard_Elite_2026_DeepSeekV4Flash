@@ -9,6 +9,7 @@ import {
   Briefcase,
   Building2,
   Calendar,
+  Camera,
   Car,
   Check,
   CheckCircle2,
@@ -95,6 +96,7 @@ export interface CardPanelDriver {
   tenant_id: string
   driver_code?: string
   status?: string
+  photo_url?: string | null
   person?: Person
   cards: Record<CardKey, CardStatus>
   evaluation?: ComplianceEvaluation | null
@@ -120,13 +122,48 @@ const CARD_ORDER: CardKey[] = ["car", "work", "residence", "health", "wallet"]
 const DOC_BUCKET = "driver-documents"
 const PHOTO_BUCKET = "driver-photos"
 const DOC_MAX_BYTES = 10 * 1024 * 1024
-const PHOTO_MAX_BYTES = 5 * 1024 * 1024
+const PHOTO_MAX_BYTES = 10 * 1024 * 1024
 const ALLOWED_DOC_TYPES = new Set([
   "application/pdf",
   "image/jpeg",
   "image/png",
   "image/webp",
 ])
+
+const IMAGE_EXTENSIONS = new Set([
+  "jpg",
+  "jpeg",
+  "png",
+  "webp",
+  "gif",
+  "avif",
+  "heic",
+  "heif",
+  "bmp",
+  "svg",
+])
+
+const EXT_MIME: Record<string, string> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  gif: "image/gif",
+  avif: "image/avif",
+  heic: "image/heic",
+  heif: "image/heif",
+  bmp: "image/bmp",
+  svg: "image/svg+xml",
+}
+
+function imageMeta(file: File): { ok: boolean; contentType: string } {
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? ""
+  if (/^image\//.test(file.type)) return { ok: true, contentType: file.type }
+  if (IMAGE_EXTENSIONS.has(ext)) {
+    return { ok: true, contentType: EXT_MIME[ext] ?? "image/jpeg" }
+  }
+  return { ok: false, contentType: "image/jpeg" }
+}
 
 const REQUIREMENT_DOC_TYPE: Record<string, string> = {
   national_id: "national_id",
@@ -319,15 +356,19 @@ export function DriverCardPanel({
   const [refreshing, setRefreshing] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const pendingReqRef = useRef<string | null>(null)
+  const objectUrlRef = useRef<string | null>(null)
 
   const personAvatar =
-    person.avatar ?? pickString(person, ["photo_url", "avatar_url", "photo"]) ?? null
+    driver.photo_url ??
+    person.avatar ??
+    pickString(person, ["photo_url", "avatar_url", "photo"]) ??
+    null
 
   useEffect(() => {
     let cancelled = false
     void (async () => {
       if (!personAvatar) {
-        setPhotoPreviewUrl(null)
+        if (!cancelled && !objectUrlRef.current) setPhotoPreviewUrl(null)
         return
       }
       if (/^https?:\/\//i.test(personAvatar)) {
@@ -339,9 +380,15 @@ export function DriverCardPanel({
         const { data, error } = await supabase.storage
           .from(PHOTO_BUCKET)
           .createSignedUrl(personAvatar, 3600)
-        if (!cancelled) setPhotoPreviewUrl(error ? null : (data?.signedUrl ?? null))
+        if (!cancelled && !error && data?.signedUrl) {
+          if (objectUrlRef.current) {
+            URL.revokeObjectURL(objectUrlRef.current)
+            objectUrlRef.current = null
+          }
+          setPhotoPreviewUrl(data.signedUrl)
+        }
       } catch {
-        if (!cancelled) setPhotoPreviewUrl(null)
+        // keep current preview
       }
     })()
     return () => {
@@ -419,13 +466,16 @@ export function DriverCardPanel({
       }
 
       const isPhoto = requirementKey === "photo"
+      let contentType = file.type
       if (isPhoto) {
-        if (!/^image\//.test(file.type)) {
+        const meta = imageMeta(file)
+        if (!meta.ok) {
           toast.error(isAr ? "يُسمح بالصور فقط" : "Only image files are allowed")
           return
         }
+        contentType = meta.contentType
         if (file.size > PHOTO_MAX_BYTES) {
-          toast.error(isAr ? "الصورة كبيرة جدًا (الحد الأقصى 5MB)" : "Image is too large (max 5MB)")
+          toast.error(isAr ? "الصورة كبيرة جدًا (الحد الأقصى 10MB)" : "Image is too large (max 10MB)")
           return
         }
       } else {
@@ -439,6 +489,13 @@ export function DriverCardPanel({
           toast.error(isAr ? "الملف كبير جدًا (الحد الأقصى 10MB)" : "File is too large (max 10MB)")
           return
         }
+      }
+
+      if (isPhoto) {
+        if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current)
+        const objectUrl = URL.createObjectURL(file)
+        objectUrlRef.current = objectUrl
+        setPhotoPreviewUrl(objectUrl)
       }
 
       setUploadingReq(requirementKey)
@@ -466,7 +523,7 @@ export function DriverCardPanel({
         const { error: uploadError } = await supabase.storage.from(bucket).upload(path, file, {
           cacheControl: "3600",
           upsert: true,
-          contentType: file.type,
+          contentType,
         })
         if (uploadError) {
           toast.error(uploadError.message)
@@ -476,11 +533,18 @@ export function DriverCardPanel({
         if (isPhoto) {
           const { updateDriverPhoto } = await import("@/app/actions/drivers/driver-photo")
           const result = await updateDriverPhoto({ driverId: driver.id, filePath: path })
-          if (!result.success) {
+          if (!result.ok) {
             toast.error(result.error)
             return
           }
-          onPhotoSuccess(result.signedUrl)
+          if (result.signedUrl) {
+            if (objectUrlRef.current) {
+              URL.revokeObjectURL(objectUrlRef.current)
+              objectUrlRef.current = null
+            }
+            setPhotoPreviewUrl(result.signedUrl)
+          }
+          toast.success(isAr ? "تم تحديث الصورة" : "Photo updated")
         } else {
           toast.success(isAr ? "تم رفع المستند" : "Document uploaded")
         }
@@ -495,11 +559,6 @@ export function DriverCardPanel({
     },
     [driver.id, driver.tenant_id, isAr, loadDocs, onDataRefresh, onUploadDocument],
   )
-
-  const onPhotoSuccess = useCallback((signedUrl: string | null) => {
-    setPhotoPreviewUrl(signedUrl)
-    toast.success("تم تحديث الصورة")
-  }, [])
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true)
@@ -534,7 +593,7 @@ export function DriverCardPanel({
               <img
                 src={photoPreviewUrl}
                 alt={name}
-                className="h-full w-full object-cover"
+                className="h-full w-full rounded-full object-cover"
               />
             ) : (
               <User className="h-6 w-6 text-muted-foreground" />
@@ -768,7 +827,7 @@ export function DriverCardPanel({
         ref={fileInputRef}
         type="file"
         className="hidden"
-        accept="application/pdf,image/jpeg,image/png,image/webp"
+        accept="image/*,application/pdf,.heic,.heif,.avif"
         onChange={(event) => {
           const file = event.target.files?.[0]
           const reqKey = pendingReqRef.current

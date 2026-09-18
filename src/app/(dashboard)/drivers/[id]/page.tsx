@@ -27,7 +27,42 @@ import {
 } from "lucide-react"
 
 const PHOTO_BUCKET = "driver-photos"
-const PHOTO_MAX_BYTES = 5 * 1024 * 1024
+const PHOTO_MAX_BYTES = 10 * 1024 * 1024
+
+const IMAGE_EXTENSIONS = new Set([
+  "jpg",
+  "jpeg",
+  "png",
+  "webp",
+  "gif",
+  "avif",
+  "heic",
+  "heif",
+  "bmp",
+  "svg",
+])
+
+const EXT_MIME: Record<string, string> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  gif: "image/gif",
+  avif: "image/avif",
+  heic: "image/heic",
+  heif: "image/heif",
+  bmp: "image/bmp",
+  svg: "image/svg+xml",
+}
+
+function imageMeta(file: File): { ok: boolean; contentType: string } {
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? ""
+  if (/^image\//.test(file.type)) return { ok: true, contentType: file.type }
+  if (IMAGE_EXTENSIONS.has(ext)) {
+    return { ok: true, contentType: EXT_MIME[ext] ?? "image/jpeg" }
+  }
+  return { ok: false, contentType: "image/jpeg" }
+}
 
 const STATUS_META: Record<DriverStatus, { ar: string; en: string; className: string }> = {
   active: {
@@ -139,6 +174,7 @@ export default function DriverDetailPage() {
   const [resolvedPhotoUrl, setResolvedPhotoUrl] = useState<string | null>(null)
   const [photoUploading, setPhotoUploading] = useState(false)
   const photoInputRef = useRef<HTMLInputElement>(null)
+  const objectUrlRef = useRef<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -178,7 +214,7 @@ export default function DriverDetailPage() {
     void (async () => {
       const value = driver?.photo_url
       if (!value) {
-        if (!cancelled) setResolvedPhotoUrl(null)
+        if (!cancelled && !objectUrlRef.current) setResolvedPhotoUrl(null)
         return
       }
       if (/^https?:\/\//i.test(value)) {
@@ -189,7 +225,13 @@ export default function DriverDetailPage() {
       const { data } = await supabase.storage
         .from(PHOTO_BUCKET)
         .createSignedUrl(value, 3600)
-      if (!cancelled) setResolvedPhotoUrl(data?.signedUrl ?? null)
+      if (!cancelled && data?.signedUrl) {
+        if (objectUrlRef.current) {
+          URL.revokeObjectURL(objectUrlRef.current)
+          objectUrlRef.current = null
+        }
+        setResolvedPhotoUrl(data.signedUrl)
+      }
     })()
     return () => {
       cancelled = true
@@ -198,16 +240,23 @@ export default function DriverDetailPage() {
 
   const onPhotoFile = async (file: File) => {
     if (!driver) return
-    if (!/^image\//.test(file.type)) {
+    const meta = imageMeta(file)
+    if (!meta.ok) {
       toast.error(isAr ? "يُسمح بالصور فقط" : "Only image files are allowed")
       return
     }
     if (file.size > PHOTO_MAX_BYTES) {
       toast.error(
-        isAr ? "الصورة كبيرة جدًا (الحد الأقصى 5MB)" : "Image is too large (max 5MB)",
+        isAr ? "الصورة كبيرة جدًا (الحد الأقصى 10MB)" : "Image is too large (max 10MB)",
       )
       return
     }
+
+    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current)
+    const objectUrl = URL.createObjectURL(file)
+    objectUrlRef.current = objectUrl
+    setResolvedPhotoUrl(objectUrl)
+
     setPhotoUploading(true)
     try {
       const supabase = createClient()
@@ -227,14 +276,14 @@ export default function DriverDetailPage() {
         .upload(path, file, {
           cacheControl: "3600",
           upsert: true,
-          contentType: file.type,
+          contentType: meta.contentType,
         })
       if (uploadError) {
         toast.error(uploadError.message)
         return
       }
       const result = await updateDriverPhoto({ driverId: driver.id, filePath: path })
-      if (!result.success) {
+      if (!result.ok) {
         toast.error(result.error)
         return
       }
@@ -350,18 +399,22 @@ export default function DriverDetailPage() {
         <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-4">
             <div className="relative shrink-0">
-              <Avatar className="h-16 w-16 ring-2 ring-border/40">
+              <Avatar className="h-16 w-16 rounded-full ring-2 ring-border/40">
                 {resolvedPhotoUrl && (
-                  <AvatarImage src={resolvedPhotoUrl} alt={driver.full_name_ar} />
+                  <AvatarImage
+                    src={resolvedPhotoUrl}
+                    alt={driver.full_name_ar}
+                    className="rounded-full object-cover"
+                  />
                 )}
-                <AvatarFallback className="bg-gradient-to-br from-elite-blue-500 to-elite-orange-500 text-lg font-semibold text-white">
+                <AvatarFallback className="rounded-full bg-gradient-to-br from-elite-blue-500 to-elite-orange-500 text-lg font-semibold text-white">
                   {initials}
                 </AvatarFallback>
               </Avatar>
               <input
                 ref={photoInputRef}
                 type="file"
-                accept="image/*"
+                accept="image/*,.heic,.heif,.avif"
                 className="hidden"
                 onChange={(event) => {
                   const file = event.target.files?.[0]

@@ -18,8 +18,8 @@ const EDITOR_ROLES = new Set([
 ])
 
 type Result =
-  | { success: true; filePath: string; signedUrl: string | null }
-  | { success: false; error: string }
+  | { ok: true; filePath: string; signedUrl: string | null }
+  | { ok: false; error: string }
 
 /**
  * Point a driver profile at an uploaded photo object (driver-photos bucket).
@@ -28,7 +28,7 @@ type Result =
 export async function updateDriverPhoto(input: unknown): Promise<Result> {
   const parsed = inputSchema.safeParse(input)
   if (!parsed.success) {
-    return { success: false, error: "Invalid photo payload" }
+    return { ok: false, error: "Invalid photo payload" }
   }
   const { driverId, filePath } = parsed.data
 
@@ -37,7 +37,7 @@ export async function updateDriverPhoto(input: unknown): Promise<Result> {
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) {
-    return { success: false, error: "Not authenticated" }
+    return { ok: false, error: "Not authenticated" }
   }
 
   const { data: me } = await supabase
@@ -46,7 +46,7 @@ export async function updateDriverPhoto(input: unknown): Promise<Result> {
     .eq("id", user.id)
     .maybeSingle()
   if (!me?.tenant_id || !EDITOR_ROLES.has(me.role ?? "")) {
-    return { success: false, error: "Not allowed to update the driver photo" }
+    return { ok: false, error: "Not allowed to update the driver photo" }
   }
   const tenantId = me.tenant_id as string
 
@@ -58,12 +58,12 @@ export async function updateDriverPhoto(input: unknown): Promise<Result> {
     .is("deleted_at", null)
     .maybeSingle()
   if (!driver) {
-    return { success: false, error: "Driver not found" }
+    return { ok: false, error: "Driver not found" }
   }
 
   const expectedPrefix = `${tenantId}/${driverId}/photo-`
   if (!filePath.startsWith(expectedPrefix) || filePath.includes("..")) {
-    return { success: false, error: "Photo path does not match this driver" }
+    return { ok: false, error: "Photo path does not match this driver" }
   }
 
   const service = createAdminClient()
@@ -78,7 +78,7 @@ export async function updateDriverPhoto(input: unknown): Promise<Result> {
     .update({ photo_url: filePath })
     .eq("id", driverId)
   if (updateError) {
-    return { success: false, error: updateError.message }
+    return { ok: false, error: updateError.message }
   }
 
   await service.from("audit_logs").insert({
@@ -102,5 +102,5 @@ export async function updateDriverPhoto(input: unknown): Promise<Result> {
 
   revalidatePath(`/drivers/${driverId}`)
   revalidatePath("/drivers")
-  return { success: true, filePath, signedUrl: signed?.signedUrl ?? null }
+  return { ok: true, filePath, signedUrl: signed?.signedUrl ?? null }
 }
