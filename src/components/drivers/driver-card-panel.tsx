@@ -119,6 +119,21 @@ export function DriverCardPanel({ driverId, isAr }: { driverId: string; isAr: bo
     setPrints(pr)
   }
 
+  // Always re-fetch before previewing so the card reflects the latest photo
+  // uploaded from the profile header (or any other surface) without a reload.
+  const onPreview = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const [c, p] = await Promise.all([fetchCard(), fetchPerson()])
+      setCard(c)
+      setPerson(p)
+      setPreviewOpen(true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const onIssue = async () => {
     setBusy(true)
     setError(null)
@@ -208,7 +223,7 @@ export function DriverCardPanel({ driverId, isAr }: { driverId: string; isAr: bo
 
               {card.status === "active" && (
                 <div className="flex flex-wrap items-center gap-2 pt-1">
-                  <Button size="sm" variant="outline" onClick={() => setPreviewOpen(true)} disabled={busy}>
+                  <Button size="sm" variant="outline" onClick={() => void onPreview()} disabled={busy}>
                     <Eye className="h-3.5 w-3.5" />
                     {isAr ? "معاينة البطاقة" : "Preview card"}
                   </Button>
