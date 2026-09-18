@@ -1,8 +1,9 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { issueDriverCard, recordCardPrint, revokeDriverCard } from "@/app/actions/drivers/driver-cards"
+import { updateDriverPhoto } from "@/app/actions/drivers/driver-photo"
 import type { DriverCard, DriverCardPerson, DriverCardPrint } from "@/lib/drivers/cards"
 import { buildCardPrintHtml, DriverCardPreview } from "@/components/drivers/driver-card-preview"
 import { cn } from "@/lib/utils"
@@ -12,7 +13,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { CreditCard, Eye, Printer } from "lucide-react"
+import { CreditCard, Eye, Printer, User } from "lucide-react"
 
 const cardStatusCls: Record<string, string> = {
   active: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
@@ -28,6 +29,8 @@ const cardStatusLabels: Record<string, { en: string; ar: string }> = {
   expired: { en: "Expired", ar: "منتهية" },
 }
 
+const MAX_PHOTO_BYTES = 5 * 1024 * 1024 // driver-photos bucket limit
+
 const str = (v: unknown): string | null => (typeof v === "string" && v.trim() !== "" ? v.trim() : null)
 
 export function DriverCardPanel({ driverId, isAr }: { driverId: string; isAr: boolean }) {
@@ -41,6 +44,7 @@ export function DriverCardPanel({ driverId, isAr }: { driverId: string; isAr: bo
   const [revokeReason, setRevokeReason] = useState("")
   const [previewOpen, setPreviewOpen] = useState(false)
   const [format, setFormat] = useState<"pvc" | "a4" | "screen">("pvc")
+  const photoInputRef = useRef<HTMLInputElement>(null)
 
   // Pure queries: no setState here (react-hooks set-state-in-effect rule).
   const fetchCard = useCallback(async (): Promise<DriverCard | null> => {
@@ -165,6 +169,48 @@ export function DriverCardPanel({ driverId, isAr }: { driverId: string; isAr: bo
     await refreshAll()
   }
 
+  // Photo upload from the driver profile: browser → driver-photos bucket,
+  // then the server action stores the path on drivers.photo_url (engine input).
+  const onPhotoSelected = async (e: ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]
+    e.target.value = ""
+    if (!f) return
+    if (f.size > MAX_PHOTO_BYTES) {
+      setError(isAr ? "الصورة أكبر من 5 ميجابايت" : "Photo exceeds the 5 MB limit")
+      return
+    }
+    setBusy(true)
+    setError(null)
+
+    const supabase = createClient()
+    const { data: drow } = await supabase.from("drivers").select("tenant_id").eq("id", driverId).maybeSingle()
+    const tenantId = (drow as { tenant_id?: string } | null)?.tenant_id
+    if (!tenantId) {
+      setError(isAr ? "تعذر تحديد المستأجر" : "Could not resolve tenant")
+      setBusy(false)
+      return
+    }
+
+    const ext = (f.name.split(".").pop() ?? "jpg").toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg"
+    const path = `${tenantId}/${driverId}/photo-${Date.now()}.${ext}`
+    const { error: uploadError } = await supabase.storage
+      .from("driver-photos")
+      .upload(path, f, { contentType: f.type || undefined })
+    if (uploadError) {
+      setError(uploadError.message)
+      setBusy(false)
+      return
+    }
+
+    const res = await updateDriverPhoto({ driverId, filePath: path })
+    setBusy(false)
+    if (!res.ok) {
+      setError(res.error)
+      return
+    }
+    await refreshAll()
+  }
+
   const statusLbl = card ? cardStatusLabels[card.status] : undefined
 
   return (
@@ -173,6 +219,38 @@ export function DriverCardPanel({ driverId, isAr }: { driverId: string; isAr: bo
         <CreditCard className="h-4 w-4 text-elite-blue-500" />
         {isAr ? "بطاقة السائق" : "Driver card"}
       </h4>
+
+      {/* Photo lives on the driver profile and feeds the printed card. */}
+      <div className="mt-3 flex items-center gap-3">
+        <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full border border-border/50 bg-muted">
+          {person?.photoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element -- dynamic signed URL
+            <img src={person.photoUrl} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <User className="h-5 w-5 text-muted-foreground" />
+          )}
+        </div>
+        <div className="min-w-0">
+          <p className="truncate text-xs font-medium text-foreground">{person?.name ?? ""}</p>
+          <button
+            type="button"
+            onClick={() => photoInputRef.current?.click()}
+            disabled={busy}
+            className="text-[11px] font-semibold text-elite-blue-500 hover:underline disabled:opacity-50"
+          >
+            {person?.photoUrl
+              ? isAr ? "تغيير الصورة" : "Change photo"
+              : isAr ? "رفع الصورة" : "Upload photo"}
+          </button>
+        </div>
+        <input
+          ref={photoInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => void onPhotoSelected(e)}
+        />
+      </div>
 
       {loading ? (
         <div className="mt-3 space-y-2">

@@ -5,13 +5,14 @@ import { createClient } from "@/lib/supabase/client"
 import { recomputeDriverCompliance } from "@/app/actions/drivers/recompute-compliance"
 import { createComplianceOverride, revokeComplianceOverride } from "@/app/actions/drivers/compliance-overrides"
 import { registerDriverDocument, removeDriverDocument, verifyDriverDocument } from "@/app/actions/drivers/documents"
+import { updateDriverPhoto } from "@/app/actions/drivers/driver-photo"
 import {
   OVERRIDABLE_REQUIREMENTS,
   type ComplianceLevel,
   type ComplianceOverride,
   type ComplianceResult,
 } from "@/lib/drivers/compliance"
-import type { DriverDocument } from "@/lib/drivers/documents"
+import { DOC_UPLOAD_TYPES, type DriverDocument } from "@/lib/drivers/documents"
 import type { Driver } from "@/types/drivers"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -66,16 +67,18 @@ const reqStatusCls: Record<string, string> = {
 }
 
 const MAX_FILE_BYTES = 20 * 1024 * 1024
+const MAX_PHOTO_BYTES = 5 * 1024 * 1024 // matches driver-photos bucket limit
 
 const canOverride = (key: string, status: string) =>
   (status === "missing" || status === "expired") &&
   (OVERRIDABLE_REQUIREMENTS as readonly string[]).includes(key)
 
-// Document-backed requirements (driving_license reads the driver record, not documents).
-const DOC_UPLOAD_REQS = new Set(["identity", "health_certificate", "home_delivery_permit", "ajeer_permit"])
+// Upload targets: document-backed requirements plus the driver photo
+// (driving_license reads the driver record, not documents).
+const UPLOAD_REQS = new Set(["identity", "photo", "health_certificate", "home_delivery_permit", "ajeer_permit"])
 
 const canUpload = (key: string, status: string) =>
-  DOC_UPLOAD_REQS.has(key) && status !== "valid" && status !== "not_required"
+  UPLOAD_REQS.has(key) && status !== "valid" && status !== "not_required"
 
 export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr: boolean }) {
   const [latest, setLatest] = useState<ComplianceResult | null>(null)
@@ -93,7 +96,7 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
   const [formError, setFormError] = useState<string | null>(null)
   const [revokingId, setRevokingId] = useState<string | null>(null)
 
-  const [uploadFor, setUploadFor] = useState<string | null>(null)
+  const [uploadFor, setUploadFor] = useState<string | null>(null) // requirement key | "general"
   const [docType, setDocType] = useState<string>("national_id")
   const [file, setFile] = useState<File | null>(null)
   const [docNumber, setDocNumber] = useState("")
@@ -214,7 +217,7 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
 
   const openUpload = (key: string) => {
     setUploadFor(key)
-    setDocType(key === "identity" ? "national_id" : key)
+    setDocType(key === "identity" || key === "general" ? "national_id" : key)
     setFile(null)
     setDocNumber("")
     setExpiryDate("")
@@ -224,19 +227,28 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
 
   const submitUpload = async () => {
     if (!uploadFor || !file) return
-    if (file.size > MAX_FILE_BYTES) {
-      setFormError(isAr ? "الملف أكبر من 20 ميجابايت" : "File exceeds the 20 MB limit")
+    const isPhoto = uploadFor === "photo"
+    const limit = isPhoto ? MAX_PHOTO_BYTES : MAX_FILE_BYTES
+    if (file.size > limit) {
+      setFormError(
+        isAr
+          ? `الملف أكبر من ${isPhoto ? "5" : "20"} ميجابايت`
+          : `File exceeds the ${isPhoto ? "5" : "20"} MB limit`,
+      )
       return
     }
     setUploading(true)
     setFormError(null)
 
-    const ext = (file.name.split(".").pop() ?? "bin").toLowerCase().replace(/[^a-z0-9]/g, "")
-    const path = `${driver.tenant_id}/${driver.id}/${docType}-${Date.now()}.${ext || "bin"}`
-
+    const ext = (file.name.split(".").pop() ?? "bin").toLowerCase().replace(/[^a-z0-9]/g, "") || "bin"
     const supabase = createClient()
+    const path = isPhoto
+      ? `${driver.tenant_id}/${driver.id}/photo-${Date.now()}.${ext}`
+      : `${driver.tenant_id}/${driver.id}/${docType}-${Date.now()}.${ext}`
+    const bucket = isPhoto ? "driver-photos" : "driver-documents"
+
     const { error: uploadError } = await supabase.storage
-      .from("driver-documents")
+      .from(bucket)
       .upload(path, file, { contentType: file.type || undefined })
     if (uploadError) {
       setFormError(uploadError.message)
@@ -244,16 +256,18 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
       return
     }
 
-    const res = await registerDriverDocument({
-      driverId: driver.id,
-      docType,
-      filePath: path,
-      docNumber: docNumber.trim() === "" ? undefined : docNumber.trim(),
-      expiryDate: expiryDate === "" ? undefined : expiryDate,
-      issuingAuthority: issuingAuthority.trim() === "" ? undefined : issuingAuthority.trim(),
-      fileSize: file.size,
-      mimeType: file.type === "" ? undefined : file.type,
-    })
+    const res = isPhoto
+      ? await updateDriverPhoto({ driverId: driver.id, filePath: path })
+      : await registerDriverDocument({
+          driverId: driver.id,
+          docType,
+          filePath: path,
+          docNumber: docNumber.trim() === "" ? undefined : docNumber.trim(),
+          expiryDate: expiryDate === "" ? undefined : expiryDate,
+          issuingAuthority: issuingAuthority.trim() === "" ? undefined : issuingAuthority.trim(),
+          fileSize: file.size,
+          mimeType: file.type === "" ? undefined : file.type,
+        })
     setUploading(false)
     if (!res.ok) {
       setFormError(res.error)
@@ -289,6 +303,8 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
 
   const meta = latest ? levelStyles[latest.level] : undefined
   const d = latest?.details
+  const isPhotoUpload = uploadFor === "photo"
+  const showDocTypePicker = uploadFor === "identity" || uploadFor === "general"
 
   return (
     <div className="rounded-2xl border border-border/50 bg-card/60 p-5 backdrop-blur-sm">
@@ -392,71 +408,87 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
         </>
       )}
 
-      {!loading && docs.length > 0 && (
+      {!loading && (
         <div className="mt-4">
-          <p className="text-xs font-semibold text-foreground">
-            {isAr ? "المستندات" : "Documents"}
-          </p>
-          <ul className="mt-2 space-y-2">
-            {docs.map((doc) => {
-              const lbl = docTypeLabels[doc.doc_type] ?? { en: doc.doc_type, ar: doc.doc_type }
-              return (
-                <li key={doc.id} className="flex items-center justify-between gap-3 rounded-lg border border-border/40 bg-muted/10 px-3 py-2 text-xs">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    <div className="min-w-0">
-                      <span className="font-medium text-foreground">{isAr ? lbl.ar : lbl.en}</span>
-                      <span
-                        className={cn(
-                          "ml-2 inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-semibold",
-                          doc.is_verified
-                            ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
-                            : "bg-amber-500/15 text-amber-700 dark:text-amber-400",
-                        )}
-                      >
-                        {doc.is_verified ? (isAr ? "موثّق" : "verified") : isAr ? "قيد المراجعة" : "pending"}
-                      </span>
-                      <div className="text-[10px] text-muted-foreground tabular-nums">
-                        {doc.expiry_date
-                          ? `${isAr ? "تنتهي" : "expires"} ${new Date(doc.expiry_date).toLocaleDateString(isAr ? "ar-SA" : "en-GB")}`
-                          : isAr ? "بدون تاريخ انتهاء" : "no expiry captured"}
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold text-foreground">
+              {isAr ? "المستندات" : "Documents"}
+            </p>
+            <button
+              type="button"
+              onClick={() => openUpload("general")}
+              className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600 hover:underline dark:text-emerald-400"
+            >
+              <Upload className="h-3 w-3" />
+              {isAr ? "رفع مستند" : "Upload document"}
+            </button>
+          </div>
+          {docs.length === 0 ? (
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              {isAr ? "لا توجد مستندات بعد — ارفع أول مستند." : "No documents yet — upload the first one."}
+            </p>
+          ) : (
+            <ul className="mt-2 space-y-2">
+              {docs.map((doc) => {
+                const lbl = docTypeLabels[doc.doc_type] ?? { en: doc.doc_type, ar: doc.doc_type }
+                return (
+                  <li key={doc.id} className="flex items-center justify-between gap-3 rounded-lg border border-border/40 bg-muted/10 px-3 py-2 text-xs">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <div className="min-w-0">
+                        <span className="font-medium text-foreground">{isAr ? lbl.ar : lbl.en}</span>
+                        <span
+                          className={cn(
+                            "ml-2 inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-semibold",
+                            doc.is_verified
+                              ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                              : "bg-amber-500/15 text-amber-700 dark:text-amber-400",
+                          )}
+                        >
+                          {doc.is_verified ? (isAr ? "موثّق" : "verified") : isAr ? "قيد المراجعة" : "pending"}
+                        </span>
+                        <div className="text-[10px] text-muted-foreground tabular-nums">
+                          {doc.expiry_date
+                            ? `${isAr ? "تنتهي" : "expires"} ${new Date(doc.expiry_date).toLocaleDateString(isAr ? "ar-SA" : "en-GB")}`
+                            : isAr ? "بدون تاريخ انتهاء" : "no expiry captured"}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <span className="flex shrink-0 items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => void viewDoc(doc.file_url)}
-                      title={isAr ? "عرض" : "View"}
-                      className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                    >
-                      <Eye className="h-3.5 w-3.5" />
-                    </button>
-                    {!doc.is_verified && (
+                    <span className="flex shrink-0 items-center gap-1">
                       <button
                         type="button"
-                        disabled={verifyingId === doc.id}
-                        onClick={() => void onVerify(doc.id)}
-                        title={isAr ? "توثيق" : "Verify"}
-                        className="rounded p-1 text-emerald-600 hover:bg-muted disabled:opacity-50 dark:text-emerald-400"
+                        onClick={() => void viewDoc(doc.file_url)}
+                        title={isAr ? "عرض" : "View"}
+                        className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
                       >
-                        <Check className="h-3.5 w-3.5" />
+                        <Eye className="h-3.5 w-3.5" />
                       </button>
-                    )}
-                    <button
-                      type="button"
-                      disabled={removingId === doc.id}
-                      onClick={() => void onRemove(doc.id)}
-                      title={isAr ? "حذف" : "Remove"}
-                      className="rounded p-1 text-red-600 hover:bg-muted disabled:opacity-50 dark:text-red-400"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </span>
-                </li>
-              )
-            })}
-          </ul>
+                      {!doc.is_verified && (
+                        <button
+                          type="button"
+                          disabled={verifyingId === doc.id}
+                          onClick={() => void onVerify(doc.id)}
+                          title={isAr ? "توثيق" : "Verify"}
+                          className="rounded p-1 text-emerald-600 hover:bg-muted disabled:opacity-50 dark:text-emerald-400"
+                        >
+                          <Check className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        disabled={removingId === doc.id}
+                        onClick={() => void onRemove(doc.id)}
+                        title={isAr ? "حذف" : "Remove"}
+                        className="rounded p-1 text-red-600 hover:bg-muted disabled:opacity-50 dark:text-red-400"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </span>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
         </div>
       )}
 
@@ -559,16 +591,22 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
       <Dialog open={uploadFor !== null} onOpenChange={(open) => { if (!open) setUploadFor(null) }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{isAr ? "رفع مستند" : "Upload document"}</DialogTitle>
+            <DialogTitle>
+              {isPhotoUpload
+                ? isAr ? "رفع صورة السائق" : "Upload driver photo"
+                : isAr ? "رفع مستند" : "Upload document"}
+            </DialogTitle>
           </DialogHeader>
           {uploadFor && (
             <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">
-                {isAr
-                  ? `المتطلب: ${reqLabels[uploadFor]?.ar ?? uploadFor}`
-                  : `Requirement: ${reqLabels[uploadFor]?.en ?? uploadFor}`}
-              </p>
-              {uploadFor === "identity" && (
+              {uploadFor !== "general" && (
+                <p className="text-sm text-muted-foreground">
+                  {isAr
+                    ? `المتطلب: ${reqLabels[uploadFor]?.ar ?? uploadFor}`
+                    : `Requirement: ${reqLabels[uploadFor]?.en ?? uploadFor}`}
+                </p>
+              )}
+              {showDocTypePicker && (
                 <div className="space-y-1.5">
                   <Label>{isAr ? "نوع المستند" : "Document type"}</Label>
                   <Select value={docType} onValueChange={setDocType}>
@@ -576,33 +614,51 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="national_id">{isAr ? "الهوية الوطنية" : "National ID"}</SelectItem>
-                      <SelectItem value="iqama">{isAr ? "الإقامة" : "Iqama"}</SelectItem>
+                      {uploadFor === "identity" ? (
+                        <>
+                          <SelectItem value="national_id">{isAr ? "الهوية الوطنية" : "National ID"}</SelectItem>
+                          <SelectItem value="iqama">{isAr ? "الإقامة" : "Iqama"}</SelectItem>
+                        </>
+                      ) : (
+                        DOC_UPLOAD_TYPES.map((t) => (
+                          <SelectItem key={t} value={t}>
+                            {isAr ? docTypeLabels[t].ar : docTypeLabels[t].en}
+                          </SelectItem>
+                        ))
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
               )}
               <div className="space-y-1.5">
-                <Label htmlFor="doc-file">{isAr ? "الملف (صورة أو PDF، بحد أقصى 20 ميجابايت)" : "File (image or PDF, max 20 MB)"}</Label>
+                <Label htmlFor="doc-file">
+                  {isPhotoUpload
+                    ? isAr ? "الصورة (بحد أقصى 5 ميجابايت)" : "Photo (max 5 MB)"
+                    : isAr ? "الملف (صورة أو PDF، بحد أقصى 20 ميجابايت)" : "File (image or PDF, max 20 MB)"}
+                </Label>
                 <Input
                   id="doc-file"
                   type="file"
-                  accept="image/*,application/pdf"
+                  accept={isPhotoUpload ? "image/*" : "image/*,application/pdf"}
                   onChange={(e) => setFile(e.target.files?.[0] ?? null)}
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="doc-number">{isAr ? "رقم المستند (اختياري)" : "Document number (optional)"}</Label>
-                <Input id="doc-number" value={docNumber} onChange={(e) => setDocNumber(e.target.value)} maxLength={100} />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="doc-expiry">{isAr ? "تاريخ الانتهاء (اختياري)" : "Expiry date (optional)"}</Label>
-                <Input id="doc-expiry" type="date" dir="ltr" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="doc-authority">{isAr ? "جهة الإصدار (اختياري)" : "Issuing authority (optional)"}</Label>
-                <Input id="doc-authority" value={issuingAuthority} onChange={(e) => setIssuingAuthority(e.target.value)} maxLength={200} />
-              </div>
+              {!isPhotoUpload && (
+                <>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="doc-number">{isAr ? "رقم المستند (اختياري)" : "Document number (optional)"}</Label>
+                    <Input id="doc-number" value={docNumber} onChange={(e) => setDocNumber(e.target.value)} maxLength={100} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="doc-expiry">{isAr ? "تاريخ الانتهاء (اختياري)" : "Expiry date (optional)"}</Label>
+                    <Input id="doc-expiry" type="date" dir="ltr" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="doc-authority">{isAr ? "جهة الإصدار (اختياري)" : "Issuing authority (optional)"}</Label>
+                    <Input id="doc-authority" value={issuingAuthority} onChange={(e) => setIssuingAuthority(e.target.value)} maxLength={200} />
+                  </div>
+                </>
+              )}
               {formError && <p className="text-sm text-red-600 dark:text-red-400">{formError}</p>}
             </div>
           )}
