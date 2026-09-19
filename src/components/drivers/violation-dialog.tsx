@@ -47,16 +47,20 @@ const INITIAL_FORM = {
   incident_description: "",
 }
 
+const todayISO = () => new Date().toISOString().slice(0, 10)
+
+const freshForm = () => ({ ...INITIAL_FORM, incident_date: todayISO() })
+
 export function ViolationDialog({ open, onOpenChange, driverId, onCreated }: ViolationDialogProps) {
   const { locale } = useTranslation()
   const isAr = locale === "ar"
-  const [form, setForm] = useState(INITIAL_FORM)
+  const [form, setForm] = useState(freshForm)
   const [types, setTypes] = useState<ViolationType[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
 
+  // Load active violation types whenever the dialog opens (async fetch → setState in callback is fine).
   useEffect(() => {
     if (!open) return
-    setForm({ ...INITIAL_FORM, incident_date: new Date().toISOString().slice(0, 10) })
     let cancelled = false
     void (async () => {
       const supabase = createClient()
@@ -72,6 +76,12 @@ export function ViolationDialog({ open, onOpenChange, driverId, onCreated }: Vio
       cancelled = true
     }
   }, [open])
+
+  // Reset the form in the event handler (not an effect) so the next open starts fresh.
+  const handleOpenChange = (next: boolean) => {
+    if (!next) setForm(freshForm())
+    onOpenChange(next)
+  }
 
   const onTypeChange = (id: string) => {
     const t = types.find((x) => x.id === id)
@@ -107,12 +117,12 @@ export function ViolationDialog({ open, onOpenChange, driverId, onCreated }: Vio
       return
     }
     toast.success(isAr ? "تمت إضافة المخالفة" : "Violation added")
-    onOpenChange(false)
+    handleOpenChange(false)
     onCreated()
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{isAr ? "إضافة مخالفة" : "Add violation"}</DialogTitle>
@@ -178,7 +188,7 @@ export function ViolationDialog({ open, onOpenChange, driverId, onCreated }: Vio
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
+          <Button variant="outline" onClick={() => handleOpenChange(false)} disabled={isSubmitting}>
             {isAr ? "إلغاء" : "Cancel"}
           </Button>
           <Button onClick={() => void submit()} disabled={isSubmitting}>
