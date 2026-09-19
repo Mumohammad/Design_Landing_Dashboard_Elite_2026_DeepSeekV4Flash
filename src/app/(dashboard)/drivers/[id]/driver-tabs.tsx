@@ -13,7 +13,6 @@ import { DriverLeaveTab } from "@/components/drivers/driver-leave-tab"
 import { ViolationsTab } from "@/components/drivers/violations-tab"
 import { PerformanceTab } from "@/components/drivers/performance-tab"
 import { TrainingTab } from "@/components/drivers/training-tab"
-import { ActivityTimelineTab } from "@/components/drivers/activity-timeline-tab"
 import type { Driver } from "@/types/drivers"
 import {
   AlertTriangle,
@@ -26,7 +25,6 @@ import {
   FileText,
   Gauge,
   GraduationCap,
-  History,
   ShieldAlert,
   TrendingUp,
   Wallet,
@@ -1035,10 +1033,6 @@ export function DriverTabs({
           <ShieldAlert className="h-3.5 w-3.5" />
           {isAr ? "الامتثال" : "Compliance"}
         </TabsTrigger>
-        <TabsTrigger value="activity">
-          <History className="h-3.5 w-3.5" />
-          {isAr ? "النشاط" : "Activity"}
-        </TabsTrigger>
       </TabsList>
 
       <TabsContent value="overview" className="mt-4">
@@ -1075,7 +1069,7 @@ export function DriverTabs({
         <OdometerTab driverId={driver.id} isAr={isAr} />
       </TabsContent>
       <TabsContent value="performance" className="mt-4">
-        <PerformanceTab driver={driver} isAr={isAr} />
+        <PerformanceTab driverId={driver.id} isAr={isAr} />
       </TabsContent>
       <TabsContent value="training" className="mt-4">
         <TrainingTab driverId={driver.id} isAr={isAr} />
@@ -1083,9 +1077,6 @@ export function DriverTabs({
       <TabsContent value="compliance" className="mt-4 space-y-4">
         <DriverComplianceEngine driver={driver} isAr={isAr} />
         <ComplianceTab driver={driver} isAr={isAr} />
-      </TabsContent>
-      <TabsContent value="activity" className="mt-4">
-        <ActivityTimelineTab driverId={driver.id} isAr={isAr} />
       </TabsContent>
     </Tabs>
   )
