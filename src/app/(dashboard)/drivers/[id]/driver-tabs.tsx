@@ -8,20 +8,32 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
 import { DriverComplianceEngine } from "@/components/drivers/driver-compliance-engine"
+import { AttendanceTab } from "@/components/drivers/attendance-tab"
+import { DriverLeaveTab } from "@/components/drivers/driver-leave-tab"
+import { ViolationsTab } from "@/components/drivers/violations-tab"
+import { PerformanceTab } from "@/components/drivers/performance-tab"
+import { TrainingTab } from "@/components/drivers/training-tab"
+import { ActivityTimelineTab } from "@/components/drivers/activity-timeline-tab"
 import type { Driver } from "@/types/drivers"
 import {
+  AlertTriangle,
   Banknote,
   Briefcase,
+  CalendarClock,
+  CalendarOff,
   Car,
   ClipboardCheck,
   FileText,
   Gauge,
+  GraduationCap,
+  History,
   ShieldAlert,
+  TrendingUp,
   Wallet,
   Wrench,
 } from "lucide-react"
 
-/* ───────────────────────── shared bits ───────────────────────── */
+/* ──────────────────────── shared bits ──────────────────────── */
 
 function EmptyState({ message }: { message: string }) {
   return (
@@ -88,7 +100,7 @@ function CodStatusLabel({ status, isAr }: { status: string; isAr: boolean }) {
     pending: ["قيد الانتظار", "Pending", "bg-amber-500/15 text-amber-700 dark:text-amber-400"],
     reconciled: ["تمت التسوية", "Reconciled", "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"],
     disputed: ["متنازع عليه", "Disputed", "bg-red-500/15 text-red-700 dark:text-red-400"],
-    written_off: ["شُطب", "Written Off", "bg-gray-500/15 text-gray-700 dark:text-gray-300"],
+    written_off: ["شطب", "Written Off", "bg-gray-500/15 text-gray-700 dark:text-gray-300"],
   }
   const v = map[status] ?? [status, status, "bg-muted text-muted-foreground"]
   return <Badge className={v[2]}>{isAr ? v[0] : v[1]}</Badge>
@@ -165,7 +177,7 @@ function OdometerSourceLabel({ source, isAr }: { source: string; isAr: boolean }
   return <span>{v ? (isAr ? v[0] : v[1]) : source}</span>
 }
 
-/* ───────────────────────── tab components ───────────────────────── */
+/* ──────────────────────── tab components ──────────────────────── */
 
 type DocumentsTabProps = { driverId: string; isAr: boolean }
 
@@ -238,7 +250,7 @@ function DocumentsTab({ driverId, isAr }: DocumentsTabProps) {
                 <StatusBadge
                   value={String(r.is_verified)}
                   ok="true"
-                  warn={isAr ? (String(r.is_verified) === "true" ? "موثّق" : "غير موثّق") : String(r.is_verified) === "true" ? "Verified" : "Unverified"}
+                  warn={isAr ? (String(r.is_verified) === "true" ? "موثّق" : "غير موثّق") : String(r.is_verified) === "true" ? "Verified": "Unverified"}
                 />
               </td>
             </tr>
@@ -262,7 +274,7 @@ function CodTab({ driverId, isAr }: CodTabProps) {
       const [sessions, pf] = await Promise.all([
         supabase
           .from("driver_cod_sessions")
-          .select("id, session_date, session_ref, platform_id, orders_with_cod, cod_collected, cod_submitted, cod_variance, status, submission_method, notes")
+          .select("id, session_date, session_ref, platform_id, orders_with_cod, cod_collected, cod_submitted, cod_variance, status, submission_method,notes")
           .eq("driver_id", driverId)
           .is("deleted_at", null)
           .order("session_date", { ascending: false })
@@ -952,7 +964,7 @@ function OdometerTab({ driverId, isAr }: OdometerTabProps) {
   )
 }
 
-/* ───────────────────────── main tab host ───────────────────────── */
+/* ──────────────────────── main tab host ──────────────────────── */
 
 export function DriverTabs({
   driver,
@@ -975,6 +987,14 @@ export function DriverTabs({
           <FileText className="h-3.5 w-3.5" />
           {isAr ? "المستندات" : "Documents"}
         </TabsTrigger>
+        <TabsTrigger value="attendance">
+          <CalendarClock className="h-3.5 w-3.5" />
+          {isAr ? "الحضور" : "Attendance"}
+        </TabsTrigger>
+        <TabsTrigger value="leave">
+          <CalendarOff className="h-3.5 w-3.5" />
+          {isAr ? "الإجازات" : "Leave"}
+        </TabsTrigger>
         <TabsTrigger value="cod">
           <Banknote className="h-3.5 w-3.5" />
           {isAr ? "تسوية COD" : "COD"}
@@ -982,6 +1002,10 @@ export function DriverTabs({
         <TabsTrigger value="salary">
           <Wallet className="h-3.5 w-3.5" />
           {isAr ? "سجل الرواتب" : "Salary History"}
+        </TabsTrigger>
+        <TabsTrigger value="violations">
+          <AlertTriangle className="h-3.5 w-3.5" />
+          {isAr ? "المخالفات" : "Violations"}
         </TabsTrigger>
         <TabsTrigger value="assignments">
           <Car className="h-3.5 w-3.5" />
@@ -999,9 +1023,21 @@ export function DriverTabs({
           <Gauge className="h-3.5 w-3.5" />
           {isAr ? "العداد" : "Odometer"}
         </TabsTrigger>
+        <TabsTrigger value="performance">
+          <TrendingUp className="h-3.5 w-3.5" />
+          {isAr ? "الأداء" : "Performance"}
+        </TabsTrigger>
+        <TabsTrigger value="training">
+          <GraduationCap className="h-3.5 w-3.5" />
+          {isAr ? "التدريب" : "Training"}
+        </TabsTrigger>
         <TabsTrigger value="compliance">
           <ShieldAlert className="h-3.5 w-3.5" />
           {isAr ? "الامتثال" : "Compliance"}
+        </TabsTrigger>
+        <TabsTrigger value="activity">
+          <History className="h-3.5 w-3.5" />
+          {isAr ? "النشاط" : "Activity"}
         </TabsTrigger>
       </TabsList>
 
@@ -1011,11 +1047,20 @@ export function DriverTabs({
       <TabsContent value="documents" className="mt-4">
         <DocumentsTab driverId={driver.id} isAr={isAr} />
       </TabsContent>
+      <TabsContent value="attendance" className="mt-4">
+        <AttendanceTab driverId={driver.id} isAr={isAr} />
+      </TabsContent>
+      <TabsContent value="leave" className="mt-4">
+        <DriverLeaveTab driverId={driver.id} isAr={isAr} />
+      </TabsContent>
       <TabsContent value="cod" className="mt-4">
         <CodTab driverId={driver.id} isAr={isAr} />
       </TabsContent>
       <TabsContent value="salary" className="mt-4">
         <SalaryTab driverId={driver.id} isAr={isAr} />
+      </TabsContent>
+      <TabsContent value="violations" className="mt-4">
+        <ViolationsTab driverId={driver.id} isAr={isAr} />
       </TabsContent>
       <TabsContent value="assignments" className="mt-4">
         <AssignmentsTab driverId={driver.id} isAr={isAr} />
@@ -1029,9 +1074,18 @@ export function DriverTabs({
       <TabsContent value="odometer" className="mt-4">
         <OdometerTab driverId={driver.id} isAr={isAr} />
       </TabsContent>
+      <TabsContent value="performance" className="mt-4">
+        <PerformanceTab driver={driver} isAr={isAr} />
+      </TabsContent>
+      <TabsContent value="training" className="mt-4">
+        <TrainingTab driverId={driver.id} isAr={isAr} />
+      </TabsContent>
       <TabsContent value="compliance" className="mt-4 space-y-4">
         <DriverComplianceEngine driver={driver} isAr={isAr} />
         <ComplianceTab driver={driver} isAr={isAr} />
+      </TabsContent>
+      <TabsContent value="activity" className="mt-4">
+        <ActivityTimelineTab driverId={driver.id} isAr={isAr} />
       </TabsContent>
     </Tabs>
   )
