@@ -13,6 +13,13 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { useTranslation } from "@/hooks/use-translation"
 import { toast } from "sonner"
@@ -24,47 +31,73 @@ type ViolationDialogProps = {
   onCreated: () => void
 }
 
+type ViolationType = {
+  id: string
+  code: string | null
+  name_ar: string | null
+  name_en: string | null
+  default_deduction: number | null
+}
+
 const INITIAL_FORM = {
-  violation_type: "",
-  violation_date: "",
-  location: "",
-  fine_amount: "",
-  points: "",
-  description: "",
-  notes: "",
+  violation_type_id: "",
+  incident_date: "",
+  incident_location: "",
+  deduction_amount: "",
+  incident_description: "",
 }
 
 export function ViolationDialog({ open, onOpenChange, driverId, onCreated }: ViolationDialogProps) {
   const { locale } = useTranslation()
   const isAr = locale === "ar"
   const [form, setForm] = useState(INITIAL_FORM)
+  const [types, setTypes] = useState<ViolationType[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
-    if (open) {
-      setForm({ ...INITIAL_FORM, violation_date: new Date().toISOString().slice(0, 10) })
+    if (!open) return
+    setForm({ ...INITIAL_FORM, incident_date: new Date().toISOString().slice(0, 10) })
+    let cancelled = false
+    void (async () => {
+      const supabase = createClient()
+      const { data, error } = await supabase
+        .from("violation_types")
+        .select("id, code, name_ar, name_en, default_deduction")
+        .eq("is_active", true)
+        .is("deleted_at", null)
+        .order("code", { ascending: true })
+      if (!cancelled && !error) setTypes((data ?? []) as unknown as ViolationType[])
+    })()
+    return () => {
+      cancelled = true
     }
   }, [open])
 
-  const set = (key: keyof typeof INITIAL_FORM) => (value: string) =>
-    setForm((prev) => ({ ...prev, [key]: value }))
+  const onTypeChange = (id: string) => {
+    const t = types.find((x) => x.id === id)
+    setForm((prev) => ({
+      ...prev,
+      violation_type_id: id,
+      deduction_amount:
+        prev.deduction_amount || (t?.default_deduction != null ? String(t.default_deduction) : ""),
+    }))
+  }
 
   const submit = async () => {
-    if (!form.violation_type.trim() || !form.violation_date) {
-      toast.error(isAr ? "أدخل نوع المخالفة وتاريخها" : "Violation type and date are required")
+    if (!form.violation_type_id || !form.incident_date) {
+      toast.error(isAr ? "اختر نوع المخالفة وتاريخها" : "Violation type and date are required")
       return
     }
     setIsSubmitting(true)
     const supabase = createClient()
-    const { error } = await supabase.from("driver_violations").insert({
+    const { error } = await supabase.from("violations").insert({
       driver_id: driverId,
-      violation_type: form.violation_type.trim(),
-      violation_date: form.violation_date,
-      location: form.location.trim() || null,
-      fine_amount: form.fine_amount ? Number(form.fine_amount) : null,
-      points: form.points ? Number(form.points) : null,
-      description: form.description.trim() || null,
-      notes: form.notes.trim() || null,
+      violation_type_id: form.violation_type_id,
+      incident_date: form.incident_date,
+      incident_location: form.incident_location.trim() || null,
+      incident_description: form.incident_description.trim() || null,
+      deduction_amount: form.deduction_amount ? Number(form.deduction_amount) : null,
+      source: "manual",
       status: "pending",
     })
     setIsSubmitting(false)
@@ -85,78 +118,62 @@ export function ViolationDialog({ open, onOpenChange, driverId, onCreated }: Vio
           <DialogTitle>{isAr ? "إضافة مخالفة" : "Add violation"}</DialogTitle>
           <DialogDescription>
             {isAr
-              ? "سجّل مخالفة مرورية أو تشغيلية على ملف السائق"
-              : "Record a traffic or operational violation on this driver's file"}
+              ? "سجّل مخالفة على ملف السائق — ستبقى قيد الانتظار حتى المراجعة"
+              : "Record a violation on this driver's file — it stays pending until reviewed"}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-2 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="violation_type">{isAr ? "النوع" : "Type"} *</Label>
-            <Input
-              id="violation_type"
-              value={form.violation_type}
-              onChange={(e) => set("violation_type")(e.target.value)}
-              placeholder={isAr ? "تجاوز سرعة…" : "Speeding…"}
-            />
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label>{isAr ? "نوع المخالفة" : "Violation type"} *</Label>
+            <Select value={form.violation_type_id} onValueChange={onTypeChange}>
+              <SelectTrigger>
+                <SelectValue placeholder={isAr ? "اختر النوع…" : "Select type…"} />
+              </SelectTrigger>
+              <SelectContent>
+                {types.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    {isAr ? (t.name_ar ?? t.name_en ?? t.code) : (t.name_en ?? t.name_ar ?? t.code)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="violation_date">{isAr ? "التاريخ" : "Date"} *</Label>
+            <Label htmlFor="incident_date">{isAr ? "التاريخ" : "Date"} *</Label>
             <Input
-              id="violation_date"
+              id="incident_date"
               type="date"
               dir="ltr"
-              value={form.violation_date}
-              onChange={(e) => set("violation_date")(e.target.value)}
+              value={form.incident_date}
+              onChange={(e) => setForm((p) => ({ ...p, incident_date: e.target.value }))}
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="violation_location">{isAr ? "الموقع" : "Location"}</Label>
+            <Label htmlFor="deduction_amount">{isAr ? "الخصم (ر.س)" : "Deduction (SAR)"}</Label>
             <Input
-              id="violation_location"
-              value={form.location}
-              onChange={(e) => set("location")(e.target.value)}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="fine_amount">{isAr ? "الغرامة (ر.س)" : "Fine (SAR)"}</Label>
-              <Input
-                id="fine_amount"
-                type="number"
-                min="0"
-                dir="ltr"
-                value={form.fine_amount}
-                onChange={(e) => set("fine_amount")(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="points">{isAr ? "النقاط" : "Points"}</Label>
-              <Input
-                id="points"
-                type="number"
-                min="0"
-                dir="ltr"
-                value={form.points}
-                onChange={(e) => set("points")(e.target.value)}
-              />
-            </div>
-          </div>
-          <div className="space-y-1.5 sm:col-span-2">
-            <Label htmlFor="violation_description">{isAr ? "الوصف" : "Description"}</Label>
-            <Textarea
-              id="violation_description"
-              rows={2}
-              value={form.description}
-              onChange={(e) => set("description")(e.target.value)}
+              id="deduction_amount"
+              type="number"
+              min="0"
+              dir="ltr"
+              value={form.deduction_amount}
+              onChange={(e) => setForm((p) => ({ ...p, deduction_amount: e.target.value }))}
             />
           </div>
           <div className="space-y-1.5 sm:col-span-2">
-            <Label htmlFor="violation_notes">{isAr ? "ملاحظات" : "Notes"}</Label>
+            <Label htmlFor="incident_location">{isAr ? "الموقع" : "Location"}</Label>
+            <Input
+              id="incident_location"
+              value={form.incident_location}
+              onChange={(e) => setForm((p) => ({ ...p, incident_location: e.target.value }))}
+            />
+          </div>
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label htmlFor="incident_description">{isAr ? "الوصف" : "Description"}</Label>
             <Textarea
-              id="violation_notes"
-              rows={2}
-              value={form.notes}
-              onChange={(e) => set("notes")(e.target.value)}
+              id="incident_description"
+              rows={3}
+              value={form.incident_description}
+              onChange={(e) => setForm((p) => ({ ...p, incident_description: e.target.value }))}
             />
           </div>
         </div>

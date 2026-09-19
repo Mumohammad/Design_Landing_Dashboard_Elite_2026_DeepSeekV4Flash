@@ -16,27 +16,63 @@ const VIOLATION_STATUS_STYLES: Record<string, { ar: string; en: string; classNam
     en: "Pending",
     className: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
   },
-  paid: {
-    ar: "مدفوعة",
-    en: "Paid",
-    className: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
-  },
-  disputed: {
-    ar: "متنازع عليها",
-    en: "Disputed",
-    className: "bg-red-500/15 text-red-700 dark:text-red-400",
-  },
-  waived: {
-    ar: "معفاة",
-    en: "Waived",
-    className: "bg-muted text-muted-foreground",
+  confirmed: {
+    ar: "مؤكدة",
+    en: "Confirmed",
+    className: "bg-elite-blue-500/15 text-elite-blue-700 dark:text-elite-blue-300",
   },
   deducted: {
     ar: "مخصومة",
     en: "Deducted",
     className: "bg-purple-500/15 text-purple-700 dark:text-purple-400",
   },
+  paid: {
+    ar: "مدفوعة",
+    en: "Paid",
+    className: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
+  },
+  waived: {
+    ar: "معفاة",
+    en: "Waived",
+    className: "bg-muted text-muted-foreground",
+  },
+  disputed: {
+    ar: "متنازع عليها",
+    en: "Disputed",
+    className: "bg-red-500/15 text-red-700 dark:text-red-400",
+  },
+  cancelled: {
+    ar: "ملغاة",
+    en: "Cancelled",
+    className: "bg-muted text-muted-foreground",
+  },
 }
+
+const SEVERITY_STYLES: Record<string, { ar: string; en: string; className: string }> = {
+  minor: {
+    ar: "بسيطة",
+    en: "Minor",
+    className: "bg-gray-500/15 text-gray-700 dark:text-gray-300",
+  },
+  moderate: {
+    ar: "متوسطة",
+    en: "Moderate",
+    className: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
+  },
+  major: {
+    ar: "جسيمة",
+    en: "Major",
+    className: "bg-orange-500/15 text-orange-700 dark:text-orange-400",
+  },
+  severe: {
+    ar: "خطيرة",
+    en: "Severe",
+    className: "bg-red-500/15 text-red-700 dark:text-red-400",
+  },
+}
+
+const SELECT_FIELDS =
+  "id, violation_ref, incident_date, incident_location, deduction_amount, severity, status, warning_level, source, reported_at, violation_types(name_ar, name_en, category)"
 
 export function ViolationsTab({ driverId, isAr }: ViolationsTabProps) {
   const [rows, setRows] = useState<Record<string, unknown>[] | null>(null)
@@ -45,13 +81,11 @@ export function ViolationsTab({ driverId, isAr }: ViolationsTabProps) {
   const load = useCallback(async () => {
     const supabase = createClient()
     const { data, error } = await supabase
-      .from("driver_violations")
-      .select(
-        "id, violation_type, violation_date, location, fine_amount, points, status, description, paid_by, reported_at",
-      )
+      .from("violations")
+      .select(SELECT_FIELDS)
       .eq("driver_id", driverId)
       .is("deleted_at", null)
-      .order("violation_date", { ascending: false })
+      .order("incident_date", { ascending: false })
       .limit(50)
     setRows(error ? [] : (data as Record<string, unknown>[]))
   }, [driverId])
@@ -61,13 +95,11 @@ export function ViolationsTab({ driverId, isAr }: ViolationsTabProps) {
     void (async () => {
       const supabase = createClient()
       const { data, error } = await supabase
-        .from("driver_violations")
-        .select(
-          "id, violation_type, violation_date, location, fine_amount, points, status, description, paid_by, reported_at",
-        )
+        .from("violations")
+        .select(SELECT_FIELDS)
         .eq("driver_id", driverId)
         .is("deleted_at", null)
-        .order("violation_date", { ascending: false })
+        .order("incident_date", { ascending: false })
         .limit(50)
       if (!cancelled) setRows(error ? [] : (data as Record<string, unknown>[]))
     })()
@@ -77,13 +109,9 @@ export function ViolationsTab({ driverId, isAr }: ViolationsTabProps) {
   }, [driverId])
 
   const totals = useMemo(() => {
-    let fines = 0
-    let points = 0
-    for (const r of rows ?? []) {
-      fines += Number(r.fine_amount ?? 0)
-      points += Number(r.points ?? 0)
-    }
-    return { fines, points }
+    let deductions = 0
+    for (const r of rows ?? []) deductions += Number(r.deduction_amount ?? 0)
+    return { count: (rows ?? []).length, deductions }
   }, [rows])
 
   if (rows === null) {
@@ -100,18 +128,18 @@ export function ViolationsTab({ driverId, isAr }: ViolationsTabProps) {
       <div className="flex flex-wrap items-center gap-3">
         <div className="rounded-2xl border border-border/50 bg-card/60 px-4 py-3 backdrop-blur-sm">
           <span className="text-xs text-muted-foreground">
-            {isAr ? "إجمالي الغرامات" : "Total fines"}
+            {isAr ? "إجمالي الخصومات" : "Total deductions"}
           </span>
           <div className="text-lg font-extrabold tabular-nums text-foreground" dir="ltr">
-            {totals.fines.toLocaleString("en-US")} {isAr ? "ر.س" : "SAR"}
+            {totals.deductions.toLocaleString("en-US")} {isAr ? "ر.س" : "SAR"}
           </div>
         </div>
         <div className="rounded-2xl border border-border/50 bg-card/60 px-4 py-3 backdrop-blur-sm">
           <span className="text-xs text-muted-foreground">
-            {isAr ? "النقاط" : "Points"}
+            {isAr ? "عدد المخالفات" : "Violations"}
           </span>
           <div className="text-lg font-extrabold tabular-nums text-foreground" dir="ltr">
-            {totals.points}
+            {totals.count}
           </div>
         </div>
         <div className="ms-auto">
@@ -130,48 +158,62 @@ export function ViolationsTab({ driverId, isAr }: ViolationsTabProps) {
         </div>
       ) : (
         <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm">
-          <table className="w-full min-w-[760px] text-start text-sm">
+          <table className="w-full min-w-[780px] text-start text-sm">
             <thead>
               <tr className="border-b border-border/50 text-[10px] uppercase tracking-wide text-muted-foreground">
+                <th className="px-4 py-3 text-start font-semibold">{isAr ? "المرجع" : "Ref"}</th>
                 <th className="px-4 py-3 text-start font-semibold">{isAr ? "النوع" : "Type"}</th>
                 <th className="px-4 py-3 text-start font-semibold">{isAr ? "التاريخ" : "Date"}</th>
                 <th className="px-4 py-3 text-start font-semibold">{isAr ? "الموقع" : "Location"}</th>
-                <th className="px-4 py-3 text-start font-semibold">{isAr ? "الغرامة" : "Fine"}</th>
-                <th className="px-4 py-3 text-start font-semibold">{isAr ? "النقاط" : "Points"}</th>
+                <th className="px-4 py-3 text-start font-semibold">{isAr ? "الخصم" : "Deduction"}</th>
+                <th className="px-4 py-3 text-start font-semibold">{isAr ? "الشدة" : "Severity"}</th>
                 <th className="px-4 py-3 text-start font-semibold">{isAr ? "الحالة" : "Status"}</th>
-                <th className="px-4 py-3 text-start font-semibold">{isAr ? "يدفعها" : "Paid by"}</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r) => {
+                const vt = r.violation_types as {
+                  name_ar: string | null
+                  name_en: string | null
+                } | null
+                const typeName = vt
+                  ? isAr
+                    ? (vt.name_ar ?? vt.name_en ?? "—")
+                    : (vt.name_en ?? vt.name_ar ?? "—")
+                  : "—"
                 const status = VIOLATION_STATUS_STYLES[String(r.status ?? "pending")] ?? {
                   ar: String(r.status ?? "—"),
                   en: String(r.status ?? "—"),
                   className: "bg-muted text-muted-foreground",
                 }
+                const severity = SEVERITY_STYLES[String(r.severity ?? "")] ?? null
                 return (
                   <tr key={String(r.id)} className="border-b border-border/40 last:border-0 hover:bg-muted/30">
-                    <td className="px-4 py-3 font-medium text-foreground">
-                      {String(r.violation_type ?? "—")}
+                    <td className="px-4 py-3 font-mono text-xs text-muted-foreground" dir="ltr">
+                      {String(r.violation_ref ?? "—")}
                     </td>
+                    <td className="px-4 py-3 font-medium text-foreground">{typeName}</td>
                     <td className="px-4 py-3 text-muted-foreground" dir="ltr">
-                      {String(r.violation_date ?? "—")}
+                      {String(r.incident_date ?? "—")}
                     </td>
-                    <td className="max-w-[180px] truncate px-4 py-3 text-muted-foreground">
-                      {String(r.location ?? "—")}
+                    <td className="max-w-[160px] truncate px-4 py-3 text-muted-foreground">
+                      {String(r.incident_location ?? "—")}
                     </td>
                     <td className="px-4 py-3 tabular-nums text-foreground/80" dir="ltr">
-                      {r.fine_amount != null
-                        ? `${Number(r.fine_amount).toLocaleString("en-US")} ${isAr ? "ر.س" : "SAR"}`
+                      {r.deduction_amount != null
+                        ? `${Number(r.deduction_amount).toLocaleString("en-US")} ${isAr ? "ر.س" : "SAR"}`
                         : "—"}
                     </td>
-                    <td className="px-4 py-3 tabular-nums text-foreground/80" dir="ltr">
-                      {r.points != null ? String(r.points) : "—"}
+                    <td className="px-4 py-3">
+                      {severity ? (
+                        <Badge className={severity.className}>{isAr ? severity.ar : severity.en}</Badge>
+                      ) : (
+                        <span className="text-muted-foreground">{String(r.severity ?? "—")}</span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <Badge className={status.className}>{isAr ? status.ar : status.en}</Badge>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">{String(r.paid_by ?? "—")}</td>
                   </tr>
                 )
               })}

@@ -4,31 +4,9 @@ import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
+import { ExternalLink } from "lucide-react"
 
 type TrainingTabProps = { driverId: string; isAr: boolean }
-
-const TRAINING_STATUS_STYLES: Record<string, { ar: string; en: string; className: string }> = {
-  completed: {
-    ar: "مكتمل",
-    en: "Completed",
-    className: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
-  },
-  in_progress: {
-    ar: "قيد التنفيذ",
-    en: "In progress",
-    className: "bg-elite-blue-500/15 text-elite-blue-700 dark:text-elite-blue-300",
-  },
-  scheduled: {
-    ar: "مجدول",
-    en: "Scheduled",
-    className: "bg-muted text-muted-foreground",
-  },
-  expired: {
-    ar: "منتهي",
-    en: "Expired",
-    className: "bg-red-500/15 text-red-700 dark:text-red-400",
-  },
-}
 
 function daysUntil(iso: string | null): number | null {
   if (!iso) return null
@@ -45,13 +23,11 @@ export function TrainingTab({ driverId, isAr }: TrainingTabProps) {
     void (async () => {
       const supabase = createClient()
       const { data, error } = await supabase
-        .from("driver_training_records")
-        .select(
-          "id, training_title, provider, start_date, end_date, expiry_date, status, score, cost, notes",
-        )
+        .from("training_records")
+        .select("id, course_name, training_date, expiry_date, provider, certificate_url, score, is_passed")
         .eq("driver_id", driverId)
         .is("deleted_at", null)
-        .order("created_at", { ascending: false })
+        .order("training_date", { ascending: false })
         .limit(30)
       if (!cancelled) setRows(error ? [] : (data as Record<string, unknown>[]))
     })()
@@ -86,20 +62,15 @@ export function TrainingTab({ driverId, isAr }: TrainingTabProps) {
           <tr className="border-b border-border/50 text-[10px] uppercase tracking-wide text-muted-foreground">
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "الدورة" : "Course"}</th>
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "الجهة" : "Provider"}</th>
-            <th className="px-4 py-3 text-start font-semibold">{isAr ? "الإكمال" : "Completed"}</th>
+            <th className="px-4 py-3 text-start font-semibold">{isAr ? "التاريخ" : "Date"}</th>
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "الانتهاء" : "Expiry"}</th>
-            <th className="px-4 py-3 text-start font-semibold">{isAr ? "الحالة" : "Status"}</th>
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "الدرجة" : "Score"}</th>
-            <th className="px-4 py-3 text-start font-semibold">{isAr ? "التكلفة" : "Cost"}</th>
+            <th className="px-4 py-3 text-start font-semibold">{isAr ? "النتيجة" : "Result"}</th>
+            <th className="px-4 py-3 text-start font-semibold">{isAr ? "الشهادة" : "Certificate"}</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((r) => {
-            const status = TRAINING_STATUS_STYLES[String(r.status ?? "scheduled")] ?? {
-              ar: String(r.status ?? "—"),
-              en: String(r.status ?? "—"),
-              className: "bg-muted text-muted-foreground",
-            }
             const expiryDays = daysUntil(r.expiry_date ? String(r.expiry_date) : null)
             const expiryCls =
               expiryDays !== null && expiryDays < 0
@@ -107,28 +78,49 @@ export function TrainingTab({ driverId, isAr }: TrainingTabProps) {
                 : expiryDays !== null && expiryDays <= 30
                   ? "text-amber-600 dark:text-amber-400"
                   : "text-muted-foreground"
+            const passed = r.is_passed
             return (
               <tr key={String(r.id)} className="border-b border-border/40 last:border-0 hover:bg-muted/30">
                 <td className="px-4 py-3 font-medium text-foreground">
-                  {String(r.training_title ?? "—")}
+                  {String(r.course_name ?? "—")}
                 </td>
                 <td className="px-4 py-3 text-muted-foreground">{String(r.provider ?? "—")}</td>
                 <td className="px-4 py-3 text-muted-foreground" dir="ltr">
-                  {r.end_date ? String(r.end_date) : "—"}
+                  {r.training_date ? String(r.training_date) : "—"}
                 </td>
                 <td className={`px-4 py-3 ${expiryCls}`} dir="ltr">
                   {r.expiry_date ? String(r.expiry_date) : "—"}
                 </td>
-                <td className="px-4 py-3">
-                  <Badge className={status.className}>{isAr ? status.ar : status.en}</Badge>
-                </td>
                 <td className="px-4 py-3 tabular-nums text-foreground/80" dir="ltr">
                   {r.score != null ? `${Number(r.score)}%` : "—"}
                 </td>
-                <td className="px-4 py-3 tabular-nums text-foreground/80" dir="ltr">
-                  {r.cost != null
-                    ? `${Number(r.cost).toLocaleString("en-US")} ${isAr ? "ر.س" : "SAR"}`
-                    : "—"}
+                <td className="px-4 py-3">
+                  {passed === null || passed === undefined ? (
+                    <span className="text-muted-foreground">—</span>
+                  ) : String(passed) === "true" ? (
+                    <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400">
+                      {isAr ? "ناجح" : "Passed"}
+                    </Badge>
+                  ) : (
+                    <Badge className="bg-red-500/15 text-red-700 dark:text-red-400">
+                      {isAr ? "راسب" : "Failed"}
+                    </Badge>
+                  )}
+                </td>
+                <td className="px-4 py-3">
+                  {r.certificate_url ? (
+                    <a
+                      href={String(r.certificate_url)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-xs font-medium text-elite-blue-600 hover:underline dark:text-elite-blue-300"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      {isAr ? "عرض" : "View"}
+                    </a>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
                 </td>
               </tr>
             )
