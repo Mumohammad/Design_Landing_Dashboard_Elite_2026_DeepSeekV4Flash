@@ -21,6 +21,7 @@ import {
   updateDriverPhoto,
 } from "@/app/actions/drivers/driver-photo"
 import { DriverTabs } from "./driver-tabs"
+import DriverAdminActions from "./driver-admin-actions"
 import type { Driver, DriverCategory, DriverStatus } from "@/types/drivers"
 import type { LucideIcon } from "lucide-react"
 import {
@@ -186,6 +187,7 @@ export default function DriverDetailPage() {
   const [photoUploading, setPhotoUploading] = useState(false)
   const [photoRemoving, setPhotoRemoving] = useState(false)
   const [photoPreviewOpen, setPhotoPreviewOpen] = useState(false)
+  const [reloadToken, setReloadToken] = useState(0)
   const photoInputRef = useRef<HTMLInputElement>(null)
   const objectUrlRef = useRef<string | null>(null)
 
@@ -219,7 +221,7 @@ export default function DriverDetailPage() {
     return () => {
       cancelled = true
     }
-  }, [id])
+  }, [id, reloadToken])
 
   // photo_url may be a storage object path (driver-photos bucket) or a full URL
   useEffect(() => {
@@ -527,7 +529,7 @@ export default function DriverDetailPage() {
               </div>
             </div>
           </div>
-          <div className="flex flex-wrap gap-4 sm:gap-6">
+          <div className="flex flex-wrap items-center gap-4 sm:gap-6">
             <QuickStat
               label={isAr ? "الاكتمال" : "Completeness"}
               value={`${driver.profile_completeness_score}%`}
@@ -539,6 +541,11 @@ export default function DriverDetailPage() {
             <QuickStat
               label={isAr ? "مخاطر الامتثال" : "Compliance Risk"}
               value={`${driver.compliance_risk_score}`}
+            />
+            <DriverAdminActions
+              driver={driver}
+              isAr={isAr}
+              onUpdated={() => setReloadToken((n) => n + 1)}
             />
           </div>
         </div>
