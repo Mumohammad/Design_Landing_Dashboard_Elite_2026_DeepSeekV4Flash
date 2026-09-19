@@ -10,9 +10,26 @@ import {
   type TableColumn,
 } from "@/components/dashboard/enterprise-module-page"
 import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
+import { Switch } from "@/components/ui/switch"
+import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { CreateDriverDialog } from "./components/create-driver-dialog"
 import type { Driver, DriverCategory, DriverStatus } from "@/types/drivers"
-import { CalendarClock, CheckCircle2, UserX, Users } from "lucide-react"
+import {
+  AlertTriangle,
+  CalendarClock,
+  CheckCircle2,
+  Download,
+  UserX,
+  Users,
+} from "lucide-react"
 
 type DriverListItem = Pick<
   Driver,
@@ -21,6 +38,7 @@ type DriverListItem = Pick<
   | "full_name_ar"
   | "full_name_en"
   | "primary_mobile"
+  | "photo_url"
   | "category"
   | "status"
   | "iqama_expiry_date"
@@ -35,6 +53,7 @@ const DRIVER_FIELDS = [
   "full_name_ar",
   "full_name_en",
   "primary_mobile",
+  "photo_url",
   "category",
   "status",
   "iqama_expiry_date",
@@ -68,7 +87,7 @@ const STATUS_META: Record<DriverStatus, { ar: string; en: string; className: str
       "bg-gray-500/15 text-gray-700 dark:text-gray-300 border border-gray-500/20",
   },
   terminated: {
-    ar: "منهى",
+    ar: "منهي",
     en: "Terminated",
     className: "bg-red-500/15 text-red-700 dark:text-red-400 border border-red-500/20",
   },
@@ -100,6 +119,50 @@ const CATEGORY_META: Record<DriverCategory, { ar: string; en: string; className:
   },
 }
 
+const EXPIRY_WINDOW_DAYS = 30
+
+function daysUntil(iso: string | null | undefined): number | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  return Math.ceil((d.getTime() - Date.now()) / 86_400_000)
+}
+
+function isExpiringSoon(row: DriverListItem): boolean {
+  const dates = [row.iqama_expiry_date, row.license_expiry_date]
+  return dates.some((d) => {
+    const days = daysUntil(d)
+    return days !== null && days >= 0 && days <= EXPIRY_WINDOW_DAYS
+  })
+}
+
+function DriverAvatar({
+  name,
+  photoUrl,
+}: {
+  name: string | null
+  photoUrl: string | null
+}) {
+  const initial = name?.slice(0, 1) ?? "?"
+  return (
+    <div className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted">
+      {photoUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element -- signed URL, not build-time optimizable
+        <img
+          src={photoUrl}
+          alt={name ?? ""}
+          className="h-full w-full rounded-full object-cover"
+          loading="lazy"
+        />
+      ) : (
+        <span className="flex h-full w-full items-center justify-center bg-gradient-to-br from-elite-blue-500 to-elite-orange-500 text-xs font-semibold text-white">
+          {initial}
+        </span>
+      )}
+    </div>
+  )
+}
+
 export default function DriversPage() {
   const { t, locale } = useTranslation()
   const router = useRouter()
@@ -109,6 +172,10 @@ export default function DriversPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [search, setSearch] = useState("")
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [statusFilter, setStatusFilter] = useState<"all" | DriverStatus>("all")
+  const [categoryFilter, setCategoryFilter] = useState<"all" | DriverCategory>("all")
+  const [expiringOnly, setExpiringOnly] = useState(false)
+  const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({})
 
   useEffect(() => {
     let cancelled = false
@@ -137,21 +204,60 @@ export default function DriversPage() {
     }
   }, [])
 
+  // Batch-resolve signed URLs for storage-path photos (one effect per list load).
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const paths = drivers
+        .map((d) => d.photo_url)
+        .filter((p): p is string => typeof p === "string" && p.length > 0 && !/^https?:\/\//i.test(p))
+      const missing = paths.filter((p) => !(p in photoUrls))
+      if (missing.length === 0) return
+      const supabase = createClient()
+      const entries = await Promise.all(
+        missing.map(async (path) => {
+          const { data } = await supabase.storage
+            .from("driver-photos")
+            .createSignedUrl(path, 3600)
+          return [path, data?.signedUrl ?? ""] as const
+        }),
+      )
+      if (cancelled) return
+      const direct: Record<string, string> = {}
+      for (const d of drivers) {
+        if (typeof d.photo_url === "string" && /^https?:\/\//i.test(d.photo_url)) {
+          direct[d.photo_url] = d.photo_url
+        }
+      }
+      setPhotoUrls((prev) => ({ ...prev, ...direct, ...Object.fromEntries(entries) }))
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [drivers]) // eslint-disable-line react-hooks/exhaustive-deps -- photoUrls map grows monotonically
+
   const filtered = useMemo(() => {
+    let rows = drivers
     const q = search.trim().toLowerCase()
-    if (!q) return drivers
-    return drivers.filter(
-      (d) =>
-        (d.full_name_ar ?? "").toLowerCase().includes(q) ||
-        (d.full_name_en ?? "").toLowerCase().includes(q) ||
-        (d.driver_code ?? "").toLowerCase().includes(q) ||
-        (d.primary_mobile ?? "").includes(q),
-    )
-  }, [drivers, search])
+    if (q) {
+      rows = rows.filter(
+        (d) =>
+          (d.full_name_ar ?? "").toLowerCase().includes(q) ||
+          (d.full_name_en ?? "").toLowerCase().includes(q) ||
+          (d.driver_code ?? "").toLowerCase().includes(q) ||
+          (d.primary_mobile ?? "").includes(q),
+      )
+    }
+    if (statusFilter !== "all") rows = rows.filter((d) => d.status === statusFilter)
+    if (categoryFilter !== "all") rows = rows.filter((d) => d.category === categoryFilter)
+    if (expiringOnly) rows = rows.filter(isExpiringSoon)
+    return rows
+  }, [drivers, search, statusFilter, categoryFilter, expiringOnly])
 
   const activeCount = drivers.filter((d) => d.status === "active").length
   const onLeaveCount = drivers.filter((d) => d.status === "on_leave").length
   const suspendedCount = drivers.filter((d) => d.status === "suspended").length
+  const expiringCount = drivers.filter(isExpiringSoon).length
 
   const kpiCards: KpiCardData[] = [
     { label: t.dashboard.totalDrivers, value: drivers.length, icon: Users, color: "#1E5A99" },
@@ -173,7 +279,56 @@ export default function DriversPage() {
       icon: UserX,
       color: "#EF4444",
     },
+    {
+      label: isAr ? "وثائق تنتهي قريبًا" : "Expiring documents",
+      value: expiringCount,
+      icon: AlertTriangle,
+      color: "#F97316",
+    },
   ]
+
+  const exportCsv = () => {
+    const header = [
+      "Driver Code",
+      "Name (AR)",
+      "Name (EN)",
+      "Phone",
+      "Category",
+      "Status",
+      "Iqama Expiry",
+      "License Expiry",
+      "Hire Date",
+      "Completeness %",
+    ]
+    const escape = (v: unknown) => {
+      const s = v === null || v === undefined ? "" : String(v)
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+    }
+    const lines = filtered.map((d) =>
+      [
+        d.driver_code,
+        d.full_name_ar,
+        d.full_name_en,
+        d.primary_mobile,
+        d.category,
+        d.status,
+        d.iqama_expiry_date,
+        d.license_expiry_date,
+        d.hire_date,
+        d.profile_completeness_score,
+      ]
+        .map(escape)
+        .join(","),
+    )
+    const csv = "\uFEFF" + [header.join(","), ...lines].join("\n")
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `drivers-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   const columns: TableColumn<DriverListItem>[] = [
     {
@@ -181,9 +336,10 @@ export default function DriversPage() {
       header: isAr ? "السائق" : "Driver",
       render: (row) => (
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-elite-blue-500 to-elite-orange-500 text-xs font-semibold text-white">
-            {row.full_name_ar?.slice(0, 1) ?? row.full_name_en?.slice(0, 1) ?? "?"}
-          </div>
+          <DriverAvatar
+            name={row.full_name_ar ?? row.full_name_en}
+            photoUrl={row.photo_url ? (photoUrls[row.photo_url] ?? null) : null}
+          />
           <div className="min-w-0">
             <div className="truncate font-medium text-foreground">
               {row.full_name_ar ?? "—"}
@@ -241,6 +397,41 @@ export default function DriversPage() {
       },
     },
     {
+      key: "iqama_expiry_date",
+      header: isAr ? "انتهاء الوثائق" : "Doc expiry",
+      render: (row) => {
+        const dates = [
+          { label: isAr ? "إقامة" : "Iqama", days: daysUntil(row.iqama_expiry_date) },
+          { label: isAr ? "رخصة" : "License", days: daysUntil(row.license_expiry_date) },
+        ].filter((d) => d.days !== null)
+        if (dates.length === 0) return <span className="text-muted-foreground">—</span>
+        return (
+          <div className="flex flex-col gap-0.5">
+            {dates.map((d) => {
+              const days = d.days as number
+              const cls =
+                days < 0
+                  ? "text-red-600 dark:text-red-400"
+                  : days <= EXPIRY_WINDOW_DAYS
+                    ? "text-amber-600 dark:text-amber-400"
+                    : "text-muted-foreground"
+              return (
+                <span key={d.label} className={cn("text-xs tabular-nums", cls)}>
+                  {d.label}: {days < 0
+                    ? isAr
+                      ? "منتهية"
+                      : "expired"
+                    : isAr
+                      ? `${days} يوم`
+                      : `${days}d`}
+                </span>
+              )
+            })}
+          </div>
+        )
+      },
+    },
+    {
       key: "profile_completeness_score",
       header: isAr ? "الاكتمال" : "Completeness",
       render: (row) => {
@@ -266,8 +457,76 @@ export default function DriversPage() {
     },
   ]
 
+  const noResults =
+    !isLoading &&
+    drivers.length > 0 &&
+    filtered.length === 0
+
   return (
     <div className="px-4 py-4 lg:px-6">
+      {/* Filter + export toolbar */}
+      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-border/50 bg-card/60 px-4 py-3 backdrop-blur-sm">
+        <Select
+          value={statusFilter}
+          onValueChange={(v) => setStatusFilter(v as "all" | DriverStatus)}
+        >
+          <SelectTrigger className="h-9 w-36 rounded-xl bg-muted/30 text-xs">
+            <SelectValue placeholder={isAr ? "الحالة" : "Status"} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{isAr ? "كل الحالات" : "All statuses"}</SelectItem>
+            {(Object.keys(STATUS_META) as DriverStatus[]).map((s) => (
+              <SelectItem key={s} value={s}>
+                {isAr ? STATUS_META[s].ar : STATUS_META[s].en}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select
+          value={categoryFilter}
+          onValueChange={(v) => setCategoryFilter(v as "all" | DriverCategory)}
+        >
+          <SelectTrigger className="h-9 w-40 rounded-xl bg-muted/30 text-xs">
+            <SelectValue placeholder={isAr ? "الفئة" : "Category"} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{isAr ? "كل الفئات" : "All categories"}</SelectItem>
+            {(Object.keys(CATEGORY_META) as DriverCategory[]).map((c) => (
+              <SelectItem key={c} value={c}>
+                {isAr ? CATEGORY_META[c].ar : CATEGORY_META[c].en}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <div className="flex items-center gap-2">
+          <Switch
+            id="expiring-only"
+            checked={expiringOnly}
+            onCheckedChange={setExpiringOnly}
+          />
+          <Label htmlFor="expiring-only" className="text-xs text-muted-foreground">
+            {isAr ? `تنتهي خلال ${EXPIRY_WINDOW_DAYS} يوم` : `Expiring ≤ ${EXPIRY_WINDOW_DAYS}d`}
+          </Label>
+        </div>
+        <div className="ms-auto flex items-center gap-3">
+          <span className="text-xs tabular-nums text-muted-foreground">
+            {isAr
+              ? `${filtered.length} من ${drivers.length}`
+              : `${filtered.length} of ${drivers.length}`}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 gap-1.5 rounded-xl"
+            onClick={exportCsv}
+            disabled={filtered.length === 0}
+          >
+            <Download className="h-3.5 w-3.5" />
+            {isAr ? "تصدير CSV" : "Export CSV"}
+          </Button>
+        </div>
+      </div>
+
       <EnterpriseModulePage<DriverListItem>
         title={t.nav.drivers}
         subtitle={
@@ -285,11 +544,23 @@ export default function DriversPage() {
         data={filtered}
         isLoading={isLoading}
         onRowClick={(row) => router.push(`/drivers/${row.id}`)}
-        emptyStateMessage={isAr ? "لا يوجد سائقون بعد" : "No drivers yet"}
-        emptyStateAction={{
-          label: t.common.addNew,
-          onClick: () => setDialogOpen(true),
-        }}
+        emptyStateMessage={
+          noResults
+            ? isAr
+              ? "لا توجد نتائج مطابقة للفلاتر"
+              : "No drivers match the current filters"
+            : isAr
+              ? "لا يوجد سائقون بعد"
+              : "No drivers yet"
+        }
+        emptyStateAction={
+          noResults
+            ? undefined
+            : {
+                label: t.common.addNew,
+                onClick: () => setDialogOpen(true),
+              }
+        }
       >
         <CreateDriverDialog open={dialogOpen} onOpenChange={setDialogOpen} />
       </EnterpriseModulePage>
