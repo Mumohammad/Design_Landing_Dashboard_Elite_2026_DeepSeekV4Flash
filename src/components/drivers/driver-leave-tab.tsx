@@ -73,8 +73,35 @@ export function DriverLeaveTab({ driverId, isAr }: DriverLeaveTabProps) {
   }, [driverId])
 
   useEffect(() => {
-    void load()
-  }, [load])
+    let cancelled = false
+    void (async () => {
+      const supabase = createClient()
+      const year = new Date().getFullYear()
+      const [requests, bals] = await Promise.all([
+        supabase
+          .from("driver_leave_requests")
+          .select(
+            "id, start_date, end_date, days_requested, status, reason, requested_at, reviewed_at, leave_types(code, name_ar, name_en)",
+          )
+          .eq("driver_id", driverId)
+          .is("deleted_at", null)
+          .order("requested_at", { ascending: false })
+          .limit(30),
+        supabase
+          .from("driver_leave_balances")
+          .select("id, entitled_days, used_days, pending_days, remaining_days, leave_types(name_ar, name_en)")
+          .eq("driver_id", driverId)
+          .eq("year", year)
+          .is("deleted_at", null),
+      ])
+      if (cancelled) return
+      setRows(requests.error ? [] : (requests.data as Record<string, unknown>[]))
+      setBalances(bals.error ? [] : ((bals.data ?? []) as unknown as Balance[]))
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [driverId])
 
   if (rows === null) {
     return (
