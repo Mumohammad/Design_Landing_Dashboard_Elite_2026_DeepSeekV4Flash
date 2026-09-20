@@ -1,10 +1,13 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
+import { Plus } from "lucide-react"
+import { LeaveRequestDialog } from "./leave-request-dialog"
 
 type DriverLeaveTabProps = { driverId: string; isAr: boolean }
 
@@ -43,38 +46,35 @@ type Balance = {
 export function DriverLeaveTab({ driverId, isAr }: DriverLeaveTabProps) {
   const [rows, setRows] = useState<Record<string, unknown>[] | null>(null)
   const [balances, setBalances] = useState<Balance[]>([])
+  const [dialogOpen, setDialogOpen] = useState(false)
+
+  const load = useCallback(async () => {
+    const supabase = createClient()
+    const year = new Date().getFullYear()
+    const [requests, bals] = await Promise.all([
+      supabase
+        .from("driver_leave_requests")
+        .select(
+          "id, start_date, end_date, days_requested, status, reason, requested_at, reviewed_at, leave_types(code, name_ar, name_en)",
+        )
+        .eq("driver_id", driverId)
+        .is("deleted_at", null)
+        .order("requested_at", { ascending: false })
+        .limit(30),
+      supabase
+        .from("driver_leave_balances")
+        .select("id, entitled_days, used_days, pending_days, remaining_days, leave_types(name_ar, name_en)")
+        .eq("driver_id", driverId)
+        .eq("year", year)
+        .is("deleted_at", null),
+    ])
+    setRows(requests.error ? [] : (requests.data as Record<string, unknown>[]))
+    setBalances(bals.error ? [] : ((bals.data ?? []) as unknown as Balance[]))
+  }, [driverId])
 
   useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      const supabase = createClient()
-      const year = new Date().getFullYear()
-      const [requests, bals] = await Promise.all([
-        supabase
-          .from("driver_leave_requests")
-          .select(
-            "id, start_date, end_date, days_requested, status, reason, requested_at, reviewed_at, leave_types(code, name_ar, name_en)",
-          )
-          .eq("driver_id", driverId)
-          .is("deleted_at", null)
-          .order("requested_at", { ascending: false })
-          .limit(30),
-        supabase
-          .from("driver_leave_balances")
-          .select("id, entitled_days, used_days, pending_days, remaining_days, leave_types(name_ar, name_en)")
-          .eq("driver_id", driverId)
-          .eq("year", year)
-          .is("deleted_at", null),
-      ])
-      if (!cancelled) {
-        setRows(requests.error ? [] : (requests.data as Record<string, unknown>[]))
-        setBalances(bals.error ? [] : ((bals.data ?? []) as unknown as Balance[]))
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [driverId])
+    void load()
+  }, [load])
 
   if (rows === null) {
     return (
@@ -87,6 +87,16 @@ export function DriverLeaveTab({ driverId, isAr }: DriverLeaveTabProps) {
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs text-muted-foreground">
+          {isAr ? `${rows.length} طلب` : `${rows.length} request${rows.length === 1 ? "" : "s"}`}
+        </span>
+        <Button size="sm" className="h-9 gap-1.5 rounded-xl" onClick={() => setDialogOpen(true)}>
+          <Plus className="h-3.5 w-3.5" />
+          {isAr ? "طلب إجازة" : "New request"}
+        </Button>
+      </div>
+
       {balances.length > 0 && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {balances.map((b) => {
@@ -187,6 +197,14 @@ export function DriverLeaveTab({ driverId, isAr }: DriverLeaveTabProps) {
           </table>
         </div>
       )}
+
+      <LeaveRequestDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        driverId={driverId}
+        isAr={isAr}
+        onCreated={() => void load()}
+      />
     </div>
   )
 }
