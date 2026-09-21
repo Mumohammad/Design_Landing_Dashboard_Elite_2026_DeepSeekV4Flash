@@ -8,7 +8,6 @@ import { toast } from "sonner";
 import { OVERRIDABLE_REQUIREMENTS } from "@/lib/drivers/compliance";
 import { emitDriverChanged } from "@/lib/drivers/driver-events";
 import { createClient } from "@/lib/supabase/client";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -170,13 +169,15 @@ export function DocumentUploadDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {existingPath ? (
-          <Alert>
-            <AlertTitle>Existing file will be replaced</AlertTitle>
-            <AlertDescription>
+      {existingPath ? (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-950/30">
+            <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
+              Existing file will be replaced
+            </p>
+            <p className="text-xs text-amber-800 dark:text-amber-300/80">
               A {docTypeLabel(docType).en} file is already on record for this driver.
-            </AlertDescription>
-          </Alert>
+            </p>
+          </div>
         ) : null}
 
         <div className="space-y-4">
