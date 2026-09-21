@@ -20,7 +20,7 @@ import {
   removeDriverPhoto,
   updateDriverPhoto,
 } from "@/app/actions/drivers/driver-photo"
-import { emitDriverChanged, subscribeDriverChanged } from "@/lib/driver-events"
+import { emitDriverChanged, subscribeDriverChanged } from "@/lib/drivers/driver-events"
 import { DriverTabs } from "./driver-tabs"
 import DriverAdminActions from "./driver-admin-actions"
 import type { Driver, DriverCategory, DriverStatus } from "@/types/drivers"
