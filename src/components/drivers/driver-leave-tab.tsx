@@ -1,237 +1,162 @@
-"use client"
+"use client";
 
-import { useCallback, useEffect, useState } from "react"
-import { createClient } from "@/lib/supabase/client"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Skeleton } from "@/components/ui/skeleton"
-import { cn } from "@/lib/utils"
-import { Plus } from "lucide-react"
-import { LeaveRequestDialog } from "./leave-request-dialog"
+import { useCallback, useEffect, useState } from "react";
 
-type DriverLeaveTabProps = { driverId: string; isAr: boolean }
+import { CalendarClock, CheckCircle2, Loader2, XCircle } from "lucide-react";
+import { toast } from "sonner";
 
-const LEAVE_STATUS_STYLES: Record<string, { ar: string; en: string; className: string }> = {
-  pending: {
-    ar: "قيد الانتظار",
-    en: "Pending",
-    className: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
-  },
-  approved: {
-    ar: "معتمدة",
-    en: "Approved",
-    className: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
-  },
-  rejected: {
-    ar: "مرفوضة",
-    en: "Rejected",
-    className: "bg-red-500/15 text-red-700 dark:text-red-400",
-  },
-  cancelled: {
-    ar: "ملغاة",
-    en: "Cancelled",
-    className: "bg-muted text-muted-foreground",
-  },
-}
+import { emitDriverChanged, subscribeDriverChanged } from "@/lib/drivers/driver-events";
+import { createClient } from "@/lib/supabase/client";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
-type Balance = {
-  id: string
-  entitled_days: number | null
-  used_days: number | null
-  pending_days: number | null
-  remaining_days: number | null
-  leave_types: { name_ar: string | null; name_en: string | null } | null
-}
+type LeaveRow = {
+  id: string;
+  leave_type_code: string;
+  start_date: string;
+  end_date: string;
+  days_requested: number | null;
+  status: string;
+  created_at: string;
+};
 
-export function DriverLeaveTab({ driverId, isAr }: DriverLeaveTabProps) {
-  const [rows, setRows] = useState<Record<string, unknown>[] | null>(null)
-  const [balances, setBalances] = useState<Balance[]>([])
-  const [dialogOpen, setDialogOpen] = useState(false)
+const STATUS_VARIANT: Record<string, "secondary" | "outline" | "destructive"> = {
+  pending: "secondary",
+  approved: "outline",
+  rejected: "destructive",
+  cancelled: "destructive",
+};
+
+export function DriverLeaveTab({ driverId, driverName }: { driverId: string; driverName: string }) {
+  const supabase = createClient();
+  const [rows, setRows] = useState<LeaveRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [actingId, setActingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const supabase = createClient()
-    const year = new Date().getFullYear()
-    const [requests, bals] = await Promise.all([
-      supabase
-        .from("driver_leave_requests")
-        .select(
-          "id, start_date, end_date, days_requested, status, reason, requested_at, reviewed_at, leave_types(code, name_ar, name_en)",
-        )
-        .eq("driver_id", driverId)
-        .is("deleted_at", null)
-        .order("requested_at", { ascending: false })
-        .limit(30),
-      supabase
-        .from("driver_leave_balances")
-        .select("id, entitled_days, used_days, pending_days, remaining_days, leave_types(name_ar, name_en)")
-        .eq("driver_id", driverId)
-        .eq("year", year)
-        .is("deleted_at", null),
-    ])
-    setRows(requests.error ? [] : (requests.data as Record<string, unknown>[]))
-    setBalances(bals.error ? [] : ((bals.data ?? []) as unknown as Balance[]))
-  }, [driverId])
+    setLoading(true);
+    const { data } = await supabase
+      .from("driver_leave_requests")
+      .select("id, leave_type_code, start_date, end_date, days_requested, status, created_at")
+      .eq("driver_id", driverId)
+      .order("created_at", { ascending: false })
+      .limit(50);
+    setRows(((data as LeaveRow[] | null) ?? []).filter((row) => row.status !== "cancelled"));
+    setLoading(false);
+  }, [driverId, supabase]);
 
   useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      const supabase = createClient()
-      const year = new Date().getFullYear()
-      const [requests, bals] = await Promise.all([
-        supabase
-          .from("driver_leave_requests")
-          .select(
-            "id, start_date, end_date, days_requested, status, reason, requested_at, reviewed_at, leave_types(code, name_ar, name_en)",
-          )
-          .eq("driver_id", driverId)
-          .is("deleted_at", null)
-          .order("requested_at", { ascending: false })
-          .limit(30),
-        supabase
-          .from("driver_leave_balances")
-          .select("id, entitled_days, used_days, pending_days, remaining_days, leave_types(name_ar, name_en)")
-          .eq("driver_id", driverId)
-          .eq("year", year)
-          .is("deleted_at", null),
-      ])
-      if (cancelled) return
-      setRows(requests.error ? [] : (requests.data as Record<string, unknown>[]))
-      setBalances(bals.error ? [] : ((bals.data ?? []) as unknown as Balance[]))
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [driverId])
+    void load();
+  }, [load]);
 
-  if (rows === null) {
+  useEffect(() => {
+    return subscribeDriverChanged((detail) => {
+      if (detail.driverId === driverId && detail.action === "leave") void load();
+    });
+  }, [driverId, load]);
+
+  const act = async (row: LeaveRow, action: "approved" | "rejected") => {
+    if (actingId) return;
+    setActingId(row.id);
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      const { error } = await supabase
+        .from("driver_leave_requests")
+        .update({ status: action, decided_by: user?.id ?? null, decided_at: new Date().toISOString() })
+        .eq("id", row.id);
+      if (error) throw error;
+
+      // Approved leave moves the driver to on_leave automatically.
+      if (action === "approved") {
+        const { error: statusError } = await supabase.rpc("set_driver_status", {
+          p_driver_id: driverId,
+          p_status: "on_leave",
+          p_reason: `Leave approved (${row.leave_type_code})`,
+          p_changed_by: user?.id ?? null,
+        });
+        if (statusError) throw statusError;
+      }
+
+      toast.success(`Leave ${action} for ${driverName}`);
+      await load();
+      emitDriverChanged({ driverId, action: action === "approved" ? "status" : "leave" });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to update leave request";
+      toast.error(message);
+    } finally {
+      setActingId(null);
+    }
+  };
+
+  if (loading) {
     return (
-      <div className="space-y-3">
-        <Skeleton className="h-10 w-full rounded-xl" />
-        <Skeleton className="h-10 w-full rounded-xl" />
+      <div className="flex items-center gap-2 rounded-lg border bg-card p-4 text-sm text-muted-foreground">
+        <Loader2 className="size-4 animate-spin" />
+        Loading leave requests…
       </div>
-    )
+    );
+  }
+
+  if (rows.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed p-10 text-center">
+        <CalendarClock className="size-6 text-muted-foreground" />
+        <p className="text-sm font-medium text-foreground">No leave requests</p>
+        <p className="text-xs text-muted-foreground">
+          Submit a leave request from the actions menu to track driver time off.
+        </p>
+      </div>
+    );
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-xs text-muted-foreground">
-          {isAr ? `${rows.length} طلب` : `${rows.length} request${rows.length === 1 ? "" : "s"}`}
-        </span>
-        <Button size="sm" className="h-9 gap-1.5 rounded-xl" onClick={() => setDialogOpen(true)}>
-          <Plus className="h-3.5 w-3.5" />
-          {isAr ? "طلب إجازة" : "New request"}
-        </Button>
-      </div>
-
-      {balances.length > 0 && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {balances.map((b) => {
-            const typeName = b.leave_types
-              ? isAr
-                ? (b.leave_types.name_ar ?? b.leave_types.name_en ?? "—")
-                : (b.leave_types.name_en ?? b.leave_types.name_ar ?? "—")
-              : "—"
-            const remaining = Number(b.remaining_days ?? 0)
-            return (
-              <div
-                key={b.id}
-                className="rounded-2xl border border-border/50 bg-card/60 p-4 backdrop-blur-sm"
+    <div className="space-y-2">
+      {rows.map((row) => (
+        <div
+          key={row.id}
+          className="flex flex-wrap items-center gap-3 rounded-lg border bg-card px-3 py-2.5"
+        >
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium capitalize text-foreground">
+              {row.leave_type_code.replace(/_/g, " ")}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {row.start_date} → {row.end_date}
+              {row.days_requested ? ` · ${row.days_requested} days` : ""}
+            </p>
+          </div>
+          <Badge variant={STATUS_VARIANT[row.status] ?? "outline"} className="capitalize">
+            {row.status}
+          </Badge>
+          {row.status === "pending" ? (
+            <div className="flex items-center gap-1">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1.5"
+                disabled={actingId === row.id}
+                onClick={() => void act(row, "approved")}
               >
-                <div className="text-xs text-muted-foreground">{typeName}</div>
-                <div className="mt-1 flex items-baseline gap-1" dir="ltr">
-                  <span
-                    className={cn(
-                      "text-xl font-extrabold tabular-nums",
-                      remaining > 0
-                        ? "text-emerald-600 dark:text-emerald-400"
-                        : "text-red-600 dark:text-red-400",
-                    )}
-                  >
-                    {remaining}
-                  </span>
-                  <span className="text-xs tabular-nums text-muted-foreground">
-                    / {Number(b.entitled_days ?? 0)}
-                  </span>
-                </div>
-                <div className="mt-0.5 text-[11px] text-muted-foreground">
-                  {isAr ? "متبقٍ / مستحق" : "remaining / entitled"}
-                </div>
-              </div>
-            )
-          })}
+                <CheckCircle2 className="size-3.5 text-emerald-500" />
+                Approve
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1.5"
+                disabled={actingId === row.id}
+                onClick={() => void act(row, "rejected")}
+              >
+                <XCircle className="size-3.5 text-destructive" />
+                Reject
+              </Button>
+            </div>
+          ) : null}
         </div>
-      )}
-
-      {rows.length === 0 ? (
-        <div className="rounded-2xl border border-border/50 bg-card/60 p-8 text-center backdrop-blur-sm">
-          <p className="text-sm text-muted-foreground">
-            {isAr ? "لا توجد طلبات إجازة" : "No leave requests yet"}
-          </p>
-        </div>
-      ) : (
-        <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm">
-          <table className="w-full min-w-[720px] text-start text-sm">
-            <thead>
-              <tr className="border-b border-border/50 text-[10px] uppercase tracking-wide text-muted-foreground">
-                <th className="px-4 py-3 text-start font-semibold">{isAr ? "النوع" : "Type"}</th>
-                <th className="px-4 py-3 text-start font-semibold">{isAr ? "من" : "From"}</th>
-                <th className="px-4 py-3 text-start font-semibold">{isAr ? "إلى" : "To"}</th>
-                <th className="px-4 py-3 text-start font-semibold">{isAr ? "الأيام" : "Days"}</th>
-                <th className="px-4 py-3 text-start font-semibold">{isAr ? "الحالة" : "Status"}</th>
-                <th className="px-4 py-3 text-start font-semibold">{isAr ? "السبب" : "Reason"}</th>
-                <th className="px-4 py-3 text-start font-semibold">{isAr ? "تاريخ المراجعة" : "Reviewed"}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => {
-                const lt = r.leave_types as { name_ar: string | null; name_en: string | null } | null
-                const typeName = lt
-                  ? isAr
-                    ? (lt.name_ar ?? lt.name_en ?? "—")
-                    : (lt.name_en ?? lt.name_ar ?? "—")
-                  : "—"
-                const status = LEAVE_STATUS_STYLES[String(r.status ?? "pending")] ?? {
-                  ar: String(r.status ?? "—"),
-                  en: String(r.status ?? "—"),
-                  className: "bg-muted text-muted-foreground",
-                }
-                return (
-                  <tr key={String(r.id)} className="border-b border-border/40 last:border-0 hover:bg-muted/30">
-                    <td className="px-4 py-3 font-medium text-foreground">{typeName}</td>
-                    <td className="px-4 py-3 text-muted-foreground" dir="ltr">
-                      {String(r.start_date ?? "—")}
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground" dir="ltr">
-                      {String(r.end_date ?? "—")}
-                    </td>
-                    <td className="px-4 py-3 tabular-nums text-foreground/80" dir="ltr">
-                      {r.days_requested != null ? String(r.days_requested) : "—"}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge className={status.className}>{isAr ? status.ar : status.en}</Badge>
-                    </td>
-                    <td className="max-w-[220px] truncate px-4 py-3 text-muted-foreground">
-                      {String(r.reason ?? "—")}
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground" dir="ltr">
-                      {r.reviewed_at ? String(r.reviewed_at).slice(0, 10) : "—"}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      <LeaveRequestDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        driverId={driverId}
-        isAr={isAr}
-        onCreated={() => void load()}
-      />
+      ))}
     </div>
-  )
+  );
 }
