@@ -1,0 +1,34 @@
+    - name: Verify production Supabase secrets
+      env:
+        PRODUCTION_SUPABASE_URL: ${{ secrets.PRODUCTION_SUPABASE_URL }}
+        PRODUCTION_SUPABASE_ANON_KEY: ${{ secrets.PRODUCTION_SUPABASE_ANON_KEY }}
+        PRODUCTION_SUPABASE_SERVICE_KEY: ${{ secrets.PRODUCTION_SUPABASE_SERVICE_KEY }}
+        STAGING_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+      run: |
+        # Secrets are passed through env: and read as shell variables.
+        # Never interpolate secrets directly into a run: block -- Actions
+        # substitutes the raw value into the script text, so any value
+        # containing shell metacharacters becomes executable code.
+        missing=0
+        for var in PRODUCTION_SUPABASE_URL PRODUCTION_SUPABASE_ANON_KEY PRODUCTION_SUPABASE_SERVICE_KEY; do
+          if [ -z "${!var}" ]; then
+            echo "MISSING: $var is not configured"
+            missing=1
+          fi
+        done
+        if [ "$missing" -ne 0 ]; then
+          echo "   Add the PRODUCTION_SUPABASE_* secrets to"
+          echo "   GitHub -> Settings -> Environments -> production"
+          echo "   See docs/P0-1-production-supabase-runbook.md"
+          exit 1
+        fi
+
+        # The entire point of P0-1: production must not be staging.
+        if [ -n "$STAGING_SUPABASE_URL" ] && [ "$PRODUCTION_SUPABASE_URL" = "$STAGING_SUPABASE_URL" ]; then
+          echo "REFUSING: PRODUCTION_SUPABASE_URL is identical to STAGING_SUPABASE_URL"
+          echo "   This would reintroduce the P0-1 defect."
+          exit 1
+        fi
+
+        echo "OK: production Supabase secrets present and distinct from staging"
+

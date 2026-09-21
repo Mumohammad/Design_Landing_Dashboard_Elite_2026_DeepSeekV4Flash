@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
-import { subscribeDriverChanged } from "@/lib/driver-events"
+import { subscribeDriverChanged } from "@/lib/drivers/driver-events"
 import {
   EnterpriseModulePage,
   type KpiCardData,

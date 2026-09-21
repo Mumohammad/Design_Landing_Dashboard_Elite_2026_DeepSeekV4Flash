@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
-import { emitDriverChanged, subscribeDriverChanged } from "@/lib/driver-events"
+import { emitDriverChanged, subscribeDriverChanged } from "@/lib/drivers/driver-events"
 import { toast } from "sonner"
 import {
   AlertTriangle,

@@ -1,0 +1,285 @@
+--- a/src/app/dashboard/accounting/page.tsx
++++ b/src/app/dashboard/accounting/page.tsx
+@@ -19,54 +19,57 @@
+   const [loading, setLoading] = useState(true);
+   const [error, setError] = useState('');
+ 
+-  const loadData = async () => {
+-    const supabase = createClient();
+-
+-    const [invoicesRes, expensesRes] = await Promise.all([
+-      supabase
+-        .from('invoices')
+-        .select('id, invoice_number, total, issue_date, status')
+-        .is('deleted_at', null)
+-        .order('issue_date', { ascending: false })
+-        .limit(20),
+-      supabase
+-        .from('expenses')
+-        .select('id, expense_code, description, amount, expense_date, category')
+-        .is('deleted_at', null)
+-        .order('expense_date', { ascending: false })
+-        .limit(20),
+-    ]);
+-
+-    if (invoicesRes.error) setError(invoicesRes.error.message);
+-    if (expensesRes.error) setError(expensesRes.error.message);
+-
+-    const income: Transaction[] = (invoicesRes.data || []).map((inv: { id: string; invoice_number?: string | null; total?: number | string | null; issue_date?: string | null }) => ({
+-      id: inv.id,
+-      description: `Invoice ${inv.invoice_number || ''}`,
+-      type: 'income' as const,
+-      amount: Number(inv.total) || 0,
+-      date: inv.issue_date,
+-      category: 'Revenue',
+-      ref: inv.invoice_number || '',
+-    }));
+-
+-    const expenseTx: Transaction[] = (expensesRes.data || []).map((exp: { id: string; expense_code?: string | null; description?: string | null; amount?: number | string | null; expense_date?: string | null; category?: string | null }) => ({
+-      id: exp.id,
+-      description: exp.description || exp.expense_code || 'Expense',
+-      type: 'expense' as const,
+-      amount: -(Number(exp.amount) || 0),
+-      date: exp.expense_date,
+-      category: exp.category || 'General',
+-      ref: exp.expense_code || '',
+-    }));
+-
+-    const merged = [...income, ...expenseTx].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+-    setTransactions(merged);
+-    setLoading(false);
+-  };
+-
+   useEffect(() => {
+-    loadData();
++    let cancelled = false;
++    (async () => {
++      const supabase = createClient();
++  
++      const [invoicesRes, expensesRes] = await Promise.all([
++        supabase
++          .from('invoices')
++          .select('id, invoice_number, total, issue_date, status')
++          .is('deleted_at', null)
++          .order('issue_date', { ascending: false })
++          .limit(20),
++        supabase
++          .from('expenses')
++          .select('id, expense_code, description, amount, expense_date, category')
++          .is('deleted_at', null)
++          .order('expense_date', { ascending: false })
++          .limit(20),
++      ]);
++  
++      if (invoicesRes.error) setError(invoicesRes.error.message);
++      if (expensesRes.error) setError(expensesRes.error.message);
++  
++      const income: Transaction[] = (invoicesRes.data || []).map((inv: { id: string; invoice_number?: string | null; total?: number | string | null; issue_date?: string | null }) => ({
++        id: inv.id,
++        description: `Invoice ${inv.invoice_number || ''}`,
++        type: 'income' as const,
++        amount: Number(inv.total) || 0,
++        date: inv.issue_date,
++        category: 'Revenue',
++        ref: inv.invoice_number || '',
++      }));
++  
++      const expenseTx: Transaction[] = (expensesRes.data || []).map((exp: { id: string; expense_code?: string | null; description?: string | null; amount?: number | string | null; expense_date?: string | null; category?: string | null }) => ({
++        id: exp.id,
++        description: exp.description || exp.expense_code || 'Expense',
++        type: 'expense' as const,
++        amount: -(Number(exp.amount) || 0),
++        date: exp.expense_date,
++        category: exp.category || 'General',
++        ref: exp.expense_code || '',
++      }));
++  
++      const merged = [...income, ...expenseTx].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
++      setTransactions(merged);
++      if (cancelled) return;
++      setLoading(false);
++    })();
++    return () => {
++      cancelled = true;
++    };
+   }, []);
+ 
+ 
+
+--- a/src/app/dashboard/drivers/page.tsx
++++ b/src/app/dashboard/drivers/page.tsx
+@@ -23,21 +23,24 @@
+   const [loading, setLoading] = useState(true);
+   const [error, setError] = useState('');
+ 
+-  const loadDrivers = async () => {
+-    const supabase = createClient();
+-    const { data, error } = await supabase
+-      .from('drivers')
+-      .select('id, driver_code, full_name_en, full_name_ar, primary_mobile, work_email, status, operational_state, current_city, profile_completeness_score')
+-      .is('deleted_at', null)
+-      .order('created_at', { ascending: false });
+-
+-    if (error) setError(error.message);
+-    setDrivers(data || []);
+-    setLoading(false);
+-  };
+-
+   useEffect(() => {
+-    loadDrivers();
++    let cancelled = false;
++    (async () => {
++      const supabase = createClient();
++      const { data, error } = await supabase
++        .from('drivers')
++        .select('id, driver_code, full_name_en, full_name_ar, primary_mobile, work_email, status, operational_state, current_city, profile_completeness_score')
++        .is('deleted_at', null)
++        .order('created_at', { ascending: false });
++  
++      if (error) setError(error.message);
++      setDrivers(data || []);
++      if (cancelled) return;
++      setLoading(false);
++    })();
++    return () => {
++      cancelled = true;
++    };
+   }, []);
+ 
+ 
+
+--- a/src/app/dashboard/vehicles/page.tsx
++++ b/src/app/dashboard/vehicles/page.tsx
+@@ -23,21 +23,24 @@
+   const [loading, setLoading] = useState(true);
+   const [error, setError] = useState('');
+ 
+-  const loadVehicles = async () => {
+-    const supabase = createClient();
+-    const { data, error } = await supabase
+-      .from('vehicles')
+-      .select('id, vehicle_code, plate_number, make, model, year, status, odometer_current, current_driver_id, photo_url')
+-      .is('deleted_at', null)
+-      .order('created_at', { ascending: false });
+-
+-    if (error) setError(error.message);
+-    setVehicles(data || []);
+-    setLoading(false);
+-  };
+-
+   useEffect(() => {
+-    loadVehicles();
++    let cancelled = false;
++    (async () => {
++      const supabase = createClient();
++      const { data, error } = await supabase
++        .from('vehicles')
++        .select('id, vehicle_code, plate_number, make, model, year, status, odometer_current, current_driver_id, photo_url')
++        .is('deleted_at', null)
++        .order('created_at', { ascending: false });
++  
++      if (error) setError(error.message);
++      setVehicles(data || []);
++      if (cancelled) return;
++      setLoading(false);
++    })();
++    return () => {
++      cancelled = true;
++    };
+   }, []);
+ 
+ 
+
+--- a/src/app/dashboard/page.tsx
++++ b/src/app/dashboard/page.tsx
+@@ -21,7 +21,14 @@
+ }
+ 
+ export default function DashboardHome() {
+-  const [tenant, setTenant] = useState<Tenant | null>(null);
++  const [tenant, setTenant] = useState<Tenant | null>(() => {
++    try {
++      const stored = localStorage.getItem('tenant');
++      return stored ? JSON.parse(stored) : null;
++    } catch {
++      return null;
++    }
++  });
+   const [loading, setLoading] = useState(true);
+   const [stats, setStats] = useState({
+     drivers: 0,
+@@ -31,43 +38,38 @@
+   });
+   const [recentDrivers, setRecentDrivers] = useState<RecentDriver[]>([]);
+ 
+-  const loadStats = async () => {
+-    const supabase = createClient();
+-    const monthStart = new Date();
+-    monthStart.setDate(1);
+-    const monthStartStr = monthStart.toISOString().split('T')[0];
+-
+-    const [driversRes, vehiclesRes, invoicesRes, expensesRes, recentRes] = await Promise.all([
+-      supabase.from('drivers').select('id', { count: 'exact', head: true }).is('deleted_at', null),
+-      supabase.from('vehicles').select('id', { count: 'exact', head: true }).is('deleted_at', null),
+-      supabase.from('invoices').select('total').is('deleted_at', null).gte('issue_date', monthStartStr),
+-      supabase.from('expenses').select('amount').is('deleted_at', null).gte('expense_date', monthStartStr),
+-      supabase.from('drivers').select('id, full_name_en, full_name_ar, status, created_at').is('deleted_at', null).order('created_at', { ascending: false }).limit(4),
+-    ]);
+-
+-    const monthIncome = (invoicesRes.data || []).reduce((s: number, r: { total?: number | string | null }) => s + (Number(r.total) || 0), 0);
+-    const monthExpenses = (expensesRes.data || []).reduce((s: number, r: { amount?: number | string | null }) => s + (Number(r.amount) || 0), 0);
+-
+-    setStats({
+-      drivers: driversRes.count || 0,
+-      vehicles: vehiclesRes.count || 0,
+-      monthIncome,
+-      monthExpenses,
+-    });
+-    setRecentDrivers(recentRes.data || []);
+-    setLoading(false);
+-  };
+-
+   useEffect(() => {
+-    const stored = localStorage.getItem('tenant');
+-    if (stored) {
+-      try {
+-        setTenant(JSON.parse(stored));
+-      } catch (e) {
+-        console.error('Failed to parse tenant:', e);
+-      }
+-    }
+-    loadStats();
++    let cancelled = false;
++    (async () => {
++      const supabase = createClient();
++      const monthStart = new Date();
++      monthStart.setDate(1);
++      const monthStartStr = monthStart.toISOString().split('T')[0];
++  
++      const [driversRes, vehiclesRes, invoicesRes, expensesRes, recentRes] = await Promise.all([
++        supabase.from('drivers').select('id', { count: 'exact', head: true }).is('deleted_at', null),
++        supabase.from('vehicles').select('id', { count: 'exact', head: true }).is('deleted_at', null),
++        supabase.from('invoices').select('total').is('deleted_at', null).gte('issue_date', monthStartStr),
++        supabase.from('expenses').select('amount').is('deleted_at', null).gte('expense_date', monthStartStr),
++        supabase.from('drivers').select('id, full_name_en, full_name_ar, status, created_at').is('deleted_at', null).order('created_at', { ascending: false }).limit(4),
++      ]);
++  
++      const monthIncome = (invoicesRes.data || []).reduce((s: number, r: { total?: number | string | null }) => s + (Number(r.total) || 0), 0);
++      const monthExpenses = (expensesRes.data || []).reduce((s: number, r: { amount?: number | string | null }) => s + (Number(r.amount) || 0), 0);
++  
++      setStats({
++        drivers: driversRes.count || 0,
++        vehicles: vehiclesRes.count || 0,
++        monthIncome,
++        monthExpenses,
++      });
++      setRecentDrivers(recentRes.data || []);
++      if (cancelled) return;
++      setLoading(false);
++    })();
++    return () => {
++      cancelled = true;
++    };
+   }, []);
+ 
+ 

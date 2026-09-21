@@ -1,0 +1,10 @@
+# Normalize line endings to LF for files that must stay LF in CI (REV-3).
+# The P0-1 commit rewrote ci.yml/deploy.yml as 254/251 and 153/144 line
+# changes for ~15 lines of real change because a Windows checkout without
+# this file rewrote CRLF -> LF. With this file, git normalizes on checkout
+# and commit, and future diffs stay minimal.
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.mjs text eol=lf

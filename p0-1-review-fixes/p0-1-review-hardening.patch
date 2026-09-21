@@ -1,0 +1,218 @@
+--- a/.github/workflows/deploy.yml
++++ b/.github/workflows/deploy.yml
+@@ -123,14 +123,38 @@
+         echo "CI run: ${{ github.event.workflow_run.html_url }}"
+ 
+     - name: Verify production Supabase secrets
++      env:
++        PRODUCTION_SUPABASE_URL: ${{ secrets.PRODUCTION_SUPABASE_URL }}
++        PRODUCTION_SUPABASE_ANON_KEY: ${{ secrets.PRODUCTION_SUPABASE_ANON_KEY }}
++        PRODUCTION_SUPABASE_SERVICE_KEY: ${{ secrets.PRODUCTION_SUPABASE_SERVICE_KEY }}
++        STAGING_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+       run: |
+-        if [ -z "${{ secrets.PRODUCTION_SUPABASE_URL }}" ] || [ -z "${{ secrets.PRODUCTION_SUPABASE_ANON_KEY }}" ] || [ -z "${{ secrets.PRODUCTION_SUPABASE_SERVICE_KEY }}" ]; then
+-          echo "❌ Production Supabase secrets are not configured"
+-          echo "   Add PRODUCTION_SUPABASE_URL / PRODUCTION_SUPABASE_ANON_KEY / PRODUCTION_SUPABASE_SERVICE_KEY"
+-          echo "   to GitHub → Settings → Environments → production (see docs/P0-1-production-supabase-runbook.md)"
++        # Secrets are passed through env: and read as shell variables.
++        # Never interpolate secrets directly into a run: block -- Actions
++        # substitutes the raw value into the script text, so any value
++        # containing shell metacharacters becomes executable code.
++        missing=0
++        for var in PRODUCTION_SUPABASE_URL PRODUCTION_SUPABASE_ANON_KEY PRODUCTION_SUPABASE_SERVICE_KEY; do
++          if [ -z "${!var}" ]; then
++            echo "MISSING: $var is not configured"
++            missing=1
++          fi
++        done
++        if [ "$missing" -ne 0 ]; then
++          echo "   Add the PRODUCTION_SUPABASE_* secrets to"
++          echo "   GitHub -> Settings -> Environments -> production"
++          echo "   See docs/P0-1-production-supabase-runbook.md"
++          exit 1
++        fi
++
++        # The entire point of P0-1: production must not be staging.
++        if [ -n "$STAGING_SUPABASE_URL" ] && [ "$PRODUCTION_SUPABASE_URL" = "$STAGING_SUPABASE_URL" ]; then
++          echo "REFUSING: PRODUCTION_SUPABASE_URL is identical to STAGING_SUPABASE_URL"
++          echo "   This would reintroduce the P0-1 defect."
+           exit 1
+         fi
+-        echo "✅ Production Supabase secrets present"
++
++        echo "OK: production Supabase secrets present and distinct from staging"
+ 
+     - name: Install Vercel CLI
+       run: npm install -g vercel@latest
+@@ -159,6 +183,22 @@
+         PERF_LOG_THRESHOLD_MS: 1000
+         NODE_ENV: production
+ 
++    - name: Verify production bundle has no staging references
++      env:
++        STAGING_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
++      run: |
++        if [ -z "$STAGING_SUPABASE_URL" ]; then
++          echo "WARNING: STAGING_SUPABASE_URL not set - skipping bundle check"
++          exit 0
++        fi
++        STAGING_HOST="$(printf '%s' "$STAGING_SUPABASE_URL" | sed -E 's#^https?://##; s#/.*$##')"
++        if [ -n "$STAGING_HOST" ] && grep -rqF "$STAGING_HOST" .vercel/output; then
++          echo "REFUSING: staging Supabase reference found in production bundle: $STAGING_HOST"
++          echo "   Vercel production env may still hold staging values (runbook Step 5)."
++          exit 1
++        fi
++        echo "OK: production bundle contains no staging Supabase references"
++
+     - name: Deploy production
+       id: deploy
+       run: |
+
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -43,6 +43,11 @@
+     - name: Install dependencies
+       run: pnpm install --frozen-lockfile
+ 
++    # ── Deploy config regression guard (REV-5: run before expensive gates) ──
++
++    - name: Deploy config check
++      run: node scripts/verify-deploy-config.mjs
++
+     # ── Code quality ──────────────────────────────────────────────────────
+ 
+     - name: Lint
+@@ -97,8 +102,6 @@
+         fi
+         echo "✅ No environment files in repository"
+ 
+-    - name: Deploy config check
+-      run: node scripts/verify-deploy-config.mjs
+ 
+     # ── Smoke test (production build, not dev server) ─────────────────────
+ 
+
+--- a/scripts/verify-deploy-config.mjs
++++ b/scripts/verify-deploy-config.mjs
+@@ -95,19 +95,79 @@
+   assertSecret(production, "NEXT_PUBLIC_SUPABASE_URL", "PRODUCTION_SUPABASE_URL", "production")
+   assertSecret(production, "NEXT_PUBLIC_SUPABASE_ANON_KEY", "PRODUCTION_SUPABASE_ANON_KEY", "production")
+   assertSecret(production, "SUPABASE_SERVICE_ROLE_KEY", "PRODUCTION_SUPABASE_SERVICE_KEY", "production")
+-  const stagingRefs = production.filter((line) => line.includes("STAGING_"))
+-  if (stagingRefs.length > 0) {
++  // REV-2: the only STAGING_* reference allowed in production is the URL,
++  // used to compare against PRODUCTION_SUPABASE_URL. Credentials must
++  // never appear in the production job.
++  const forbiddenStaging = production.filter(
++    (line) =>
++      line.includes("STAGING_SUPABASE_ANON_KEY") ||
++      line.includes("STAGING_SUPABASE_SERVICE_KEY")
++  )
++  if (forbiddenStaging.length > 0) {
+     fail(
+-      `Production job must not reference STAGING_* secrets (${stagingRefs.length} line(s)):\n${stagingRefs.map((line) => `      ${line.trim()}`).join("\n")}`
++      `Production job must not reference STAGING_* credentials (${forbiddenStaging.length} line(s)):\n${forbiddenStaging.map((line) => `      ${line.trim()}`).join("\n")}`
+     )
+   } else {
+-    ok("No STAGING_* references in the production job")
++    ok("No STAGING_* credential references in the production job (URL comparison only)")
+   }
+-  const hasGuard = production.some((line) => line.includes("Verify production Supabase secrets"))
+-  if (hasGuard) {
++
++  // Extract the lines belonging to a named step (from its "- name:" line to
++  // the next "- name:" line at the same indentation).
++  const stepRegion = (block, stepName) => {
++    const start = block.findIndex((line) => line.includes(`- name: ${stepName}`))
++    if (start === -1) return null
++    const region = []
++    for (let i = start; i < block.length; i++) {
++      if (i > start && /^\s+- name:/.test(block[i])) break
++      region.push(block[i])
++    }
++    return region
++  }
++
++  // REV-1: the guard step must pass secrets via env: and must not
++  // interpolate them into the run: block (shell injection).
++  const guard = stepRegion(production, "Verify production Supabase secrets")
++  if (!guard) {
++    fail('Production job is missing the "Verify production Supabase secrets" guard step')
++  } else {
+     ok("Fail-fast secret guard step present")
++    const requiredEnv = [
++      "PRODUCTION_SUPABASE_URL:",
++      "PRODUCTION_SUPABASE_ANON_KEY:",
++      "PRODUCTION_SUPABASE_SERVICE_KEY:",
++      "STAGING_SUPABASE_URL:",
++    ]
++    for (const envKey of requiredEnv) {
++      if (!guard.some((line) => line.includes(envKey))) {
++        fail(`Guard step env: is missing "${envKey.slice(0, -1)}"`)
++      }
++    }
++    const runIdx = guard.findIndex((line) => /^\s+run:\s*\|/.test(line))
++    if (runIdx === -1) {
++      fail("Guard step is missing its run: block")
++    } else {
++      const body = guard.slice(runIdx + 1)
++      const interpolated = body.filter((line) => line.includes("${{ secrets."))
++      if (interpolated.length > 0) {
++        fail(
++          `Guard step interpolates secrets into the run: block (shell-injectable):\n${interpolated.map((line) => `      ${line.trim()}`).join("\n")}`
++        )
++      } else {
++        ok("Guard step reads secrets via env: variables (no interpolation)")
++      }
++    }
++  }
++
++  // REV-6: the production bundle must be checked for staging references
++  // before deploy.
++  const bundleCheck = stepRegion(
++    production,
++    "Verify production bundle has no staging references"
++  )
++  if (bundleCheck) {
++    ok("Bundle verification step present")
+   } else {
+-    fail('Production job is missing the "Verify production Supabase secrets" guard step')
++    fail('Production job is missing the "Verify production bundle has no staging references" step')
+   }
+ }
+ 
+
+--- a/docs/P0-1-production-supabase-runbook.md
++++ b/docs/P0-1-production-supabase-runbook.md
+@@ -61,6 +61,7 @@
+ | `PRODUCTION_SUPABASE_URL` | Project Settings → API → Project URL |
+ | `PRODUCTION_SUPABASE_ANON_KEY` | Project Settings → API → anon public key |
+ | `PRODUCTION_SUPABASE_SERVICE_KEY` | Project Settings → API → service_role key |
++| `STAGING_SUPABASE_URL` | Staging project's URL — used only for the guard's equality check and the bundle verification; never used to build |
+ 
+ The deploy job now fails fast if any of these are missing.
+ 
+@@ -81,6 +82,9 @@
+    appears in the **production** Supabase dashboard, not staging.
+ 5. Confirm **Deploy config check** is green in CI
+    (`scripts/verify-deploy-config.mjs`).
++6. Confirm the **Verify production bundle has no staging references** step
++   passes — it greps `.vercel/output` for the staging host and refuses to
++   deploy if found.
+ 
+ ## Guardrails
+ 
+
+--- a/.gitattributes
++++ b/.gitattributes
+@@ -0,0 +1,10 @@
++# Normalize line endings to LF for files that must stay LF in CI (REV-3).
++# The P0-1 commit rewrote ci.yml/deploy.yml as 254/251 and 153/144 line
++# changes for ~15 lines of real change because a Windows checkout without
++# this file rewrote CRLF -> LF. With this file, git normalizes on checkout
++# and commit, and future diffs stay minimal.
++*.yml text eol=lf
++*.yaml text eol=lf
++*.json text eol=lf
++*.md text eol=lf
++*.mjs text eol=lf
