@@ -7,9 +7,12 @@ export type DriverChangedDetail = {
   action?: "status" | "archive" | "photo" | "document" | "leave" | "profile";
 };
 
-export function emitDriverChanged(detail: DriverChangedDetail = {}) {
+export function emitDriverChanged(detail: DriverChangedDetail | string = {}) {
   if (typeof window === "undefined") return;
-  window.dispatchEvent(new CustomEvent<DriverChangedDetail>(DRIVER_CHANGED_EVENT, { detail }));
+  // Allow a bare action string ("photo", "status"…) used by older callers.
+  const payload: DriverChangedDetail =
+    typeof detail === "string" ? { action: detail as DriverChangedDetail["action"] } : detail;
+  window.dispatchEvent(new CustomEvent<DriverChangedDetail>(DRIVER_CHANGED_EVENT, { detail: payload }));
 }
 
 export function subscribeDriverChanged(handler: (detail: DriverChangedDetail) => void): () => void {

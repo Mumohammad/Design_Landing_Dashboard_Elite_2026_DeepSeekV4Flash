@@ -50,6 +50,8 @@ type DocumentUploadDialogProps = {
   driverId: string;
   /** Kept for caller compatibility; document types are requirement keys, not driver-type derived. */
   driverType?: string;
+  /** RTL flag passed by some callers; labels are bilingual so no branching needed. */
+  isAr?: boolean;
   /** When provided (from the card panel), the type is locked to the requirement being uploaded. */
   defaultDocType?: string | null;
   onUploaded?: () => void;
@@ -169,7 +171,7 @@ export function DocumentUploadDialog({
           </DialogDescription>
         </DialogHeader>
 
-      {existingPath ? (
+        {existingPath ? (
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-950/30">
             <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
               Existing file will be replaced

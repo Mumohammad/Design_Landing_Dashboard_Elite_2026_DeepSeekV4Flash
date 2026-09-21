@@ -27,8 +27,17 @@ const STATUS_VARIANT: Record<string, "secondary" | "outline" | "destructive"> = 
   cancelled: "destructive",
 };
 
-export function DriverLeaveTab({ driverId, driverName }: { driverId: string; driverName: string }) {
+type DriverLeaveTabProps = {
+  driverId: string;
+  /** Optional — some callers only pass driverId (+ isAr). */
+  driverName?: string;
+  /** RTL flag passed by some callers; content is bilingual so no branching needed. */
+  isAr?: boolean;
+};
+
+export function DriverLeaveTab({ driverId, driverName }: DriverLeaveTabProps) {
   const supabase = createClient();
+  const displayName = driverName?.trim() || "the driver";
   const [rows, setRows] = useState<LeaveRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [actingId, setActingId] = useState<string | null>(null);
@@ -80,7 +89,7 @@ export function DriverLeaveTab({ driverId, driverName }: { driverId: string; dri
         if (statusError) throw statusError;
       }
 
-      toast.success(`Leave ${action} for ${driverName}`);
+      toast.success(`Leave ${action} for ${displayName}`);
       await load();
       emitDriverChanged({ driverId, action: action === "approved" ? "status" : "leave" });
     } catch (error) {
