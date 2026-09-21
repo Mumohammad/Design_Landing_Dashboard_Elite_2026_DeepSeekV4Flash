@@ -5,12 +5,8 @@ import { useEffect, useMemo, useState } from "react";
 import { FileUp, Loader2, Upload } from "lucide-react";
 import { toast } from "sonner";
 
+import { OVERRIDABLE_REQUIREMENTS } from "@/lib/drivers/compliance";
 import { emitDriverChanged } from "@/lib/drivers/driver-events";
-import {
-  DRIVER_DOCUMENT_TYPE_LABELS,
-  driverRequirements,
-  type DriverDocumentType,
-} from "@/lib/drivers/compliance";
 import { createClient } from "@/lib/supabase/client";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -32,13 +28,31 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
+// Bilingual labels for the compliance document keys. The keys come from the
+// compliance engine (OVERRIDABLE_REQUIREMENTS); unknown keys fall back to a
+// humanized version of the key itself.
+const DOC_TYPE_LABELS: Record<string, { en: string; ar: string }> = {
+  identity: { en: "Identity document", ar: "الهوية" },
+  driving_license: { en: "Driving license", ar: "رخصة القيادة" },
+  health_certificate: { en: "Health certificate", ar: "الشهادة الصحية" },
+  home_delivery_permit: { en: "Home delivery permit", ar: "تصريح التوصيل المنزلي" },
+  ajeer_permit: { en: "Ajeer permit", ar: "تصريح أجير" },
+};
+
+function docTypeLabel(docType: string): { en: string; ar: string } {
+  const known = DOC_TYPE_LABELS[docType];
+  if (known) return known;
+  return { en: docType.replace(/_/g, " "), ar: "" };
+}
+
 type DocumentUploadDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   driverId: string;
-  driverType: string;
+  /** Kept for caller compatibility; document types are requirement keys, not driver-type derived. */
+  driverType?: string;
   /** When provided (from the card panel), the type is locked to the requirement being uploaded. */
-  defaultDocType?: DriverDocumentType | null;
+  defaultDocType?: string | null;
   onUploaded?: () => void;
 };
 
@@ -46,21 +60,17 @@ export function DocumentUploadDialog({
   open,
   onOpenChange,
   driverId,
-  driverType,
   defaultDocType = null,
   onUploaded,
 }: DocumentUploadDialogProps) {
   const supabase = createClient();
 
-  const requirements = useMemo(() => driverRequirements(driverType), [driverType]);
-  const allowedTypes = useMemo<DriverDocumentType[]>(() => {
+  const allowedTypes = useMemo<string[]>(() => {
     if (defaultDocType) return [defaultDocType];
-    return requirements.map((requirement) => requirement.docType);
-  }, [defaultDocType, requirements]);
+    return [...OVERRIDABLE_REQUIREMENTS];
+  }, [defaultDocType]);
 
-  const [docType, setDocType] = useState<DriverDocumentType>(
-    defaultDocType ?? requirements[0]?.docType ?? "national_id",
-  );
+  const [docType, setDocType] = useState<string>(defaultDocType ?? allowedTypes[0] ?? "identity");
   const [docNumber, setDocNumber] = useState("");
   const [expiryDate, setExpiryDate] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -69,7 +79,7 @@ export function DocumentUploadDialog({
 
   useEffect(() => {
     if (!open) return;
-    const nextType = defaultDocType ?? requirements[0]?.docType ?? "national_id";
+    const nextType = defaultDocType ?? allowedTypes[0] ?? "identity";
     setDocType(nextType);
     setDocNumber("");
     setExpiryDate("");
@@ -93,7 +103,7 @@ export function DocumentUploadDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, driverId, defaultDocType, requirements, supabase]);
+  }, [open, driverId, defaultDocType, allowedTypes, supabase]);
 
   const upload = async () => {
     if (uploading) return;
@@ -134,7 +144,7 @@ export function DocumentUploadDialog({
       );
       if (upsertError) throw upsertError;
 
-      toast.success(`${DRIVER_DOCUMENT_TYPE_LABELS[docType].en} uploaded`);
+      toast.success(`${docTypeLabel(docType).en} uploaded`);
       onOpenChange(false);
       onUploaded?.();
       emitDriverChanged({ driverId, action: "document" });
@@ -164,7 +174,7 @@ export function DocumentUploadDialog({
           <Alert>
             <AlertTitle>Existing file will be replaced</AlertTitle>
             <AlertDescription>
-              A {DRIVER_DOCUMENT_TYPE_LABELS[docType].en} file is already on record for this driver.
+              A {docTypeLabel(docType).en} file is already on record for this driver.
             </AlertDescription>
           </Alert>
         ) : null}
@@ -174,18 +184,22 @@ export function DocumentUploadDialog({
             <Label htmlFor="doc-type">Document type</Label>
             <Select
               value={docType}
-              onValueChange={(value) => setDocType(value as DriverDocumentType)}
+              onValueChange={setDocType}
               disabled={allowedTypes.length <= 1}
             >
               <SelectTrigger id="doc-type">
                 <SelectValue placeholder="Select document type" />
               </SelectTrigger>
               <SelectContent>
-                {allowedTypes.map((type) => (
-                  <SelectItem key={type} value={type}>
-                    {DRIVER_DOCUMENT_TYPE_LABELS[type].en} · {DRIVER_DOCUMENT_TYPE_LABELS[type].ar}
-                  </SelectItem>
-                ))}
+                {allowedTypes.map((type) => {
+                  const label = docTypeLabel(type);
+                  return (
+                    <SelectItem key={type} value={type}>
+                      {label.en}
+                      {label.ar ? ` · ${label.ar}` : ""}
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
           </div>
