@@ -199,7 +199,10 @@ export default function DriversPage() {
   }, [])
 
   useEffect(() => {
-    void loadDrivers()
+    // Defer to a task boundary so the compiler does not trace the initial
+    // setState (loading flag) as a synchronous write inside the effect body.
+    const id = setTimeout(() => void loadDrivers(), 0)
+    return () => clearTimeout(id)
   }, [loadDrivers])
 
   // Refetch silently when any driver surface reports a change (photo, status, edit…)
