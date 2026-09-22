@@ -5,7 +5,10 @@ import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
 import { subscribeDriverChanged } from "@/lib/drivers/driver-events"
+<<<<<<< HEAD
 import { DriverPhotoProvider, useDriverPhoto } from "@/components/drivers/photo-provider"
+=======
+>>>>>>> origin/master
 import {
   EnterpriseModulePage,
   type KpiCardData,
@@ -210,6 +213,24 @@ export default function DriversPage() {
     if (!silent) setIsLoading(false)
   }, [])
 
+<<<<<<< HEAD
+=======
+  useEffect(() => {
+    // Defer to a task boundary so the compiler does not trace the initial
+    // setState (loading flag) as a synchronous write inside the effect body.
+    const id = setTimeout(() => void loadDrivers(), 0)
+    return () => clearTimeout(id)
+  }, [loadDrivers])
+
+  // Refetch silently when any driver surface reports a change (photo, status, edit…)
+  useEffect(() => {
+    return subscribeDriverChanged(() => {
+      void loadDrivers(true)
+    })
+  }, [loadDrivers])
+
+  // Batch-resolve signed URLs for storage-path photos (one effect per list load).
+>>>>>>> origin/master
   useEffect(() => {
     // Defer to a task boundary so the compiler does not trace the initial
     // setState (loading flag) as a synchronous write inside the effect body.
