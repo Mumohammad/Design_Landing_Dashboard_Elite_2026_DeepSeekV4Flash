@@ -16,6 +16,8 @@ import { ViolationsTab } from "@/components/drivers/violations-tab"
 import { PerformanceTab } from "@/components/drivers/performance-tab"
 import { TrainingTab } from "@/components/drivers/training-tab"
 import { DocumentUploadDialog } from "@/components/drivers/document-upload-dialog"
+import { DocumentsDeleteDialog } from "@/components/drivers/documents-delete-dialog"
+import { emitDriverChanged, subscribeDriverChanged } from "@/lib/drivers/driver-events"
 import type { Driver } from "@/types/drivers"
 import {
   AlertTriangle,
@@ -29,11 +31,15 @@ import {
   FileText,
   Gauge,
   GraduationCap,
+  Pencil,
+  RefreshCw,
   ShieldAlert,
+  Trash2,
   TrendingUp,
   Upload,
   Wallet,
   Wrench,
+  XCircle,
 } from "lucide-react"
 
 /* ──────────────────────── shared bits ──────────────────────── */
@@ -187,6 +193,8 @@ type DocumentsTabProps = { driverId: string; isAr: boolean }
 function DocumentsTab({ driverId, isAr }: DocumentsTabProps) {
   const [rows, setRows] = useState<Record<string, unknown>[] | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [replaceTarget, setReplaceTarget] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<Record<string, unknown> | null>(null)
 
   const load = useCallback(async () => {
     const supabase = createClient()
@@ -218,6 +226,13 @@ function DocumentsTab({ driverId, isAr }: DocumentsTabProps) {
     }
   }, [driverId])
 
+  // Other surfaces (compliance engine uploads, card panel) also write documents.
+  useEffect(() => {
+    return subscribeDriverChanged((detail) => {
+      if (detail.driverId === driverId && detail.action === "document") void load()
+    })
+  }, [driverId, load])
+
   const openFile = async (filePath: string) => {
     const supabase = createClient()
     const { data, error } = await supabase.storage
@@ -248,7 +263,7 @@ function DocumentsTab({ driverId, isAr }: DocumentsTabProps) {
             ? `${rows.length} مستند`
             : `${rows.length} document${rows.length === 1 ? "" : "s"}`}
         </span>
-        <Button size="sm" className="h-9 gap-1.5 rounded-xl" onClick={() => setDialogOpen(true)}>
+        <Button size="sm" className="h-9 gap-1.5 rounded-xl" onClick={() => { setReplaceTarget(null); setDialogOpen(true) }}>
           <Upload className="h-3.5 w-3.5" />
           {isAr ? "رفع مستند" : "Upload document"}
         </Button>
@@ -296,18 +311,36 @@ function DocumentsTab({ driverId, isAr }: DocumentsTabProps) {
                     />
                   </td>
                   <td className="px-4 py-3">
-                    {r.file_url ? (
+                    <div className="flex items-center gap-2">
+                      {r.file_url ? (
+                        <button
+                          type="button"
+                          onClick={() => void openFile(String(r.file_url))}
+                          className="inline-flex items-center gap-1 text-xs font-medium text-elite-blue-600 hover:underline dark:text-elite-blue-300"
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                          {isAr ? "عرض" : "View"}
+                        </button>
+                      ) : null}
                       <button
                         type="button"
-                        onClick={() => void openFile(String(r.file_url))}
-                        className="inline-flex items-center gap-1 text-xs font-medium text-elite-blue-600 hover:underline dark:text-elite-blue-300"
+                        onClick={() => { setReplaceTarget(String(r.doc_type ?? "")); setDialogOpen(true) }}
+                        className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+                        title={isAr ? "استبدال الملف" : "Replace file"}
                       >
-                        <ExternalLink className="h-3 w-3" />
-                        {isAr ? "عرض" : "View"}
+                        <RefreshCw className="h-3 w-3" />
+                        {isAr ? "استبدال" : "Replace"}
                       </button>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
+                      <button
+                        type="button"
+                        onClick={() => setDeleteTarget(r)}
+                        className="inline-flex items-center gap-1 text-xs font-medium text-red-600 hover:underline dark:text-red-400"
+                        title={isAr ? "حذف المستند" : "Delete document"}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                        {isAr ? "حذف" : "Delete"}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -320,8 +353,26 @@ function DocumentsTab({ driverId, isAr }: DocumentsTabProps) {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         driverId={driverId}
+        defaultDocType={replaceTarget}
         isAr={isAr}
         onUploaded={() => void load()}
+      />
+      <DocumentsDeleteDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}
+        driverId={driverId}
+        document={
+          deleteTarget
+            ? {
+                id: String(deleteTarget.id ?? ""),
+                docType: String(deleteTarget.doc_type ?? ""),
+                label:
+                  (deleteTarget.doc_number as string | null)?.trim() ||
+                  String(deleteTarget.doc_type ?? "document"),
+              }
+            : null
+        }
+        onDeleted={() => void load()}
       />
     </div>
   )
@@ -1113,7 +1164,44 @@ export function DriverTabs({
         <AttendanceTab driverId={driver.id} isAr={isAr} />
       </TabsContent>
       <TabsContent value="leave" className="mt-4">
-        <DriverLeaveTab driverId={driver.id} isAr={isAr} />
+        <DriverLeaveTab driverId={driver.id} driverName={driver.full_name_ar ?? undefined}>
+          {(row, actions) => (
+            <>
+              {row.status === "pending" ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={actions.disabled}
+                    onClick={actions.onEdit}
+                    className="inline-flex h-8 items-center gap-1 rounded-lg border px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-60"
+                  >
+                    <Pencil className="h-3 w-3" />
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    disabled={actions.disabled}
+                    onClick={actions.onCancel}
+                    className="inline-flex h-8 items-center gap-1 rounded-lg border px-2.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-500/10 disabled:opacity-60 dark:text-red-400"
+                  >
+                    <XCircle className="h-3 w-3" />
+                    Cancel
+                  </button>
+                </>
+              ) : row.status === "cancelled" ? (
+                <button
+                  type="button"
+                  disabled={actions.disabled}
+                  onClick={actions.onRestore}
+                  className="inline-flex h-8 items-center gap-1 rounded-lg border px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-60"
+                >
+                  <RefreshCw className="h-3 w-3" />
+                  Restore
+                </button>
+              ) : null}
+            </>
+          )}
+        </DriverLeaveTab>
       </TabsContent>
       <TabsContent value="cod" className="mt-4">
         <CodTab driverId={driver.id} isAr={isAr} />

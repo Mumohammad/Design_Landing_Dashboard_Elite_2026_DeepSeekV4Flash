@@ -9,16 +9,12 @@ import { emitDriverChanged, subscribeDriverChanged } from "@/lib/drivers/driver-
 import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-
-type LeaveRow = {
-  id: string;
-  leave_type_code: string;
-  start_date: string;
-  end_date: string;
-  days_requested: number | null;
-  status: string;
-  created_at: string;
-};
+import {
+  LeaveRequestCancelDialog,
+  LeaveRequestEditDialog,
+  LeaveRequestRestoreDialog,
+  type LeaveRow,
+} from "./leave-request-actions-dialog";
 
 const STATUS_VARIANT: Record<string, "secondary" | "outline" | "destructive"> = {
   pending: "secondary",
@@ -33,14 +29,30 @@ type DriverLeaveTabProps = {
   driverName?: string;
   /** RTL flag passed by some callers; content is bilingual so no branching needed. */
   isAr?: boolean;
+  /**
+   * Render-prop for per-row extra actions (edit while pending / cancel /
+   * restore). Receives the row plus prepared action callbacks.
+   */
+  children?: (
+    row: LeaveRow,
+    actions: {
+      disabled: boolean;
+      onEdit: () => void;
+      onCancel: () => void;
+      onRestore: () => void;
+    },
+  ) => React.ReactNode;
 };
 
-export function DriverLeaveTab({ driverId, driverName }: DriverLeaveTabProps) {
+export function DriverLeaveTab({ driverId, driverName, children }: DriverLeaveTabProps) {
   const supabase = createClient();
   const displayName = driverName?.trim() || "the driver";
   const [rows, setRows] = useState<LeaveRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [actingId, setActingId] = useState<string | null>(null);
+  const [editRow, setEditRow] = useState<LeaveRow | null>(null);
+  const [cancelRow, setCancelRow] = useState<LeaveRow | null>(null);
+  const [restoreRow, setRestoreRow] = useState<LeaveRow | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -48,9 +60,11 @@ export function DriverLeaveTab({ driverId, driverName }: DriverLeaveTabProps) {
       .from("driver_leave_requests")
       .select("id, leave_type_code, start_date, end_date, days_requested, status, created_at")
       .eq("driver_id", driverId)
+      .is("deleted_at", null)
       .order("created_at", { ascending: false })
       .limit(50);
-    setRows(((data as LeaveRow[] | null) ?? []).filter((row) => row.status !== "cancelled"));
+    // Cancelled rows stay listed so they can be restored while pending.
+    setRows(((data as LeaveRow[] | null) ?? []).filter((row) => row.status !== "rejected"));
     setLoading(false);
   }, [driverId, supabase]);
 
@@ -164,8 +178,46 @@ export function DriverLeaveTab({ driverId, driverName }: DriverLeaveTabProps) {
               </Button>
             </div>
           ) : null}
+          {children
+            ? children(row, {
+                disabled: actingId === row.id,
+                onEdit: () => setEditRow(row),
+                onCancel: () => setCancelRow(row),
+                onRestore: () => setRestoreRow(row),
+              })
+            : null}
         </div>
       ))}
+
+      <LeaveRequestEditDialog
+        open={editRow !== null}
+        onOpenChange={(open) => {
+          if (!open) setEditRow(null);
+        }}
+        row={editRow ?? { id: "", leave_type_code: "", start_date: "", end_date: "", days_requested: null, status: "", created_at: "" }}
+        driverId={driverId}
+        onSaved={() => void load()}
+      />
+      <LeaveRequestCancelDialog
+        open={cancelRow !== null}
+        onOpenChange={(open) => {
+          if (!open) setCancelRow(null);
+        }}
+        row={cancelRow ?? { id: "", leave_type_code: "", start_date: "", end_date: "", days_requested: null, status: "", created_at: "" }}
+        driverId={driverId}
+        onSaved={() => void load()}
+      />
+      <LeaveRequestRestoreDialog
+        open={restoreRow !== null}
+        onOpenChange={(open) => {
+          if (!open) setRestoreRow(null);
+        }}
+        row={restoreRow ?? { id: "", leave_type_code: "", start_date: "", end_date: "", days_requested: null, status: "", created_at: "" }}
+        driverId={driverId}
+        onSaved={() => void load()}
+      />
     </div>
   );
 }
+
+export default DriverLeaveTab;

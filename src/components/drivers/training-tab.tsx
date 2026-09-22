@@ -1,10 +1,15 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
+import { subscribeDriverChanged } from "@/lib/drivers/driver-events"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { ExternalLink } from "lucide-react"
+import { ExternalLink, Pencil, Plus, Trash2 } from "lucide-react"
+import { toast } from "sonner"
+import { DriverTabsFormDialog } from "./driver-tabs-form-dialog"
+import { emitDriverChanged } from "@/lib/drivers/driver-events"
 
 type TrainingTabProps = { driverId: string; isAr: boolean }
 
@@ -17,24 +22,50 @@ function daysUntil(iso: string | null): number | null {
 
 export function TrainingTab({ driverId, isAr }: TrainingTabProps) {
   const [rows, setRows] = useState<Record<string, unknown>[] | null>(null)
+  const [formOpen, setFormOpen] = useState(false)
+  const [editing, setEditing] = useState<Record<string, unknown> | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    const supabase = createClient()
+    const { data, error } = await supabase
+      .from("training_records")
+      .select("id, course_name, training_date, expiry_date, provider, certificate_url, score, is_passed")
+      .eq("driver_id", driverId)
+      .is("deleted_at", null)
+      .order("training_date", { ascending: false })
+      .limit(30)
+    setRows(error ? [] : (data as Record<string, unknown>[]))
+  }, [driverId])
 
   useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      const supabase = createClient()
-      const { data, error } = await supabase
-        .from("training_records")
-        .select("id, course_name, training_date, expiry_date, provider, certificate_url, score, is_passed")
-        .eq("driver_id", driverId)
-        .is("deleted_at", null)
-        .order("training_date", { ascending: false })
-        .limit(30)
-      if (!cancelled) setRows(error ? [] : (data as Record<string, unknown>[]))
-    })()
-    return () => {
-      cancelled = true
+    // Defer to a task boundary — the react-hooks compiler flags sync setState
+    // traced through the async load body.
+    const id = setTimeout(() => void load(), 0)
+    return () => clearTimeout(id)
+  }, [load])
+
+  // Other surfaces (HR console) may also write training records.
+  useEffect(() => {
+    return subscribeDriverChanged((detail) => {
+      if (detail.driverId === driverId && detail.action === "training") void load()
+    })
+  }, [driverId, load])
+
+  const softDelete = async (row: Record<string, unknown>) => {
+    const supabase = createClient()
+    const { error } = await supabase
+      .from("training_records")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", String(row.id))
+    if (error) {
+      toast.error(isAr ? "فشل حذف سجل التدريب" : "Failed to delete training record")
+      return
     }
-  }, [driverId])
+    toast.success(isAr ? "تم حذف سجل التدريب" : "Training record deleted")
+    emitDriverChanged({ driverId, action: "training" })
+    await load()
+  }
 
   if (rows === null) {
     return (
@@ -56,7 +87,21 @@ export function TrainingTab({ driverId, isAr }: TrainingTabProps) {
   }
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm">
+    <div className="space-y-4">
+      <div className="flex items-center justify-end">
+        <Button
+          size="sm"
+          className="h-9 gap-1.5 rounded-xl"
+          onClick={() => {
+            setEditing(null)
+            setFormOpen(true)
+          }}
+        >
+          <Plus className="h-3.5 w-3.5" />
+          {isAr ? "إضافة سجل تدريب" : "Add training record"}
+        </Button>
+      </div>
+      <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm">
       <table className="w-full min-w-[760px] text-start text-sm">
         <thead>
           <tr className="border-b border-border/50 text-[10px] uppercase tracking-wide text-muted-foreground">
@@ -67,6 +112,7 @@ export function TrainingTab({ driverId, isAr }: TrainingTabProps) {
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "الدرجة" : "Score"}</th>
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "النتيجة" : "Result"}</th>
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "الشهادة" : "Certificate"}</th>
+            <th className="px-4 py-3 text-start font-semibold">{isAr ? "إجراءات" : "Actions"}</th>
           </tr>
         </thead>
         <tbody>
@@ -122,11 +168,68 @@ export function TrainingTab({ driverId, isAr }: TrainingTabProps) {
                     <span className="text-muted-foreground">—</span>
                   )}
                 </td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditing(r)
+                        setFormOpen(true)
+                      }}
+                      className="inline-flex items-center gap-1 text-xs font-medium text-elite-blue-600 hover:underline dark:text-elite-blue-300"
+                    >
+                      <Pencil className="h-3 w-3" />
+                      {isAr ? "تعديل" : "Edit"}
+                    </button>
+                    {confirmDeleteId === String(r.id) ? (
+                      <span className="inline-flex items-center gap-1 text-xs">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setConfirmDeleteId(null)
+                            void softDelete(r)
+                          }}
+                          className="font-medium text-red-600 hover:underline dark:text-red-400"
+                        >
+                          {isAr ? "تأكيد" : "Confirm"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteId(null)}
+                          className="text-muted-foreground hover:text-foreground"
+                        >
+                          {isAr ? "إلغاء" : "Keep"}
+                        </button>
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteId(String(r.id))}
+                        className="inline-flex items-center gap-1 text-xs font-medium text-red-600 hover:underline dark:text-red-400"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                        {isAr ? "حذف" : "Delete"}
+                      </button>
+                    )}
+                  </div>
+                </td>
               </tr>
             )
           })}
         </tbody>
       </table>
+      </div>
+
+      <DriverTabsFormDialog
+        surface="training"
+        mode={editing ? "edit" : "create"}
+        open={formOpen}
+        onOpenChange={setFormOpen}
+        driverId={driverId}
+        tenantId=""
+        row={editing}
+        onSaved={() => void load()}
+      />
     </div>
   )
 }

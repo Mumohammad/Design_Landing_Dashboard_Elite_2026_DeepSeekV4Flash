@@ -1,10 +1,14 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
+import { subscribeDriverChanged } from "@/lib/drivers/driver-events"
+import { Pencil, Plus } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
+import { DriverTabsFormDialog } from "./driver-tabs-form-dialog"
 
 type AttendanceTabProps = { driverId: string; isAr: boolean }
 
@@ -90,42 +94,50 @@ function fmtMinutes(min: number | null | undefined): string {
 export function AttendanceTab({ driverId, isAr }: AttendanceTabProps) {
   const [rows, setRows] = useState<Record<string, unknown>[] | null>(null)
   const [summary, setSummary] = useState<Summary | null>(null)
+  const [formOpen, setFormOpen] = useState(false)
+  const [editing, setEditing] = useState<Record<string, unknown> | null>(null)
+
+  const load = useCallback(async () => {
+    const supabase = createClient()
+    const [days, sum] = await Promise.all([
+      supabase
+        .from("driver_attendance")
+        .select(
+          "id, attendance_date, status, check_in_time, check_out_time, late_minutes, overtime_minutes, entry_method, notes",
+        )
+        .eq("driver_id", driverId)
+        .is("deleted_at", null)
+        .order("attendance_date", { ascending: false })
+        .limit(60),
+      supabase
+        .from("driver_attendance_summary")
+        .select(
+          "period_year, period_month, days_present, days_late, days_absent_excused, days_absent_unexcused, days_on_leave, total_overtime_minutes",
+        )
+        .eq("driver_id", driverId)
+        .is("deleted_at", null)
+        .order("period_year", { ascending: false })
+        .order("period_month", { ascending: false })
+        .limit(1),
+    ])
+    setRows(days.error ? [] : (days.data as Record<string, unknown>[]))
+    const sumRows = (sum.data ?? []) as unknown as Summary[]
+    setSummary(!sum.error && sumRows.length > 0 ? sumRows[0] : null)
+  }, [driverId])
 
   useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      const supabase = createClient()
-      const [days, sum] = await Promise.all([
-        supabase
-          .from("driver_attendance")
-          .select(
-            "id, attendance_date, status, check_in_time, check_out_time, late_minutes, overtime_minutes, entry_method, notes",
-          )
-          .eq("driver_id", driverId)
-          .is("deleted_at", null)
-          .order("attendance_date", { ascending: false })
-          .limit(60),
-        supabase
-          .from("driver_attendance_summary")
-          .select(
-            "period_year, period_month, days_present, days_late, days_absent_excused, days_absent_unexcused, days_on_leave, total_overtime_minutes",
-          )
-          .eq("driver_id", driverId)
-          .is("deleted_at", null)
-          .order("period_year", { ascending: false })
-          .order("period_month", { ascending: false })
-          .limit(1),
-      ])
-      if (!cancelled) {
-        setRows(days.error ? [] : (days.data as Record<string, unknown>[]))
-        const sumRows = (sum.data ?? []) as unknown as Summary[]
-        setSummary(!sum.error && sumRows.length > 0 ? sumRows[0] : null)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [driverId])
+    // Defer to a task boundary — the react-hooks compiler flags sync setState
+    // traced through the async load body.
+    const id = setTimeout(() => void load(), 0)
+    return () => clearTimeout(id)
+  }, [load])
+
+  // HR/other surfaces may also write attendance rows.
+  useEffect(() => {
+    return subscribeDriverChanged((detail) => {
+      if (detail.driverId === driverId && detail.action === "attendance") void load()
+    })
+  }, [driverId, load])
 
   if (rows === null) {
     return (
@@ -168,6 +180,23 @@ export function AttendanceTab({ driverId, isAr }: AttendanceTabProps) {
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs text-muted-foreground">
+          {isAr ? `${rows.length} سجل حضور` : `${rows.length} attendance day${rows.length === 1 ? "" : "s"}`}
+        </span>
+        <Button
+          size="sm"
+          className="h-9 gap-1.5 rounded-xl"
+          onClick={() => {
+            setEditing(null)
+            setFormOpen(true)
+          }}
+        >
+          <Plus className="h-3.5 w-3.5" />
+          {isAr ? "إضافة يوم حضور" : "Add attendance day"}
+        </Button>
+      </div>
+
       {summary && (
         <div>
           <p className="mb-2 text-xs text-muted-foreground">
@@ -211,6 +240,7 @@ export function AttendanceTab({ driverId, isAr }: AttendanceTabProps) {
                 <th className="px-4 py-3 text-start font-semibold">{isAr ? "إضافي" : "Overtime"}</th>
                 <th className="px-4 py-3 text-start font-semibold">{isAr ? "الإدخال" : "Entry"}</th>
                 <th className="px-4 py-3 text-start font-semibold">{isAr ? "ملاحظات" : "Notes"}</th>
+                <th className="px-4 py-3 text-start font-semibold">{isAr ? "إجراءات" : "Actions"}</th>
               </tr>
             </thead>
             <tbody>
@@ -249,6 +279,19 @@ export function AttendanceTab({ driverId, isAr }: AttendanceTabProps) {
                     <td className="max-w-[200px] truncate px-4 py-3 text-muted-foreground">
                       {String(r.notes ?? "—")}
                     </td>
+                    <td className="px-4 py-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditing(r)
+                          setFormOpen(true)
+                        }}
+                        className="inline-flex items-center gap-1 text-xs font-medium text-elite-blue-600 hover:underline dark:text-elite-blue-300"
+                      >
+                        <Pencil className="h-3 w-3" />
+                        {isAr ? "تعديل" : "Edit"}
+                      </button>
+                    </td>
                   </tr>
                 )
               })}
@@ -256,6 +299,17 @@ export function AttendanceTab({ driverId, isAr }: AttendanceTabProps) {
           </table>
         </div>
       )}
+
+      <DriverTabsFormDialog
+        surface="attendance"
+        mode={editing ? "edit" : "create"}
+        open={formOpen}
+        onOpenChange={setFormOpen}
+        driverId={driverId}
+        tenantId=""
+        row={editing}
+        onSaved={() => void load()}
+      />
     </div>
   )
 }
