@@ -1,11 +1,13 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import type { ReactNode } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
+import { toast } from "sonner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { DriverComplianceEngine } from "@/components/drivers/driver-compliance-engine"
 import { AttendanceTab } from "@/components/drivers/attendance-tab"
@@ -13,6 +15,7 @@ import { DriverLeaveTab } from "@/components/drivers/driver-leave-tab"
 import { ViolationsTab } from "@/components/drivers/violations-tab"
 import { PerformanceTab } from "@/components/drivers/performance-tab"
 import { TrainingTab } from "@/components/drivers/training-tab"
+import { DocumentUploadDialog } from "@/components/drivers/document-upload-dialog"
 import type { Driver } from "@/types/drivers"
 import {
   AlertTriangle,
@@ -22,11 +25,13 @@ import {
   CalendarOff,
   Car,
   ClipboardCheck,
+  ExternalLink,
   FileText,
   Gauge,
   GraduationCap,
   ShieldAlert,
   TrendingUp,
+  Upload,
   Wallet,
   Wrench,
 } from "lucide-react"
@@ -181,6 +186,19 @@ type DocumentsTabProps = { driverId: string; isAr: boolean }
 
 function DocumentsTab({ driverId, isAr }: DocumentsTabProps) {
   const [rows, setRows] = useState<Record<string, unknown>[] | null>(null)
+  const [dialogOpen, setDialogOpen] = useState(false)
+
+  const load = useCallback(async () => {
+    const supabase = createClient()
+    const { data, error } = await supabase
+      .from("driver_documents")
+      .select("id, doc_type, doc_number, issue_date, expiry_date, issuing_authority, is_verified, notes, file_url")
+      .eq("driver_id", driverId)
+      .is("deleted_at", null)
+      .order("expiry_date", { ascending: true, nullsFirst: false })
+      .limit(50)
+    setRows(error ? [] : (data as Record<string, unknown>[]))
+  }, [driverId])
 
   useEffect(() => {
     let cancelled = false
@@ -200,6 +218,18 @@ function DocumentsTab({ driverId, isAr }: DocumentsTabProps) {
     }
   }, [driverId])
 
+  const openFile = async (filePath: string) => {
+    const supabase = createClient()
+    const { data, error } = await supabase.storage
+      .from("driver-documents")
+      .createSignedUrl(filePath, 300)
+    if (error || !data?.signedUrl) {
+      toast.error(isAr ? "تعذر فتح المستند" : "Could not open document")
+      return
+    }
+    window.open(data.signedUrl, "_blank", "noopener,noreferrer")
+  }
+
   if (rows === null) {
     return (
       <div className="space-y-3">
@@ -209,52 +239,90 @@ function DocumentsTab({ driverId, isAr }: DocumentsTabProps) {
       </div>
     )
   }
-  if (rows.length === 0) {
-    return <EmptyState message={isAr ? "لا توجد مستندات لهذا السائق" : "No documents for this driver"} />
-  }
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm">
-      <table className="w-full min-w-[560px] text-start text-sm">
-        <thead>
-          <tr className="border-b border-border/50 text-[10px] uppercase tracking-wide text-muted-foreground">
-            <th className="px-4 py-3 text-start font-semibold">{isAr ? "النوع" : "Type"}</th>
-            <th className="px-4 py-3 text-start font-semibold">{isAr ? "الرقم" : "Number"}</th>
-            <th className="px-4 py-3 text-start font-semibold">{isAr ? "الإصدار" : "Issued"}</th>
-            <th className="px-4 py-3 text-start font-semibold">{isAr ? "الانتهاء" : "Expiry"}</th>
-            <th className="px-4 py-3 text-start font-semibold">{isAr ? "الجهة" : "Authority"}</th>
-            <th className="px-4 py-3 text-start font-semibold">{isAr ? "التحقق" : "Verified"}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r, i) => (
-            <tr key={String(r.id ?? i)} className="border-b border-border/40 last:border-0 hover:bg-muted/30">
-              <td className="px-4 py-3 font-medium text-foreground">
-                <DocTypeLabel type={String(r.doc_type ?? "other")} isAr={isAr} />
-              </td>
-              <td className="px-4 py-3 font-mono text-foreground/80" dir="ltr">
-                {String(r.doc_number ?? "—")}
-              </td>
-              <td className="px-4 py-3 text-muted-foreground">
-                {r.issue_date ? String(r.issue_date) : "—"}
-              </td>
-              <td className="px-4 py-3 text-muted-foreground">
-                {r.expiry_date ? String(r.expiry_date) : "—"}
-              </td>
-              <td className="px-4 py-3 text-muted-foreground">
-                {String(r.issuing_authority ?? "—")}
-              </td>
-              <td className="px-4 py-3">
-                <StatusBadge
-                  value={String(r.is_verified)}
-                  ok="true"
-                  warn={isAr ? (String(r.is_verified) === "true" ? "موثّق" : "غير موثّق") : String(r.is_verified) === "true" ? "Verified": "Unverified"}
-                />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs text-muted-foreground">
+          {isAr
+            ? `${rows.length} مستند`
+            : `${rows.length} document${rows.length === 1 ? "" : "s"}`}
+        </span>
+        <Button size="sm" className="h-9 gap-1.5 rounded-xl" onClick={() => setDialogOpen(true)}>
+          <Upload className="h-3.5 w-3.5" />
+          {isAr ? "رفع مستند" : "Upload document"}
+        </Button>
+      </div>
+
+      {rows.length === 0 ? (
+        <EmptyState message={isAr ? "لا توجد مستندات لهذا السائق" : "No documents for this driver"} />
+      ) : (
+        <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm">
+          <table className="w-full min-w-[640px] text-start text-sm">
+            <thead>
+              <tr className="border-b border-border/50 text-[10px] uppercase tracking-wide text-muted-foreground">
+                <th className="px-4 py-3 text-start font-semibold">{isAr ? "النوع" : "Type"}</th>
+                <th className="px-4 py-3 text-start font-semibold">{isAr ? "الرقم" : "Number"}</th>
+                <th className="px-4 py-3 text-start font-semibold">{isAr ? "الإصدار" : "Issued"}</th>
+                <th className="px-4 py-3 text-start font-semibold">{isAr ? "الانتهاء" : "Expiry"}</th>
+                <th className="px-4 py-3 text-start font-semibold">{isAr ? "الجهة" : "Authority"}</th>
+                <th className="px-4 py-3 text-start font-semibold">{isAr ? "التحقق" : "Verified"}</th>
+                <th className="px-4 py-3 text-start font-semibold">{isAr ? "الملف" : "File"}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={String(r.id ?? i)} className="border-b border-border/40 last:border-0 hover:bg-muted/30">
+                  <td className="px-4 py-3 font-medium text-foreground">
+                    <DocTypeLabel type={String(r.doc_type ?? "other")} isAr={isAr} />
+                  </td>
+                  <td className="px-4 py-3 font-mono text-foreground/80" dir="ltr">
+                    {String(r.doc_number ?? "—")}
+                  </td>
+                  <td className="px-4 py-3 text-muted-foreground">
+                    {r.issue_date ? String(r.issue_date) : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-muted-foreground">
+                    {r.expiry_date ? String(r.expiry_date) : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-muted-foreground">
+                    {String(r.issuing_authority ?? "—")}
+                  </td>
+                  <td className="px-4 py-3">
+                    <StatusBadge
+                      value={String(r.is_verified)}
+                      ok="true"
+                      warn={isAr ? (String(r.is_verified) === "true" ? "موثّق" : "غير موثّق") : String(r.is_verified) === "true" ? "Verified": "Unverified"}
+                    />
+                  </td>
+                  <td className="px-4 py-3">
+                    {r.file_url ? (
+                      <button
+                        type="button"
+                        onClick={() => void openFile(String(r.file_url))}
+                        className="inline-flex items-center gap-1 text-xs font-medium text-elite-blue-600 hover:underline dark:text-elite-blue-300"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        {isAr ? "عرض" : "View"}
+                      </button>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <DocumentUploadDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        driverId={driverId}
+        isAr={isAr}
+        onUploaded={() => void load()}
+      />
     </div>
   )
 }

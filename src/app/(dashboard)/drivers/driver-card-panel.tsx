@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
+import { emitDriverChanged, subscribeDriverChanged } from "@/lib/drivers/driver-events"
 import { toast } from "sonner"
 import {
   AlertTriangle,
@@ -273,7 +274,7 @@ function fmtDays(days: number | null | undefined, isAr: boolean): string | null 
   if (days === null || days === undefined) return null
   if (days < 0) return isAr ? `منتهي منذ ${Math.abs(days)} يوم` : `${Math.abs(days)}d overdue`
   if (days === 0) return isAr ? "ينتهي اليوم" : "Expires today"
-  return isAr ? `متبقٍ ${days} يوم` : `${days}d left`
+  return isAr ? `متبقي ${days} يوم` : `${days}d left`
 }
 
 function pickString(obj: Record<string, unknown>, keys: string[]): string | undefined {
@@ -350,6 +351,7 @@ export function DriverCardPanel({
   const overall = STATUS_STYLE[overallStatus] ?? FALLBACK_STATUS
 
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null)
+  const [livePhotoPath, setLivePhotoPath] = useState<string | null>(null)
   const [docs, setDocs] = useState<UploadedDoc[]>([])
   const [docsLoading, setDocsLoading] = useState(false)
   const [uploadingReq, setUploadingReq] = useState<string | null>(null)
@@ -359,10 +361,14 @@ export function DriverCardPanel({
   const objectUrlRef = useRef<string | null>(null)
 
   const personAvatar =
-    driver.photo_url ??
-    person.avatar ??
-    pickString(person, ["photo_url", "avatar_url", "photo"]) ??
-    null
+    livePhotoPath !== null && livePhotoPath !== ""
+      ? livePhotoPath
+      : livePhotoPath === ""
+        ? null
+        : (driver.photo_url ??
+          person.avatar ??
+          pickString(person, ["photo_url", "avatar_url", "photo"]) ??
+          null)
 
   useEffect(() => {
     let cancelled = false
@@ -430,6 +436,26 @@ export function DriverCardPanel({
     void loadDocs()
   }, [loadDocs])
 
+  // Live-refresh when another surface changes this driver (photo from profile header, etc.)
+  useEffect(() => {
+    return subscribeDriverChanged((detail) => {
+      if (detail.driverId !== driver.id) return
+      void (async () => {
+        const supabase = createClient()
+        const { data } = await supabase
+          .from("drivers")
+          .select("photo_url")
+          .eq("id", driver.id)
+          .maybeSingle()
+        if (data) {
+          setLivePhotoPath((data.photo_url as string | null) ?? "")
+          if (!data.photo_url) setPhotoPreviewUrl(null)
+        }
+      })()
+      void loadDocs()
+    })
+  }, [driver.id, loadDocs])
+
   const openDoc = useCallback(async (path: string) => {
     try {
       const supabase = createClient()
@@ -470,7 +496,7 @@ export function DriverCardPanel({
       if (isPhoto) {
         const meta = imageMeta(file)
         if (!meta.ok) {
-          toast.error(isAr ? "يُسمح بالصور فقط" : "Only image files are allowed")
+          toast.error(isAr ? "يسمح بالصور فقط" : "Only image files are allowed")
           return
         }
         contentType = meta.contentType
@@ -537,6 +563,7 @@ export function DriverCardPanel({
             toast.error(result.error)
             return
           }
+          setLivePhotoPath(path)
           if (result.signedUrl) {
             if (objectUrlRef.current) {
               URL.revokeObjectURL(objectUrlRef.current)
@@ -545,8 +572,10 @@ export function DriverCardPanel({
             setPhotoPreviewUrl(result.signedUrl)
           }
           toast.success(isAr ? "تم تحديث الصورة" : "Photo updated")
+          emitDriverChanged(driver.id)
         } else {
           toast.success(isAr ? "تم رفع المستند" : "Document uploaded")
+          emitDriverChanged(driver.id)
         }
 
         await loadDocs()

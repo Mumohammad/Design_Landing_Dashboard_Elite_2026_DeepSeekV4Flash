@@ -1,9 +1,10 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
+import { subscribeDriverChanged } from "@/lib/drivers/driver-events"
 import {
   EnterpriseModulePage,
   type KpiCardData,
@@ -21,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { CreateDriverDialog } from "./components/create-driver-dialog"
+import DriverActionsMenu from "@/components/drivers/driver-actions-menu"
 import type { Driver, DriverCategory, DriverStatus } from "@/types/drivers"
 import {
   AlertTriangle,
@@ -177,32 +179,38 @@ export default function DriversPage() {
   const [expiringOnly, setExpiringOnly] = useState(false)
   const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({})
 
-  useEffect(() => {
-    let cancelled = false
-    async function loadDrivers() {
-      setIsLoading(true)
-      const supabase = createClient()
-      const { data, error } = await supabase
-        .from("drivers")
-        .select(DRIVER_FIELDS)
-        .is("deleted_at", null)
-        .order("created_at", { ascending: false })
-        .limit(100)
+  const loadDrivers = useCallback(async (silent = false) => {
+    if (!silent) setIsLoading(true)
+    const supabase = createClient()
+    const { data, error } = await supabase
+      .from("drivers")
+      .select(DRIVER_FIELDS)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false })
+      .limit(100)
 
-      if (cancelled) return
-      if (error) {
-        console.error("Failed to load drivers:", error)
-        setDrivers([])
-      } else {
-        setDrivers((data ?? []) as unknown as DriverListItem[])
-      }
-      setIsLoading(false)
+    if (error) {
+      console.error("Failed to load drivers:", error)
+      if (!silent) setDrivers([])
+    } else {
+      setDrivers((data ?? []) as unknown as DriverListItem[])
     }
-    loadDrivers()
-    return () => {
-      cancelled = true
-    }
+    if (!silent) setIsLoading(false)
   }, [])
+
+  useEffect(() => {
+    // Defer to a task boundary so the compiler does not trace the initial
+    // setState (loading flag) as a synchronous write inside the effect body.
+    const id = setTimeout(() => void loadDrivers(), 0)
+    return () => clearTimeout(id)
+  }, [loadDrivers])
+
+  // Refetch silently when any driver surface reports a change (photo, status, edit…)
+  useEffect(() => {
+    return subscribeDriverChanged(() => {
+      void loadDrivers(true)
+    })
+  }, [loadDrivers])
 
   // Batch-resolve signed URLs for storage-path photos (one effect per list load).
   useEffect(() => {
@@ -463,7 +471,18 @@ export default function DriversPage() {
     filtered.length === 0
 
   return (
-    <div className="px-4 py-4 lg:px-6">
+    <div
+      className="px-4 py-4 lg:px-6"
+      onDoubleClick={(e) => {
+        const target = e.target as HTMLElement
+        if (target.closest("[data-row-actions]")) return
+        const tr = target.closest("tr")
+        if (!tr || tr.parentElement?.tagName !== "TBODY") return
+        const idx = Array.from(tr.parentElement.children).indexOf(tr)
+        const row = filtered[idx]
+        if (row) router.push(`/drivers/${row.id}`)
+      }}
+    >
       {/* Filter + export toolbar */}
       <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-border/50 bg-card/60 px-4 py-3 backdrop-blur-sm">
         <Select
@@ -544,6 +563,20 @@ export default function DriversPage() {
         data={filtered}
         isLoading={isLoading}
         onRowClick={(row) => router.push(`/drivers/${row.id}`)}
+        rowActions={(row) => (
+          <div
+            data-row-actions
+            onClick={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
+          >
+            <DriverActionsMenu
+              driverId={row.id}
+              isAr={isAr}
+              variant="icon"
+              showOpenItem
+            />
+          </div>
+        )}
         emptyStateMessage={
           noResults
             ? isAr

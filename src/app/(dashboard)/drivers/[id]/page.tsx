@@ -20,6 +20,7 @@ import {
   removeDriverPhoto,
   updateDriverPhoto,
 } from "@/app/actions/drivers/driver-photo"
+import { emitDriverChanged, subscribeDriverChanged } from "@/lib/drivers/driver-events"
 import { DriverTabs } from "./driver-tabs"
 import DriverAdminActions from "./driver-admin-actions"
 import type { Driver, DriverCategory, DriverStatus } from "@/types/drivers"
@@ -223,6 +224,14 @@ export default function DriverDetailPage() {
     }
   }, [id, reloadToken])
 
+  // Refetch when another surface (card panel, list row menu) changes this driver.
+  useEffect(() => {
+    if (!id) return
+    return subscribeDriverChanged((detail) => {
+      if (detail.driverId === id) setReloadToken((n) => n + 1)
+    })
+  }, [id])
+
   // photo_url may be a storage object path (driver-photos bucket) or a full URL
   useEffect(() => {
     let cancelled = false
@@ -257,7 +266,7 @@ export default function DriverDetailPage() {
     if (!driver) return
     const meta = imageMeta(file)
     if (!meta.ok) {
-      toast.error(isAr ? "يُسمح بالصور فقط" : "Only image files are allowed")
+      toast.error(isAr ? "يسمح بالصور فقط" : "Only image files are allowed")
       return
     }
     if (file.size > PHOTO_MAX_BYTES) {
@@ -305,6 +314,7 @@ export default function DriverDetailPage() {
       }
       setDriver((prev) => (prev ? { ...prev, photo_url: result.filePath } : prev))
       toast.success(isAr ? "تم تحديث الصورة" : "Photo updated")
+      emitDriverChanged(driver.id)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t.common.error)
     } finally {
@@ -331,6 +341,7 @@ export default function DriverDetailPage() {
       )
       setPhotoPreviewOpen(false)
       toast.success(isAr ? "تمت إزالة الصورة" : "Photo removed")
+      emitDriverChanged(driver.id)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t.common.error)
     } finally {

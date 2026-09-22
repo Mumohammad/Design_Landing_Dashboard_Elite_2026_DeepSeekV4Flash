@@ -1,0 +1,315 @@
+name: CI — EliteDev
+
+on:
+  pull_request:
+    branches: [master, main]
+  push:
+    branches: [master, main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    # ── Toolchain (pnpm MUST be installed before setup-node cache) ──
+    - name: Install pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 10.27.0
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: pnpm
+
+    - name: Verify toolchain
+      run: |
+        node --version
+        pnpm --version
+        echo "✅ Toolchain verified"
+
+    - name: Install dependencies
+      run: pnpm install --frozen-lockfile
+
+    # ── Code quality ──────────────────────────────────────────────────────
+
+    - name: Lint
+      run: pnpm lint
+
+    - name: Type check
+      run: pnpm exec tsc --noEmit
+
+    - name: Unit tests
+      run: pnpm test
+
+    # ── Build ─────────────────────────────────────────────────────────────
+
+    - name: Build
+      run: pnpm build
+      env:
+        NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: test-key
+        NEXT_PUBLIC_APP_URL: http://localhost:3000
+        SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+        SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+        SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+
+    # ── Security gates ────────────────────────────────────────────────────
+
+    - name: Dependency audit
+      run: pnpm audit --audit-level=high
+
+    - name: Secret scan
+      run: |
+        echo "Scanning for hardcoded secrets..."
+        # Fail ONLY on real secret shapes: a long literal assigned in code
+        # (Supabase service JWTs start with eyJ, Stripe-style sk_live_/sk_test_,
+        # AWS AKIA…). Bare variable-name mentions (comments, error messages,
+        # process.env reads) are not secrets and must not fail the build.
+        # || true keeps grep's no-match exit code from failing the step under
+        # bash -eo pipefail. Matches are printed for debuggability.
+        MATCHES=$(grep -rnE "=[[:space:]]*['\"](eyJ[A-Za-z0-9_-]{20,}|sk_live_[A-Za-z0-9]{12,}|sk_test_[A-Za-z0-9]{12,}|AKIA[A-Z0-9]{16})['\"]" src/ --include="*.ts" --include="*.tsx" --include="*.js" || true)
+        if [ -n "$MATCHES" ]; then
+          echo "❌ Potential hardcoded secrets found:"
+          echo "$MATCHES"
+          exit 1
+        fi
+        echo "✅ No hardcoded secrets detected"
+
+    - name: Check for sensitive files
+      run: |
+        if git ls-files | grep -E '\.env$|\.env\.local$|\.env\.production$|\.env\.development$'; then
+          echo "❌ Environment files found in repository"
+          git ls-files | grep -E '\.env$|\.env\.local$|\.env\.production$|\.env\.development$'
+          exit 1
+        fi
+        echo "✅ No environment files in repository"
+
+    - name: Deploy config check
+      run: node scripts/verify-deploy-config.mjs
+
+    # ── Smoke test (production build, not dev server) ─────────────────────
+
+    - name: Smoke test health endpoint
+      run: |
+        # Start production server from the build output
+        PORT=3000 pnpm start > /tmp/elitedev.log 2>&1 &
+        APP_PID=$!
+        trap 'kill "$APP_PID" 2>/dev/null || true' EXIT
+
+        # Wait for server to be ready
+        for attempt in $(seq 1 30); do
+          health="$(curl -fsS http://127.0.0.1:3000/api/health 2>/dev/null || true)"
+          if [ -n "$health" ]; then
+            echo "✅ Server started (attempt $attempt)"
+            break
+          fi
+          if [ "$attempt" -eq 30 ]; then
+            echo "❌ Server did not start in 60 seconds"
+            cat /tmp/elitedev.log | tail -20
+            exit 1
+          fi
+          sleep 2
+        done
+
+        # Verify health response
+        echo "Health response: $health"
+        if printf '%s' "$health" | grep -q '"status":"healthy"\|"status":"degraded"'; then
+          echo "✅ Health check passed"
+        else
+          echo "❌ Health check failed — unexpected response"
+          exit 1
+        fi
+      env:
+        NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: test-key
+        NEXT_PUBLIC_APP_URL: http://localhost:3000
+        PORT: "3000"
+
+  # ── pgTAP RLS tests (runs after CI passes, needs Docker) ─────────────────
+  pgtap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: ci
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 10.27.0
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: pnpm
+
+    - name: Verify toolchain
+      run: |
+        node --version
+        pnpm --version
+
+    - name: Install dependencies
+      run: pnpm install --frozen-lockfile
+
+    - name: Install Supabase CLI
+      run: |
+        npm install -g supabase
+        supabase --version
+
+    - name: Start Supabase local stack
+      run: |
+        set -o pipefail
+        supabase start 2>&1 | tail -20
+        echo "Supabase started successfully"
+
+    - name: Wait for database
+      run: |
+        # NOTE: `supabase db ping` does not exist in the Supabase CLI.
+        # Probe Postgres directly via psql on the local Supabase port (54322).
+        for i in $(seq 1 60); do
+          if psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -tAc "SELECT 1" 2>/dev/null | grep -q "1"; then
+            echo "✅ Database is ready (attempt $i)"
+            break
+          fi
+          if [ "$i" -eq 60 ]; then
+            echo "❌ Database did not become ready"
+            exit 1
+          fi
+          sleep 2
+        done
+
+    - name: Install pgTAP extension
+      run: |
+        psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -c "CREATE EXTENSION IF NOT EXISTS pgtap;"
+        echo "✅ pgTAP extension ready"
+
+    - name: Apply migrations + seed
+      run: |
+        supabase db reset 2>&1 | tail -15
+        echo "✅ All migrations + seed data applied"
+
+    - name: Run pgTAP RLS tests
+      run: |
+        echo "═══════════════════════════════════════════════════════════"
+        echo " Running pgTAP RLS test suite"
+        echo "═══════════════════════════════════════════════════════════"
+
+        TOTAL=0
+        PASSED=0
+        FAILED=0
+
+        for test_file in $(find supabase/tests -name "*.sql" -type f | sort); do
+          filename=$(basename "$test_file")
+          echo ""
+          echo "▶ Running: $filename"
+          echo "───────────────────────────────────────────────────────"
+
+          # --single-transaction: SET LOCAL ROLE and request.jwt.claims must
+          # persist across statements (in autocommit each statement is its
+          # own transaction, so role/JWT context would evaporate and every
+          # anon/authenticated assertion would run as superuser).
+          OUTPUT=$(psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" --single-transaction -f "$test_file" 2>&1)
+          EXIT_CODE=$?
+
+          if [ $EXIT_CODE -eq 0 ]; then
+            TESTS_RUN=$(echo "$OUTPUT" | grep -oP '^\d+\.\.\d+' | head -1 | cut -d. -f2)
+            FAILURES=$(echo "$OUTPUT" | grep -c "^not ok" || true)
+
+            if [ -n "$TESTS_RUN" ]; then
+              TOTAL=$((TOTAL + TESTS_RUN))
+              if [ "$FAILURES" -eq 0 ]; then
+                PASSED=$((PASSED + TESTS_RUN))
+                echo " ✅ $filename — $TESTS_RUN/$TESTS_RUN passed"
+              else
+                PASSED=$((PASSED + TESTS_RUN - FAILURES))
+                FAILED=$((FAILED + FAILURES))
+                echo " ❌ $filename — $FAILURES failures in $TESTS_RUN tests"
+                echo "$OUTPUT" | grep -E "^not ok|^#.*FAIL" | head -5
+              fi
+            else
+              TOTAL=$((TOTAL + 1))
+              PASSED=$((PASSED + 1))
+              echo " ✅ $filename — completed"
+            fi
+
+            if echo "$OUTPUT" | grep -q "ERROR\|exception\|EXCEPTION"; then
+              echo " ⚠️ Errors detected:"
+              echo "$OUTPUT" | grep -i "error\|exception" | head -5
+            fi
+          else
+            TOTAL=$((TOTAL + 1))
+            FAILED=$((FAILED + 1))
+            echo " ❌ $filename — execution failed (exit code $EXIT_CODE)"
+            echo "$OUTPUT" | tail -10
+          fi
+        done
+
+        echo ""
+        echo "═══════════════════════════════════════════════════════════"
+        echo " pgTAP Results: $PASSED/$TOTAL passed, $FAILED failed"
+        echo "═══════════════════════════════════════════════════════════"
+
+        if [ "$FAILED" -gt 0 ]; then
+          echo "❌ Some pgTAP tests failed"
+          exit 1
+        else
+          echo "✅ All pgTAP tests passed"
+        fi
+
+    - name: Stop Supabase
+      if: always()
+      run: supabase stop 2>/dev/null || true
+
+  # ── E2E tests (runs on PRs only, needs staging env) ───────────────────────
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: ci
+    if: github.event_name == 'pull_request'
+    env:
+      BASE_URL: ${{ secrets.STAGING_URL }}
+      TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
+      TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
+      STAGING_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+      STAGING_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 10.27.0
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: pnpm
+
+    - name: Install dependencies
+      run: pnpm install --frozen-lockfile
+
+    - name: Install Playwright browsers
+      run: pnpm exec playwright install --with-deps chromium
+
+    - name: Run E2E smoke tests
+      run: pnpm exec playwright test e2e/smoke.spec.ts --reporter=github
+      if: env.BASE_URL != ''
