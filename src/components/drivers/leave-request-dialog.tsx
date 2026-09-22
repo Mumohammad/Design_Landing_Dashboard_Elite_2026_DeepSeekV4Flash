@@ -27,25 +27,18 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
-// Fallback when the lookup table is empty or unreachable — matches the
-// seeded driver_leave_types rows (migration 00088).
-const FALLBACK_LEAVE_TYPES = [
-  { code: "annual", name_en: "Annual Leave", name_ar: "إجازة سنوية" },
-  { code: "sick", name_en: "Sick Leave", name_ar: "إجازة مرضية" },
-  { code: "emergency", name_en: "Emergency Leave", name_ar: "إجازة طارئة" },
-  { code: "unpaid", name_en: "Unpaid Leave", name_ar: "إجازة بدون أجر" },
-] as const;
+type LeaveTypeRow = { id: string; name_en: string | null; name_ar: string | null };
 
-type LeaveTypeRow = { code: string; name_en: string; name_ar: string };
-
-type LeaveBalanceRow = Record<string, unknown>;
+// Shown only when the driver_leave_types lookup is empty or unreachable —
+// the insert will fail with a clear FK error if these ids do not exist.
+const EMERGENCY_FALLBACK: LeaveTypeRow[] = [];
 
 type LeaveRequestDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   driverId: string;
   driverName: string;
-  existing?: LeaveBalanceRow | null;
+  existing?: Record<string, unknown> | null;
   onSaved?: () => void;
 };
 
@@ -66,32 +59,33 @@ export function LeaveRequestDialog({
   onOpenChange,
   driverId,
   driverName,
-  existing = null,
   onSaved,
 }: LeaveRequestDialogProps) {
   const supabase = createClient();
 
-  const [leaveTypes, setLeaveTypes] = useState<LeaveTypeRow[]>([...FALLBACK_LEAVE_TYPES]);
-  const [typeCode, setTypeCode] = useState<string>(FALLBACK_LEAVE_TYPES[0].code);
+  const [leaveTypes, setLeaveTypes] = useState<LeaveTypeRow[]>(EMERGENCY_FALLBACK);
+  const [typeId, setTypeId] = useState<string>("");
   const [startDate, setStartDate] = useState<string>(toDateInputValue(new Date()));
   const [endDate, setEndDate] = useState<string>(toDateInputValue(new Date()));
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // Live schema: driver_leave_types carries (id, name_en, name_ar) and
+  // driver_leave_requests.leave_type_id references its id.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     const load = async () => {
       const { data } = await supabase
         .from("driver_leave_types")
-        .select("code, name_en, name_ar")
+        .select("id, name_en, name_ar")
         .eq("is_active", true)
-        .order("sort_order", { ascending: true });
+        .order("name_en", { ascending: true });
       if (cancelled) return;
       const rows = (data as LeaveTypeRow[] | null) ?? [];
       if (rows.length > 0) {
         setLeaveTypes(rows);
-        setTypeCode((current) => current || rows[0].code);
+        setTypeId((current) => (current && rows.some((r) => r.id === current) ? current : rows[0].id));
       }
     };
     void load();
@@ -102,16 +96,22 @@ export function LeaveRequestDialog({
 
   useEffect(() => {
     if (!open) return;
-    setTypeCode((existing?.leave_type_code as string | undefined) ?? FALLBACK_LEAVE_TYPES[0].code);
-    setStartDate((existing?.start_date as string | undefined) ?? toDateInputValue(new Date()));
-    setEndDate((existing?.end_date as string | undefined) ?? toDateInputValue(new Date()));
-    setReason((existing?.reason as string | undefined) ?? "");
-  }, [open, existing]);
+    setStartDate(toDateInputValue(new Date()));
+    setEndDate(toDateInputValue(new Date()));
+    setReason("");
+    setTypeId((current) =>
+      current && leaveTypes.some((r) => r.id === current) ? current : (leaveTypes[0]?.id ?? ""),
+    );
+  }, [open, leaveTypes]);
 
   const days = diffDaysInclusive(startDate, endDate);
 
   const submit = async () => {
     if (saving) return;
+    if (!typeId) {
+      toast.error("Select a leave type");
+      return;
+    }
     if (!days) {
       toast.error("End date must be on or after the start date");
       return;
@@ -123,9 +123,10 @@ export function LeaveRequestDialog({
         data: { user },
       } = await supabase.auth.getUser();
 
+      // Live schema: leave_type_id uuid NOT NULL; requested_by exists.
       const { error } = await supabase.from("driver_leave_requests").insert({
         driver_id: driverId,
-        leave_type_code: typeCode,
+        leave_type_id: typeId,
         start_date: startDate,
         end_date: endDate,
         days_requested: days,
@@ -157,7 +158,8 @@ export function LeaveRequestDialog({
             Request Leave
           </DialogTitle>
           <DialogDescription>
-            Submit a leave request for <span className="font-medium text-foreground">{driverName}</span>.
+            Submit a leave request for <span className="font-medium text-foreground">{driverName}</span>:
+            {" "}
             It will be routed for approval.
           </DialogDescription>
         </DialogHeader>
@@ -165,14 +167,15 @@ export function LeaveRequestDialog({
         <div className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="leave-type">Leave type</Label>
-            <Select value={typeCode} onValueChange={setTypeCode}>
+            <Select value={typeId} onValueChange={setTypeId}>
               <SelectTrigger id="leave-type">
                 <SelectValue placeholder="Select leave type" />
               </SelectTrigger>
               <SelectContent>
                 {leaveTypes.map((type) => (
-                  <SelectItem key={type.code} value={type.code}>
-                    {type.name_en} · {type.name_ar}
+                  <SelectItem key={type.id} value={type.id}>
+                    {type.name_en ?? type.name_ar ?? type.id}
+                    {type.name_ar ? ` · ${type.name_ar}` : ""}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -221,7 +224,7 @@ export function LeaveRequestDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={() => void submit()} disabled={saving || !days}>
+          <Button onClick={() => void submit()} disabled={saving || !days || !typeId}>
             {saving ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
             Submit Request
           </Button>
@@ -230,3 +233,5 @@ export function LeaveRequestDialog({
     </Dialog>
   );
 }
+
+export default LeaveRequestDialog;

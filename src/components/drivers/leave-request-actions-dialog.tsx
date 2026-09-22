@@ -27,18 +27,14 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
-const FALLBACK_LEAVE_TYPES = [
-  { code: "annual", name_en: "Annual Leave", name_ar: "إجازة سنوية" },
-  { code: "sick", name_en: "Sick Leave", name_ar: "إجازة مرضية" },
-  { code: "emergency", name_en: "Emergency Leave", name_ar: "إجازة طارئة" },
-  { code: "unpaid", name_en: "Unpaid Leave", name_ar: "إجازة بدون أجر" },
-] as const;
+type LeaveTypeRow = { id: string; name_en: string | null; name_ar: string | null };
 
-type LeaveTypeRow = { code: string; name_en: string; name_ar: string };
+const FALLBACK_LEAVE_TYPES: LeaveTypeRow[] = [];
 
 export type LeaveRow = {
   id: string;
-  leave_type_code: string;
+  leave_type_id: string | null;
+  leave_type_name: string | null;
   start_date: string;
   end_date: string;
   days_requested: number | null;
@@ -59,19 +55,18 @@ function diffDaysInclusive(start: string, end: string) {
 }
 
 function useLeaveTypes(enabled: boolean) {
-  const [leaveTypes, setLeaveTypes] = useState<LeaveTypeRow[]>([...FALLBACK_LEAVE_TYPES]);
+  const [leaveTypes, setLeaveTypes] = useState<LeaveTypeRow[]>([]);
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
     const load = async () => {
       const { data } = await createClient()
         .from("driver_leave_types")
-        .select("code, name_en, name_ar")
+        .select("id, name_en, name_ar")
         .eq("is_active", true)
-        .order("sort_order", { ascending: true });
+        .order("name_en", { ascending: true });
       if (cancelled) return;
-      const rows = (data as LeaveTypeRow[] | null) ?? [];
-      if (rows.length > 0) setLeaveTypes(rows);
+      setLeaveTypes((data as LeaveTypeRow[] | null) ?? []);
     };
     void load();
     return () => {
@@ -100,7 +95,7 @@ export function LeaveRequestEditDialog({
   const supabase = createClient();
   const leaveTypes = useLeaveTypes(open);
 
-  const [typeCode, setTypeCode] = useState(row.leave_type_code);
+  const [typeId, setTypeId] = useState(row.leave_type_id ?? "");
   const [startDate, setStartDate] = useState(row.start_date);
   const [endDate, setEndDate] = useState(row.end_date);
   const [reason, setReason] = useState("");
@@ -108,7 +103,7 @@ export function LeaveRequestEditDialog({
 
   useEffect(() => {
     if (!open) return;
-    setTypeCode(row.leave_type_code);
+    setTypeId(row.leave_type_id ?? "");
     setStartDate(row.start_date);
     setEndDate(row.end_date);
     let cancelled = false;
@@ -139,7 +134,7 @@ export function LeaveRequestEditDialog({
       const { error } = await supabase
         .from("driver_leave_requests")
         .update({
-          leave_type_code: typeCode,
+          leave_type_id: typeId,
           start_date: startDate,
           end_date: endDate,
           days_requested: days,
@@ -173,14 +168,21 @@ export function LeaveRequestEditDialog({
         <div className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="leave-edit-type">Leave type</Label>
-            <Select value={typeCode} onValueChange={setTypeCode}>
+            <Select
+              value={typeId}
+              onValueChange={setTypeId}
+              disabled={leaveTypes.length === 0}
+            >
               <SelectTrigger id="leave-edit-type">
-                <SelectValue placeholder="Select leave type" />
+                <SelectValue
+ placeholder={leaveTypes.length === 0 ? "No leave types configured" : "Select leave type"}
+                />
               </SelectTrigger>
               <SelectContent>
                 {leaveTypes.map((type) => (
-                  <SelectItem key={type.code} value={type.code}>
-                    {type.name_en} · {type.name_ar}
+                  <SelectItem key={type.id} value={type.id}>
+                    {type.name_en ?? type.name_ar ?? type.id}
+                    {type.name_ar ? ` · ${type.name_ar}` : ""}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -229,7 +231,7 @@ export function LeaveRequestEditDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={() => void save()} disabled={saving || !days}>
+          <Button onClick={() => void save()} disabled={saving || !days || !typeId}>
             {saving ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
             Save changes
           </Button>
@@ -286,9 +288,9 @@ export function LeaveRequestCancelDialog({
         <DialogHeader>
           <DialogTitle>Cancel leave request</DialogTitle>
           <DialogDescription>
-            Cancel this {row.leave_type_code.replace(/_/g, " ")} request (
-            {row.start_date} → {row.end_date})? Cancelled requests are kept and can be restored
-            while they remain pending.
+            Cancel this {row.leave_type_name ?? "leave"} request ({row.start_date} →{" "}
+            {row.end_date})? Cancelled requests are kept and can be restored while they remain
+            pending.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
@@ -356,8 +358,8 @@ export function LeaveRequestRestoreDialog({
         <DialogHeader>
           <DialogTitle>Restore leave request</DialogTitle>
           <DialogDescription>
-            Restore the cancelled {row.leave_type_code.replace(/_/g, " ")} request (
-            {row.start_date} → {row.end_date}) back to pending?
+            Restore the cancelled {row.leave_type_name ?? "leave"} request ({row.start_date} →{" "}
+            {row.end_date}) back to pending?
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
