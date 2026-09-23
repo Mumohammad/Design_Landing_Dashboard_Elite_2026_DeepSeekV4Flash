@@ -4,7 +4,17 @@ const DRIVER_CHANGED_EVENT = "elitedev:driver-changed";
 
 export type DriverChangedDetail = {
   driverId?: string;
-  action?: "status" | "archive" | "photo" | "document" | "leave" | "profile";
+  action?:
+    | "status"
+    | "archive"
+    | "photo"
+    | "document"
+    | "leave"
+    | "profile"
+    | "attendance"
+    | "violation"
+    | "training"
+    | "performance";
 };
 
 export function emitDriverChanged(detail: DriverChangedDetail | string = {}) {

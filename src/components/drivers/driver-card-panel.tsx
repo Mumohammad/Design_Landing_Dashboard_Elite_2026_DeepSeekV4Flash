@@ -1,7 +1,9 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
+import { subscribeDriverChanged } from "@/lib/drivers/driver-events"
+import { useDriverPhoto } from "@/components/drivers/photo-provider"
 import { issueDriverCard, recordCardPrint, revokeDriverCard } from "@/app/actions/drivers/driver-cards"
 import type { DriverCard, DriverCardPerson, DriverCardPrint } from "@/lib/drivers/cards"
 import { buildCardPrintHtml, DriverCardPreview } from "@/components/drivers/driver-card-preview"
@@ -29,6 +31,25 @@ const cardStatusLabels: Record<string, { en: string; ar: string }> = {
 }
 
 const str = (v: unknown): string | null => (typeof v === "string" && v.trim() !== "" ? v.trim() : null)
+
+/**
+ * Layout-level shared photo for the driver card preview. Set by
+ * DriverPhotoBridge (photo-provider.tsx) which reads useDriverPhoto() inside
+ * the provider tree; the card panel itself renders below the provider boundary
+ * (hook order), so it consumes the value through this module-level ref.
+ */
+const driverPhotoBridge: { current: string | null } = { current: null }
+
+export function DriverPhotoBridge() {
+  const { photoUrl } = useDriverPhoto()
+  useEffect(() => {
+    const id = setTimeout(() => {
+      driverPhotoBridge.current = photoUrl
+    }, 0)
+    return () => clearTimeout(id)
+  }, [photoUrl])
+  return null
+}
 
 export function DriverCardPanel({ driverId, isAr }: { driverId: string; isAr: boolean }) {
   const [card, setCard] = useState<DriverCard | null>(null)
@@ -67,32 +88,27 @@ export function DriverCardPanel({ driverId, isAr }: { driverId: string; isAr: bo
     return (data ?? []) as DriverCardPrint[]
   }, [])
 
-  // Card fields (name / mobile / id number / photo) with tolerant fallbacks:
+  // Card fields (name / mobile / id number) with tolerant fallbacks:
   // driver column naming varies, so read the row and pick what exists.
+  // The photo is NOT signed here — useDriverPhoto (layout provider) owns
+  // signing so the card always shows the latest uploaded photo.
   const fetchPerson = useCallback(async (): Promise<DriverCardPerson | null> => {
     const supabase = createClient()
     const { data } = await supabase.from("drivers").select("*").eq("id", driverId).maybeSingle()
     if (!data) return null
     const row = data as Record<string, unknown>
 
-    const photoRaw = str(row.photo_url)
-    let photoUrl: string | null = null
-    if (photoRaw) {
-      if (/^https?:\/\//.test(photoRaw)) {
-        photoUrl = photoRaw
-      } else {
-        const { data: signed } = await supabase.storage.from("driver-photos").createSignedUrl(photoRaw, 300)
-        photoUrl = signed?.signedUrl ?? null
-      }
-    }
-
     return {
       name: str(row.full_name_en) ?? str(row.full_name) ?? str(row.name) ?? str(row.full_name_ar) ?? "—",
       phone: str(row.phone) ?? str(row.mobile) ?? str(row.primary_mobile) ?? str(row.secondary_mobile) ?? str(row.mobile_number),
       idNumber: str(row.identity_number) ?? str(row.national_id) ?? str(row.id_number) ?? str(row.iqama_number),
-      photoUrl,
+      photoUrl: null,
     }
   }, [driverId])
+
+  const [providerPhotoUrl, setProviderPhotoUrl] = useState<string | null>(null)
+  const [providerReady, setProviderReady] = useState(false)
+  const cleanupRef = useRef<(() => void) | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -110,6 +126,31 @@ export function DriverCardPanel({ driverId, isAr }: { driverId: string; isAr: bo
       cancelled = true
     }
   }, [fetchCard, fetchPerson, fetchPrints])
+
+  // Bridge the layout-level photo provider into this panel: the provider sits
+  // above the compliance engine, so a hook call here would break hook order.
+  useEffect(() => {
+    const id = setTimeout(() => {
+      setProviderPhotoUrl(driverPhotoBridge.current ?? null)
+      setProviderReady(true)
+    }, 0)
+    return () => clearTimeout(id)
+  }, [])
+
+  // Re-read the bridged photo whenever any surface reports a photo change.
+  useEffect(() => {
+    const off = subscribeDriverChanged((detail) => {
+      if (detail.action && detail.action !== "photo") return
+      const id = setTimeout(() => {
+        setProviderPhotoUrl(driverPhotoBridge.current ?? null)
+      }, 0)
+      cleanupRef.current = () => clearTimeout(id)
+    })
+    return () => {
+      off()
+      cleanupRef.current?.()
+    }
+  }, [])
 
   const refreshAll = async () => {
     const [c, p] = await Promise.all([fetchCard(), fetchPerson()])
@@ -173,7 +214,12 @@ export function DriverCardPanel({ driverId, isAr }: { driverId: string; isAr: bo
     }
     const w = window.open("", "_blank", "width=760,height=620")
     if (w) {
-      w.document.write(buildCardPrintHtml(card, person))
+      const personForPrint: DriverCardPerson | null = providerReady
+        ? person
+          ? { ...person, photoUrl: providerPhotoUrl }
+          : { name: "—", phone: null, idNumber: null, photoUrl: providerPhotoUrl }
+        : person
+      w.document.write(buildCardPrintHtml(card, personForPrint))
       w.document.close()
       w.focus()
     }
@@ -269,7 +315,18 @@ export function DriverCardPanel({ driverId, isAr }: { driverId: string; isAr: bo
           <DialogHeader>
             <DialogTitle>{isAr ? "معاينة بطاقة السائق" : "Driver card preview"}</DialogTitle>
           </DialogHeader>
-          {card && <DriverCardPreview card={card} person={person} />}
+          {card && (
+            <DriverCardPreview
+              card={card}
+              person={
+                providerReady
+                  ? person
+                    ? { ...person, photoUrl: providerPhotoUrl }
+                    : { name: "—", phone: null, idNumber: null, photoUrl: providerPhotoUrl }
+                  : person
+              }
+            />
+          )}
           <DialogFooter>
             <div className="flex w-full items-center justify-between gap-2">
               <Select value={format} onValueChange={(v) => setFormat(v as "pvc" | "a4" | "screen")}>

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
 import { subscribeDriverChanged } from "@/lib/drivers/driver-events"
+import { DriverPhotoProvider, useDriverPhoto } from "@/components/drivers/photo-provider"
 import {
   EnterpriseModulePage,
   type KpiCardData,
@@ -140,12 +141,24 @@ function isExpiringSoon(row: DriverListItem): boolean {
 
 function DriverAvatar({
   name,
-  photoUrl,
+  photoPath,
+  driverId,
 }: {
   name: string | null
-  photoUrl: string | null
+  photoPath: string | null
+  driverId: string
 }) {
   const initial = name?.slice(0, 1) ?? "?"
+  // Provider resolves (and re-signs) the signed URL for this row's photo.
+  return (
+    <DriverPhotoProvider driverId={driverId} initialPhotoPath={photoPath}>
+      <DriverAvatarImage name={name} initial={initial} />
+    </DriverPhotoProvider>
+  )
+}
+
+function DriverAvatarImage({ name, initial }: { name: string | null; initial: string }) {
+  const { photoUrl } = useDriverPhoto()
   return (
     <div className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted">
       {photoUrl ? (
@@ -177,7 +190,6 @@ export default function DriversPage() {
   const [statusFilter, setStatusFilter] = useState<"all" | DriverStatus>("all")
   const [categoryFilter, setCategoryFilter] = useState<"all" | DriverCategory>("all")
   const [expiringOnly, setExpiringOnly] = useState(false)
-  const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({})
 
   const loadDrivers = useCallback(async (silent = false) => {
     if (!silent) setIsLoading(true)
@@ -211,38 +223,6 @@ export default function DriversPage() {
       void loadDrivers(true)
     })
   }, [loadDrivers])
-
-  // Batch-resolve signed URLs for storage-path photos (one effect per list load).
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      const paths = drivers
-        .map((d) => d.photo_url)
-        .filter((p): p is string => typeof p === "string" && p.length > 0 && !/^https?:\/\//i.test(p))
-      const missing = paths.filter((p) => !(p in photoUrls))
-      if (missing.length === 0) return
-      const supabase = createClient()
-      const entries = await Promise.all(
-        missing.map(async (path) => {
-          const { data } = await supabase.storage
-            .from("driver-photos")
-            .createSignedUrl(path, 3600)
-          return [path, data?.signedUrl ?? ""] as const
-        }),
-      )
-      if (cancelled) return
-      const direct: Record<string, string> = {}
-      for (const d of drivers) {
-        if (typeof d.photo_url === "string" && /^https?:\/\//i.test(d.photo_url)) {
-          direct[d.photo_url] = d.photo_url
-        }
-      }
-      setPhotoUrls((prev) => ({ ...prev, ...direct, ...Object.fromEntries(entries) }))
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [drivers]) // eslint-disable-line react-hooks/exhaustive-deps -- photoUrls map grows monotonically
 
   const filtered = useMemo(() => {
     let rows = drivers
@@ -346,7 +326,8 @@ export default function DriversPage() {
         <div className="flex items-center gap-3">
           <DriverAvatar
             name={row.full_name_ar ?? row.full_name_en}
-            photoUrl={row.photo_url ? (photoUrls[row.photo_url] ?? null) : null}
+            photoPath={row.photo_url ?? null}
+            driverId={row.id}
           />
           <div className="min-w-0">
             <div className="truncate font-medium text-foreground">

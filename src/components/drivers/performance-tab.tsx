@@ -1,10 +1,14 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
+import { subscribeDriverChanged } from "@/lib/drivers/driver-events"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Pencil, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { DriverTabsFormDialog } from "./driver-tabs-form-dialog"
 
 type PerformanceTabProps = { driverId: string; isAr: boolean }
 
@@ -54,26 +58,36 @@ function scoreColor(v: number | null): string {
 
 export function PerformanceTab({ driverId, isAr }: PerformanceTabProps) {
   const [rows, setRows] = useState<Review[] | null>(null)
+  const [formOpen, setFormOpen] = useState(false)
+  const [editing, setEditing] = useState<Review | null>(null)
+
+  const load = useCallback(async () => {
+    const supabase = createClient()
+    const { data, error } = await supabase
+      .from("performance_reviews")
+      .select(
+        "id, review_period, review_date, attendance_score, violations_score, platform_kpi_score, overall_score, strengths, improvements, goals, status",
+      )
+      .eq("driver_id", driverId)
+      .is("deleted_at", null)
+      .order("review_date", { ascending: false })
+      .limit(12)
+    setRows(error ? [] : ((data ?? []) as unknown as Review[]))
+  }, [driverId])
 
   useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      const supabase = createClient()
-      const { data, error } = await supabase
-        .from("performance_reviews")
-        .select(
-          "id, review_period, review_date, attendance_score, violations_score, platform_kpi_score, overall_score, strengths, improvements, goals, status",
-        )
-        .eq("driver_id", driverId)
-        .is("deleted_at", null)
-        .order("review_date", { ascending: false })
-        .limit(12)
-      if (!cancelled) setRows(error ? [] : ((data ?? []) as unknown as Review[]))
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [driverId])
+    // Defer to a task boundary — the react-hooks compiler flags sync setState
+    // traced through the async load body.
+    const id = setTimeout(() => void load(), 0)
+    return () => clearTimeout(id)
+  }, [load])
+
+  // Other surfaces (HR console) may also write performance reviews.
+  useEffect(() => {
+    return subscribeDriverChanged((detail) => {
+      if (detail.driverId === driverId && detail.action === "performance") void load()
+    })
+  }, [driverId, load])
 
   if (rows === null) {
     return (
@@ -86,10 +100,35 @@ export function PerformanceTab({ driverId, isAr }: PerformanceTabProps) {
 
   if (rows.length === 0) {
     return (
-      <div className="rounded-2xl border border-border/50 bg-card/60 p-8 text-center backdrop-blur-sm">
-        <p className="text-sm text-muted-foreground">
-          {isAr ? "لا توجد تقييمات أداء بعد" : "No performance reviews yet"}
-        </p>
+      <div className="space-y-4">
+        <div className="flex items-center justify-end">
+          <Button
+            size="sm"
+            className="h-9 gap-1.5 rounded-xl"
+            onClick={() => {
+              setEditing(null)
+              setFormOpen(true)
+            }}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            {isAr ? "إضافة تقييم أداء" : "Add performance review"}
+          </Button>
+        </div>
+        <div className="rounded-2xl border border-border/50 bg-card/60 p-8 text-center backdrop-blur-sm">
+          <p className="text-sm text-muted-foreground">
+            {isAr ? "لا توجد تقييمات أداء بعد" : "No performance reviews yet"}
+          </p>
+        </div>
+        <DriverTabsFormDialog
+          surface="performance"
+          mode="create"
+          open={formOpen}
+          onOpenChange={setFormOpen}
+          driverId={driverId}
+          tenantId=""
+          row={null}
+          onSaved={() => void load()}
+        />
       </div>
     )
   }
@@ -120,6 +159,32 @@ export function PerformanceTab({ driverId, isAr }: PerformanceTabProps) {
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-end gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-9 gap-1.5 rounded-xl"
+          disabled={!latest.id}
+          onClick={() => {
+            setEditing(latest)
+            setFormOpen(true)
+          }}
+        >
+          <Pencil className="h-3.5 w-3.5" />
+          {isAr ? "تعديل الأحدث" : "Edit latest"}
+        </Button>
+        <Button
+          size="sm"
+          className="h-9 gap-1.5 rounded-xl"
+          onClick={() => {
+            setEditing(null)
+            setFormOpen(true)
+          }}
+        >
+          <Plus className="h-3.5 w-3.5" />
+          {isAr ? "إضافة تقييم أداء" : "Add performance review"}
+        </Button>
+      </div>
       {/* Latest review highlight */}
       <div className="rounded-2xl border border-border/50 bg-card/60 p-5 backdrop-blur-sm">
         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -184,6 +249,7 @@ export function PerformanceTab({ driverId, isAr }: PerformanceTabProps) {
               <th className="px-4 py-3 text-start font-semibold">{isAr ? "KPI المنصة" : "Platform KPI"}</th>
               <th className="px-4 py-3 text-start font-semibold">{isAr ? "الإجمالي" : "Overall"}</th>
               <th className="px-4 py-3 text-start font-semibold">{isAr ? "الحالة" : "Status"}</th>
+              <th className="px-4 py-3 text-start font-semibold">{isAr ? "إجراءات" : "Actions"}</th>
             </tr>
           </thead>
           <tbody>
@@ -219,12 +285,36 @@ export function PerformanceTab({ driverId, isAr }: PerformanceTabProps) {
                       <span className="text-muted-foreground">{r.status ?? "—"}</span>
                     )}
                   </td>
+                  <td className="px-4 py-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditing(r)
+                        setFormOpen(true)
+                      }}
+                      className="inline-flex items-center gap-1 text-xs font-medium text-elite-blue-600 hover:underline dark:text-elite-blue-300"
+                    >
+                      <Pencil className="h-3 w-3" />
+                      {isAr ? "تعديل" : "Edit"}
+                    </button>
+                  </td>
                 </tr>
               )
             })}
           </tbody>
         </table>
       </div>
+
+      <DriverTabsFormDialog
+        surface="performance"
+        mode={editing ? "edit" : "create"}
+        open={formOpen}
+        onOpenChange={setFormOpen}
+        driverId={driverId}
+        tenantId=""
+        row={editing as unknown as Record<string, unknown> | null}
+        onSaved={() => void load()}
+      />
     </div>
   )
 }

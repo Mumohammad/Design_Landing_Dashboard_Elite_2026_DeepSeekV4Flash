@@ -21,6 +21,8 @@ import {
   updateDriverPhoto,
 } from "@/app/actions/drivers/driver-photo"
 import { emitDriverChanged, subscribeDriverChanged } from "@/lib/drivers/driver-events"
+import { DriverPhotoProvider, useDriverPhoto } from "@/components/drivers/photo-provider"
+import { DriverPhotoBridge } from "@/components/drivers/driver-card-panel"
 import { DriverTabs } from "./driver-tabs"
 import DriverAdminActions from "./driver-admin-actions"
 import type { Driver, DriverCategory, DriverStatus } from "@/types/drivers"
@@ -173,18 +175,37 @@ function QuickStat({ label, value }: { label: string; value: ReactNode }) {
 }
 
 export default function DriverDetailPage() {
-  const { t, locale } = useTranslation()
-  const router = useRouter()
   const params = useParams<{ id: string | string[] }>()
-  const isAr = locale === "ar"
-
   const rawId = params?.id
   const id = Array.isArray(rawId) ? rawId[0] : rawId
+  const driverId = typeof id === "string" && id.length > 0 ? id : ""
+
+  // Provider wraps the whole profile tree so every tab/panel inherits the
+  // shared signed photo (re-signed on photo events — see photo-provider.tsx).
+  return (
+    <DriverPhotoProvider key={driverId} driverId={driverId}>
+      {/* Publishes the shared signed photo for surfaces below the provider
+          boundary (driver card preview/print) — see driver-card-panel.tsx. */}
+      <DriverPhotoBridge />
+      <DriverDetailInner driverId={driverId} />
+    </DriverPhotoProvider>
+  )
+}
+
+function DriverDetailInner({ driverId }: { driverId: string }) {
+  const { t, locale } = useTranslation()
+  const router = useRouter()
+  const id = driverId
+  const isAr = locale === "ar"
 
   const [driver, setDriver] = useState<Driver | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [resolvedPhotoUrl, setResolvedPhotoUrl] = useState<string | null>(null)
+  // Signed photo comes from the layout-level provider; a local override shows
+  // the optimistic blob preview between pick and provider refresh.
+  const { photoUrl: providerPhotoUrl, refresh: refreshProviderPhoto } = useDriverPhoto()
+  const [localPhotoUrl, setLocalPhotoUrl] = useState<string | null>(null)
+  const resolvedPhotoUrl = localPhotoUrl ?? providerPhotoUrl
   const [photoUploading, setPhotoUploading] = useState(false)
   const [photoRemoving, setPhotoRemoving] = useState(false)
   const [photoPreviewOpen, setPhotoPreviewOpen] = useState(false)
@@ -232,36 +253,6 @@ export default function DriverDetailPage() {
     })
   }, [id])
 
-  // photo_url may be a storage object path (driver-photos bucket) or a full URL
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      const value = driver?.photo_url
-      if (!value) {
-        if (!cancelled && !objectUrlRef.current) setResolvedPhotoUrl(null)
-        return
-      }
-      if (/^https?:\/\//i.test(value)) {
-        if (!cancelled) setResolvedPhotoUrl(value)
-        return
-      }
-      const supabase = createClient()
-      const { data } = await supabase.storage
-        .from(PHOTO_BUCKET)
-        .createSignedUrl(value, 3600)
-      if (!cancelled && data?.signedUrl) {
-        if (objectUrlRef.current) {
-          URL.revokeObjectURL(objectUrlRef.current)
-          objectUrlRef.current = null
-        }
-        setResolvedPhotoUrl(data.signedUrl)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [driver?.photo_url])
-
   const onPhotoFile = async (file: File) => {
     if (!driver) return
     const meta = imageMeta(file)
@@ -280,7 +271,7 @@ export default function DriverDetailPage() {
     if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current)
     const objectUrl = URL.createObjectURL(file)
     objectUrlRef.current = objectUrl
-    setResolvedPhotoUrl(objectUrl)
+    setLocalPhotoUrl(objectUrl)
 
     setPhotoUploading(true)
     try {
@@ -312,9 +303,15 @@ export default function DriverDetailPage() {
         toast.error(result.error)
         return
       }
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current)
+        objectUrlRef.current = null
+      }
+      setLocalPhotoUrl(null)
+      refreshProviderPhoto()
       setDriver((prev) => (prev ? { ...prev, photo_url: result.filePath } : prev))
       toast.success(isAr ? "تم تحديث الصورة" : "Photo updated")
-      emitDriverChanged(driver.id)
+      emitDriverChanged({ driverId: driver.id, action: "photo" })
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t.common.error)
     } finally {
@@ -335,13 +332,14 @@ export default function DriverDetailPage() {
         URL.revokeObjectURL(objectUrlRef.current)
         objectUrlRef.current = null
       }
-      setResolvedPhotoUrl(null)
+      setLocalPhotoUrl(null)
+      refreshProviderPhoto()
       setDriver((prev) =>
         prev ? { ...prev, photo_url: null as Driver["photo_url"] } : prev,
       )
       setPhotoPreviewOpen(false)
       toast.success(isAr ? "تمت إزالة الصورة" : "Photo removed")
-      emitDriverChanged(driver.id)
+      emitDriverChanged({ driverId: driver.id, action: "photo" })
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t.common.error)
     } finally {
