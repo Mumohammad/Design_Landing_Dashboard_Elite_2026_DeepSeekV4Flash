@@ -3,10 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { emitDriverChanged, subscribeDriverChanged } from "@/lib/drivers/driver-events"
-<<<<<<< HEAD
 import { useDriverPhoto } from "@/components/drivers/photo-provider"
-=======
->>>>>>> origin/master
 import { toast } from "sonner"
 import {
   AlertTriangle,
@@ -354,16 +351,11 @@ export function DriverCardPanel({
   )
   const overall = STATUS_STYLE[overallStatus] ?? FALLBACK_STATUS
 
-<<<<<<< HEAD
   // Shared signed photo from the profile photo provider (no local signing).
   const { photoUrl: sharedPhotoUrl, refresh: refreshSharedPhoto } = useDriverPhoto()
   // Optimistic blob preview between picking a file and the provider refresh.
   const [optimisticPhotoUrl, setOptimisticPhotoUrl] = useState<string | null>(null)
   const photoPreviewUrl = optimisticPhotoUrl ?? sharedPhotoUrl
-=======
-  const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null)
-  const [livePhotoPath, setLivePhotoPath] = useState<string | null>(null)
->>>>>>> origin/master
   const [docs, setDocs] = useState<UploadedDoc[]>([])
   const [docsLoading, setDocsLoading] = useState(false)
   const [uploadingReq, setUploadingReq] = useState<string | null>(null)
@@ -372,51 +364,6 @@ export function DriverCardPanel({
   const pendingReqRef = useRef<string | null>(null)
   const objectUrlRef = useRef<string | null>(null)
 
-<<<<<<< HEAD
-=======
-  const personAvatar =
-    livePhotoPath !== null && livePhotoPath !== ""
-      ? livePhotoPath
-      : livePhotoPath === ""
-        ? null
-        : (driver.photo_url ??
-          person.avatar ??
-          pickString(person, ["photo_url", "avatar_url", "photo"]) ??
-          null)
-
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      if (!personAvatar) {
-        if (!cancelled && !objectUrlRef.current) setPhotoPreviewUrl(null)
-        return
-      }
-      if (/^https?:\/\//i.test(personAvatar)) {
-        if (!cancelled) setPhotoPreviewUrl(personAvatar)
-        return
-      }
-      try {
-        const supabase = createClient()
-        const { data, error } = await supabase.storage
-          .from(PHOTO_BUCKET)
-          .createSignedUrl(personAvatar, 3600)
-        if (!cancelled && !error && data?.signedUrl) {
-          if (objectUrlRef.current) {
-            URL.revokeObjectURL(objectUrlRef.current)
-            objectUrlRef.current = null
-          }
-          setPhotoPreviewUrl(data.signedUrl)
-        }
-      } catch {
-        // keep current preview
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [personAvatar])
-
->>>>>>> origin/master
   const loadDocs = useCallback(async () => {
     setDocsLoading(true)
     try {
@@ -455,7 +402,6 @@ export function DriverCardPanel({
   useEffect(() => {
     return subscribeDriverChanged((detail) => {
       if (detail.driverId !== driver.id) return
-<<<<<<< HEAD
       if (detail.action === "photo") {
         if (objectUrlRef.current) {
           URL.revokeObjectURL(objectUrlRef.current)
@@ -467,23 +413,6 @@ export function DriverCardPanel({
       void loadDocs()
     })
   }, [driver.id, loadDocs, refreshSharedPhoto])
-=======
-      void (async () => {
-        const supabase = createClient()
-        const { data } = await supabase
-          .from("drivers")
-          .select("photo_url")
-          .eq("id", driver.id)
-          .maybeSingle()
-        if (data) {
-          setLivePhotoPath((data.photo_url as string | null) ?? "")
-          if (!data.photo_url) setPhotoPreviewUrl(null)
-        }
-      })()
-      void loadDocs()
-    })
-  }, [driver.id, loadDocs])
->>>>>>> origin/master
 
   const openDoc = useCallback(async (path: string) => {
     try {
@@ -592,35 +521,18 @@ export function DriverCardPanel({
             toast.error(result.error)
             return
           }
-<<<<<<< HEAD
           // Drop the optimistic blob and let the provider re-sign the new path.
           if (objectUrlRef.current) {
             URL.revokeObjectURL(objectUrlRef.current)
             objectUrlRef.current = null
-=======
-          setLivePhotoPath(path)
-          if (result.signedUrl) {
-            if (objectUrlRef.current) {
-              URL.revokeObjectURL(objectUrlRef.current)
-              objectUrlRef.current = null
-            }
-            setPhotoPreviewUrl(result.signedUrl)
->>>>>>> origin/master
           }
           setOptimisticPhotoUrl(null)
           refreshSharedPhoto()
           toast.success(isAr ? "تم تحديث الصورة" : "Photo updated")
-<<<<<<< HEAD
           emitDriverChanged({ driverId: driver.id, action: "photo" })
         } else {
           toast.success(isAr ? "تم رفع المستند" : "Document uploaded")
           emitDriverChanged({ driverId: driver.id, action: "document" })
-=======
-          emitDriverChanged(driver.id)
-        } else {
-          toast.success(isAr ? "تم رفع المستند" : "Document uploaded")
-          emitDriverChanged(driver.id)
->>>>>>> origin/master
         }
 
         await loadDocs()

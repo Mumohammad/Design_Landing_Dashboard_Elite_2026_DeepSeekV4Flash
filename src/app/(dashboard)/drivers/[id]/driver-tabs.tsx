@@ -16,11 +16,8 @@ import { ViolationsTab } from "@/components/drivers/violations-tab"
 import { PerformanceTab } from "@/components/drivers/performance-tab"
 import { TrainingTab } from "@/components/drivers/training-tab"
 import { DocumentUploadDialog } from "@/components/drivers/document-upload-dialog"
-<<<<<<< HEAD
 import { DocumentsDeleteDialog } from "@/components/drivers/documents-delete-dialog"
 import { emitDriverChanged, subscribeDriverChanged } from "@/lib/drivers/driver-events"
-=======
->>>>>>> origin/master
 import type { Driver } from "@/types/drivers"
 import {
   AlertTriangle,
@@ -196,11 +193,8 @@ type DocumentsTabProps = { driverId: string; isAr: boolean }
 function DocumentsTab({ driverId, isAr }: DocumentsTabProps) {
   const [rows, setRows] = useState<Record<string, unknown>[] | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
-<<<<<<< HEAD
   const [replaceTarget, setReplaceTarget] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Record<string, unknown> | null>(null)
-=======
->>>>>>> origin/master
 
   const load = useCallback(async () => {
     const supabase = createClient()
@@ -232,7 +226,6 @@ function DocumentsTab({ driverId, isAr }: DocumentsTabProps) {
     }
   }, [driverId])
 
-<<<<<<< HEAD
   // Other surfaces (compliance engine uploads, card panel) also write documents.
   useEffect(() => {
     return subscribeDriverChanged((detail) => {
@@ -240,8 +233,6 @@ function DocumentsTab({ driverId, isAr }: DocumentsTabProps) {
     })
   }, [driverId, load])
 
-=======
->>>>>>> origin/master
   const openFile = async (filePath: string) => {
     const supabase = createClient()
     const { data, error } = await supabase.storage
@@ -272,11 +263,7 @@ function DocumentsTab({ driverId, isAr }: DocumentsTabProps) {
             ? `${rows.length} مستند`
             : `${rows.length} document${rows.length === 1 ? "" : "s"}`}
         </span>
-<<<<<<< HEAD
         <Button size="sm" className="h-9 gap-1.5 rounded-xl" onClick={() => { setReplaceTarget(null); setDialogOpen(true) }}>
-=======
-        <Button size="sm" className="h-9 gap-1.5 rounded-xl" onClick={() => setDialogOpen(true)}>
->>>>>>> origin/master
           <Upload className="h-3.5 w-3.5" />
           {isAr ? "رفع مستند" : "Upload document"}
         </Button>
@@ -324,7 +311,6 @@ function DocumentsTab({ driverId, isAr }: DocumentsTabProps) {
                     />
                   </td>
                   <td className="px-4 py-3">
-<<<<<<< HEAD
                     <div className="flex items-center gap-2">
                       {r.file_url ? (
                         <button
@@ -355,20 +341,6 @@ function DocumentsTab({ driverId, isAr }: DocumentsTabProps) {
                         {isAr ? "حذف" : "Delete"}
                       </button>
                     </div>
-=======
-                    {r.file_url ? (
-                      <button
-                        type="button"
-                        onClick={() => void openFile(String(r.file_url))}
-                        className="inline-flex items-center gap-1 text-xs font-medium text-elite-blue-600 hover:underline dark:text-elite-blue-300"
-                      >
-                        <ExternalLink className="h-3 w-3" />
-                        {isAr ? "عرض" : "View"}
-                      </button>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
->>>>>>> origin/master
                   </td>
                 </tr>
               ))}
@@ -381,7 +353,6 @@ function DocumentsTab({ driverId, isAr }: DocumentsTabProps) {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         driverId={driverId}
-<<<<<<< HEAD
         defaultDocType={replaceTarget}
         isAr={isAr}
         onUploaded={() => void load()}
@@ -403,11 +374,6 @@ function DocumentsTab({ driverId, isAr }: DocumentsTabProps) {
         }
         onDeleted={() => void load()}
       />
-=======
-        isAr={isAr}
-        onUploaded={() => void load()}
-      />
->>>>>>> origin/master
     </div>
   )
 }

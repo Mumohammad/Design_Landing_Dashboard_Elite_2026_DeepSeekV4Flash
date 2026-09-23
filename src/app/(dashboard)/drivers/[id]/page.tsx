@@ -21,11 +21,8 @@ import {
   updateDriverPhoto,
 } from "@/app/actions/drivers/driver-photo"
 import { emitDriverChanged, subscribeDriverChanged } from "@/lib/drivers/driver-events"
-<<<<<<< HEAD
 import { DriverPhotoProvider, useDriverPhoto } from "@/components/drivers/photo-provider"
 import { DriverPhotoBridge } from "@/components/drivers/driver-card-panel"
-=======
->>>>>>> origin/master
 import { DriverTabs } from "./driver-tabs"
 import DriverAdminActions from "./driver-admin-actions"
 import type { Driver, DriverCategory, DriverStatus } from "@/types/drivers"
@@ -249,17 +246,6 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
   }, [id, reloadToken])
 
   // Refetch when another surface (card panel, list row menu) changes this driver.
-<<<<<<< HEAD
-=======
-  useEffect(() => {
-    if (!id) return
-    return subscribeDriverChanged((detail) => {
-      if (detail.driverId === id) setReloadToken((n) => n + 1)
-    })
-  }, [id])
-
-  // photo_url may be a storage object path (driver-photos bucket) or a full URL
->>>>>>> origin/master
   useEffect(() => {
     if (!id) return
     return subscribeDriverChanged((detail) => {
@@ -325,11 +311,7 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
       refreshProviderPhoto()
       setDriver((prev) => (prev ? { ...prev, photo_url: result.filePath } : prev))
       toast.success(isAr ? "تم تحديث الصورة" : "Photo updated")
-<<<<<<< HEAD
       emitDriverChanged({ driverId: driver.id, action: "photo" })
-=======
-      emitDriverChanged(driver.id)
->>>>>>> origin/master
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t.common.error)
     } finally {
@@ -357,11 +339,7 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
       )
       setPhotoPreviewOpen(false)
       toast.success(isAr ? "تمت إزالة الصورة" : "Photo removed")
-<<<<<<< HEAD
       emitDriverChanged({ driverId: driver.id, action: "photo" })
-=======
-      emitDriverChanged(driver.id)
->>>>>>> origin/master
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t.common.error)
     } finally {
