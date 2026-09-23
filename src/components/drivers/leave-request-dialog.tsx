@@ -29,9 +29,6 @@ import { Textarea } from "@/components/ui/textarea";
 
 type LeaveTypeRow = { id: string; name_en: string | null; name_ar: string | null };
 
-// Shown only when the driver_leave_types lookup is empty or unreachable —
-// the insert will fail with a clear FK error if these ids do not exist.
-const EMERGENCY_FALLBACK: LeaveTypeRow[] = [];
 
 type LeaveRequestDialogProps = {
   open: boolean;
@@ -63,23 +60,23 @@ export function LeaveRequestDialog({
 }: LeaveRequestDialogProps) {
   const supabase = createClient();
 
-  const [leaveTypes, setLeaveTypes] = useState<LeaveTypeRow[]>(EMERGENCY_FALLBACK);
+  const [leaveTypes, setLeaveTypes] = useState<LeaveTypeRow[]>([]);
   const [typeId, setTypeId] = useState<string>("");
   const [startDate, setStartDate] = useState<string>(toDateInputValue(new Date()));
   const [endDate, setEndDate] = useState<string>(toDateInputValue(new Date()));
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // Live schema: driver_leave_types carries (id, name_en, name_ar) and
-  // driver_leave_requests.leave_type_id references its id.
+  // Live schema: leave_types carries (id, name_en, name_ar) and
+  // driver_leave_requests.leave_type_id references its id. When no types are
+  // configured the select renders an empty state — never a hardcoded fallback.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     const load = async () => {
       const { data } = await supabase
-        .from("driver_leave_types")
+        .from("leave_types")
         .select("id, name_en, name_ar")
-        .eq("is_active", true)
         .order("name_en", { ascending: true });
       if (cancelled) return;
       const rows = (data as LeaveTypeRow[] | null) ?? [];

@@ -56,19 +56,19 @@ export function DriverLeaveTab({ driverId, driverName, children }: DriverLeaveTa
 
   const load = useCallback(async () => {
     setLoading(true);
-    // Live schema: display name comes from joining driver_leave_types on
+    // Live schema: display name comes from joining leave_types on
     // leave_type_id (no leave_type_code column on driver_leave_requests).
     const { data } = await supabase
       .from("driver_leave_requests")
       .select(
-        "id, leave_type_id, start_date, end_date, days_requested, status, created_at, driver_leave_types(name_en, name_ar)",
+        "id, leave_type_id, start_date, end_date, days_requested, status, created_at, leave_types(name_en, name_ar)",
       )
       .eq("driver_id", driverId)
       .is("deleted_at", null)
       .order("created_at", { ascending: false })
       .limit(50);
     const joined = (data ?? []) as unknown as (LeaveRow & {
-      driver_leave_types: { name_en: string | null; name_ar: string | null } | null;
+      leave_types: { name_en: string | null; name_ar: string | null } | null;
     })[];
     // Cancelled rows stay listed so they can be restored while pending.
     setRows(
@@ -76,7 +76,7 @@ export function DriverLeaveTab({ driverId, driverName, children }: DriverLeaveTa
         .filter((row) => row.status !== "rejected")
         .map((row) => ({
           ...row,
-          leave_type_name: row.driver_leave_types?.name_en ?? row.driver_leave_types?.name_ar ?? null,
+          leave_type_name: row.leave_types?.name_en ?? row.leave_types?.name_ar ?? null,
         })),
     );
     setLoading(false);
