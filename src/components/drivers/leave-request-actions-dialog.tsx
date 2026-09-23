@@ -29,8 +29,6 @@ import { Textarea } from "@/components/ui/textarea";
 
 type LeaveTypeRow = { id: string; name_en: string | null; name_ar: string | null };
 
-const FALLBACK_LEAVE_TYPES: LeaveTypeRow[] = [];
-
 export type LeaveRow = {
   id: string;
   leave_type_id: string | null;
@@ -61,9 +59,8 @@ function useLeaveTypes(enabled: boolean) {
     let cancelled = false;
     const load = async () => {
       const { data } = await createClient()
-        .from("driver_leave_types")
+        .from("leave_types")
         .select("id, name_en, name_ar")
-        .eq("is_active", true)
         .order("name_en", { ascending: true });
       if (cancelled) return;
       setLeaveTypes((data as LeaveTypeRow[] | null) ?? []);

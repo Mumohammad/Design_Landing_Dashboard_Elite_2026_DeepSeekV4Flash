@@ -25,6 +25,10 @@ import { DriverPhotoProvider, useDriverPhoto } from "@/components/drivers/photo-
 import { DriverPhotoBridge } from "@/components/drivers/driver-card-panel"
 import { DriverTabs } from "./driver-tabs"
 import DriverAdminActions from "./driver-admin-actions"
+import { VehicleAssignmentCard } from "@/components/drivers/vehicle-assignment-card"
+import { DriverOrdersKpiCard } from "@/components/drivers/driver-orders-kpi-card"
+import { OnboardingChecklistChip } from "@/components/drivers/onboarding-checklist-chip"
+import { DriverAssetsCard } from "@/components/drivers/driver-assets-card"
 import type { Driver, DriverCategory, DriverStatus } from "@/types/drivers"
 import type { LucideIcon } from "lucide-react"
 import {
@@ -519,6 +523,7 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
                     {driver.driver_code}
                   </span>
                 )}
+                <OnboardingChecklistChip driverId={driver.id} isAr={isAr} />
                 <span
                   className={cn(
                     "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
@@ -616,6 +621,8 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
         driver={driver}
         overview={
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <VehicleAssignmentCard driverId={driver.id} isAr={isAr} />
+
             <InfoGroup icon={User} title={isAr ? "الهوية" : "Identity"}>
               <InfoRow
                 label={isAr ? "الجنسية" : "Nationality"}
@@ -790,6 +797,9 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
                 value={fmtMoney(driver.cod_outstanding_amount)}
               />
             </InfoGroup>
+
+            <DriverOrdersKpiCard driverId={driver.id} isAr={isAr} />
+            <DriverAssetsCard driverId={driver.id} isAr={isAr} />
           </div>
         }
       />
