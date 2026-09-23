@@ -482,7 +482,7 @@ BEGIN
     v_detail := NULL; v_override := false;
     SELECT d.expiry_date, d.is_verified INTO v_doc
       FROM public.driver_documents d
-     WHERE d.driver_id = p_driver_id AND d.doc_type = v_key
+     WHERE d.driver_id = p_driver_id AND d.doc_type = v_key::public.driver_document_type
        AND d.is_active AND d.deleted_at IS NULL
      ORDER BY d.expiry_date DESC NULLS LAST, d.created_at DESC
      LIMIT 1;

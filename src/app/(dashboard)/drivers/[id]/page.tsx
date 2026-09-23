@@ -29,6 +29,7 @@ import { VehicleAssignmentCard } from "@/components/drivers/vehicle-assignment-c
 import { DriverOrdersKpiCard } from "@/components/drivers/driver-orders-kpi-card"
 import { OnboardingChecklistChip } from "@/components/drivers/onboarding-checklist-chip"
 import { DriverAssetsCard } from "@/components/drivers/driver-assets-card"
+import { ExpiryAlertChips } from "@/components/drivers/expiry-alert-chips"
 import type { Driver, DriverCategory, DriverStatus } from "@/types/drivers"
 import type { LucideIcon } from "lucide-react"
 import {
@@ -541,6 +542,13 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
                   {isAr ? categoryMeta.ar : categoryMeta.en}
                 </span>
               </div>
+              <ExpiryAlertChips
+                iqamaExpiry={driver.iqama_expiry_date}
+                licenseExpiry={driver.license_expiry_date}
+                nationality={driver.nationality}
+                isAr={isAr}
+                className="mt-2"
+              />
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-4 sm:gap-6">

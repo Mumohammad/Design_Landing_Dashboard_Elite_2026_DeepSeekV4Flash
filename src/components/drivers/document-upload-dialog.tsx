@@ -44,6 +44,28 @@ function docTypeLabel(docType: string): { en: string; ar: string } {
   return { en: docType.replace(/_/g, " "), ar: "" };
 }
 
+/**
+ * Map compliance requirement keys onto the live driver_document_type enum.
+ * 'identity' covers national ID (Saudi) / iqama (expat) — stored as 'iqama'
+ * which is the enum's identity-document value.
+ */
+function complianceKeyToDocType(key: string): string {
+  switch (key) {
+    case "identity":
+      return "iqama";
+    case "driving_license":
+      return "driving_license";
+    case "health_certificate":
+      return "medical_certificate";
+    case "home_delivery_permit":
+      return "home_delivery_permit";
+    case "ajeer_permit":
+      return "ajeer_permit";
+    default:
+      return "other";
+  }
+}
+
 type DocumentUploadDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -90,15 +112,15 @@ export function DocumentUploadDialog({
     const loadExisting = async () => {
       const { data } = await supabase
         .from("driver_documents")
-        .select("id, file_path")
+        .select("id, file_url")
         .eq("driver_id", driverId)
-        .eq("doc_type", nextType)
+        .eq("doc_type", complianceKeyToDocType(nextType))
         .is("deleted_at", null)
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
       if (cancelled) return;
-      setExistingPath((data?.file_path as string | null) ?? null);
+      setExistingPath((data?.file_url as string | null) ?? null);
     };
     void loadExisting();
     return () => {
@@ -133,17 +155,37 @@ export function DocumentUploadDialog({
         .upload(path, file, { upsert: true, contentType: file.type || undefined });
       if (uploadError) throw uploadError;
 
-      const { error: upsertError } = await supabase.from("driver_documents").upsert(
-        {
-          driver_id: driverId,
-          doc_type: docType,
-          doc_number: docNumber.trim() || null,
-          file_path: path,
-          expiry_date: expiryDate || null,
-        },
-        { onConflict: "driver_id,doc_type" },
-      );
-      if (upsertError) throw upsertError;
+      // Live schema shape: file_url (NOT NULL) carries the storage path, and
+      // doc_type is the driver_document_type enum (compliance requirement keys
+      // map onto it via complianceKeyToDocType). The (driver_id, doc_type)
+      // pair has a unique partial index (061) — replace-then-soft-delete keeps
+      // exactly one active row per pair (partial indexes cannot back onConflict).
+      const storagePath = path;
+      const { data: existingRow } = await supabase
+        .from("driver_documents")
+        .select("id")
+        .eq("driver_id", driverId)
+        .eq("doc_type", complianceKeyToDocType(docType))
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (existingRow) {
+        const { error: softDeleteError } = await supabase
+          .from("driver_documents")
+          .update({ deleted_at: new Date().toISOString(), is_active: false })
+          .eq("id", existingRow.id);
+        if (softDeleteError) throw softDeleteError;
+      }
+      const { error: insertError } = await supabase.from("driver_documents").insert({
+        driver_id: driverId,
+        tenant_id: tenantId,
+        doc_type: complianceKeyToDocType(docType),
+        doc_number: docNumber.trim() || null,
+        file_url: storagePath,
+        file_size_bytes: file.size,
+        mime_type: file.type || null,
+        expiry_date: expiryDate || null,
+      });
+      if (insertError) throw insertError;
 
       toast.success(`${docTypeLabel(docType).en} uploaded`);
       onOpenChange(false);

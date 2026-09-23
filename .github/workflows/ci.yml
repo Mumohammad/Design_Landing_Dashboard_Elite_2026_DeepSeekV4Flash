@@ -202,15 +202,20 @@ jobs:
           sleep 2
         done
 
-    - name: Install pgTAP extension
-      run: |
-        psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -c "CREATE EXTENSION IF NOT EXISTS pgtap;"
-        echo "✅ pgTAP extension ready"
-
     - name: Apply migrations + seed
       run: |
         supabase db reset 2>&1 | tail -15
         echo "✅ All migrations + seed data applied"
+
+    - name: Install pgTAP extension
+      run: |
+        # MUST run AFTER `supabase db reset` — the reset recreates the database
+        # from scratch and would drop an extension installed before it.
+        # (Audit 2026-09-23: reversed order made every suite fail with
+        # "function plan(integer) does not exist" while the runner still
+        # reported the files as passed.)
+        psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -c "CREATE EXTENSION IF NOT EXISTS pgtap;"
+        echo "✅ pgTAP extension ready"
 
     - name: Run pgTAP RLS tests
       run: |
@@ -232,39 +237,29 @@ jobs:
           # persist across statements (in autocommit each statement is its
           # own transaction, so role/JWT context would evaporate and every
           # anon/authenticated assertion would run as superuser).
-          OUTPUT=$(psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" --single-transaction -f "$test_file" 2>&1)
+          # -tA: emit bare TAP lines — in psql's default table format the
+          # plan/`not ok` lines are wrapped in table borders and unparseable.
+          OUTPUT=$(psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -tA --single-transaction -f "$test_file" 2>&1)
           EXIT_CODE=$?
 
-          if [ $EXIT_CODE -eq 0 ]; then
-            TESTS_RUN=$(echo "$OUTPUT" | grep -oP '^\d+\.\.\d+' | head -1 | cut -d. -f2)
-            FAILURES=$(echo "$OUTPUT" | grep -c "^not ok" || true)
+          # A file only counts as passed when it: exited 0, emitted a TAP plan
+          # (1..N — proves pgTAP is actually installed and the suite started),
+          # printed zero `not ok` lines, and produced no psql ERROR lines.
+          # (Audit 2026-09-23: files that aborted before the plan were counted
+          # as "✅ completed", masking a broken gate for the whole suite.)
+          TESTS_RUN=$(echo "$OUTPUT" | grep -oE '^1\.\.[0-9]+' | head -1 | sed -E 's/^1\.\.([0-9]+)/\1/')
+          FAILURES=$(echo "$OUTPUT" | grep -c '^not ok' || true)
+          PSQL_ERRORS=$(echo "$OUTPUT" | grep -cE '^psql:.*ERROR|^ERROR' || true)
 
-            if [ -n "$TESTS_RUN" ]; then
-              TOTAL=$((TOTAL + TESTS_RUN))
-              if [ "$FAILURES" -eq 0 ]; then
-                PASSED=$((PASSED + TESTS_RUN))
-                echo " ✅ $filename — $TESTS_RUN/$TESTS_RUN passed"
-              else
-                PASSED=$((PASSED + TESTS_RUN - FAILURES))
-                FAILED=$((FAILED + FAILURES))
-                echo " ❌ $filename — $FAILURES failures in $TESTS_RUN tests"
-                echo "$OUTPUT" | grep -E "^not ok|^#.*FAIL" | head -5
-              fi
-            else
-              TOTAL=$((TOTAL + 1))
-              PASSED=$((PASSED + 1))
-              echo " ✅ $filename — completed"
-            fi
-
-            if echo "$OUTPUT" | grep -q "ERROR\|exception\|EXCEPTION"; then
-              echo " ⚠️ Errors detected:"
-              echo "$OUTPUT" | grep -i "error\|exception" | head -5
-            fi
-          else
-            TOTAL=$((TOTAL + 1))
+          if [ "$EXIT_CODE" -ne 0 ] || [ -z "$TESTS_RUN" ] || [ "$FAILURES" -gt 0 ] || [ "$PSQL_ERRORS" -gt 0 ]; then
+            TOTAL=$((TOTAL + ${TESTS_RUN:-1}))
             FAILED=$((FAILED + 1))
-            echo " ❌ $filename — execution failed (exit code $EXIT_CODE)"
-            echo "$OUTPUT" | tail -10
+            echo " ❌ $filename — exit=$EXIT_CODE plan=${TESTS_RUN:-none} not_ok=$FAILURES psql_errors=$PSQL_ERRORS"
+            echo "$OUTPUT" | grep -E '^not ok|^psql:.*ERROR|^ERROR' | head -8
+          else
+            TOTAL=$((TOTAL + TESTS_RUN))
+            PASSED=$((PASSED + TESTS_RUN))
+            echo " ✅ $filename — $TESTS_RUN/$TESTS_RUN passed"
           fi
         done
 

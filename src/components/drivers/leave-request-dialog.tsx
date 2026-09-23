@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { emitDriverChanged } from "@/lib/drivers/driver-events";
 import { createClient } from "@/lib/supabase/client";
+import { formatDualDate } from "@/lib/formatting/hijri";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -27,7 +28,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
-type LeaveTypeRow = { id: string; name_en: string | null; name_ar: string | null };
+type LeaveTypeRow = { id: string; name_en: string | null; name_ar: string | null; code?: string | null };
 
 
 type LeaveRequestDialogProps = {
@@ -62,6 +63,9 @@ export function LeaveRequestDialog({
 
   const [leaveTypes, setLeaveTypes] = useState<LeaveTypeRow[]>([]);
   const [typeId, setTypeId] = useState<string>("");
+  // Leave-type code of the current selection — drives the Saudi Labor Law hint.
+  const selectedType = leaveTypes.find((t) => t.id === typeId);
+  const selectedTypeCode = (selectedType as (LeaveTypeRow & { code?: string }) | undefined)?.code;
   const [startDate, setStartDate] = useState<string>(toDateInputValue(new Date()));
   const [endDate, setEndDate] = useState<string>(toDateInputValue(new Date()));
   const [reason, setReason] = useState("");
@@ -76,7 +80,7 @@ export function LeaveRequestDialog({
     const load = async () => {
       const { data } = await supabase
         .from("leave_types")
-        .select("id, name_en, name_ar")
+        .select("id, name_en, name_ar, code")
         .order("name_en", { ascending: true });
       if (cancelled) return;
       const rows = (data as LeaveTypeRow[] | null) ?? [];
@@ -204,6 +208,25 @@ export function LeaveRequestDialog({
           <p className="text-xs text-muted-foreground">
             {days ? `${days} day${days === 1 ? "" : "s"} requested` : "Select a valid date range"}
           </p>
+
+          {/* Dual-calendar display (Saudi requirement): Gregorian + Hijri */}
+          {days ? (
+            <p className="text-xs text-muted-foreground" dir="ltr">
+              {formatDualDate(startDate)} → {formatDualDate(endDate)}
+            </p>
+          ) : null}
+
+          {/* Saudi Labor Law hint (Art. 109 / 117) — server-side enforcement
+              lives in validate_leave_request() + the insert trigger. */}
+          {selectedTypeCode === "annual" ? (
+            <p className="rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+              Statutory entitlement: 21 days/year (&lt; 5 years of service) or 30 days (5+ years).
+            </p>
+          ) : selectedTypeCode === "sick" ? (
+            <p className="rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+              Statutory 120-day window: 30 days full pay · 60 days half pay · 30 days unpaid.
+            </p>
+          ) : null}
 
           <div className="space-y-2">
             <Label htmlFor="leave-reason">Reason (optional)</Label>
