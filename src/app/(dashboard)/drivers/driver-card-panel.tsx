@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { emitDriverChanged, subscribeDriverChanged } from "@/lib/drivers/driver-events"
 import { useDriverPhoto } from "@/components/drivers/photo-provider"
+import { formatDualDate } from "@/lib/formatting/hijri"
 import { toast } from "sonner"
 import {
   AlertTriangle,
@@ -333,7 +334,7 @@ export function DriverCardPanel({
       "mobile_number",
       "phone_number",
     ]) ?? "—"
-  const idNumber =
+  const idNumberRaw =
     pickString(person, [
       "national_id",
       "iqama_number",
@@ -342,6 +343,22 @@ export function DriverCardPanel({
       "iqama",
       "identity_number",
     ]) ?? "—"
+  // PDPL gate: the ID number is sensitive personal data — only render it when
+  // the driver has accepted photo + sensitive_docs consents; otherwise mask.
+  const [pdplConsent, setPdplConsent] = useState<boolean | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const { data } = await createClient()
+        .rpc("has_pdpl_consent", { p_driver_id: driver.id })
+      if (!cancelled) setPdplConsent(data === true)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [driver.id])
+  const idNumber =
+    idNumberRaw === "—" || pdplConsent === true ? idNumberRaw : "••••••"
   const email = person.email ?? pickString(person, ["work_email", "personal_email"])
 
   const evaluation = driver.evaluation ?? null
@@ -681,7 +698,7 @@ export function DriverCardPanel({
                 <div className="flex items-center justify-between">
                   <span className="inline-flex items-center gap-1">
                     <Calendar className="h-3 w-3" />
-                    {fmtDate(expiry)}
+                    <span title={formatDualDate(expiry, isAr)}>{fmtDate(expiry)}</span>
                   </span>
                   {daysLabel ? <span>{daysLabel}</span> : null}
                 </div>

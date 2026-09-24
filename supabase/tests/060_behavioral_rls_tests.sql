@@ -104,7 +104,7 @@ SELECT set_config('request.jwt.claims',
 
 SELECT throws_ok(
   $$UPDATE users SET role = 'admin' WHERE auth_user_id = '00000000-0000-0000-0000-000000000001'$$,
-  'AUTH001',
+  'P0001'::char(5), 'AUTH001: users cannot modify their own role',
   'self-role-escalation UPDATE raises AUTH001'
 );
 
@@ -119,7 +119,7 @@ SELECT set_config('request.jwt.claims',
 
 SELECT throws_ok(
   $$UPDATE users SET status = 'inactive' WHERE auth_user_id = '00000000-0000-0000-0000-000000000001'$$,
-  'AUTH002',
+  'P0001'::char(5), 'AUTH002: users cannot modify their own account status',
   'self-status-escalation UPDATE raises AUTH002'
 );
 
@@ -139,7 +139,7 @@ SELECT set_config('request.jwt.claims',
 
 SELECT throws_ok(
   $$UPDATE users SET role = 'general_manager' WHERE id = '00000000-0000-0000-0000-000000000002'$$,
-  'AUTH005',
+  'P0001'::char(5), 'AUTH005: assigning general_manager role is not permitted via direct UPDATE',
   'GM role escalation via authenticated UPDATE raises AUTH005'
 );
 
@@ -154,13 +154,13 @@ SELECT set_config('request.jwt.claims', '{}', true);
 
 SELECT lives_ok(
   $$INSERT INTO roles (id, name, name_en, name_ar, tenant_id, created_at)
-    VALUES (gen_random_uuid(), 'test_role_rl', 'Test Role', 'دور تجريبي', '00000000-0000-0000-0000-000000000001', now())
+    VALUES (gen_random_uuid(), 'admin', 'Test Role RL', 'دور تجريبي', '00000000-0000-0000-0000-000000000001', now())
     ON CONFLICT DO NOTHING$$,
   'service-role can INSERT into roles'
 );
 
 -- Cleanup: remove the test role
-DELETE FROM roles WHERE name_en = 'Test Role' AND name = 'test_role_rl';
+DELETE FROM roles WHERE name_en = 'Test Role RL';
 
 -- ─── Test 8: Auth INSERT on roles table → DENY (no policy) ───────
 -- An authenticated user should not be able to insert into roles
@@ -176,8 +176,8 @@ SELECT set_config('request.jwt.claims',
 
 SELECT throws_ok(
   $$INSERT INTO roles (id, name, name_en, name_ar, tenant_id)
-    VALUES (gen_random_uuid(), 'test_hack_role', 'Hack Role', 'دور اختراق', '00000000-0000-0000-0000-000000000001')$$,
-  42501,
+    VALUES (gen_random_uuid(), 'admin', 'Hack Role', 'دور اختراق', '00000000-0000-0000-0000-000000000001')$$,
+  42501, 'new row violates row-level security policy for table "roles"',
   'authenticated INSERT on roles is denied by RLS (no policy)'
 );
 

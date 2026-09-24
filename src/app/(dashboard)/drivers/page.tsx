@@ -44,6 +44,7 @@ type DriverListItem = Pick<
   | "photo_url"
   | "category"
   | "status"
+  | "nationality"
   | "iqama_expiry_date"
   | "license_expiry_date"
   | "hire_date"
@@ -59,6 +60,7 @@ const DRIVER_FIELDS = [
   "photo_url",
   "category",
   "status",
+  "nationality",
   "iqama_expiry_date",
   "license_expiry_date",
   "hire_date",
@@ -246,9 +248,27 @@ export default function DriversPage() {
   const onLeaveCount = drivers.filter((d) => d.status === "on_leave").length
   const suspendedCount = drivers.filter((d) => d.status === "suspended").length
   const expiringCount = drivers.filter(isExpiringSoon).length
+  // Saudization KPI: Saudi share of the fleet (nationality-based).
+  const saudiCount = drivers.filter((d) => (d.nationality ?? "").toLowerCase().includes("saudi") || (d.nationality ?? "").includes("سعودي")).length
+  const saudiPct = drivers.length > 0 ? Math.round((saudiCount / drivers.length) * 100) : 0
+  // Iqama alert pool: expat drivers with iqama expiring within 30 days.
+  const in30Days = new Date()
+  in30Days.setDate(in30Days.getDate() + 30)
+  const expiringIqamaCount = drivers.filter((d) => {
+    if (!d.iqama_expiry_date) return false
+    if ((d.nationality ?? "").toLowerCase().includes("saudi") || (d.nationality ?? "").includes("سعودي")) return false
+    const exp = new Date(d.iqama_expiry_date)
+    return !Number.isNaN(exp.getTime()) && exp <= in30Days
+  }).length
 
   const kpiCards: KpiCardData[] = [
     { label: t.dashboard.totalDrivers, value: drivers.length, icon: Users, color: "#1E5A99" },
+    {
+      label: isAr ? `نسبة السعودة ${saudiPct}%` : `Saudization ${saudiPct}%`,
+      value: `${saudiCount}/${drivers.length}`,
+      icon: CheckCircle2,
+      color: "#10B981",
+    },
     {
       label: isAr ? "نشط" : "Active",
       value: activeCount,
@@ -272,6 +292,12 @@ export default function DriversPage() {
       value: expiringCount,
       icon: AlertTriangle,
       color: "#F97316",
+    },
+    {
+      label: isAr ? "إقامات تنتهي قريبًا" : "Iqamas expiring ≤30d",
+      value: expiringIqamaCount,
+      icon: AlertTriangle,
+      color: expiringIqamaCount > 0 ? "#EF4444" : "#64748B",
     },
   ]
 

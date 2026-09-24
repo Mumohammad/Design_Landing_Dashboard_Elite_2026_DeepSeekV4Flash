@@ -299,3 +299,13 @@ BEGIN
   RAISE NOTICE 'Migration 058 auth hardening verified.';
   RAISE NOTICE '══════════════════════════════════════════════════════════';
 END $$;
+
+-- ═══════════════════════════════════════════════════════════════
+-- TAP wrapper: the DO-block assertions above RAISE EXCEPTION on failure, so
+-- reaching this point means every check passed. Emit a TAP plan so the
+-- strict runner counts this suite (audit 2026-09-23: a silent abort in a
+-- no-plan file looked identical to a pass in the CI summary).
+-- ═══════════════════════════════════════════════════════════════
+SELECT plan(1);
+SELECT ok(true, '058 auth hardening DO-block assertions passed');
+SELECT * FROM finish();

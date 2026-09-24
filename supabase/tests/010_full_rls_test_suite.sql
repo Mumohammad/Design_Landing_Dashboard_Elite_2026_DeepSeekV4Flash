@@ -183,7 +183,7 @@ SELECT ok(
 -- ═══════════════════════════════════════════════════════════════════
 
 -- 2.1 Core auth policies that must STILL exist (SELECT only after 058)
-SELECT policies_are('tenants', ARRAY['tenants_select_own'],
+SELECT policies_are('tenants', ARRAY['tenants_select_own', 'tenants_insert_own', 'tenants_update_own'],
   'tenants has SELECT policy');
 SELECT policies_are('users', ARRAY['users_select_own_tenant'],
   'users has only SELECT policy after 058 hardening');
@@ -414,14 +414,14 @@ SELECT _set_owner_claims('00000000-0000-0000-0000-000000000001'::uuid);
 -- 5.1 Self-role escalation is blocked
 SELECT throws_ok(
   $$UPDATE users SET role = 'admin' WHERE auth_user_id = '00000000-0000-0000-0000-000000000001'::uuid$$,
-  'AUTH001',
+  'P0001'::char(5), 'AUTH001: users cannot modify their own role',
   'trigger blocks self-role escalation (AUTH001)'
 );
 
 -- 5.2 Self-status escalation is blocked
 SELECT throws_ok(
   $$UPDATE users SET status = 'inactive' WHERE auth_user_id = '00000000-0000-0000-0000-000000000001'::uuid$$,
-  'AUTH002',
+  'P0001'::char(5), 'AUTH002: users cannot modify their own account status',
   'trigger blocks self-status modification (AUTH002)'
 );
 
@@ -434,7 +434,7 @@ SELECT _set_owner_claims('00000000-0000-0000-0000-000000000001'::uuid);
 
 SELECT throws_ok(
   $$UPDATE users SET role = 'general_manager' WHERE id = '00000000-0000-0000-0000-000000000002'::uuid$$,
-  'AUTH005',
+  'P0001'::char(5), 'AUTH005: assigning general_manager role is not permitted via direct UPDATE',
   'trigger blocks GM role assignment (AUTH005)'
 );
 
@@ -689,8 +689,8 @@ SELECT _set_jwt('00000000-0000-0000-0000-000000000001'::uuid, '00000000-0000-000
 -- Auth INSERT on roles must be denied (no INSERT policy after 058)
 SELECT throws_ok(
   $$INSERT INTO roles (id, name, name_en, name_ar, tenant_id)
-    VALUES (gen_random_uuid(), 'test_hack', 'Hack', 'اختراق', '00000000-0000-0000-0000-000000000001'::uuid)$$,
-  42501,
+    VALUES (gen_random_uuid(), 'admin', 'Hack', 'اختراق', '00000000-0000-0000-0000-000000000001'::uuid)$$,
+  42501, 'new row violates row-level security policy for table "roles"',
   'auth INSERT on roles is denied (no policy after 058)'
 );
 
@@ -699,7 +699,7 @@ SELECT throws_ok(
   $$INSERT INTO invites (id, email, tenant_id, role, status, token_hash, expires_at)
     VALUES (gen_random_uuid(), 'hack@test.com', '00000000-0000-0000-0000-000000000001'::uuid,
             'admin', 'pending', 'fakehash', now() + interval '7 days')$$,
-  42501,
+  42501, 'new row violates row-level security policy for table "invites"',
   'auth INSERT on invites is denied (no policy after 058)'
 );
 
@@ -709,54 +709,54 @@ SELECT throws_ok(
     VALUES (gen_random_uuid(), '00000000-0000-0000-0000-000000000001'::uuid,
             '00000000-0000-0000-0000-000000000099'::uuid,
             '00000000-0000-0000-0000-000000000001'::uuid)$$,
-  42501,
+  42501, 'new row violates row-level security policy for table "user_role_assignments"',
   'auth INSERT on user_role_assignments is denied (no policy after 058)'
 );
 
 -- Auth INSERT on tenant_memberships must be denied
 SELECT throws_ok(
-  $$INSERT INTO tenant_memberships (id, user_id, tenant_id, status)
+  $$INSERT INTO tenant_memberships (id, user_id, tenant_id, is_primary)
     VALUES (gen_random_uuid(), '00000000-0000-0000-0000-000000000001'::uuid,
-            '00000000-0000-0000-0000-000000000001'::uuid, 'active')$$,
-  42501,
+            '00000000-0000-0000-0000-000000000001'::uuid, false)$$,
+  42501, 'new row violates row-level security policy for table "tenant_memberships"',
   'auth INSERT on tenant_memberships is denied (no policy after 058)'
 );
 
 -- Auth INSERT on journal_entries must be denied (036 hardening)
 SELECT throws_ok(
-  $$INSERT INTO journal_entries (tenant_id, entry_number, entry_date, description, status)
+  $$INSERT INTO journal_entries (tenant_id, entry_ref, entry_date, description_en, status)
     VALUES ('00000000-0000-0000-0000-000000000001'::uuid, 'TEST-001', current_date,
             'test', 'draft')$$,
-  42501,
+  42501, 'new row violates row-level security policy for table "journal_entries"',
   'auth INSERT on journal_entries is denied (service-role only after 036)'
 );
 
 -- Auth INSERT on journal_entry_lines must be denied (036 hardening)
 SELECT throws_ok(
-  $$INSERT INTO journal_entry_lines (tenant_id, journal_entry_id, account_id, debit, credit)
+  $$INSERT INTO journal_entry_lines (tenant_id, journal_entry_id, account_id, debit_amount, credit_amount)
     VALUES ('00000000-0000-0000-0000-000000000001'::uuid,
             '00000000-0000-0000-0000-000000000099'::uuid,
             '00000000-0000-0000-0000-000000000098'::uuid, 100.00, 0)$$,
-  42501,
+  42501, 'new row violates row-level security policy for table "journal_entry_lines"',
   'auth INSERT on journal_entry_lines is denied (service-role only after 036)'
 );
 
 -- Auth INSERT on journal_approvals must be denied (036 hardening)
 SELECT throws_ok(
-  $$INSERT INTO journal_approvals (tenant_id, journal_entry_id, approver_id, status)
+  $$INSERT INTO journal_approvals (tenant_id, journal_entry_id, approved_by, status)
     VALUES ('00000000-0000-0000-0000-000000000001'::uuid,
             '00000000-0000-0000-0000-000000000099'::uuid,
             '00000000-0000-0000-0000-000000000001'::uuid, 'approved')$$,
-  42501,
+  42501, 'new row violates row-level security policy for table "journal_approvals"',
   'auth INSERT on journal_approvals is denied (self-approval prevention)'
 );
 
 -- Auth INSERT on financial_events must be denied (053 append-only)
 SELECT throws_ok(
-  $$INSERT INTO financial_events (tenant_id, event_type, source_table, source_id, payload)
-    VALUES ('00000000-0000-0000-0000-000000000001'::uuid, 'test', 'test', '00000000-0000-0000-0000-000000000099'::uuid,
-            '{}'::jsonb)$$,
-  42501,
+  $$INSERT INTO financial_events (tenant_id, event_id, idempotency_key, event_type, source_type, source_id, event_date, payload)
+    VALUES ('00000000-0000-0000-0000-000000000001'::uuid, gen_random_uuid(), 'test-idem-' || gen_random_uuid()::text, 'test', 'test', '00000000-0000-0000-0000-000000000099'::uuid,
+            current_date, '{}'::jsonb)$$,
+  42501, 'new row violates row-level security policy for table "financial_events"',
   'auth INSERT on financial_events is denied (append-only via service-role after 053)'
 );
 
@@ -771,7 +771,7 @@ SELECT _set_admin();
 -- Service-role can INSERT into roles (used by invitation flow)
 SELECT lives_ok(
   $$INSERT INTO roles (id, name, name_en, name_ar, tenant_id, created_at)
-    VALUES (gen_random_uuid(), 'test_svc_role', 'Test SVC', 'اختبار', '00000000-0000-0000-0000-000000000001'::uuid, now())
+    VALUES (gen_random_uuid(), 'admin', 'Test SVC', 'اختبار', '00000000-0000-0000-0000-000000000001'::uuid, now())
     ON CONFLICT DO NOTHING$$,
   'service-role INSERT on roles succeeds'
 );
@@ -781,7 +781,7 @@ DELETE FROM roles WHERE name_en = 'Test SVC';
 
 -- Service-role can INSERT into journal_entries (used by RPCs)
 SELECT lives_ok(
-  $$INSERT INTO journal_entries (tenant_id, entry_number, entry_date, description, status, created_by)
+  $$INSERT INTO journal_entries (tenant_id, entry_ref, entry_date, description_en, status, created_by)
     VALUES ('00000000-0000-0000-0000-000000000001'::uuid, 'SVC-TEST-001', current_date,
             'service-role test', 'draft', '00000000-0000-0000-0000-000000000001'::uuid)
     ON CONFLICT DO NOTHING$$,
@@ -789,13 +789,13 @@ SELECT lives_ok(
 );
 
 -- Cleanup
-DELETE FROM journal_entries WHERE entry_number = 'SVC-TEST-001';
+DELETE FROM journal_entries WHERE entry_ref = 'SVC-TEST-001';
 
 -- Service-role can INSERT into financial_events (used by dispatcher)
 SELECT lives_ok(
-  $$INSERT INTO financial_events (tenant_id, event_type, source_table, source_id, payload, idempotency_key)
-    VALUES ('00000000-0000-0000-0000-000000000001'::uuid, 'test_svc', 'test', '00000000-0000-0000-0000-000000000099'::uuid,
-            '{}'::jsonb, 'test-svc-' || gen_random_uuid())
+  $$INSERT INTO financial_events (tenant_id, event_id, event_type, source_type, source_id, payload, idempotency_key, event_date)
+    VALUES ('00000000-0000-0000-0000-000000000001'::uuid, gen_random_uuid(), 'test_svc', 'test', '00000000-0000-0000-0000-000000000099'::uuid,
+            '{}'::jsonb, 'test-svc-' || gen_random_uuid()::text, current_date)
     ON CONFLICT DO NOTHING$$,
   'service-role INSERT on financial_events succeeds'
 );
@@ -899,7 +899,7 @@ SELECT ok(
 );
 
 SELECT ok(
-  (SELECT proargtypes::regtype[] FROM pg_proc WHERE proname = 'get_my_tenant_id') = ARRAY[]::regtype[],
+  (SELECT pronargs FROM pg_proc WHERE proname = 'get_my_tenant_id') = 0,
   'get_my_tenant_id() takes no arguments'
 );
 

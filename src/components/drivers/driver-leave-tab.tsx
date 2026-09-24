@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { emitDriverChanged, subscribeDriverChanged } from "@/lib/drivers/driver-events";
 import { createClient } from "@/lib/supabase/client";
+import { formatDualDate } from "@/lib/formatting/hijri";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -167,6 +168,10 @@ export function DriverLeaveTab({ driverId, driverName, children }: DriverLeaveTa
             <p className="text-xs text-muted-foreground">
               {row.start_date} → {row.end_date}
               {row.days_requested ? ` · ${row.days_requested} days` : ""}
+            </p>
+            {/* Dual calendar (Saudi requirement): Gregorian + Umm al-Qura Hijri */}
+            <p className="text-[11px] text-muted-foreground/80" dir="ltr">
+              {formatDualDate(row.start_date)} → {formatDualDate(row.end_date)}
             </p>
           </div>
           <Badge variant={STATUS_VARIANT[row.status] ?? "outline"} className="capitalize">
