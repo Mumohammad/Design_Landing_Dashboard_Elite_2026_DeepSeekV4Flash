@@ -1,25 +1,17 @@
 "use client"
 
-import { useState } from "react"
+// Create-user dialog — invite-based, per the existing auth architecture.
+// There is no direct user INSERT in this app (058 removed authenticated
+// provisioning): the GM issues a hashed-token invite and the invitee accepts
+// at /auth/accept-invite. createInvite() is GM-only (`users.manage`).
+
+import { useState, useTransition } from "react"
+import { Loader2, Mail } from "lucide-react"
+import { toast } from "sonner"
+
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -27,204 +19,115 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Plus } from "lucide-react"
-import { useForm } from "react-hook-form"
-import { z } from "zod"
-import { zodResolver } from "@hookform/resolvers/zod"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { createInvite } from "@/lib/auth/invites"
+import { USER_ROLES, ROLE_META } from "@/lib/users/user-utils"
+import { useTranslation } from "@/hooks/use-translation"
 
-const userFormSchema = z.object({
-  name: z.string().min(2, {
-    message: "Name must be at least 2 characters.",
-  }),
-  email: z.string().email({
-    message: "Please enter a valid email address.",
-  }),
-  role: z.string().min(1, {
-    message: "Please select a role.",
-  }),
-  plan: z.string().min(1, {
-    message: "Please select a plan.",
-  }),
-  billing: z.string().min(1, {
-    message: "Please select a billing method.",
-  }),
-  status: z.string().min(1, {
-    message: "Please select a status.",
-  }),
-})
+export function InviteUserDialog({
+  open,
+  onOpenChange,
+  onInvited,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onInvited: () => void
+}) {
+  const { locale } = useTranslation()
+  const isAr = locale === "ar"
+  const [email, setEmail] = useState("")
+  const [role, setRole] = useState<string>("readonly_auditor")
+  const [submitting, setSubmitting] = useState(false)
+  const [isPending, startTransition] = useTransition()
 
-type UserFormValues = z.infer<typeof userFormSchema>
+  const busy = submitting || isPending
 
-interface UserFormDialogProps {
-  onAddUser: (user: UserFormValues) => void
-}
-
-export function UserFormDialog({ onAddUser }: UserFormDialogProps) {
-  const [open, setOpen] = useState(false)
-
-  const form = useForm<UserFormValues>({
-    resolver: zodResolver(userFormSchema),
-    defaultValues: {
-      name: "",
-      email: "",
-      role: "",
-      plan: "",
-      billing: "",
-      status: "",
-    },
-  })
-
-  function onSubmit(data: UserFormValues) {
-    onAddUser(data)
-    form.reset()
-    setOpen(false)
+  function submit() {
+    const value = email.trim().toLowerCase()
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+      toast.error(isAr ? "أدخل بريدًا إلكترونيًا صالحًا" : "Enter a valid email address")
+      return
+    }
+    setSubmitting(true)
+    startTransition(async () => {
+      const result = await createInvite(value, role)
+      setSubmitting(false)
+      if (result.success) {
+        toast.success(
+          isAr ? "تم إرسال الدعوة بنجاح" : "Invite sent successfully"
+        )
+        setEmail("")
+        setRole("readonly_auditor")
+        onOpenChange(false)
+        onInvited()
+      } else {
+        toast.error(result.error ?? (isAr ? "حدث خطأ" : "Something went wrong"))
+      }
+    })
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button className="cursor-pointer">
-          <Plus className="mr-2 h-4 w-4" />
-          Add New User
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-2xl">
+    <Dialog open={open} onOpenChange={(o) => !busy && onOpenChange(o)}>
+      <DialogContent className="rounded-2xl sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Add New User</DialogTitle>
+          <DialogTitle>{isAr ? "دعوة مستخدم جديد" : "Invite a new user"}</DialogTitle>
           <DialogDescription>
-            Create a new user account. Click save when you&apos;re done.
+            {isAr
+              ? "يصل للمدعو رابط قبول صالح لمدة ٧ أيام — يُنشئ حسابه بنفسه عبر رابط الدعوة."
+              : "The invitee receives an acceptance link valid for 7 days and sets up their own account."}
           </DialogDescription>
         </DialogHeader>
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Name</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Enter full name" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
+
+        <div className="grid gap-4">
+          <div className="grid gap-1.5">
+            <Label htmlFor="invite-email">{isAr ? "البريد الإلكتروني" : "Email"}</Label>
+            <Input
+              id="invite-email"
+              type="email"
+              dir="ltr"
+              placeholder="name@company.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              disabled={busy}
             />
-            <FormField
-              control={form.control}
-              name="email"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Email</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Enter email address" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <div className="grid grid-cols-2 gap-4">
-              <FormField
-                control={form.control}
-                name="role"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Role</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger className="cursor-pointer w-full">
-                          <SelectValue placeholder="Select role" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="Admin">Admin</SelectItem>
-                        <SelectItem value="Author">Author</SelectItem>
-                        <SelectItem value="Editor">Editor</SelectItem>
-                        <SelectItem value="Maintainer">Maintainer</SelectItem>
-                        <SelectItem value="Subscriber">Subscriber</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="plan"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Plan</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger className="cursor-pointer w-full">
-                          <SelectValue placeholder="Select plan" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="Basic">Basic</SelectItem>
-                        <SelectItem value="Professional">Professional</SelectItem>
-                        <SelectItem value="Enterprise">Enterprise</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <FormField
-                control={form.control}
-                name="billing"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Billing</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger className="cursor-pointer w-full">
-                          <SelectValue placeholder="Select billing" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="Auto Debit">Auto Debit</SelectItem>
-                        <SelectItem value="UPI">UPI</SelectItem>
-                        <SelectItem value="Paypal">Paypal</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="status"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Status</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger className="cursor-pointer w-full">
-                          <SelectValue placeholder="Select status" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="Active">Active</SelectItem>
-                        <SelectItem value="Pending">Pending</SelectItem>
-                        <SelectItem value="Error">Error</SelectItem>
-                        <SelectItem value="Inactive">Inactive</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-            <DialogFooter>
-              <Button type="submit" className="cursor-pointer">
-                Save User
-              </Button>
-            </DialogFooter>
-          </form>
-        </Form>
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="invite-role">{isAr ? "الدور" : "Role"}</Label>
+            <Select value={role} onValueChange={setRole} disabled={busy}>
+              <SelectTrigger id="invite-role" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {USER_ROLES.map((r) => (
+                  <SelectItem key={r} value={r}>
+                    {isAr ? ROLE_META[r].ar : ROLE_META[r].en}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={busy}>
+            {isAr ? "إلغاء" : "Cancel"}
+          </Button>
+          <Button
+            onClick={submit}
+            disabled={busy}
+            className="bg-gradient-to-r from-elite-blue-500 to-elite-blue-600 text-white hover:from-elite-blue-600 hover:to-elite-blue-700"
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
+            {isAr ? "إرسال الدعوة" : "Send invite"}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )
