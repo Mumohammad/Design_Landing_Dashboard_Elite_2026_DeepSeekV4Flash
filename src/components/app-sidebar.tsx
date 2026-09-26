@@ -17,6 +17,7 @@ import {
   Users,
   ChartLine,
   ShieldCheck,
+  ClipboardCheck,
   FileSearch,
   Fingerprint,
   Settings,
@@ -95,6 +96,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       items: [
         { title: t.nav.users, url: "/users", icon: UsersRound },
         { title: t.nav.roles, url: "/roles", icon: ShieldCheck },
+        { title: t.nav.approvals, url: "/approvals", icon: ClipboardCheck },
         { title: t.nav.auditLog, url: "/audit-log", icon: FileSearch },
         { title: t.nav.security, url: "/security", icon: Fingerprint },
         { title: t.nav.settings, url: "/settings", icon: Settings },
