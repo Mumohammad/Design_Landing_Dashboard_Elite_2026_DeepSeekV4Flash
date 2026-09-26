@@ -20,6 +20,7 @@ import {
   Users,
   ChartLine,
   ShieldCheck,
+  ClipboardCheck,
   FileSearch,
   Fingerprint,
   Settings,
@@ -162,6 +163,7 @@ export function CommandSearch({ open, onOpenChange }: CommandSearchProps) {
     // Administration
     { title: t.nav.users, url: "/users", group: t.nav.administration, icon: UsersRound, accent: "#64748B" },
     { title: t.nav.roles, url: "/roles", group: t.nav.administration, icon: ShieldCheck, accent: "#64748B" },
+    { title: t.nav.approvals, url: "/approvals", group: t.nav.administration, icon: ClipboardCheck, accent: "#64748B" },
     { title: t.nav.auditLog, url: "/audit-log", group: t.nav.administration, icon: FileSearch, accent: "#64748B" },
     { title: t.nav.security, url: "/security", group: t.nav.administration, icon: Fingerprint, accent: "#64748B" },
     { title: t.nav.settings, url: "/settings", group: t.nav.administration, icon: Settings, accent: "#64748B" },

@@ -35,6 +35,7 @@ export type TranslationStrings = {
     reports: string
     users: string
     roles: string
+    approvals: string
     auditLog: string
     security: string
     settings: string
