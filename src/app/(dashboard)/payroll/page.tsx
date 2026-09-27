@@ -4,15 +4,23 @@ import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
 import { EnterpriseModulePage, type KpiCardData, type TableColumn } from "@/components/dashboard/enterprise-module-page"
-import { CreditCard, FileCheck, AlertTriangle, DollarSign, Calculator, Download, Ban, Loader2 } from "lucide-react"
+import { CreditCard, FileCheck, AlertTriangle, DollarSign, Calculator, Download, Ban, Loader2, ArrowRightCircle, PackageCheck } from "lucide-react"
+import { toast } from "sonner"
 import {
   calculatePayrollForPeriod,
-  cancelPayrollPeriodAction,
   generateWpsFile,
 } from "@/lib/payroll/actions"
+import { transitionPayrollStatus } from "@/lib/payroll/status-actions"
+import {
+  ALLOWED_PAYROLL_TRANSITIONS,
+  payrollRowsToCsv,
+  periodKey,
+  type PayrollStatus,
+} from "@/lib/payroll/payroll-utils"
 
 interface PayrollRow {
   id: string
+  driver_id: string
   period_year: number
   period_month: number
   status: string
@@ -20,6 +28,7 @@ interface PayrollRow {
   base_amount: number
   orders_bonus: number
   total_deductions: number
+  cod_deduction: number
   orders_achieved: number
   orders_prorated_target: number
   orders_variance: number
@@ -27,6 +36,22 @@ interface PayrollRow {
   minimum_floor_applied: boolean
   manual_override: boolean
   driver: { full_name_ar: string; driver_code: string } | null
+}
+
+// Per-driver live reads wiring payroll to the orders + COD surfaces (Prompt F).
+interface OrdersRollupRow {
+  driver_id: string
+  total_delivered: number | null
+  total_failed: number | null
+  total_returned: number | null
+  total_revenue: number | null
+}
+interface CodRollupRow {
+  driver_id: string
+  cod_collected: number | null
+  cod_submitted: number | null
+  cod_variance: number | null
+  status: string
 }
 
 const STATUS_META: Record<string, { ar: string; en: string; className: string }> = {
@@ -50,13 +75,15 @@ export default function PayrollPage() {
   const { t } = useTranslation()
   const ar = t.common.status === "الحالة"
   const [data, setData] = useState<PayrollRow[]>([])
+  const [ordersByDriver, setOrdersByDriver] = useState<Map<string, { delivered: number; revenue: number }>>(new Map())
+  const [codByDriver, setCodByDriver] = useState<Map<string, { sessions: number; variance: number; pending: number }>>(new Map())
   const [isLoading, setIsLoading] = useState(true)
   const [search, setSearch] = useState("")
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1)
   const [isCalculating, setIsCalculating] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
-  const [cancellingId, setCancellingId] = useState<string | null>(null)
+  const [transitioningId, setTransitioningId] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<{ type: "ok" | "err"; text: string } | null>(null)
 
   async function load() {
@@ -65,8 +92,8 @@ export default function PayrollPage() {
     const { data: result, error } = await supabase
       .from("driver_payroll_periods")
       .select(`
-        id,period_year,period_month,status,net_payroll,base_amount,orders_bonus,
-        total_deductions,orders_achieved,orders_prorated_target,orders_variance,
+        id,driver_id,period_year,period_month,status,net_payroll,base_amount,orders_bonus,
+        total_deductions,cod_deduction,orders_achieved,orders_prorated_target,orders_variance,
         below_minimum_wage,minimum_floor_applied,manual_override,
         driver:drivers(full_name_ar,driver_code)
       `)
@@ -77,30 +104,119 @@ export default function PayrollPage() {
       .limit(200)
     if (error) { console.error(error); setData([]) }
     else { setData((result as unknown as PayrollRow[]) ?? []) }
+
+    // ── Live orders rollup (monthly_driver_orders) for the loaded rows ──
+    // One query for the whole page: per-platform rows keyed by (driver,
+    // period) then aggregated client-side (pure rollup in payroll-utils).
+    const rowSet = (result as unknown as PayrollRow[]) ?? []
+    if (rowSet.length > 0) {
+      // Rollup per (driver_id, period) — map by `${driver_id}:${year}:${month}`.
+      const { data: orderRows } = await supabase
+        .from("monthly_driver_orders")
+        .select("driver_id, period_year, period_month, total_delivered, total_failed, total_returned, total_revenue")
+        .eq("period_year", selectedYear)
+        .in("period_month", [...new Set(rowSet.map((r) => r.period_month))])
+        .is("deleted_at", null)
+        .limit(2000)
+      const ordersMap = new Map<string, { delivered: number; revenue: number }>()
+      for (const r of (orderRows as unknown as (OrdersRollupRow & { period_year: number; period_month: number })[]) ?? []) {
+        const key = `${r.driver_id}:${r.period_year}:${r.period_month}`
+        const agg = ordersMap.get(key) ?? { delivered: 0, revenue: 0 }
+        agg.delivered += r.total_delivered ?? 0
+        agg.revenue += Number(r.total_revenue ?? 0)
+        ordersMap.set(key, agg)
+      }
+      setOrdersByDriver(ordersMap)
+
+      // ── COD sessions rollup per driver for the loaded rows' periods ──
+      // session_date spans the whole month, so filter by range per distinct
+      // period in the rowset (the pure rollup lives in payroll-utils).
+      const monthStarts = [...new Set(rowSet.map((r) => periodKey(r.period_year, r.period_month)))]
+      const { data: codRows } = await supabase
+        .from("driver_cod_sessions")
+        .select("driver_id, cod_collected, cod_submitted, cod_variance, status, session_date")
+        .in("session_date", monthStarts.map((k) => `${k}-01`))
+        .is("deleted_at", null)
+        .limit(2000)
+      // session_date is a DATE not a month key; group by driver + month prefix.
+      const codMap = new Map<string, { sessions: number; variance: number; pending: number }>()
+      for (const r of (codRows as unknown as (CodRollupRow & { session_date: string })[]) ?? []) {
+        const monthKey = `${r.session_date.slice(0, 7)}`
+        const key = `${r.driver_id}:${monthKey}`
+        const agg = codMap.get(key) ?? { sessions: 0, variance: 0, pending: 0 }
+        agg.sessions += 1
+        agg.variance += Number(r.cod_variance ?? 0)
+        if (r.status === "pending") agg.pending += 1
+        codMap.set(key, agg)
+      }
+      setCodByDriver(codMap)
+    } else {
+      setOrdersByDriver(new Map())
+      setCodByDriver(new Map())
+    }
     setIsLoading(false)
   }
 
   useEffect(() => {
-    void (async () => {
-      const supabase = createClient()
-      const { data: result, error } = await supabase
-        .from("driver_payroll_periods")
-        .select(`
-          id,period_year,period_month,status,net_payroll,base_amount,orders_bonus,
-          total_deductions,orders_achieved,orders_prorated_target,orders_variance,
-          below_minimum_wage,minimum_floor_applied,manual_override,
-          driver:drivers(full_name_ar,driver_code)
-        `)
-        .eq("period_year", selectedYear)
-        .is("deleted_at", null)
-        .order("period_month", { ascending: false })
-        .order("created_at", { ascending: false })
-        .limit(200)
-      if (error) { console.error(error); setData([]) }
-      else { setData((result as unknown as PayrollRow[]) ?? []) }
-      setIsLoading(false)
-    })()
+    void load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload on year change
   }, [selectedYear])
+
+  /** Guarded status transition through the shared server action. */
+  async function handleTransition(row: PayrollRow, to: PayrollStatus) {
+    // Mandatory reason on the rejection family (cancelled) — same bar as the
+    // users module (min 5 chars).
+    let reason: string | null = null
+    if (to === "cancelled") {
+      reason = window.prompt(ar ? "سبب الإلغاء (مطلوب):" : "Cancellation reason (required):")
+      if (!reason || reason.trim().length < 5) return
+    }
+    setTransitioningId(row.id)
+    const res = await transitionPayrollStatus({
+      periodId: row.id,
+      to,
+      reason,
+      surface: "payroll",
+    })
+    setTransitioningId(null)
+    if (res.success) {
+      toast.success(ar ? `تم تحديث الحالة إلى ${STATUS_META[to]?.ar ?? to}` : `Status changed to ${to}`)
+      await load()
+    } else {
+      toast.error(res.error ?? "Error")
+    }
+  }
+
+  /** CSV export matching the users/audit-trail/approvals pattern. */
+  function exportCsv() {
+    const csv = payrollRowsToCsv(
+      filtered.map((r) => ({
+        period_year: r.period_year,
+        period_month: r.period_month,
+        status: r.status,
+        driver_code: r.driver?.driver_code ?? null,
+        driver_name: r.driver?.full_name_ar ?? null,
+        orders_achieved: r.orders_achieved,
+        orders_prorated_target: r.orders_prorated_target,
+        orders_variance: r.orders_variance,
+        base_amount: r.base_amount,
+        orders_bonus: r.orders_bonus,
+        total_deductions: r.total_deductions,
+        cod_deduction: r.cod_deduction,
+        net_payroll: r.net_payroll,
+        below_minimum_wage: r.below_minimum_wage,
+        minimum_floor_applied: r.minimum_floor_applied,
+        manual_override: r.manual_override,
+      }))
+    )
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `payroll-${periodKey(selectedYear, selectedMonth)}-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   async function handleCalculate() {
     setIsCalculating(true)
@@ -141,20 +257,9 @@ export default function PayrollPage() {
     }
   }
 
-  async function handleCancel(row: PayrollRow) {
-    const reason = window.prompt(ar ? "سبب الإلغاء (مطلوب):" : "Cancellation reason (required):")
-    if (!reason) return
-    setCancellingId(row.id)
-    setFeedback(null)
-    const res = await cancelPayrollPeriodAction(row.id, reason)
-    setCancellingId(null)
-    if (res.success) {
-      setFeedback({ type: "ok", text: ar ? "تم إلغاء الفترة وإرجاع الخصومات." : "Period cancelled, deductions rolled back." })
-      await load()
-    } else {
-      setFeedback({ type: "err", text: res.error ?? "Error" })
-    }
-  }
+  // Cancel now routes through the guarded transition action (handleTransition
+  // with to=cancelled) — cancelPayrollPeriodAction (M4 rollback chain) remains
+  // available for the disbursement-execution backlog.
 
   const filtered = search
     ? data.filter(r => r.driver?.full_name_ar?.includes(search) || r.driver?.driver_code?.includes(search))
@@ -162,11 +267,13 @@ export default function PayrollPage() {
 
   const totalNet = data.reduce((s, r) => s + (r.net_payroll ?? 0), 0)
   const approvedCount = data.filter(r => r.status === "approved" || r.status === "paid").length
+  // Live orders/COD KPI (Prompt F): aggregated across the loaded rows' drivers.
+  const totalDelivered = [...ordersByDriver.values()].reduce((s, v) => s + v.delivered, 0)
 
   const kpiCards: KpiCardData[] = [
     { label: t.nav.payroll, value: data.length, icon: CreditCard, color: "#1E5A99" },
     { label: t.common.approved, value: approvedCount, icon: FileCheck, color: "#10B981" },
-    { label: t.common.pending, value: data.filter(r => r.status === "draft" || r.status === "calculated").length, icon: AlertTriangle, color: "#F59E0B" },
+    { label: ar ? "طلبات مُسلَّمة (مباشر)" : "Delivered orders (live)", value: totalDelivered.toLocaleString("en-US"), icon: PackageCheck, color: "#F59E0B" },
     { label: "Net Total (SAR)", value: totalNet.toFixed(0), icon: DollarSign, color: "#8B5CF6" },
   ]
 
@@ -201,6 +308,25 @@ export default function PayrollPage() {
     },
     { key: "base_amount", header: "Base", render: (r) => <span dir="ltr" className="tabular-nums">{fmtMoney(r.base_amount)}</span> },
     { key: "orders_bonus", header: "Bonus", render: (r) => <span dir="ltr" className="tabular-nums text-emerald-600">{r.orders_bonus > 0 ? "+" + fmtMoney(r.orders_bonus) : "—"}</span> },
+    {
+      key: "cod",
+      header: "COD",
+      render: (r) => {
+        // Live COD rollup for this driver+period from driver_cod_sessions;
+        // falls back to the persisted cod_deduction when no session rows exist.
+        const live = codByDriver.get(`${r.driver_id}:${periodKey(r.period_year, r.period_month)}`)
+        const owed = live && live.variance > 0 ? live.variance : r.cod_deduction > 0 ? r.cod_deduction : null
+        return (
+          <span
+            dir="ltr"
+            title={live ? `${live.sessions} session(s), ${live.pending} pending` : undefined}
+            className={`tabular-nums text-xs ${owed ? "text-red-600 font-medium" : "text-muted-foreground"}`}
+          >
+            {owed ? "-" + fmtMoney(owed) : "—"}
+          </span>
+        )
+      },
+    },
     { key: "total_deductions", header: "Deductions", render: (r) => <span dir="ltr" className="tabular-nums text-red-600">{r.total_deductions > 0 ? "-" + fmtMoney(r.total_deductions) : "—"}</span> },
     {
       key: "net_payroll",
@@ -231,17 +357,40 @@ export default function PayrollPage() {
       key: "actions",
       header: ar ? "إجراء" : "Action",
       render: (r) => {
-        const canCancel = !["paid", "cancelled"].includes(r.status)
-        if (!canCancel) return <span className="text-xs text-muted-foreground">—</span>
+        // Guarded transitions (users-module idiom): next allowed targets per
+        // ALLOWED_PAYROLL_TRANSITIONS; terminal rows show an em-dash.
+        const targets = ALLOWED_PAYROLL_TRANSITIONS[r.status as PayrollStatus] ?? []
+        const isBusy = transitioningId === r.id
         return (
-          <button
-            onClick={() => handleCancel(r)}
-            disabled={cancellingId === r.id}
-            className="inline-flex items-center gap-1 rounded-lg border border-red-500/25 bg-red-500/10 px-2 py-1 text-xs font-medium text-red-600 transition-colors hover:bg-red-500/20 disabled:opacity-50"
-          >
-            {cancellingId === r.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Ban className="h-3 w-3" />}
-            {ar ? "إلغاء" : "Cancel"}
-          </button>
+          <div className="flex items-center gap-1.5">
+            {targets.filter((tt) => tt !== "cancelled").slice(0, 1).map((tt) => (
+              <button
+                key={tt}
+                onClick={() => handleTransition(r, tt)}
+                disabled={isBusy}
+                title={ar ? `نقل إلى: ${STATUS_META[tt]?.ar ?? tt}` : `Move to: ${tt}`}
+                className="inline-flex items-center gap-1 rounded-lg border border-elite-blue-500/25 bg-elite-blue-500/10 px-2 py-1 text-xs font-medium text-elite-blue-600 transition-colors hover:bg-elite-blue-500/20 disabled:opacity-50"
+              >
+                {isBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRightCircle className="h-3 w-3" />}
+                {tt === "in_review" ? (ar ? "مراجعة" : "Review")
+                  : tt === "approved" ? (ar ? "اعتماد" : "Approve")
+                  : tt === "paid" ? (ar ? "تسجيل الدفع" : "Mark paid")
+                  : tt === "calculated" ? (ar ? "إعادة الاحتساب" : "Recalculate")
+                  : tt}
+              </button>
+            ))}
+            {targets.includes("cancelled") && (
+              <button
+                onClick={() => handleTransition(r, "cancelled")}
+                disabled={isBusy}
+                className="inline-flex items-center gap-1 rounded-lg border border-red-500/25 bg-red-500/10 px-2 py-1 text-xs font-medium text-red-600 transition-colors hover:bg-red-500/20 disabled:opacity-50"
+              >
+                {isBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Ban className="h-3 w-3" />}
+                {ar ? "إلغاء" : "Cancel"}
+              </button>
+            )}
+            {targets.length === 0 && <span className="text-xs text-muted-foreground">—</span>}
+          </div>
         )
       },
     },
@@ -283,6 +432,14 @@ export default function PayrollPage() {
             >
               {isCalculating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Calculator className="h-4 w-4" />}
               {ar ? "احتساب الفترة" : "Calculate period"}
+            </button>
+            <button
+              onClick={exportCsv}
+              disabled={filtered.length === 0}
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-border/50 bg-muted/30 px-3.5 text-sm font-medium text-foreground transition-colors hover:bg-muted/50 disabled:opacity-50"
+            >
+              <Download className="h-4 w-4" />
+              CSV
             </button>
             <button
               onClick={handleDownloadWps}

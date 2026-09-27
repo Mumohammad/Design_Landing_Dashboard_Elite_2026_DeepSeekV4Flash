@@ -20,10 +20,16 @@
 -- Conventions (match 012): single transaction (CI passes
 -- --single-transaction), SET LOCAL ROLE + RESET ROLE between role switches,
 -- fixtures in a TEMP table, finish() at the end. Fixture rows roll back with
--- the test transaction.
+-- the test transaction ONLY WHEN IT ABORTS — the first failing statement does
+-- NOT stop psql, so the pre-failure portion of a failed run COMMITS at EOF
+-- and leaks its fixtures to later runs (repo worklog gotcha; see 063).
+--
+-- plan(24) MUST equal the actual assertion count — this file previously
+-- planned 28 while carrying 24 assertions (plan drift that CI's fresh-DB
+-- runner masked; a leak-poisoned re-run exposed it).
 -- ============================================================================
 
-SELECT plan(28);
+SELECT plan(24);
 
 -- ─── Fixtures (run as postgres; bypass RLS) ─────────────────────────────────
 
@@ -32,14 +38,21 @@ CREATE TEMP TABLE users_module_fixture (
   user_id   uuid
 );
 
+-- Idempotent fixtures (063 convention): every insert is guarded
+-- (WHERE NOT EXISTS / ON CONFLICT DO NOTHING) so a re-run against a
+-- leak-poisoned database is a clean no-op instead of a unique-violation
+-- that aborts the whole suite. auth.users carries a FIXED id for the same
+-- reason — gen_random_uuid() re-inserts on every run and trips the
+-- auth.users email unique index after one failed run leaks a row.
 DO $$
 DECLARE
-  v_t uuid;
-  v_u uuid;
+  v_t   uuid := '12600000-0000-0000-0000-000000000000';
+  v_u   uuid := '12600000-0000-0000-0000-000000000001';
+  v_aid uuid := '12600000-0000-0000-0000-000000000002';
 BEGIN
-  INSERT INTO public.tenants (name_ar, name_en)
-  VALUES ('مستأجر اختبار المستخدمين', 'Users Fixture Tenant')
-  RETURNING id INTO v_t;
+  INSERT INTO public.tenants (id, name_ar, name_en)
+  VALUES (v_t, 'مستأجر اختبار المستخدمين', 'Users Fixture Tenant')
+  ON CONFLICT (id) DO NOTHING;
 
   -- users requires an auth.users row (auth_user_id NOT NULL UNIQUE FK).
   -- raw_user_meta_data carries the same _invite_provisioned marker the
@@ -48,15 +61,21 @@ BEGIN
   INSERT INTO auth.users (instance_id, id, aud, role, email, encrypted_password,
                           email_confirmed_at, created_at, updated_at,
                           raw_app_meta_data, raw_user_meta_data)
-  VALUES ('00000000-0000-0000-0000-000000000000', gen_random_uuid(), 'authenticated',
+  VALUES ('00000000-0000-0000-0000-000000000000', v_aid, 'authenticated',
           'authenticated', 'users-module-fixture@test.local', crypt('x', gen_salt('bf')),
           now(), now(), now(), '{"provider":"email","providers":["email"]}',
           '{"_invite_provisioned": true}')
-  RETURNING id INTO v_u;
+  ON CONFLICT (id) DO NOTHING;
 
-  INSERT INTO public.users (auth_user_id, tenant_id, email, role, status)
-  VALUES (v_u, v_t, 'users-module-fixture@test.local', 'supervisor', 'active')
-  RETURNING id INTO v_u;
+  -- Rescue a leaked row: re-assert the fixture role/status on re-run
+  -- (mirrors 063's DO UPDATE discipline for shared fixed ids).
+  INSERT INTO public.users (id, auth_user_id, tenant_id, email, role, status)
+  VALUES (v_u, v_aid, v_t, 'users-module-fixture@test.local', 'supervisor', 'active')
+  ON CONFLICT (id) DO UPDATE SET role = 'supervisor', status = 'active';
+
+  -- Append-only ledger: purge a leaked consent set for the fixture user
+  -- (audit_log-style immutability does not apply to user_consents).
+  DELETE FROM public.user_consents WHERE user_id = v_u;
 
   INSERT INTO users_module_fixture (tenant_id, user_id) VALUES (v_t, v_u);
 END;

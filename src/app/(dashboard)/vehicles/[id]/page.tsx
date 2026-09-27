@@ -1,8 +1,9 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState } from "react"
 import type { ComponentType, ReactNode } from "react"
 import { useParams, useRouter } from "next/navigation"
+import Link from "next/link"
 import {
   ArrowLeft,
   Car,
@@ -18,11 +19,6 @@ import {
   UserCheck,
   AlertCircle,
   Loader2,
-  CheckCircle2,
-  ShieldCheck,
-  ShieldAlert,
-  Clock,
-  MapPin,
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
@@ -35,6 +31,7 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs"
 import type { VehicleStatus, VehicleCondition, FuelType } from "@/types/vehicles"
+import { AssignDriverCard } from "@/components/vehicles/assign-driver-card"
 
 interface VehicleDetail {
   id: string
@@ -480,6 +477,15 @@ export default function VehicleDetailPage() {
                 notSet={notSet}
               />
             </SectionCard>
+
+            {/* Two-way wiring (Prompt F): current-driver card deep-linked into
+                the drivers profile, with assign/unassign through the SHARED
+                server actions — the mirror of the drivers-profile card. */}
+            <AssignDriverCard
+              vehicleId={vehicle.id}
+              vehicleStatus={vehicle.status}
+              isAr={locale === "ar"}
+            />
           </div>
         </TabsContent>
 
@@ -518,7 +524,6 @@ type VehicleDocument = {
   created_at: string
 }
 
-const DOC_TYPE_LABEL: Record<string, string> = {} // filled at render via t
 
 function DocumentsTab({
   vehicleId,
@@ -761,6 +766,12 @@ function AssignmentCard({
         {assignment.assignment_reason && (
           <span>{t.vehicles.assignmentReason}: {assignment.assignment_reason}</span>
         )}
+        <Link
+          href={`/drivers/${assignment.driver_id}`}
+          className="inline-flex items-center gap-1 font-medium text-elite-blue-600 hover:underline dark:text-elite-blue-400"
+        >
+          {assignment.is_current ? "Open driver profile" : "Driver profile"}
+        </Link>
       </div>
     </div>
   )

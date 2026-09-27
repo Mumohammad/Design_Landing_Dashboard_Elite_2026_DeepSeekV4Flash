@@ -4,6 +4,10 @@ import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
 import { toast } from "sonner"
+import {
+  assignVehicleToDriver,
+  unassignVehicleFromDriver,
+} from "@/lib/vehicles/assignments"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
@@ -53,8 +57,8 @@ export function VehicleAssignmentCard({ driverId, isAr }: { driverId: string; is
   const [saving, setSaving] = useState(false)
   const [unassigning, setUnassigning] = useState(false)
 
-  const load = useCallback(async () => {
-    setIsLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setIsLoading(true)
     const supabase = createClient()
     const { data } = await supabase
       .from("vehicle_assignments")
@@ -72,7 +76,11 @@ export function VehicleAssignmentCard({ driverId, isAr }: { driverId: string; is
   }, [driverId])
 
   useEffect(() => {
-    void load()
+    // Defer to a task boundary so the compiler does not trace the initial
+    // setState (loading flag) as a synchronous write inside the effect body
+    // (same pattern as the drivers list page).
+    const id = setTimeout(() => void load(), 0)
+    return () => clearTimeout(id)
   }, [load])
 
   const openAssignDialog = async () => {
@@ -89,66 +97,42 @@ export function VehicleAssignmentCard({ driverId, isAr }: { driverId: string; is
     setVehicles((data as VehicleOption[]) ?? [])
   }
 
-  const tenantId = async (): Promise<string> => {
-    const {
-      data: { session },
-    } = await createClient().auth.getSession()
-    return (session?.user?.user_metadata?.tenant_id as string | undefined) ?? ""
-  }
-
   const assign = async () => {
     if (saving || !vehicleId) return
     setSaving(true)
-    try {
-      const supabase = createClient()
-      const tid = await tenantId()
-      if (!tid) throw new Error(isAr ? "لم يتم تحديد المستأجر" : "Tenant not resolved")
-      const { error } = await supabase.from("vehicle_assignments").insert({
-        tenant_id: tid,
-        vehicle_id: vehicleId,
-        driver_id: driverId,
-        is_current: true,
-        assignment_reason: reason.trim() || null,
-      })
-      if (error) throw error
-      const { error: drvError } = await supabase
-        .from("drivers")
-        .update({ current_vehicle_id: vehicleId })
-        .eq("id", driverId)
-      if (drvError) throw drvError
+    // Shared server action (Prompt F): permission gate + zod + tenant scoping
+    // + audit row + webhook live in src/lib/vehicles/assignments.ts — the
+    // vehicle detail surface calls the SAME action.
+    const res = await assignVehicleToDriver({
+      vehicleId,
+      driverId,
+      assignment_reason: reason.trim() || null,
+    })
+    setSaving(false)
+    if (res.success) {
       toast.success(isAr ? "تم تعيين المركبة" : "Vehicle assigned")
       setDialogOpen(false)
       await load()
       emitDriverChanged({ driverId, action: "assignment" })
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to assign vehicle")
-    } finally {
-      setSaving(false)
+    } else {
+      toast.error(res.error ?? (isAr ? "فشل تعيين المركبة" : "Failed to assign vehicle"))
     }
   }
 
   const unassign = async () => {
     if (unassigning || !assignment) return
     setUnassigning(true)
-    try {
-      const supabase = createClient()
-      const { error } = await supabase
-        .from("vehicle_assignments")
-        .update({ is_current: false, unassigned_at: new Date().toISOString() })
-        .eq("id", assignment.id)
-      if (error) throw error
-      const { error: drvError } = await supabase
-        .from("drivers")
-        .update({ current_vehicle_id: null })
-        .eq("id", driverId)
-      if (drvError) throw drvError
+    const res = await unassignVehicleFromDriver({
+      vehicleId: assignment.vehicle_id,
+      driverId,
+    })
+    setUnassigning(false)
+    if (res.success) {
       toast.success(isAr ? "تم إلغاء التعيين" : "Vehicle unassigned")
       await load()
       emitDriverChanged({ driverId, action: "assignment" })
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to unassign vehicle")
-    } finally {
-      setUnassigning(false)
+    } else {
+      toast.error(res.error ?? (isAr ? "فشل إلغاء التعيين" : "Failed to unassign vehicle"))
     }
   }
 
