@@ -49,6 +49,25 @@ CREATE TEMP TABLE audit_trail_fixture (
 
 DO $$
 BEGIN
+  -- Pre-purge leaked fixtures (repo worklog gotcha: --single-transaction
+  -- COMMITS at EOF even after a failed statement, so every run of this file
+  -- leaves its rows behind and poisons the next run's unguarded inserts).
+  -- audit_log is append-only (009 immutability trigger), so its purge runs
+  -- with that trigger disabled; it is re-enabled immediately.
+  -- audit_log purge FIRST (it FK-references the users/drivers deleted
+  -- below) with the immutability trigger temporarily disabled as superuser.
+  ALTER TABLE public.audit_log DISABLE TRIGGER trg_audit_log_immutable;
+  DELETE FROM public.audit_log WHERE tenant_id IN ('11111111-1111-1111-1111-111111111111','22222222-2222-2222-2222-222222222222');
+  ALTER TABLE public.audit_log ENABLE TRIGGER trg_audit_log_immutable;
+  DELETE FROM public.driver_leave_requests WHERE tenant_id IN ('11111111-1111-1111-1111-111111111111','22222222-2222-2222-2222-222222222222');
+  DELETE FROM public.expenses WHERE tenant_id IN ('11111111-1111-1111-1111-111111111111','22222222-2222-2222-2222-222222222222');
+  DELETE FROM public.driver_applications WHERE application_number = 'DRV-2026-900001';
+  DELETE FROM public.leave_types WHERE tenant_id = '11111111-1111-1111-1111-111111111111';
+  DELETE FROM public.drivers WHERE id = '44444444-4444-4444-4444-444444444444';
+  DELETE FROM public.users WHERE id = '55555555-5555-5555-5555-555555555555';
+  DELETE FROM auth.users WHERE id = '33333333-3333-3333-3333-333333333333';
+  DELETE FROM public.tenants WHERE id IN ('11111111-1111-1111-1111-111111111111','22222222-2222-2222-2222-222222222222');
+
   INSERT INTO public.tenants (id, name_ar, name_en)
   VALUES ('11111111-1111-1111-1111-111111111111', 'مستأجر تدقيق أ', 'Audit Fixture Tenant A');
 

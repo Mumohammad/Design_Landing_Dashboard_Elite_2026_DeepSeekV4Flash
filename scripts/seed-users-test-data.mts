@@ -10,8 +10,13 @@
 //     and an unconsented user exercises the masking path
 //
 // Idempotent: keyed on email; re-runs top up missing rows only. Users carry
-// auth.users rows (required FK) created with admin.createUser and marked via
-// user_metadata._users_seed = true.
+// auth.users rows (required FK) created with admin.createUser. The metadata
+// carries _invite_provisioned = true — the hardened auth trigger (060, AUTH010)
+// blocks every auth.users INSERT that lacks it (the previous _users_seed marker
+// was not checked by the trigger, so createUser failed with a 500 and the
+// whole seed aborted). The marker is what the trigger looks for; it only
+// decides whether to auto-provision, which it skips either way — the explicit
+// users rows below are the provisioning path.
 //
 // GUARDED: refuses to run unless NODE_ENV !== "production" AND SEED_ALLOW=true.
 import { readFileSync } from "node:fs"
@@ -142,7 +147,7 @@ async function ensureAuthUser(email: string): Promise<string> {
     email,
     password: `Seed-${crypto.randomUUID().slice(0, 16)}`,
     email_confirm: true,
-    user_metadata: { full_name: email, _users_seed: true },
+    user_metadata: { full_name: email, _invite_provisioned: true, _users_seed: true },
   })
   if (error) throw new Error(`auth.createUser(${email}): ${error.message}`)
   if (!data.user) throw new Error(`auth.createUser(${email}) returned no user`)

@@ -13,6 +13,8 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import type { VehicleStatus, VehicleCondition, FuelType } from "@/types/vehicles"
+import { worstDocsExpiryState, type DocsExpiryState } from "@/lib/vehicles/assignment-utils"
+import Link from "next/link"
 import { CreateVehicleDialog } from "./components/create-vehicle-dialog"
 
 interface VehicleRow {
@@ -31,6 +33,7 @@ interface VehicleRow {
   registration_expiry: string | null
   inspection_expiry: string | null
   current_driver_id: string | null
+  current_driver: { full_name_ar: string | null; full_name_en: string | null; driver_code: string | null } | null
 }
 
 type ExpiryState = "ok" | "soon" | "expired" | "none"
@@ -38,6 +41,7 @@ type ExpiryState = "ok" | "soon" | "expired" | "none"
 export default function VehiclesPage() {
   const { t, locale } = useTranslation()
   const router = useRouter()
+  const isArLocale = locale === "ar"
 
   const [vehicles, setVehicles] = useState<VehicleRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -55,7 +59,7 @@ export default function VehiclesPage() {
       const { data, error: queryError } = await supabase
         .from("vehicles")
         .select(
-          "id, vehicle_code, plate_number, make, model, year, color, status, condition_status, fuel_type, odometer_current, insurance_expiry, registration_expiry, inspection_expiry, current_driver_id"
+          "id, vehicle_code, plate_number, make, model, year, color, status, condition_status, fuel_type, odometer_current, insurance_expiry, registration_expiry, inspection_expiry, current_driver_id, current_driver:drivers!vehicles_current_driver_id_fkey(full_name_ar, full_name_en, driver_code)"
         )
         .is("deleted_at", null)
         .order("created_at", { ascending: false })
@@ -66,7 +70,7 @@ export default function VehiclesPage() {
         setError(queryError.message)
         setVehicles([])
       } else {
-        setVehicles((data as VehicleRow[] | null) ?? [])
+        setVehicles(((data as unknown) as VehicleRow[] | null) ?? [])
       }
       setIsLoading(false)
     }
@@ -280,6 +284,59 @@ export default function VehiclesPage() {
       key: "insurance_expiry",
       header: t.vehicles.colInsurance,
       render: (row) => renderExpiry(row.insurance_expiry),
+    },
+    {
+      key: "docs_state",
+      header: isArLocale ? "حالة الوثائق" : "Docs",
+      render: (row) => {
+        const state: DocsExpiryState = worstDocsExpiryState({
+          insurance_expiry: row.insurance_expiry,
+          registration_expiry: row.registration_expiry,
+          inspection_expiry: row.inspection_expiry,
+        })
+        if (state === "none") {
+          return <span className="text-muted-foreground">{t.vehicles.notSet}</span>
+        }
+        const meta: Record<Exclude<DocsExpiryState, "none">, { label: string; className: string }> = {
+          expired: {
+            label: isArLocale ? "منتهية" : "Expired",
+            className: "border-transparent bg-red-500/15 text-red-700 dark:text-red-400",
+          },
+          soon: {
+            label: isArLocale ? "تنتهي قريبًا" : "Expiring ≤30d",
+            className: "border-transparent bg-amber-500/15 text-amber-700 dark:text-amber-400",
+          },
+          ok: {
+            label: isArLocale ? "سارية" : "Valid",
+            className: "border-transparent bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
+          },
+        }
+        return <Badge className={meta[state].className}>{meta[state].label}</Badge>
+      },
+    },
+    {
+      key: "assigned_driver",
+      header: isArLocale ? "السائق المعيّن" : "Assigned driver",
+      render: (row) => {
+        const name =
+          row.current_driver?.full_name_ar ??
+          row.current_driver?.full_name_en ??
+          row.current_driver?.driver_code ??
+          null
+        if (!row.current_driver_id || !name) {
+          return <span className="text-muted-foreground">{t.vehicles.notAssigned}</span>
+        }
+        return (
+          <Link
+            href={`/drivers/${row.current_driver_id}`}
+            onClick={(e) => e.stopPropagation()}
+            className="inline-flex items-center gap-1 text-sm font-medium text-elite-blue-600 hover:underline dark:text-elite-blue-400"
+          >
+            {name}
+            <UserCheck className="h-3 w-3" />
+          </Link>
+        )
+      },
     },
   ]
 
