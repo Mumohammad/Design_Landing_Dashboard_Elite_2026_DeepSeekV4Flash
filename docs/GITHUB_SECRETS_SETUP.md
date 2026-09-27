@@ -28,6 +28,26 @@ Configure these in **GitHub → Repository → Settings → Secrets and variable
 | `VERCEL_ORG_ID` | Same as preview | Vercel project org |
 | `VERCEL_PROJECT_ID` | Same as preview | Vercel project ID |
 
+### Supabase Migrations (CI db push)
+
+Used by `.github/workflows/supabase-deploy.yml`, which applies
+`supabase/migrations/**` to the linked project on every merge to `master`
+(deploys do NOT apply migrations). Repo-level **Actions secrets**, not
+environment secrets — no environment gate on a migration push.
+
+| Secret | Where to Get | Purpose |
+|--------|-------------|---------|
+| `SUPABASE_ACCESS_TOKEN` | Supabase Dashboard → Account → Access Tokens | CLI auth for `link` / `db push`. Create a **personal access token scoped to the `lddflxhsjfcrpcybrpxu` org** (the org that owns the linked project — see the worklog 403 note) and treat it like a password |
+| `SUPABASE_DB_PASSWORD` | The project's database password set at project creation (reset: Dashboard → Project Settings → Database) | `db push` connection auth |
+| `SUPABASE_PROJECT_ID` | Supabase Dashboard → Project Settings → General → Reference ID | Link target for `db push` |
+
+> **Hard-coded value:** `SUPABASE_PROJECT_ID` = `wwfnsbilmyxeawgzicmv` (the
+> production project every module PR's post-merge push targets).
+>
+> **Scoping note (20-token cap):** Supabase caps personal access tokens at 20
+> per account. Do not mint a throwaway token for CI — create one scoped token,
+> name it `github-actions-db-push`, and reuse it.
+
 ### Optional (Enhanced Features)
 
 | Secret | Where to Get | Purpose |
@@ -99,6 +119,28 @@ cat .vercel/project.json
    - `SENTRY_ORG` = your org slug
    - `SENTRY_PROJECT` = "elitedev"
    - `SENTRY_AUTH_TOKEN` = the token you created
+
+---
+
+## Supabase Migration Push Workflow
+
+After adding the three secrets above, verify the automation:
+
+1. Go to **GitHub → Actions → "Supabase DB Push — migrations"**
+2. Run **Workflow dispatch** with **dry_run = true** → should list pending
+   migrations (or "up to date") and apply nothing
+3. Run **Workflow dispatch** with **dry_run = false** → should apply pending
+   migrations and post a step summary with `supabase migration list` output
+4. Merge a test PR touching `supabase/migrations/**` → the workflow should
+   trigger automatically on the master push
+
+If the job fails with `403` on `supabase link`, the access token's account has
+no access to the project's org — regenerate the token under the correct
+account/org (see the agent worklog org-mismatch 403 notes).
+
+**Rollback:** disabling the workflow = revert
+`.github/workflows/supabase-deploy.yml`. Post-merge pushes then become manual
+again (`supabase db push --project-ref wwfnsbilmyxeawgzicmv`).
 
 ---
 
