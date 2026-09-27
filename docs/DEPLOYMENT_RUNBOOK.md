@@ -98,6 +98,12 @@ bash scripts/deploy-verify.sh https://app.elitedev.com.sa
 
 ## Database Setup
 
+> **Automated since Prompt H:** merging to `master` with changes under
+> `supabase/migrations/**` triggers `.github/workflows/supabase-deploy.yml`,
+> which links the project (`SUPABASE_PROJECT_ID` secret) and runs
+> `supabase db push --include-all`. Manual pushes below are only needed for
+> out-of-band fixes or if the workflow is disabled (revert = rollback).
+
 ### Fresh Install
 
 ```bash

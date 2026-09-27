@@ -1,0 +1,116 @@
+name: Supabase DB Push — migrations
+
+# Retires the manual `supabase db push` post-merge step (Prompt H).
+# Vercel deploys do NOT apply migrations — this workflow is the only
+# automated path that does, so it must fail loudly on any error.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "supabase/migrations/**"
+      - ".github/workflows/supabase-deploy.yml"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "List pending migrations without applying them"
+        type: boolean
+        default: false
+
+# No overlapping pushes: two master merges touching migrations in quick
+# succession must serialize, never race. Queue the second, don't cancel it —
+# a cancelled run would silently skip its migrations (the next push would
+# apply them, but that next push may never come).
+concurrency:
+  group: db-push-master
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  db-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify secrets are configured
+        env:
+          # Secrets are passed through env: and read as shell variables.
+          # Never interpolate secrets directly into a run: block — Actions
+          # substitutes the raw value into the script text, so any value
+          # containing shell metacharacters becomes executable code
+          # (same discipline as deploy.yml's secret verification steps).
+          ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+        run: |
+          missing=0
+          for var in ACCESS_TOKEN DB_PASSWORD PROJECT_ID; do
+            if [ -z "${!var}" ]; then
+              echo "MISSING: SUPABASE_${var} is not configured"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "   Add the three secrets to"
+            echo "   GitHub -> Settings -> Secrets and variables -> Actions"
+            echo "   See docs/GITHUB_SECRETS_SETUP.md (Supabase Migrations section)."
+            exit 1
+          fi
+          echo "OK: Supabase secrets present"
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          # Pinned — no floating latest on a prod-write path. The CLI is
+          # fast-moving; bump deliberately and re-run workflow_dispatch
+          # to confirm.
+          version: v2.118.0
+
+      - name: Link project
+        run: |
+          supabase link --project-ref "$SUPABASE_PROJECT_ID"
+          echo "Linked project: $SUPABASE_PROJECT_ID"
+
+      # Manual gate: inspect pending migrations without touching the DB.
+      # Also the escape hatch if a push ever needs to be rehearsed first.
+      - name: Dry run (list pending migrations)
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run
+        run: |
+          supabase db push --dry-run
+          echo "Dry run complete — nothing was applied."
+
+      - name: Push migrations
+        if: github.event_name != 'workflow_dispatch' || !inputs.dry_run
+        id: push
+        run: |
+          # --include-all: repair-mode flag — also marks migrations present on
+          # disk but missing from the remote history table. First CI run after
+          # any out-of-band (SQL editor) push needs this to converge instead
+          # of looping on "remote history mismatch".
+          supabase db push --include-all
+
+      - name: Step summary — applied versions
+        if: always() && steps.push.outcome == 'success'
+        run: |
+          {
+            echo "## Supabase DB push — $GITHUB_REF"
+            echo ""
+            echo "- Project: \`$SUPABASE_PROJECT_ID\`"
+            echo "- Commit: \`$GITHUB_SHA\`"
+            echo "- Dry run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'yes (nothing applied)' || 'no' }}"
+            echo ""
+            echo "### Migration history (remote, last 20)"
+            echo '```'
+            supabase migration list 2>/dev/null | tail -20 || echo "(migration list unavailable — push still succeeded)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

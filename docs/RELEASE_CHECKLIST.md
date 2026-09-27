@@ -22,6 +22,10 @@
 
 ### Database
 - [ ] All migrations applied (001-057)
+
+> Module PR convention: post-merge db push is automated by
+> `.github/workflows/supabase-deploy.yml` — remove the manual-push action
+> line ("Post-merge: `supabase db push --project-ref …`") from future PR bodies.
 - [ ] Migration 009 trigger applied via SQL Editor
 - [ ] RLS policies active on all tables
 - [ ] Seed data loaded (013)
