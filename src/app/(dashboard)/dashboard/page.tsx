@@ -20,6 +20,8 @@ import { useTranslation } from "@/hooks/use-translation"
 import { getDashboardSnapshot } from "@/lib/analytics/actions"
 import type { DashboardFilters, DashboardSnapshot } from "@/lib/analytics/types"
 import { QuickActions } from "./components/quick-actions"
+import { DashboardHeader } from "./components/dashboard-header"
+import { OpsPanel } from "./components/ops-panel"
 import { FilterBar } from "./components/filter-bar"
 import { KpiCard } from "./components/kpi-card"
 import { OrdersTrend } from "./components/orders-trend"
@@ -86,17 +88,6 @@ export default function DashboardPage() {
     void load(filters)
   }, [filters, load])
 
-  const today = React.useMemo(
-    () =>
-      new Date().toLocaleDateString(locale === "ar" ? "ar-SA" : "en-US", {
-        weekday: "long",
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-      }),
-    [locale],
-  )
-
   const k = snapshot?.kpis
   const ordersSpark = React.useMemo(
     () => (snapshot?.trends.orders ?? []).map((p) => p.completed ?? 0),
@@ -125,15 +116,8 @@ export default function DashboardPage() {
     <div className="page-enter space-y-8 px-4 lg:px-6">
       {/* ── Page header ── */}
       <ScrollReveal direction="fade" duration={400}>
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h1 className="text-2xl font-extrabold tracking-tight text-foreground lg:text-3xl">
-              {t.app.dashboardTitle}
-            </h1>
-            <p className="mt-1.5 text-sm text-muted-foreground">
-              {t.dashboard.welcomeMessage} · <span className="font-medium text-foreground/70">{today}</span>
-            </p>
-          </div>
+        <div className="flex flex-col gap-4">
+          <DashboardHeader snapshot={snapshot} onRefresh={() => void load(filters, true)} refreshing={refreshing} />
           <QuickActions />
         </div>
       </ScrollReveal>
@@ -238,6 +222,24 @@ export default function DashboardPage() {
                 <KpiCard label={t.dashboard.expiredDocuments} metric={k.expiredDocuments} icon={ShieldAlert} color="#EF4444" href="/drivers" />
               </div>
             </StaggerContainer>
+          </section>
+
+          {/* ── Cross-module operations (fleet / approvals / COD / audit) ── */}
+          <section aria-label="Cross-module operations" className="space-y-3">
+            <ScrollReveal direction="up" delay={80}>
+              <SectionHeader
+                icon={ShieldAlert}
+                title={locale === "ar" ? "العمليات عبر الوحدات" : "Cross-Module Operations"}
+                subtitle={
+                  locale === "ar"
+                    ? "الأسطول والموافقات وتحصيل نقدي وسجل التدقيق"
+                    : "Fleet, approvals, COD reconciliation, audit activity"
+                }
+              />
+            </ScrollReveal>
+            <ScrollReveal direction="up" delay={120}>
+              <OpsPanel kpis={snapshot.kpis} approvals={snapshot.approvals} cod={snapshot.cod} />
+            </ScrollReveal>
           </section>
 
           {/* ── Primary analytics ── */}

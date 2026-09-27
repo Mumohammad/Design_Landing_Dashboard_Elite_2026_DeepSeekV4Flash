@@ -13,6 +13,26 @@ export interface DashboardFilters {
   category: string
 }
 
+/** Approval queue depth by type (from fetch_pending_approvals, #52). */
+export interface ApprovalsDepth {
+  total: number
+  expenses: number
+  leaves: number
+  applications: number
+  /** Older than the stale threshold (approvals-utils isStale). */
+  stale: number
+}
+
+/** COD reconciliation rollup (driver_cod_sessions, #53 rollup shape). */
+export interface CodSnapshot {
+  /** Sessions with unresolved variance. */
+  pendingSessions: number
+  /** Sum of cod_variance over pending sessions (positive = driver owes). */
+  pendingVariance: number
+  collected: number
+  submitted: number
+}
+
 /** A single KPI with previous-period comparison. */
 export interface MetricValue {
   value: number
@@ -134,6 +154,16 @@ export interface DashboardSnapshot {
     pendingApplications: MetricValue
     expiringDocuments: MetricValue
     expiredDocuments: MetricValue
+    /** vehicles.status = 'available' right now. */
+    availableVehicles: MetricValue
+    /** vehicles.status = 'assigned' right now (#53 assignment wiring). */
+    assignedVehicles: MetricValue
+    /** Unified pending-decision queue depth (#52 RPC). Count-only — no PII. */
+    openApprovals: MetricValue
+    /** audit_log rows in the trailing window (#51). Count-only. */
+    auditEvents: MetricValue
+    /** COD sessions awaiting reconciliation. */
+    codPendingSessions: MetricValue
   }
   /** Payroll module results for the latest calculated period. */
   payroll: {
@@ -153,6 +183,8 @@ export interface DashboardSnapshot {
     revenue: TrendPoint[]
     violations: TrendPoint[]
   }
+  approvals: ApprovalsDepth & { available: boolean }
+  cod: CodSnapshot & { available: boolean }
   platforms: PlatformMetric[]
   driverTargets: DriverTargetRow[]
   targetBuckets: { bucket: string; count: number }[]

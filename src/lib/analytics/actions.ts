@@ -13,7 +13,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { endOfDay, format, startOfDay, subDays } from "date-fns"
+import { z } from "zod"
 import { createClient } from "@/lib/supabase/server"
+import { createAdminClient } from "@/lib/supabase/admin"
+import { getCurrentUser } from "@/lib/auth/authorization"
+import { rollupCodSessions } from "@/lib/payroll/payroll-utils"
+import { aggregateApprovalsDepth, mergePayrollTrend } from "./dashboard-utils"
 import type {
   ActivityEvent,
   ActionItem,
@@ -87,9 +92,20 @@ interface OrderRow {
   gross_revenue: number | null
 }
 
+/**
+ * Browser-supplied filters are parsed, never trusted (zod parity with the
+ * module actions); .catch() degrades to the safe default instead of throwing.
+ */
+const dashboardFiltersSchema = z.object({
+  period: z.enum(["7d", "30d", "90d", "12m"]).catch("30d"),
+  platform: z.string().trim().max(64).catch("all"),
+  category: z.string().trim().max(64).catch("all"),
+})
+
 export async function getDashboardSnapshot(
-  filters: DashboardFilters,
+  rawFilters: DashboardFilters,
 ): Promise<DashboardSnapshot> {
+  const filters = dashboardFiltersSchema.parse(rawFilters ?? {})
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (user) {
@@ -115,6 +131,9 @@ export async function getDashboardSnapshot(
     violations: false,
     maintenance: false,
     applications: false,
+    approvals: false,
+    cod: false,
+    audit: false,
   }
 
   // ── Platforms (needed for filter + breakdown labels) ──────────────────────
@@ -199,6 +218,9 @@ export async function getDashboardSnapshot(
 
   const totalVehicles = vehicles.length
   const inMaintenance = vehicles.filter((v) => v.status === "in_maintenance").length
+  // Fleet availability split (#53 assignment wiring: available ↔ assigned).
+  const availableVehicles = vehicles.filter((v) => v.status === "available").length
+  const assignedVehicles = vehicles.filter((v) => v.status === "assigned").length
 
   const compliance: ComplianceSummary = {
     iqama: bucketCounts(drivers.map((d) => d.iqama_expiry_date)),
@@ -369,12 +391,17 @@ export async function getDashboardSnapshot(
   const payrollBonus = sum(latestRows.map((r) => Number(r.orders_bonus ?? 0)))
   const payrollDeductions = sum(latestRows.map((r) => Number(r.total_deductions ?? 0)))
 
-  // Monthly payroll trend (all approved periods) — used by the revenue chart.
-  const payrollTrendMap = new Map<string, number>()
-  for (const r of payrollRows) {
-    const key = `${r.period_year}-${String(r.period_month).padStart(2, "0")}`
-    payrollTrendMap.set(key, (payrollTrendMap.get(key) ?? 0) + Number(r.net_payroll ?? 0))
-  }
+  // Payroll period series (approved periods, monthly) merged by period key —
+  // payroll months without orders data appear; orders months without payroll
+  // keep payroll undefined. Neither side is zero-filled.
+  const payrollTrend = mergePayrollTrend(
+    [],
+    payrollRows.map((r) => ({
+      period_year: r.period_year,
+      period_month: r.period_month,
+      net_payroll: r.net_payroll,
+    })),
+  )
   const aboveTarget = latestRows.filter(
     (r) => (r.orders_achieved ?? 0) - (r.orders_prorated_target ?? r.target_orders_monthly ?? 0) > 0,
   ).length
@@ -496,6 +523,97 @@ export async function getDashboardSnapshot(
     /* table missing */
   }
 
+  // ── COD reconciliation (driver_cod_sessions, 015) ───────────────────────
+  // Rollup shape reused from the payroll module (#53) — pending sessions and
+  // their variance are the reconciliation backlog the finance lead acts on.
+  type CodRow = {
+    cod_collected: number | null
+    cod_submitted: number | null
+    cod_variance: number | null
+    status: string
+  }
+  let cod: DashboardSnapshot["cod"] = {
+    pendingSessions: 0,
+    pendingVariance: 0,
+    collected: 0,
+    submitted: 0,
+    available: false,
+  }
+  try {
+    const { data, error } = await supabase
+      .from("driver_cod_sessions")
+      .select("cod_collected, cod_submitted, cod_variance, status")
+      .is("deleted_at", null)
+    if (!error && data) {
+      const rollup = rollupCodSessions(data as CodRow[])
+      cod = {
+        pendingSessions: rollup.pending,
+        pendingVariance: Math.round(rollup.variance * 100) / 100,
+        collected: Math.round(rollup.collected),
+        submitted: Math.round(rollup.submitted),
+        available: true,
+      }
+      availability.cod = true
+    }
+  } catch {
+    /* table missing */
+  }
+
+  // ── Cross-module ops: approvals depth (#52 RPC) + audit volume (#51) ──────
+  // Both read through the admin client, scoped by the SERVER-side tenant id
+  // (never the browser). Depth/counts only — no PII-bearing column of the
+  // queue or the audit payload projects into the snapshot (PDPL minimal
+  // projection; the aggregates are counts).
+  let auditEvents = 0
+  let approvals: DashboardSnapshot["approvals"] = {
+    total: 0,
+    expenses: 0,
+    leaves: 0,
+    applications: 0,
+    stale: 0,
+    available: false,
+  }
+  const currentUser = await getCurrentUser()
+  if (currentUser) {
+    const admin = createAdminClient()
+    try {
+      const { data, error } = await admin.rpc("fetch_pending_approvals", {
+        p_tenant_id: currentUser.tenantId,
+        p_type: null,
+        p_from: null,
+        p_to: null,
+        p_limit: 200,
+      })
+      if (!error && data) {
+        approvals = {
+          ...aggregateApprovalsDepth(
+            (data as { item_type: string; requested_at: string }[]).map((r) => ({
+              item_type: r.item_type,
+              requested_at: r.requested_at,
+            })),
+          ),
+          available: true,
+        }
+        availability.approvals = true
+      }
+    } catch {
+      /* RPC missing */
+    }
+    try {
+      const { count, error } = await admin
+        .from("audit_log")
+        .select("id", { count: "exact", head: true })
+        .eq("tenant_id", currentUser.tenantId)
+        .gte("created_at", start.toISOString())
+      if (!error) {
+        auditEvents = count ?? 0
+        availability.audit = true
+      }
+    } catch {
+      /* table missing */
+    }
+  }
+
   // ── Recent activity (across modules) ──────────────────────────────────────
   const activity: ActivityEvent[] = []
   try {
@@ -600,6 +718,11 @@ export async function getDashboardSnapshot(
     pendingApplications: metric(pendingApplications, pendingApplications, availability.applications),
     expiringDocuments: metric(expiringDocs, expiringDocs, availability.drivers || availability.vehicles),
     expiredDocuments: metric(expiredDocs, expiredDocs, availability.drivers || availability.vehicles),
+    availableVehicles: metric(availableVehicles, availableVehicles, availability.vehicles),
+    assignedVehicles: metric(assignedVehicles, assignedVehicles, availability.vehicles),
+    openApprovals: metric(approvals.total, approvals.total, availability.approvals),
+    auditEvents: metric(auditEvents, auditEvents, availability.audit),
+    codPendingSessions: metric(cod.pendingSessions, cod.pendingSessions, availability.cod),
   }
 
   const payroll = {
@@ -625,6 +748,14 @@ export async function getDashboardSnapshot(
     actions.push({ id: "open-violations", module: "violations", severity: "warning", count: openViolations, href: "/violations" })
   if (pendingApplications > 0)
     actions.push({ id: "pending-apps", module: "applications", severity: "info", count: pendingApplications, href: "/applications" })
+  if (approvals.available && approvals.total > 0)
+    actions.push({
+      id: "open-approvals",
+      module: "applications",
+      severity: approvals.stale > 0 ? "warning" : "info",
+      count: approvals.total,
+      href: "/approvals",
+    })
   if (inMaintenance > 0 || openMaintenance > 0)
     actions.push({ id: "open-maintenance", module: "maintenance", severity: "info", count: inMaintenance + openMaintenance, href: "/maintenance" })
   if (belowTarget > 0)
@@ -676,7 +807,7 @@ export async function getDashboardSnapshot(
     orders: [...ordersTrendMap.values()].sort((a, b) => (a.date < b.date ? -1 : 1)),
     revenue: [...revenueTrendMap.values()].sort((a, b) => (a.date < b.date ? -1 : 1)).map((p) => ({
       ...p,
-      payroll: payrollTrendMap.get(p.date),
+      payroll: payrollTrend.find((pp) => pp.date === p.date)?.payroll,
     })),
     violations: [...violationsTrendMap.values()].sort((a, b) => (a.date < b.date ? -1 : 1)),
   }
@@ -688,6 +819,8 @@ export async function getDashboardSnapshot(
     availability,
     kpis,
     payroll,
+    approvals,
+    cod,
     trends,
     platforms,
     driverTargets,
