@@ -202,6 +202,14 @@ export type TranslationStrings = {
     driverTargetsDesc: string
     complianceRadar: string
     complianceRadarDesc: string
+    opsFleet: string
+    opsFleetDesc: string
+    opsApprovals: string
+    opsApprovalsDesc: string
+    opsCod: string
+    opsCodDesc: string
+    opsAudit: string
+    opsAuditDesc: string
     violationsTrend: string
     violationsTrendDesc: string
     actionRequired: string
