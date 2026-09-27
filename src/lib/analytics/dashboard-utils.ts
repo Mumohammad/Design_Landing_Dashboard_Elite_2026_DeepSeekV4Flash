@@ -4,6 +4,8 @@
 // payroll-utils / assignment-utils precedent (vitest, node environment).
 // "use server" modules cannot be imported by client components, so every
 // pure computation the dashboard UI needs lives here.
+
+import type { MetricValue } from "./types"
 //
 // Covers:
 //   * the KPI-snapshot CSV export (payrollToCsv convention: RFC-4180, UTF-8 BOM)
@@ -82,6 +84,21 @@ export function mergePayrollTrend(
 /** Last N points of a series, ascending — the charts' shared window. */
 export function lastNPoints<T>(points: T[], n: number): T[] {
   return points.slice(-n)
+}
+
+// ── MetricValue builder ──────────────────────────────────────────────────────
+
+/**
+ * Build a MetricValue (delta + % vs previous) from a current/previous pair.
+ * Single source of truth for the dashboard's KPI comparisons — the server
+ * action and the client cards must agree on rounding and the previous=0 rule
+ * (100% only when there IS a value to compare, never a fabricated uplift).
+ */
+export function buildMetric(value: number, previous: number, available = true): MetricValue {
+  const delta = value - previous
+  const pct =
+    previous === 0 ? (value > 0 ? 100 : 0) : Math.round((delta / previous) * 1000) / 10
+  return { value, previous, delta, pct, available }
 }
 
 /** "2026-9" → "2026-09" (payroll-utils periodKey twin, local to analytics). */

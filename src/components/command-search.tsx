@@ -15,6 +15,7 @@ import {
   WalletCards,
   FileBadge,
   Calculator,
+  CreditCard,
   Wrench,
   Siren,
   Users,
@@ -147,6 +148,7 @@ export function CommandSearch({ open, onOpenChange }: CommandSearchProps) {
     { title: t.nav.payroll, url: "/payroll", group: t.nav.finance, icon: HandCoins, accent: "#10B981" },
     { title: t.nav.expenses, url: "/expenses", group: t.nav.finance, icon: WalletCards, accent: "#10B981" },
     { title: t.nav.invoices, url: "/invoices", group: t.nav.finance, icon: FileBadge, accent: "#10B981" },
+    { title: t.nav.payments, url: "/payments", group: t.nav.finance, icon: CreditCard, accent: "#10B981" },
     { title: t.nav.accounting, url: "/accounting", group: t.nav.finance, icon: Calculator, accent: "#10B981" },
 
     // Fleet

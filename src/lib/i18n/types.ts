@@ -27,6 +27,7 @@ export type TranslationStrings = {
     payroll: string
     expenses: string
     invoices: string
+    payments: string
     maintenance: string
     violations: string
     hrManagement: string
@@ -210,6 +211,10 @@ export type TranslationStrings = {
     opsCodDesc: string
     opsAudit: string
     opsAuditDesc: string
+    finInvoiceRevenue: string
+    finPendingInvoices: string
+    finExpenses: string
+    finNetResult: string
     violationsTrend: string
     violationsTrendDesc: string
     actionRequired: string

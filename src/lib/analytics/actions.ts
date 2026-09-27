@@ -18,7 +18,12 @@ import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUser } from "@/lib/auth/authorization"
 import { rollupCodSessions } from "@/lib/payroll/payroll-utils"
-import { aggregateApprovalsDepth, mergePayrollTrend } from "./dashboard-utils"
+import { getFinancialKpis } from "@/lib/accounting/kpis"
+import {
+  aggregateApprovalsDepth,
+  buildMetric,
+  mergePayrollTrend,
+} from "./dashboard-utils"
 import type {
   ActivityEvent,
   ActionItem,
@@ -28,7 +33,6 @@ import type {
   DashboardSnapshot,
   DriverTargetRow,
   Insight,
-  MetricValue,
   PlatformMetric,
   TrendPoint,
 } from "./types"
@@ -50,13 +54,6 @@ const OPEN_VIOLATION_STATUS = [
 ]
 const APPROVED_PAYROLL_STATUS = ["approved", "paid", "locked"]
 const OPEN_MAINTENANCE_STATUS = ["open", "in_progress"]
-
-function metric(value: number, previous: number, available = true): MetricValue {
-  const delta = value - previous
-  const pct =
-    previous === 0 ? (value > 0 ? 100 : 0) : Math.round((delta / previous) * 1000) / 10
-  return { value, previous, delta, pct, available }
-}
 
 /** Days until a date-only string; null when missing/unparseable. */
 function daysUntil(dateStr: string | null | undefined): number | null {
@@ -559,6 +556,14 @@ export async function getDashboardSnapshot(
     /* table missing */
   }
 
+  // ── Financial KPIs (Prompt I): posted/issued invoices + expenses ──────────
+  // Composed in src/lib/accounting/kpis.ts over the 038/021 indexes; graceful
+  // availability, like every other module block.
+  const accounting = await getFinancialKpis({
+    start: startIso,
+    end: endIso,
+  })
+
   // ── Cross-module ops: approvals depth (#52 RPC) + audit volume (#51) ──────
   // Both read through the admin client, scoped by the SERVER-side tenant id
   // (never the browser). Depth/counts only — no PII-bearing column of the
@@ -706,23 +711,23 @@ export async function getDashboardSnapshot(
   // Non-time-series metrics keep previous = value (no fabricated history): the
   // UI then shows no delta chip for them.
   const kpis: DashboardSnapshot["kpis"] = {
-    totalDrivers: metric(totalDrivers, totalDrivers, availability.drivers),
-    activeDrivers: metric(activeDrivers, activeDrivers, availability.drivers),
-    totalVehicles: metric(totalVehicles, totalVehicles, availability.vehicles),
-    inMaintenance: metric(inMaintenance, inMaintenance, availability.vehicles),
-    totalOrders: metric(totalOrders, totalOrdersPrev, availability.orders),
-    completionRate: metric(completionRate, completionRatePrev, availability.orders),
-    revenue: metric(revenue, revenuePrev, availability.orders),
-    netPayroll: metric(payrollNet, payrollNetPrev, availability.payroll),
-    openViolations: metric(openViolations, openViolations, availability.violations),
-    pendingApplications: metric(pendingApplications, pendingApplications, availability.applications),
-    expiringDocuments: metric(expiringDocs, expiringDocs, availability.drivers || availability.vehicles),
-    expiredDocuments: metric(expiredDocs, expiredDocs, availability.drivers || availability.vehicles),
-    availableVehicles: metric(availableVehicles, availableVehicles, availability.vehicles),
-    assignedVehicles: metric(assignedVehicles, assignedVehicles, availability.vehicles),
-    openApprovals: metric(approvals.total, approvals.total, availability.approvals),
-    auditEvents: metric(auditEvents, auditEvents, availability.audit),
-    codPendingSessions: metric(cod.pendingSessions, cod.pendingSessions, availability.cod),
+    totalDrivers: buildMetric(totalDrivers, totalDrivers, availability.drivers),
+    activeDrivers: buildMetric(activeDrivers, activeDrivers, availability.drivers),
+    totalVehicles: buildMetric(totalVehicles, totalVehicles, availability.vehicles),
+    inMaintenance: buildMetric(inMaintenance, inMaintenance, availability.vehicles),
+    totalOrders: buildMetric(totalOrders, totalOrdersPrev, availability.orders),
+    completionRate: buildMetric(completionRate, completionRatePrev, availability.orders),
+    revenue: buildMetric(revenue, revenuePrev, availability.orders),
+    netPayroll: buildMetric(payrollNet, payrollNetPrev, availability.payroll),
+    openViolations: buildMetric(openViolations, openViolations, availability.violations),
+    pendingApplications: buildMetric(pendingApplications, pendingApplications, availability.applications),
+    expiringDocuments: buildMetric(expiringDocs, expiringDocs, availability.drivers || availability.vehicles),
+    expiredDocuments: buildMetric(expiredDocs, expiredDocs, availability.drivers || availability.vehicles),
+    availableVehicles: buildMetric(availableVehicles, availableVehicles, availability.vehicles),
+    assignedVehicles: buildMetric(assignedVehicles, assignedVehicles, availability.vehicles),
+    openApprovals: buildMetric(approvals.total, approvals.total, availability.approvals),
+    auditEvents: buildMetric(auditEvents, auditEvents, availability.audit),
+    codPendingSessions: buildMetric(cod.pendingSessions, cod.pendingSessions, availability.cod),
   }
 
   const payroll = {
@@ -821,6 +826,7 @@ export async function getDashboardSnapshot(
     payroll,
     approvals,
     cod,
+    accounting,
     trends,
     platforms,
     driverTargets,
