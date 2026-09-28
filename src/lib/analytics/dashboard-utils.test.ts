@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   aggregateApprovalsDepth,
+  buildMetric,
   buildMonthlyOrdersTrend,
   kpiRowsToCsv,
   lastNPoints,
@@ -132,6 +133,32 @@ describe("aggregateApprovalsDepth", () => {
       applications: 0,
       stale: 0,
     })
+  })
+})
+
+// ── buildMetric ─────────────────────────────────────────────────────────────
+
+describe("buildMetric", () => {
+  it("computes delta and pct with 1dp rounding", () => {
+    const m = buildMetric(155, 141)
+    expect(m.delta).toBe(14)
+    expect(m.pct).toBeCloseTo(9.9, 5)
+    expect(m.available).toBe(true)
+  })
+
+  it("reports 100% only when previous is 0 and value is positive", () => {
+    expect(buildMetric(50, 0).pct).toBe(100)
+    expect(buildMetric(0, 0).pct).toBe(0)
+  })
+
+  it("propagates module availability", () => {
+    expect(buildMetric(10, 5, false).available).toBe(false)
+  })
+
+  it("negatives: delta flips sign, pct is computed against |previous|", () => {
+    const m = buildMetric(90, 110)
+    expect(m.delta).toBe(-20)
+    expect(m.pct).toBeCloseTo(-18.2, 5)
   })
 })
 

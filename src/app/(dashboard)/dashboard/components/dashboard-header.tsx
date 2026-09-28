@@ -26,6 +26,10 @@ const KPI_CSV_META: Record<string, { label: string; source: string; link: string
   openApprovals: { label: "Open Approvals", source: "fetch_pending_approvals RPC", link: "/approvals" },
   auditEvents: { label: "Audit Events (period)", source: "audit_log", link: "/audit-log" },
   codPendingSessions: { label: "COD Sessions Pending", source: "driver_cod_sessions", link: "/payroll" },
+  finInvoiceRevenue: { label: "Invoice Revenue (SAR, period)", source: "invoices", link: "/invoices" },
+  finPendingInvoices: { label: "Pending Invoices (SAR)", source: "invoices", link: "/invoices" },
+  finExpenses: { label: "Expenses (SAR, period)", source: "expenses", link: "/expenses" },
+  finNetResult: { label: "Net Result (SAR)", source: "invoices+expenses", link: "/accounting" },
 }
 
 /** Dashboard header row: title, dual Gregorian/Hijri date, refresh + CSV export. */
@@ -58,6 +62,27 @@ export function DashboardHeader({
         },
       ]
     })
+    // Accounting KPIs (Prompt I) live on snapshot.accounting, not snapshot.kpis.
+    const acc = snapshot.accounting
+    const accEntries: [string, number, number | null][] = [
+      ["finInvoiceRevenue", acc.revenue, acc.revenuePrevious],
+      ["finPendingInvoices", acc.pendingInvoicesAmount, null],
+      ["finExpenses", acc.expenses, acc.expensesPrevious],
+      ["finNetResult", acc.netResult, null],
+    ]
+    for (const [key, value, previous] of accEntries) {
+      const meta = KPI_CSV_META[key]
+      if (!meta) continue
+      rows.push({
+        metric: meta.label,
+        value: acc.available ? value : null,
+        previous: acc.available && previous !== null ? previous : null,
+        delta: acc.available && previous !== null ? value - previous : null,
+        available: acc.available,
+        source: meta.source,
+        link: meta.link,
+      })
+    }
     const csv = kpiRowsToCsv(rows)
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" })
     const url = URL.createObjectURL(blob)

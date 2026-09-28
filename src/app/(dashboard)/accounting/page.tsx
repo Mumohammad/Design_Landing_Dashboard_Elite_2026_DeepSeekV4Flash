@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { Fragment, useEffect, useState } from "react"
 import { useActionState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
@@ -15,7 +15,7 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner"
 import {
   BookOpenText, ListTree, Scale, HandCoins, Wallet, Plus, Save, X, CheckCircle2, AlertTriangle, Percent, Landmark,
   RotateCcw, Send, Check, Ban, CalendarRange, Lock, Unlock, Loader2, Users, Store, ListChecks, Zap,
-  ArrowDownLeft, ArrowUpRight, Building2, FileCheck2, KeyRound, Calculator,
+  ArrowDownLeft, ArrowUpRight, Building2, FileCheck2, KeyRound, Calculator, ChevronDown,
 } from "lucide-react"
 import {
   postJournalEntry,
@@ -62,6 +62,18 @@ interface JournalRow {
   description_en: string | null
   posted_at: string | null
   journal_approvals?: { status: string } | null
+}
+
+// Drill-down lines (Prompt I): fetched on expand, keyed by journal_entry_id
+// (idx_jel_entry). Embedded CoA gives code + localized name without a join round-trip.
+interface JournalLineRow {
+  id: string
+  journal_entry_id: string
+  account_id: string
+  description: string | null
+  debit_amount: number
+  credit_amount: number
+  chart_of_accounts?: { account_code: string; name_ar: string; name_en: string } | null
 }
 
 interface PeriodRow {
@@ -357,6 +369,10 @@ export default function AccountingPage() {
   const [isLoading, setIsLoading] = useState(true)
 
   const [journals, setJournals] = useState<JournalRow[]>([])
+  const [expandedEntryId, setExpandedEntryId] = useState<string | null>(null)
+  const [lineCache, setLineCache] = useState<Record<string, JournalLineRow[]>>({})
+  const [linesBusy, setLinesBusy] = useState(false)
+  const [linesError, setLinesError] = useState<string | null>(null)
   const [accounts, setAccounts] = useState<AccountRow[]>([])
   const [trial, setTrial] = useState<TrialRow[]>([])
   const [receivables, setReceivables] = useState<ArApRow[]>([])
@@ -669,6 +685,36 @@ export default function AccountingPage() {
   const flash = (type: "ok" | "err", text: string) => {
     setFeedback({ type, text })
     window.setTimeout(() => setFeedback(null), 6000)
+  }
+
+  // ── Journal entry-lines drill-down (Prompt I) ───────────────────────────
+  // Fetched on expand and cached per entry (idx_jel_entry serves the lookup);
+  // chart_of_accounts is embedded so each line shows the CoA code + localized
+  // account name without an extra round-trip.
+  async function toggleEntryLines(entry: JournalRow) {
+    if (expandedEntryId === entry.id) {
+      setExpandedEntryId(null)
+      return
+    }
+    setExpandedEntryId(entry.id)
+    if (lineCache[entry.id]) return
+    setLinesBusy(true)
+    setLinesError(null)
+    const supabase = createClient()
+    const { data, error } = await supabase
+      .from("journal_entry_lines")
+      .select(
+        "id,journal_entry_id,account_id,description,debit_amount,credit_amount,chart_of_accounts(account_code,name_ar,name_en)",
+      )
+      .eq("journal_entry_id", entry.id)
+      .order("debit_amount", { ascending: false })
+    setLinesBusy(false)
+    if (error) {
+      console.error(error)
+      setLinesError(ar ? "تعذّر تحميل بنود القيد" : "Failed to load entry lines")
+      return
+    }
+    setLineCache((prev) => ({ ...prev, [entry.id]: (data as unknown as JournalLineRow[]) ?? [] }))
   }
 
   async function handleJournalAction(action: "submit" | "approve", entry: JournalRow) {
@@ -1255,8 +1301,8 @@ export default function AccountingPage() {
           <>
             <TabsContent value="journal" className="mt-4">
               <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
-                <TableShell headers={["Ref", ar ? "التاريخ" : "Date", ar ? "الوصف" : "Description", ar ? "النوع" : "Type", ar ? "الحالة" : "Status", ar ? "إجراء" : "Action"]}>
-                  {journals.length === 0 && <EmptyRow colSpan={6} text={ar ? "لا توجد قيود بعد. أنشئ قيداً جديداً." : "No journal entries yet. Create one."} />}
+                <TableShell headers={["", "Ref", ar ? "التاريخ" : "Date", ar ? "الوصف" : "Description", ar ? "النوع" : "Type", ar ? "الحالة" : "Status", ar ? "إجراء" : "Action"]}>
+                  {journals.length === 0 && <EmptyRow colSpan={7} text={ar ? "لا توجد قيود بعد. أنشئ قيداً جديداً." : "No journal entries yet. Create one."} />}
                   {journals.map((j) => {
                     const s = JOURNAL_STATUS[j.status] ?? JOURNAL_STATUS.draft
                     const approval = j.journal_approvals?.status
@@ -1265,8 +1311,24 @@ export default function AccountingPage() {
                     const canApprove = j.status === "draft" && approval === "submitted"
                     const canReject = canApprove
                     const canReverse = j.status === "posted"
+                    const isOpen = expandedEntryId === j.id
                     return (
-                      <tr key={j.id} className="border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors">
+                      <Fragment key={j.id}>
+                      <tr className="border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors">
+                        <td className="px-4 py-3">
+                          <button
+                            onClick={() => void toggleEntryLines(j)}
+                            aria-expanded={isOpen}
+                            aria-label={ar ? "عرض بنود القيد" : "View entry lines"}
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-border/50 bg-muted/20 text-muted-foreground transition-colors hover:bg-muted/40"
+                          >
+                            {linesBusy && expandedEntryId === j.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                            )}
+                          </button>
+                        </td>
                         <td className="px-4 py-3 font-mono text-xs" dir="ltr">{j.entry_ref}</td>
                         <td className="px-4 py-3 text-xs" dir="ltr">{fmtDate(j.entry_date)}</td>
                         <td className="px-4 py-3">{j.description_ar ?? j.description_en ?? "—"}</td>
@@ -1323,6 +1385,59 @@ export default function AccountingPage() {
                           </div>
                         </td>
                       </tr>
+                      {isOpen && (
+                        <tr className="border-b border-border/40 bg-muted/10 last:border-0">
+                          <td colSpan={7} className="px-4 py-3">
+                            {linesError && expandedEntryId === j.id ? (
+                              <p className="text-xs text-red-500">{linesError}</p>
+                            ) : (Array.isArray(lineCache[j.id]) && lineCache[j.id].length > 0) ? (
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-xs">
+                                  <thead>
+                                    <tr className="text-muted-foreground">
+                                      <th className="px-2 py-1.5 text-start font-medium">{ar ? "الحساب" : "Account"}</th>
+                                      <th className="px-2 py-1.5 text-start font-medium">{ar ? "الوصف" : "Description"}</th>
+                                      <th className="px-2 py-1.5 text-end font-medium">{ar ? "مدين" : "Debit"}</th>
+                                      <th className="px-2 py-1.5 text-end font-medium">{ar ? "دائن" : "Credit"}</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-border/30">
+                                    {lineCache[j.id].map((ln) => (
+                                      <tr key={ln.id}>
+                                        <td className="px-2 py-1.5">
+                                          <span dir="ltr" className="font-mono">{ln.chart_of_accounts?.account_code ?? "—"}</span>
+                                          <span className="ms-2">{ar ? ln.chart_of_accounts?.name_ar : ln.chart_of_accounts?.name_en}</span>
+                                        </td>
+                                        <td className="px-2 py-1.5 text-muted-foreground">{ln.description ?? "—"}</td>
+                                        <td className="px-2 py-1.5 text-end tabular-nums" dir="ltr">
+                                          {ln.debit_amount > 0 ? fmtMoney(ln.debit_amount) : ""}
+                                        </td>
+                                        <td className="px-2 py-1.5 text-end tabular-nums" dir="ltr">
+                                          {ln.credit_amount > 0 ? fmtMoney(ln.credit_amount) : ""}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                    <tr className="font-semibold">
+                                      <td colSpan={2} className="px-2 py-1.5">{ar ? "الإجمالي" : "Totals"}</td>
+                                      <td className="px-2 py-1.5 text-end tabular-nums" dir="ltr">
+                                        {fmtMoney(lineCache[j.id].reduce((s, ln) => s + (ln.debit_amount ?? 0), 0))}
+                                      </td>
+                                      <td className="px-2 py-1.5 text-end tabular-nums" dir="ltr">
+                                        {fmtMoney(lineCache[j.id].reduce((s, ln) => s + (ln.credit_amount ?? 0), 0))}
+                                      </td>
+                                    </tr>
+                                  </tbody>
+                                </table>
+                              </div>
+                            ) : (
+                              <p className="text-xs text-muted-foreground">
+                                {ar ? "لا توجد بنود مسجّلة لهذا القيد." : "No lines recorded for this entry."}
+                              </p>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                      </Fragment>
                     )
                   })}
                 </TableShell>

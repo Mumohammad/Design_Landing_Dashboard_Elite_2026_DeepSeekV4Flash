@@ -7,15 +7,20 @@ import {
   CarFront,
   CheckCircle2,
   FileClock,
+  FileText,
   Gauge,
+  Landmark,
   LayoutDashboard,
   PackageCheck,
+  Receipt,
+  Scale,
   ShieldAlert,
   TriangleAlert,
   UsersRound,
   WalletCards,
   Wrench,
 } from "lucide-react"
+import { buildMetric } from "@/lib/analytics/dashboard-utils"
 import { useTranslation } from "@/hooks/use-translation"
 import { getDashboardSnapshot } from "@/lib/analytics/actions"
 import type { DashboardFilters, DashboardSnapshot } from "@/lib/analytics/types"
@@ -201,6 +206,53 @@ export default function DashboardPage() {
                 <KpiCard label={t.dashboard.completionRate} metric={k.completionRate} icon={Gauge} color="#10B981" href="/platforms" spark={completionSpark} deltaUnit="pp" />
                 <KpiCard label={t.dashboard.revenue} metric={k.revenue} icon={Banknote} color="#2F7BC4" href="/reports" spark={revenueSpark} currency />
                 <KpiCard label={t.dashboard.netPayroll} metric={k.netPayroll} icon={WalletCards} color="#E87D3E" href="/payroll" currency />
+              </div>
+            </StaggerContainer>
+          </section>
+
+          {/* ── Accounting KPI row (Prompt I) ── */}
+          <section aria-label="Accounting KPIs" className="space-y-3">
+            <ScrollReveal direction="up" delay={80}>
+              <SectionHeader
+                icon={Landmark}
+                title={locale === "ar" ? "المحاسبة" : "Accounting"}
+                subtitle={locale === "ar" ? "الفواتير والمصروفات وصافي النتيجة" : "Invoices, expenses and net result"}
+              />
+            </ScrollReveal>
+            <StaggerContainer staggerDelay={60} direction="up">
+              <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                <KpiCard
+                  label={t.dashboard.finInvoiceRevenue}
+                  metric={buildMetric(snapshot.accounting.revenue, snapshot.accounting.revenuePrevious, snapshot.accounting.available)}
+                  icon={FileText}
+                  color="#1E5A99"
+                  href="/invoices"
+                  currency
+                />
+                <KpiCard
+                  label={t.dashboard.finPendingInvoices}
+                  metric={buildMetric(snapshot.accounting.pendingInvoicesAmount, 0, snapshot.accounting.available)}
+                  icon={FileClock}
+                  color="#F59E0B"
+                  href="/invoices"
+                  currency
+                />
+                <KpiCard
+                  label={t.dashboard.finExpenses}
+                  metric={buildMetric(snapshot.accounting.expenses, snapshot.accounting.expensesPrevious, snapshot.accounting.available)}
+                  icon={Receipt}
+                  color="#EF4444"
+                  href="/expenses"
+                  currency
+                />
+                <KpiCard
+                  label={t.dashboard.finNetResult}
+                  metric={buildMetric(snapshot.accounting.netResult, 0, snapshot.accounting.available)}
+                  icon={Scale}
+                  color="#10B981"
+                  href="/accounting"
+                  currency
+                />
               </div>
             </StaggerContainer>
           </section>

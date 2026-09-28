@@ -33,6 +33,22 @@ export interface CodSnapshot {
   submitted: number
 }
 
+/** Accounting-sourced financial aggregates (Prompt I, src/lib/accounting/kpis.ts). */
+export interface AccountingKpis {
+  /** Finalized sales-invoice totals in the window. */
+  revenue: number
+  revenuePrevious: number
+  /** Issued sales invoices not yet paid/credited (any issue date). */
+  pendingInvoicesAmount: number
+  pendingInvoicesCount: number
+  /** Recorded expenses in the window. */
+  expenses: number
+  expensesPrevious: number
+  /** revenue − expenses (invoice-side revenue; informational). */
+  netResult: number
+  available: boolean
+}
+
 /** A single KPI with previous-period comparison. */
 export interface MetricValue {
   value: number
@@ -185,6 +201,7 @@ export interface DashboardSnapshot {
   }
   approvals: ApprovalsDepth & { available: boolean }
   cod: CodSnapshot & { available: boolean }
+  accounting: AccountingKpis
   platforms: PlatformMetric[]
   driverTargets: DriverTargetRow[]
   targetBuckets: { bucket: string; count: number }[]
