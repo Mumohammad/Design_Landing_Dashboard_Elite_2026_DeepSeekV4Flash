@@ -161,6 +161,9 @@ function DriverAvatar({
 
 function DriverAvatarImage({ name, initial }: { name: string | null; initial: string }) {
   const { photoUrl } = useDriverPhoto()
+  // Signed URLs expire; a deleted object 404s. Fall back to the initials
+  // avatar instead of rendering a broken image.
+  const [imgFailed, setImgFailed] = useState(false)
   return (
     <div className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted">
       {photoUrl ? (
@@ -170,12 +173,14 @@ function DriverAvatarImage({ name, initial }: { name: string | null; initial: st
           alt={name ?? ""}
           className="h-full w-full rounded-full object-cover"
           loading="lazy"
+          onError={() => setImgFailed(true)}
         />
-      ) : (
+      ) : null}
+      {!photoUrl || imgFailed ? (
         <span className="flex h-full w-full items-center justify-center bg-gradient-to-br from-elite-blue-500 to-elite-orange-500 text-xs font-semibold text-white">
           {initial}
         </span>
-      )}
+      ) : null}
     </div>
   )
 }
