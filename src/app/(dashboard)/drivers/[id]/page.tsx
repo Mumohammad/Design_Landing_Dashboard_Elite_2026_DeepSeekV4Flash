@@ -20,9 +20,14 @@ import {
   removeDriverPhoto,
   updateDriverPhoto,
 } from "@/app/actions/drivers/driver-photo"
+import {
+  DRIVER_PHOTO_BUCKET,
+  DRIVER_PHOTO_MAX_BYTES,
+  driverPhotoImageMeta,
+  driverPhotoPath,
+} from "@/lib/drivers/photo"
 import { emitDriverChanged, subscribeDriverChanged } from "@/lib/drivers/driver-events"
 import { DriverPhotoProvider, useDriverPhoto } from "@/components/drivers/photo-provider"
-import { DriverPhotoBridge } from "@/components/drivers/driver-card-panel"
 import { DriverTabs } from "./driver-tabs"
 import DriverAdminActions from "./driver-admin-actions"
 import { VehicleAssignmentCard } from "@/components/drivers/vehicle-assignment-card"
@@ -46,43 +51,7 @@ import {
   ZoomIn,
 } from "lucide-react"
 
-const PHOTO_BUCKET = "driver-photos"
-const PHOTO_MAX_BYTES = 10 * 1024 * 1024
 
-const IMAGE_EXTENSIONS = new Set([
-  "jpg",
-  "jpeg",
-  "png",
-  "webp",
-  "gif",
-  "avif",
-  "heic",
-  "heif",
-  "bmp",
-  "svg",
-])
-
-const EXT_MIME: Record<string, string> = {
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  png: "image/png",
-  webp: "image/webp",
-  gif: "image/gif",
-  avif: "image/avif",
-  heic: "image/heic",
-  heif: "image/heif",
-  bmp: "image/bmp",
-  svg: "image/svg+xml",
-}
-
-function imageMeta(file: File): { ok: boolean; contentType: string } {
-  const ext = file.name.split(".").pop()?.toLowerCase() ?? ""
-  if (/^image\//.test(file.type)) return { ok: true, contentType: file.type }
-  if (IMAGE_EXTENSIONS.has(ext)) {
-    return { ok: true, contentType: EXT_MIME[ext] ?? "image/jpeg" }
-  }
-  return { ok: false, contentType: "image/jpeg" }
-}
 
 const STATUS_META: Record<DriverStatus, { ar: string; en: string; className: string }> = {
   active: {
@@ -189,9 +158,6 @@ export default function DriverDetailPage() {
   // shared signed photo (re-signed on photo events — see photo-provider.tsx).
   return (
     <DriverPhotoProvider key={driverId} driverId={driverId}>
-      {/* Publishes the shared signed photo for surfaces below the provider
-          boundary (driver card preview/print) — see driver-card-panel.tsx. */}
-      <DriverPhotoBridge />
       <DriverDetailInner driverId={driverId} />
     </DriverPhotoProvider>
   )
@@ -260,23 +226,39 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
 
   const onPhotoFile = async (file: File) => {
     if (!driver) return
-    const meta = imageMeta(file)
+    const meta = driverPhotoImageMeta(file)
     if (!meta.ok) {
-      toast.error(isAr ? "يسمح بالصور فقط" : "Only image files are allowed")
+      toast.error(
+        isAr
+          ? "يسمح بالصور فقط (JPG/PNG/WebP/GIF/AVIF/HEIC — الحد الأقصى 5MB)"
+          : "Only image files are allowed (JPG/PNG/WebP/GIF/AVIF/HEIC — max 5MB)",
+      )
       return
     }
-    if (file.size > PHOTO_MAX_BYTES) {
+    if (file.size > DRIVER_PHOTO_MAX_BYTES) {
       toast.error(
-        isAr ? "الصورة كبيرة جدًا (الحد الأقصى 10MB)" : "Image is too large (max 10MB)",
+        isAr ? "الصورة كبيرة جدًا (الحد الأقصى 5MB)" : "Image is too large (max 5MB)",
       )
       return
     }
 
     // Instant optimistic preview — the photo shows the moment it is picked.
+    // It is ROLLED BACK on any failure below so a failed upload never leaves
+    // the UI showing a photo that was never persisted.
     if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current)
     const objectUrl = URL.createObjectURL(file)
     objectUrlRef.current = objectUrl
     setLocalPhotoUrl(objectUrl)
+
+    // Roll the visible avatar back to the last persisted photo: clearing the
+    // local blob makes resolvedPhotoUrl fall through to the provider value.
+    const rollbackPreview = () => {
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current)
+        objectUrlRef.current = null
+      }
+      setLocalPhotoUrl(null)
+    }
 
     setPhotoUploading(true)
     try {
@@ -288,24 +270,35 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
         (session?.user?.user_metadata?.tenant_id as string | undefined) ?? ""
       if (!tenantId) {
         toast.error(t.common.error)
+        rollbackPreview()
         return
       }
-      const safeName = file.name.replace(/[^\w.\-]+/g, "-").toLowerCase()
-      const path = `${tenantId}/${driver.id}/photo-${Date.now()}-${safeName}`
+      const path = driverPhotoPath(tenantId, driver.id, file.name)
       const { error: uploadError } = await supabase.storage
-        .from(PHOTO_BUCKET)
+        .from(DRIVER_PHOTO_BUCKET)
         .upload(path, file, {
           cacheControl: "3600",
           upsert: true,
           contentType: meta.contentType,
         })
       if (uploadError) {
-        toast.error(uploadError.message)
+        toast.error(
+          isAr ? `فشل رفع الصورة: ${uploadError.message}` : `Photo upload failed: ${uploadError.message}`,
+        )
+        rollbackPreview()
         return
       }
-      const result = await updateDriverPhoto({ driverId: driver.id, filePath: path })
+      const result = await updateDriverPhoto({
+        driverId: driver.id,
+        filePath: path,
+        contentType: meta.contentType,
+        size: file.size,
+      })
       if (!result.ok) {
+        // DB update failed: the action already removed the orphaned object;
+        // here we only restore the previous photo in the UI.
         toast.error(result.error)
+        rollbackPreview()
         return
       }
       if (objectUrlRef.current) {
@@ -316,8 +309,11 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
       refreshProviderPhoto()
       setDriver((prev) => (prev ? { ...prev, photo_url: result.filePath } : prev))
       toast.success(isAr ? "تم تحديث الصورة" : "Photo updated")
+      // Tell every other surface (list rows, compliance card, card panel)
+      // to re-read the persisted photo.
       emitDriverChanged({ driverId: driver.id, action: "photo" })
     } catch (err) {
+      rollbackPreview()
       toast.error(err instanceof Error ? err.message : t.common.error)
     } finally {
       setPhotoUploading(false)

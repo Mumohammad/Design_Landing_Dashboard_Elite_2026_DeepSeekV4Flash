@@ -1,8 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
-import { subscribeDriverChanged } from "@/lib/drivers/driver-events"
 import { useDriverPhoto } from "@/components/drivers/photo-provider"
 import { issueDriverCard, recordCardPrint, revokeDriverCard } from "@/app/actions/drivers/driver-cards"
 import type { DriverCard, DriverCardPerson, DriverCardPrint } from "@/lib/drivers/cards"
@@ -31,25 +30,6 @@ const cardStatusLabels: Record<string, { en: string; ar: string }> = {
 }
 
 const str = (v: unknown): string | null => (typeof v === "string" && v.trim() !== "" ? v.trim() : null)
-
-/**
- * Layout-level shared photo for the driver card preview. Set by
- * DriverPhotoBridge (photo-provider.tsx) which reads useDriverPhoto() inside
- * the provider tree; the card panel itself renders below the provider boundary
- * (hook order), so it consumes the value through this module-level ref.
- */
-const driverPhotoBridge: { current: string | null } = { current: null }
-
-export function DriverPhotoBridge() {
-  const { photoUrl } = useDriverPhoto()
-  useEffect(() => {
-    const id = setTimeout(() => {
-      driverPhotoBridge.current = photoUrl
-    }, 0)
-    return () => clearTimeout(id)
-  }, [photoUrl])
-  return null
-}
 
 export function DriverCardPanel({ driverId, isAr }: { driverId: string; isAr: boolean }) {
   const [card, setCard] = useState<DriverCard | null>(null)
@@ -106,9 +86,11 @@ export function DriverCardPanel({ driverId, isAr }: { driverId: string; isAr: bo
     }
   }, [driverId])
 
-  const [providerPhotoUrl, setProviderPhotoUrl] = useState<string | null>(null)
-  const [providerReady, setProviderReady] = useState(false)
-  const cleanupRef = useRef<(() => void) | null>(null)
+  // Shared signed photo from the layout-level DriverPhotoProvider (this panel
+  // renders inside the provider tree on the driver detail page). The provider
+  // re-reads drivers.photo_url and re-signs on every photo change event, so
+  // the card always shows the latest persisted photo without a reload.
+  const { photoUrl: sharedPhotoUrl } = useDriverPhoto()
 
   useEffect(() => {
     let cancelled = false
@@ -127,30 +109,6 @@ export function DriverCardPanel({ driverId, isAr }: { driverId: string; isAr: bo
     }
   }, [fetchCard, fetchPerson, fetchPrints])
 
-  // Bridge the layout-level photo provider into this panel: the provider sits
-  // above the compliance engine, so a hook call here would break hook order.
-  useEffect(() => {
-    const id = setTimeout(() => {
-      setProviderPhotoUrl(driverPhotoBridge.current ?? null)
-      setProviderReady(true)
-    }, 0)
-    return () => clearTimeout(id)
-  }, [])
-
-  // Re-read the bridged photo whenever any surface reports a photo change.
-  useEffect(() => {
-    const off = subscribeDriverChanged((detail) => {
-      if (detail.action && detail.action !== "photo") return
-      const id = setTimeout(() => {
-        setProviderPhotoUrl(driverPhotoBridge.current ?? null)
-      }, 0)
-      cleanupRef.current = () => clearTimeout(id)
-    })
-    return () => {
-      off()
-      cleanupRef.current?.()
-    }
-  }, [])
 
   const refreshAll = async () => {
     const [c, p] = await Promise.all([fetchCard(), fetchPerson()])
@@ -214,11 +172,9 @@ export function DriverCardPanel({ driverId, isAr }: { driverId: string; isAr: bo
     }
     const w = window.open("", "_blank", "width=760,height=620")
     if (w) {
-      const personForPrint: DriverCardPerson | null = providerReady
-        ? person
-          ? { ...person, photoUrl: providerPhotoUrl }
-          : { name: "—", phone: null, idNumber: null, photoUrl: providerPhotoUrl }
-        : person
+      const personForPrint: DriverCardPerson | null = person
+        ? { ...person, photoUrl: sharedPhotoUrl }
+        : { name: "—", phone: null, idNumber: null, photoUrl: sharedPhotoUrl }
       w.document.write(buildCardPrintHtml(card, personForPrint))
       w.document.close()
       w.focus()
@@ -319,11 +275,9 @@ export function DriverCardPanel({ driverId, isAr }: { driverId: string; isAr: bo
             <DriverCardPreview
               card={card}
               person={
-                providerReady
-                  ? person
-                    ? { ...person, photoUrl: providerPhotoUrl }
-                    : { name: "—", phone: null, idNumber: null, photoUrl: providerPhotoUrl }
-                  : person
+                person
+                  ? { ...person, photoUrl: sharedPhotoUrl }
+                  : { name: "—", phone: null, idNumber: null, photoUrl: sharedPhotoUrl }
               }
             />
           )}

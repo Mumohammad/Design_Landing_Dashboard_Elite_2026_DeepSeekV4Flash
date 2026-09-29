@@ -7,6 +7,13 @@ import { createComplianceOverride, revokeComplianceOverride } from "@/app/action
 import { registerDriverDocument, removeDriverDocument, verifyDriverDocument } from "@/app/actions/drivers/documents"
 import { updateDriverPhoto } from "@/app/actions/drivers/driver-photo"
 import {
+  DRIVER_PHOTO_BUCKET,
+  DRIVER_PHOTO_MAX_BYTES,
+  driverPhotoImageMeta,
+  driverPhotoPath,
+} from "@/lib/drivers/photo"
+import { emitDriverChanged } from "@/lib/drivers/driver-events"
+import {
   OVERRIDABLE_REQUIREMENTS,
   type ComplianceLevel,
   type ComplianceOverride,
@@ -67,7 +74,6 @@ const reqStatusCls: Record<string, string> = {
 }
 
 const MAX_FILE_BYTES = 20 * 1024 * 1024
-const MAX_PHOTO_BYTES = 5 * 1024 * 1024 // matches driver-photos bucket limit
 
 const canOverride = (key: string, status: string) =>
   (status === "missing" || status === "expired") &&
@@ -228,12 +234,30 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
   const submitUpload = async () => {
     if (!uploadFor || !file) return
     const isPhoto = uploadFor === "photo"
-    const limit = isPhoto ? MAX_PHOTO_BYTES : MAX_FILE_BYTES
-    if (file.size > limit) {
+    // Same rules as the profile header and card panel: one shared policy
+    // (src/lib/drivers/photo.ts) so no surface can accept what the bucket
+    // or the server action will reject.
+    const photoMeta = isPhoto ? driverPhotoImageMeta(file) : null
+    const photoContentType =
+      photoMeta && photoMeta.ok ? photoMeta.contentType : undefined
+    if (isPhoto) {
+      if (!photoMeta || !photoMeta.ok) {
+        setFormError(
+          isAr
+            ? "يسمح بالصور فقط (JPG/PNG/WebP/GIF/AVIF/HEIC)"
+            : "Only image files are allowed (JPG/PNG/WebP/GIF/AVIF/HEIC)",
+        )
+        return
+      }
+      if (file.size > DRIVER_PHOTO_MAX_BYTES) {
+        setFormError(
+          isAr ? "الصورة أكبر من 5 ميجابايت" : "Image exceeds the 5 MB limit",
+        )
+        return
+      }
+    } else if (file.size > MAX_FILE_BYTES) {
       setFormError(
-        isAr
-          ? `الملف أكبر من ${isPhoto ? "5" : "20"} ميجابايت`
-          : `File exceeds the ${isPhoto ? "5" : "20"} MB limit`,
+        isAr ? "الملف أكبر من 20 ميجابايت" : "File exceeds the 20 MB limit",
       )
       return
     }
@@ -243,13 +267,15 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
     const ext = (file.name.split(".").pop() ?? "bin").toLowerCase().replace(/[^a-z0-9]/g, "") || "bin"
     const supabase = createClient()
     const path = isPhoto
-      ? `${driver.tenant_id}/${driver.id}/photo-${Date.now()}.${ext}`
+      ? driverPhotoPath(driver.tenant_id, driver.id, file.name)
       : `${driver.tenant_id}/${driver.id}/${docType}-${Date.now()}.${ext}`
-    const bucket = isPhoto ? "driver-photos" : "driver-documents"
+    const bucket = isPhoto ? DRIVER_PHOTO_BUCKET : "driver-documents"
 
     const { error: uploadError } = await supabase.storage
       .from(bucket)
-      .upload(path, file, { contentType: file.type || undefined })
+      .upload(path, file, {
+        contentType: isPhoto ? photoContentType : file.type || undefined,
+      })
     if (uploadError) {
       setFormError(uploadError.message)
       setUploading(false)
@@ -257,7 +283,12 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
     }
 
     const res = isPhoto
-      ? await updateDriverPhoto({ driverId: driver.id, filePath: path })
+      ? await updateDriverPhoto({
+          driverId: driver.id,
+          filePath: path,
+          contentType: photoContentType,
+          size: file.size,
+        })
       : await registerDriverDocument({
           driverId: driver.id,
           docType,
@@ -274,6 +305,11 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
       return
     }
     setUploadFor(null)
+    if (isPhoto) {
+      // The detail header provider refreshes itself; nudge every other
+      // surface (list rows, card preview) to re-read the persisted photo.
+      emitDriverChanged({ driverId: driver.id, action: "photo" })
+    }
     await refreshAll()
   }
 

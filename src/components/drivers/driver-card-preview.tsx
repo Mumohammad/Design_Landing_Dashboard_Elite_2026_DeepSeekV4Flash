@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import type { DriverCard, DriverCardPerson } from "@/lib/drivers/cards"
 import { User } from "lucide-react"
 
@@ -31,6 +32,9 @@ function BrandMark({ color, fontSize, letterSpacing }: { color: string; fontSize
 
 function FrontCard({ card, person }: { card: DriverCard; person: DriverCardPerson | null }) {
   const expiry = expiryText(card)
+  // Signed URLs expire or the object may have been removed — fall back to
+  // the user icon instead of a broken image on the card face.
+  const [imgFailed, setImgFailed] = useState(false)
   const field = (label: string, value: string, ltr = false) => (
     <div>
       <span style={{ color: BLUE }}>{label}: </span>
@@ -41,9 +45,14 @@ function FrontCard({ card, person }: { card: DriverCard; person: DriverCardPerso
     <div style={{ width: 300, height: 476, background: YELLOW, borderRadius: 24, overflow: "hidden", position: "relative", border: "1px solid #d9d9d9" }}>
       <div style={{ position: "absolute", top: 14, left: "50%", transform: "translateX(-50%)", width: 64, height: 12, borderRadius: 8, background: "rgba(0,0,0,0.12)" }} />
       <div style={{ margin: "50px auto 0", width: 118, height: 118, borderRadius: 18, background: "#ffffff", border: `5px solid ${MAROON}`, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        {person?.photoUrl ? (
+        {person?.photoUrl && !imgFailed ? (
           // eslint-disable-next-line @next/next/no-img-element -- dynamic signed URL, not optimizable at build time
-          <img src={person.photoUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+          <img
+            src={person.photoUrl}
+            alt=""
+            style={{ width: "100%", height: "100%", objectFit: "contain" }}
+            onError={() => setImgFailed(true)}
+          />
         ) : (
           <User style={{ width: 52, height: 52, color: "#cbd5e1" }} />
         )}

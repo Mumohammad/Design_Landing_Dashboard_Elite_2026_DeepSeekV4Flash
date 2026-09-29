@@ -139,6 +139,17 @@ export function DriverPhotoProvider({
     })
   }, [driverId])
 
+  const lastInitialPathRef = useRef(initialPhotoPath)
+  useEffect(() => {
+    // The caller supplied a different path than before (e.g. a list row
+    // refetched after an upload) — re-read the DB so the avatar never keeps
+    // showing a stale photo.
+    if (lastInitialPathRef.current !== initialPhotoPath) {
+      lastInitialPathRef.current = initialPhotoPath
+      refreshRef.current?.()
+    }
+  }, [initialPhotoPath])
+
   // Periodically re-sign so URLs never outlive their TTL on long-lived tabs.
   useEffect(() => {
     const id = setInterval(() => {

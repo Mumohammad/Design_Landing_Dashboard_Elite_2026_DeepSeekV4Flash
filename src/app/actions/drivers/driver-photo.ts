@@ -5,6 +5,14 @@ import { z } from "zod"
 import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { logger } from "@/lib/logger"
+import {
+  DRIVER_PHOTO_BUCKET,
+  DRIVER_PHOTO_MAX_BYTES,
+  DRIVER_PHOTO_MIME_TYPES,
+  driverPhotoImageMeta,
+  isDriverPhotoObjectPath,
+  isDriverPhotoPathValid,
+} from "@/lib/drivers/photo"
 
 // Photo management: operational staff (same convention as driver-cards.ts).
 const PHOTO_ROLES = new Set([
@@ -18,11 +26,13 @@ const PHOTO_ROLES = new Set([
   "operations_officer",
 ])
 
-const PHOTO_BUCKET = "driver-photos"
-
 const updateSchema = z.object({
   driverId: z.string().uuid(),
   filePath: z.string().min(8).max(400),
+  // Defense-in-depth: mirrors the client-side file checks so a crafted
+  // request cannot point photo_url at an object the bucket would reject.
+  contentType: z.string().optional(),
+  size: z.number().int().positive().optional(),
 })
 const removeSchema = z.object({ driverId: z.string().uuid() })
 
@@ -72,13 +82,35 @@ async function recomputeCompliance(driverId: string) {
 }
 
 /**
+ * Best-effort storage cleanup. Storage RLS grants authenticated users only
+ * INSERT/SELECT, so object deletion goes through the service-role client.
+ */
+async function removePhotoObject(objectPath: string, driverId: string) {
+  const admin = createAdminClient()
+  const { error } = await admin.storage.from(DRIVER_PHOTO_BUCKET).remove([objectPath])
+  if (error) {
+    logger.error({ err: error, driverId, objectPath }, "driver photo object cleanup failed")
+  }
+}
+
+/**
  * Point a driver profile at an uploaded photo object (driver-photos bucket).
  * photo_url stores the storage object path; consumers resolve a signed URL.
  */
 export async function updateDriverPhoto(input: unknown): Promise<Result> {
   const parsed = updateSchema.safeParse(input)
   if (!parsed.success) return { ok: false, error: "Invalid photo payload" }
-  const { driverId, filePath } = parsed.data
+  const { driverId, filePath, contentType, size } = parsed.data
+
+  if (typeof contentType === "string" && contentType !== "") {
+    const meta = driverPhotoImageMeta({ name: filePath, type: contentType } as File)
+    if (!meta.ok || !DRIVER_PHOTO_MIME_TYPES.has(meta.contentType)) {
+      return { ok: false, error: "Unsupported image format" }
+    }
+  }
+  if (typeof size === "number" && size > DRIVER_PHOTO_MAX_BYTES) {
+    return { ok: false, error: "Image is too large (max 5MB)" }
+  }
 
   const auth = await requirePhotoRole()
   if (!auth.ok) return { ok: false, error: auth.error }
@@ -86,7 +118,7 @@ export async function updateDriverPhoto(input: unknown): Promise<Result> {
 
   const { data: driver } = await supabase
     .from("drivers")
-    .select("id, tenant_id")
+    .select("id, tenant_id, photo_url")
     .eq("id", driverId)
     .is("deleted_at", null)
     .maybeSingle()
@@ -94,8 +126,7 @@ export async function updateDriverPhoto(input: unknown): Promise<Result> {
     return { ok: false, error: "Driver not found" }
   }
 
-  const expectedPrefix = `${me.tenant_id}/${driverId}/photo-`
-  if (!filePath.startsWith(expectedPrefix) || filePath.includes("..")) {
+  if (!isDriverPhotoPathValid(filePath, me.tenant_id, driverId)) {
     return { ok: false, error: "Photo path does not match this driver" }
   }
 
@@ -105,25 +136,43 @@ export async function updateDriverPhoto(input: unknown): Promise<Result> {
     .eq("id", driverId)
   if (updateError) {
     logger.error({ err: updateError, driverId }, "failed to update driver photo")
+    // The just-uploaded object is orphaned — clean it up so the bucket does
+    // not accumulate dead files and retry paths never collide.
+    await removePhotoObject(filePath, driverId)
     return { ok: false, error: "Failed to update the photo" }
   }
 
-  const { error: auditError } = await supabase.from("audit_log").insert({
-    tenant_id: driver.tenant_id,
-    actor_id: user.id,
-    module: "drivers",
-    entity_type: "driver",
-    entity_id: driverId,
-    action: "photo_updated",
-    new_values: { photo_url: filePath },
-  })
+  // Replace: drop the previous object when it is a bucket-managed path and
+  // differs from the new one (prevents broken URLs from stale deletions).
+  const previous = driver.photo_url
+  if (
+    isDriverPhotoObjectPath(previous) &&
+    previous !== filePath &&
+    previous.startsWith(`${me.tenant_id}/`)
+  ) {
+    await removePhotoObject(previous, driverId)
+  }
+
+  // audit_log is INSERT-only via service role (ADR-007: no authenticated
+  // INSERT policy — an authenticated-client insert is RLS-denied silently).
+  const { error: auditError } = await createAdminClient()
+    .from("audit_log")
+    .insert({
+      tenant_id: driver.tenant_id,
+      actor_id: user.id,
+      module: "drivers",
+      entity_type: "driver",
+      entity_id: driverId,
+      action: "photo_updated",
+      new_values: { photo_url: filePath },
+    })
   if (auditError) {
     logger.error({ err: auditError, driverId }, "photo update audit insert failed")
   }
 
   const admin = createAdminClient()
   const { data: signed } = await admin.storage
-    .from(PHOTO_BUCKET)
+    .from(DRIVER_PHOTO_BUCKET)
     .createSignedUrl(filePath, 3600)
 
   await recomputeCompliance(driverId)
@@ -165,33 +214,23 @@ export async function removeDriverPhoto(input: unknown): Promise<Result> {
     return { ok: false, error: "Failed to remove the photo" }
   }
 
-  // Best-effort storage cleanup for bucket-managed objects.
-  if (
-    previous &&
-    !/^https?:\/\//i.test(previous) &&
-    previous.startsWith(`${me.tenant_id}/`)
-  ) {
-    const admin = createAdminClient()
-    const { error: removeError } = await admin.storage
-      .from(PHOTO_BUCKET)
-      .remove([previous])
-    if (removeError) {
-      logger.error(
-        { err: removeError, driverId },
-        "storage cleanup failed after photo removal",
-      )
-    }
+  // Best-effort storage cleanup for bucket-managed objects (legacy full URLs
+  // are external and left untouched).
+  if (isDriverPhotoObjectPath(previous) && previous.startsWith(`${me.tenant_id}/`)) {
+    await removePhotoObject(previous, driverId)
   }
 
-  const { error: auditError } = await supabase.from("audit_log").insert({
-    tenant_id: driver.tenant_id,
-    actor_id: user.id,
-    module: "drivers",
-    entity_type: "driver",
-    entity_id: driverId,
-    action: "photo_removed",
-    old_values: { photo_url: previous },
-  })
+  const { error: auditError } = await createAdminClient()
+    .from("audit_log")
+    .insert({
+      tenant_id: driver.tenant_id,
+      actor_id: user.id,
+      module: "drivers",
+      entity_type: "driver",
+      entity_id: driverId,
+      action: "photo_removed",
+      old_values: { photo_url: previous },
+    })
   if (auditError) {
     logger.error({ err: auditError, driverId }, "photo removal audit insert failed")
   }
