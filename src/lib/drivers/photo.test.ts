@@ -6,6 +6,7 @@ import {
   driverPhotoImageMeta,
   driverPhotoPath,
   driverPhotoSafeName,
+  driverPhotoTenantId,
   isDriverPhotoObjectPath,
   isDriverPhotoPathValid,
 } from "./photo"
@@ -61,6 +62,28 @@ describe("driverPhotoImageMeta", () => {
     expect(driverPhotoImageMeta(makeFile("doc.pdf", "application/pdf")).ok).toBe(false)
     expect(driverPhotoImageMeta(makeFile("virus.exe", "")).ok).toBe(false)
     expect(driverPhotoImageMeta(makeFile("noext", "")).ok).toBe(false)
+  })
+})
+
+describe("driverPhotoTenantId", () => {
+  it("prefers the driver row tenant (single source of truth)", () => {
+    expect(driverPhotoTenantId({ tenant_id: TENANT }, "99999999-9999-9999-9999-999999999999")).toBe(TENANT)
+  })
+
+  it("falls back to the session metadata tenant only when the driver row has none", () => {
+    const sessionTenant = "55555555-5555-5555-5555-555555555555"
+    expect(driverPhotoTenantId({ tenant_id: null }, sessionTenant)).toBe(sessionTenant)
+    expect(driverPhotoTenantId({ tenant_id: "" }, sessionTenant)).toBe(sessionTenant)
+    expect(driverPhotoTenantId({}, sessionTenant)).toBe(sessionTenant)
+  })
+
+  it("resolves empty when neither source has a tenant (upload is refused)", () => {
+    expect(driverPhotoTenantId({ tenant_id: null }, null)).toBe("")
+    expect(driverPhotoTenantId({}, undefined)).toBe("")
+  })
+
+  it("never trusts a non-string session value", () => {
+    expect(driverPhotoTenantId({ tenant_id: TENANT }, 12345 as unknown as string)).toBe(TENANT)
   })
 })
 
