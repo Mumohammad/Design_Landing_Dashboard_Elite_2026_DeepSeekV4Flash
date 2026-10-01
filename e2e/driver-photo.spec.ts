@@ -59,6 +59,58 @@ async function gotoFirstDriver(page: Page): Promise<string | null> {
   return href
 }
 
+// ── Display after hard refresh (Prompt M regression) ─────────────────────────
+
+ test.describe("Driver photo — display after hard refresh", () => {
+  test("avatar renders a signed URL with token= and decodes", async ({
+    authed: page,
+  }) => {
+    const href = await gotoFirstDriver(page)
+    test.skip(href === null, "no seeded driver available")
+
+    // Hard refresh = fresh provider mount — the exact Prompt M failure step.
+    await page.reload({ waitUntil: "domcontentloaded" })
+    await page.waitForLoadState("networkidle", { timeout: 30_000 }).catch(() => {})
+
+    // Photo drivers render the signed URL (object/sign/ + token=); photo-less
+    // drivers legitimately render none — skip instead of failing.
+    const signedImg = page.locator('main img[src*="object/sign/"]').first()
+    const hasPhoto = await signedImg.isVisible({ timeout: 15_000 }).catch(() => false)
+    test.skip(!hasPhoto, "seeded driver has no photo — run against a photo driver")
+
+    // The signed <img> must actually DECODE (CSP img-src blocks and storage
+    // 4xx both surface as naturalWidth === 0 with complete === true).
+    await expect
+      .poll(
+        async () =>
+          signedImg.evaluate(
+            (el) =>
+              el instanceof HTMLImageElement &&
+              el.complete &&
+              el.naturalWidth > 0 &&
+              (el.getAttribute("src") ?? "").includes("token="),
+          ),
+        { timeout: 15_000 },
+      )
+      .toBe(true)
+  })
+
+  test("no <img> renders a raw storage path", async ({ authed: page }) => {
+    const href = await gotoFirstDriver(page)
+    test.skip(href === null, "no seeded driver available")
+
+    const rawPaths = await page
+      .locator("img")
+      .evaluateAll((els) =>
+        els
+          .map((e) => e.getAttribute("src") ?? "")
+          .filter((s) => s !== "" && /^([\w-]{36}\/)+photo-/.test(s)),
+      )
+      .catch(() => ["<eval failed>"])
+    expect(rawPaths).toEqual([])
+  })
+})
+
 // ── Photo-less driver (backward compat) ──────────────────────────────────────
 
 test.describe("Driver photo — display", () => {

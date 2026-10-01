@@ -82,6 +82,39 @@ export function driverPhotoTenantId(
   return sessionTenantId ?? ""
 }
 
+/**
+ * Append a cache-buster to a signed URL WITHOUT corrupting it. Supabase
+ * signed URLs already carry ?token=... — appending must merge into the
+ * existing query string (URL API), never blind-concatenate "?v=..." which
+ * would produce ...?token=abc?v=123 and break the signature.
+ */
+export function withCacheBust(url: string, version: string | null): string {
+  if (!version) return url
+  try {
+    const u = new URL(url)
+    u.searchParams.set("v", version)
+    return u.toString()
+  } catch {
+    return url
+  }
+}
+
+/**
+ * Central diagnostics hook for "signed URL was set but the <img> did not
+ * render" (CSP img-src blocks, storage 4xx on an expired/revoked token,
+ * object deleted between sign and render). Every photo consumer calls this
+ * from its onError handler so a display failure is diagnosable instead of
+ * silently degrading to initials.
+ */
+export function logPhotoRenderFailure(src: string | null | undefined): void {
+  if (!src) return
+  const isSigned = src.includes("/object/sign/")
+  console.error(
+    `[photo] avatar image failed to render (${isSigned ? "signed url" : /^https?:\/\//.test(src) ? "url" : "raw path?"}):`,
+    src.slice(0, 160),
+  )
+}
+
 /** Strips everything that could break the object path (slashes, "..", unicode). */
 export function driverPhotoSafeName(name: string): string {
   const cleaned = name

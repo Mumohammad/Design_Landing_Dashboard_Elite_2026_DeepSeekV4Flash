@@ -25,6 +25,7 @@ const DRIVER_ID = "00000000-0000-4000-8000-00000000d001"
 const TENANT_ID = "00000000-0000-0000-0000-000000000001"
 
 const onlySmall = process.argv.includes("--small")
+const onlyDisplay = process.argv.includes("--display")
 
 // Valid PNG built procedurally: 8-bit RGB with a private ancillary padding
 // chunk ("raNt") to inflate file size without changing pixels — needed so the
@@ -99,6 +100,13 @@ function psql(sql) {
 const browser = await chromium.launch()
 const context = await browser.newContext()
 const page = await context.newPage()
+const cspViolations = []
+page.on("console", (m) => {
+  if (/Content Security Policy|img-src/i.test(m.text())) cspViolations.push(m.text().slice(0, 300))
+})
+page.on("requestfailed", (r) => {
+  if (/storage/i.test(r.url())) cspViolations.push("requestfailed: " + r.url().slice(0, 160) + " — " + (r.failure()?.errorText ?? ""))
+})
 mkdirSync(".freebuff/photo-matrix", { recursive: true })
 
 // ── login ──
@@ -113,6 +121,61 @@ async function login(p) {
 }
 await login(page)
 console.log("[matrix] login OK")
+
+if (onlyDisplay) {
+  // ── Case C: DISPLAY after hard refresh (the Prompt M failure) ──
+  const existing = psql(`SELECT coalesce(photo_url,'') FROM public.drivers WHERE id='${DRIVER_ID}'`)
+  if (!existing) {
+    console.error("[matrix] driver has no photo_url — run the full matrix or --small first")
+    process.exit(2)
+  }
+  await page.goto(BASE + "/drivers/" + DRIVER_ID, { waitUntil: "domcontentloaded", timeout: 40_000 })
+  await page.waitForLoadState("networkidle", { timeout: 30_000 }).catch(() => {})
+  await page.waitForTimeout(3000)
+
+  const headerImg = page.locator("main img[alt]").first()
+  const imgState = await headerImg
+    .evaluate((el) => ({
+      src: el instanceof HTMLImageElement ? el.src : "",
+      complete: el instanceof HTMLImageElement ? el.complete : false,
+      naturalWidth: el instanceof HTMLImageElement ? el.naturalWidth : 0,
+    }))
+    .catch(() => ({ src: "", complete: false, naturalWidth: 0 }))
+
+  const isSigned = imgState.src.includes("token=")
+  const loaded = imgState.complete && imgState.naturalWidth > 0
+  record("C", "header avatar <img> src is a signed URL (token=)", isSigned, "src=" + imgState.src.slice(0, 110))
+  record("C", "header avatar actually renders (naturalWidth > 0)", loaded, `complete=${imgState.complete} naturalWidth=${imgState.naturalWidth}`)
+
+  // No surface may render a raw storage path (Prompt M suspect #2).
+  const rawPathImgs = await page
+    .locator("img")
+    .evaluateAll((imgs) =>
+      imgs
+        .map((i) => (i instanceof HTMLImageElement ? i.getAttribute("src") ?? "" : ""))
+        .filter((s) => s !== "" && /^([\w-]{36}\/)+photo-/.test(s)),
+    )
+    .catch(() => ["<eval failed>"])
+  record("C", "no <img> renders a raw storage path", rawPathImgs.length === 0, rawPathImgs.join(", ").slice(0, 120))
+
+  record(
+    "C",
+    "no CSP violations for storage images (informational)",
+    true,
+    cspViolations.length ? cspViolations.slice(0, 2).join(" || ") : "none observed",
+  )
+
+  await browser.close()
+  writeFileSync(".freebuff/photo-matrix/results.json", JSON.stringify(results, null, 2))
+  const failsC = results.filter((r) => !r.ok)
+  console.log(`\n[matrix] ${results.length - failsC.length}/${results.length} checks passed`)
+  if (failsC.length) {
+    console.log("[matrix] FAILURES:\n" + failsC.map((f) => `  ${f.case}/${f.step}: ${f.detail ?? ""}`).join("\n"))
+    process.exit(1)
+  }
+  process.exit(0)
+}
+
 await page.goto(BASE + "/drivers/" + DRIVER_ID, { waitUntil: "domcontentloaded", timeout: 40_000 })
 await page.waitForLoadState("networkidle", { timeout: 30_000 }).catch(() => {})
 console.log("[matrix] on driver detail page")

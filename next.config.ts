@@ -94,7 +94,13 @@ const nextConfig: NextConfig = {
           // production CSP below stays strict, same as the HSTS gate.
           `script-src 'self' 'unsafe-inline'${process.env.NODE_ENV === 'development' ? " 'unsafe-eval'" : ''}`,
           "style-src 'self' 'unsafe-inline'",
-          "img-src 'self' data: blob: https://ui.shadcn.com https://images.unsplash.com",
+          // The Supabase project origin must be img-src-allowlisted: driver
+          // photos render from PRIVATE-bucket signed URLs on that origin
+          // (e.g. https://<ref>.supabase.co/storage/v1/object/sign/...).
+          // Without it, prod blocks the <img> after refresh and every avatar
+          // falls back to initials — the optimistic blob: preview works, the
+          // persisted photo never does.
+          `img-src 'self' data: blob: ${new URL(process.env.NEXT_PUBLIC_SUPABASE_URL || "https://localhost").origin} https://*.supabase.co https://ui.shadcn.com https://images.unsplash.com`,
           "font-src 'self'",
           // Local Supabase stack (127.0.0.1:54321) is allowlisted ONLY in
           // development so `next dev` against `supabase start` can reach REST/
