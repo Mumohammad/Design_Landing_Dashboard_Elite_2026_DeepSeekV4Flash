@@ -25,6 +25,7 @@ import {
   DRIVER_PHOTO_MAX_BYTES,
   driverPhotoImageMeta,
   driverPhotoPath,
+  driverPhotoTenantId,
 } from "@/lib/drivers/photo"
 import { emitDriverChanged, subscribeDriverChanged } from "@/lib/drivers/driver-events"
 import { DriverPhotoProvider, useDriverPhoto } from "@/components/drivers/photo-provider"
@@ -266,8 +267,16 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
       const {
         data: { session },
       } = await supabase.auth.getSession()
-      const tenantId =
-        (session?.user?.user_metadata?.tenant_id as string | undefined) ?? ""
+      // Resolve the tenant folder from the DRIVER row (single source of
+      // truth — the driver was loaded with select("*") above). Session
+      // user_metadata.tenant_id is not guaranteed to exist on every prod
+      // account, and a missing tenant folder here fails every profile-header
+      // upload with a generic error even though the compliance-engine
+      // surface (which uses driver.tenant_id) works fine.
+      const tenantId = driverPhotoTenantId(
+        driver,
+        session?.user?.user_metadata?.tenant_id as string | undefined,
+      )
       if (!tenantId) {
         toast.error(t.common.error)
         rollbackPreview()

@@ -65,6 +65,23 @@ export function driverPhotoImageMeta(file: File): ImageMeta {
   return { ok: false }
 }
 
+/**
+ * Resolve the tenant folder for a photo upload path. The DRIVER row is the
+ * single source of truth; the session's user_metadata.tenant_id is only a
+ * fallback because it is not guaranteed to exist on every account (prod
+ * users created before metadata backfills have none — relying on it made
+ * profile-header uploads fail while the compliance-engine surface worked).
+ */
+export function driverPhotoTenantId(
+  driver: { tenant_id?: string | null },
+  sessionTenantId?: string | null,
+): string {
+  if (typeof driver.tenant_id === "string" && driver.tenant_id !== "") {
+    return driver.tenant_id
+  }
+  return sessionTenantId ?? ""
+}
+
 /** Strips everything that could break the object path (slashes, "..", unicode). */
 export function driverPhotoSafeName(name: string): string {
   const cleaned = name

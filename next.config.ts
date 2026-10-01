@@ -96,7 +96,14 @@ const nextConfig: NextConfig = {
           "style-src 'self' 'unsafe-inline'",
           "img-src 'self' data: blob: https://ui.shadcn.com https://images.unsplash.com",
           "font-src 'self'",
-          "connect-src 'self' https://*.supabase.co https://api.resend.com https://api.emailjs.com https://zatca.gov.sa https://*.ingest.sentry.io",
+          // Local Supabase stack (127.0.0.1:54321) is allowlisted ONLY in
+          // development so `next dev` against `supabase start` can reach REST/
+          // auth/storage from the browser. Production CSP stays strict.
+          ("connect-src 'self' https://*.supabase.co" +
+            (process.env.NODE_ENV === 'development'
+              ? ' http://127.0.0.1:54321 ws://127.0.0.1:54321'
+              : '') +
+            ' https://api.resend.com https://api.emailjs.com https://zatca.gov.sa https://*.ingest.sentry.io'),
           "frame-ancestors 'none'",
           "base-uri 'self'",
           "form-action 'self'",
