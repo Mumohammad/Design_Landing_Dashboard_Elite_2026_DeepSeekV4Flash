@@ -26,6 +26,7 @@ import {
   driverPhotoImageMeta,
   driverPhotoPath,
   driverPhotoTenantId,
+  logPhotoRenderFailure,
 } from "@/lib/drivers/photo"
 import { emitDriverChanged, subscribeDriverChanged } from "@/lib/drivers/driver-events"
 import { DriverPhotoProvider, useDriverPhoto } from "@/components/drivers/photo-provider"
@@ -476,6 +477,9 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
                       src={resolvedPhotoUrl}
                       alt={driver.full_name_ar}
                       className="rounded-full bg-muted object-contain"
+                      onLoadingStatusChange={(status) => {
+                        if (status === "error") logPhotoRenderFailure(resolvedPhotoUrl)
+                      }}
                     />
                   )}
                   <AvatarFallback className="rounded-full bg-gradient-to-br from-elite-blue-500 to-elite-orange-500 text-lg font-semibold text-white">
@@ -591,6 +595,7 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
                 src={resolvedPhotoUrl}
                 alt={driver.full_name_ar}
                 className="max-h-[65vh] w-auto max-w-full rounded-2xl object-contain shadow-2xl ring-1 ring-border/40"
+                onError={() => logPhotoRenderFailure(resolvedPhotoUrl)}
               />
             ) : (
               <div className="flex h-48 items-center justify-center">

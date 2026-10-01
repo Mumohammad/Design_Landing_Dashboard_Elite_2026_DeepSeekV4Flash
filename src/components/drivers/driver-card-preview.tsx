@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import type { DriverCard, DriverCardPerson } from "@/lib/drivers/cards"
+import { logPhotoRenderFailure } from "@/lib/drivers/photo"
 import { User } from "lucide-react"
 
 // Palette sampled from the rider-card reference (HungerStation badge).
@@ -51,7 +52,10 @@ function FrontCard({ card, person }: { card: DriverCard; person: DriverCardPerso
             src={person.photoUrl}
             alt=""
             style={{ width: "100%", height: "100%", objectFit: "contain" }}
-            onError={() => setImgFailed(true)}
+            onError={() => {
+              logPhotoRenderFailure(person.photoUrl)
+              setImgFailed(true)
+            }}
           />
         ) : (
           <User style={{ width: 52, height: 52, color: "#cbd5e1" }} />

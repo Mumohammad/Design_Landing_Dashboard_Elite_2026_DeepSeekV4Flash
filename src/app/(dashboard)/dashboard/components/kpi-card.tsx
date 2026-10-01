@@ -5,6 +5,7 @@ import Link from "next/link"
 import { Area, AreaChart, ResponsiveContainer } from "recharts"
 import { ArrowDownRight, ArrowUpRight, Minus, type LucideIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useMeasuredSize } from "@/components/ui/chart"
 import { useTranslation } from "@/hooks/use-translation"
 import type { MetricValue } from "@/lib/analytics/types"
 import { useCountUp } from "./use-count-up"
@@ -106,26 +107,7 @@ export function KpiCard({
       </div>
 
       {spark && spark.length > 1 && metric.available ? (
-        <div className="relative mt-3 h-10 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={spark.map((v, i) => ({ i, v }))} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
-              <defs>
-                <linearGradient id={`spark-${gradientId}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={color} stopOpacity={0.3} />
-                  <stop offset="100%" stopColor={color} stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <Area
-                type="monotone"
-                dataKey="v"
-                stroke={color}
-                strokeWidth={2}
-                fill={`url(#spark-${gradientId})`}
-                isAnimationActive={false}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
+        <SparklineMount color={color} spark={spark} gradientId={gradientId} />
       ) : (
         <span className="mt-3 flex items-center gap-1.5 text-[11px] text-muted-foreground/70">
           <Minus className="h-3 w-3" />
@@ -143,4 +125,49 @@ export function KpiCard({
     )
   }
   return card
+}
+
+/**
+ * Prompt M2: the sparkline mounts only after its wrapper reports a real
+ * measured size (ResizeObserver) — recharts never sees a zero-size container,
+ * so the "width(-1) and height(-1) of chart should be greater than 0"
+ * console warning cannot occur, even while the dashboard skeleton swaps out
+ * or the card animates in.
+ */
+function SparklineMount({
+  color,
+  spark,
+  gradientId,
+}: {
+  color: string
+  spark: number[]
+  gradientId: string
+}) {
+  const { ref, size } = useMeasuredSize<HTMLDivElement>()
+  const ready = size.width > 0 && size.height > 0
+
+  return (
+    <div ref={ref} className="relative mt-3 h-10 w-full">
+      {ready ? (
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={spark.map((v, i) => ({ i, v }))} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
+            <defs>
+              <linearGradient id={`spark-${gradientId}`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={color} stopOpacity={0.3} />
+                <stop offset="100%" stopColor={color} stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <Area
+              type="monotone"
+              dataKey="v"
+              stroke={color}
+              strokeWidth={2}
+              fill={`url(#spark-${gradientId})`}
+              isAnimationActive={false}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      ) : null}
+    </div>
+  )
 }

@@ -34,6 +34,41 @@ function useChart() {
   return context
 }
 
+/**
+ * Prompt M2: never mount a ResponsiveContainer inside an unmeasured (or
+ * zero-size) wrapper — recharts logs "width(-1) and height(-1) of chart
+ * should be greater than 0" the moment it renders into a container that is
+ * hidden or not yet laid out. This hook reports the wrapper's REAL measured
+ * size (ResizeObserver, so resize/collapse transitions re-fire) and callers
+ * gate the chart mount on width > 0 && height > 0.
+ */
+export function useMeasuredSize<T extends HTMLElement>() {
+  const ref = React.useRef<T | null>(null)
+  const [size, setSize] = React.useState({ width: 0, height: 0 })
+
+  React.useEffect(() => {
+    const el = ref.current
+    if (!el) return
+
+    const update = () => {
+      const rect = el.getBoundingClientRect()
+      const next = { width: rect.width, height: rect.height }
+      setSize((prev) =>
+        Math.abs(prev.width - next.width) < 1 && Math.abs(prev.height - next.height) < 1
+          ? prev
+          : next,
+      )
+    }
+
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
+  return { ref, size }
+}
+
 function ChartContainer({
   id,
   className,
@@ -48,15 +83,17 @@ function ChartContainer({
 }) {
   const uniqueId = React.useId()
   const chartId = `chart-${id || uniqueId.replace(/:/g, "")}`
-  const [mounted, setMounted] = React.useState(false)
-
-  React.useEffect(() => {
-    setMounted(true)
-  }, [])
+  // The wrapper div ALWAYS renders (so it can be measured and keeps its
+  // layout height); the recharts surface only mounts once the wrapper has a
+  // real size. This replaces the old mounted-flag gate, which still let
+  // ResponsiveContainer measure a hidden/zero-size container.
+  const { ref: measureRef, size } = useMeasuredSize<HTMLDivElement>()
+  const hasLayout = size.width > 0 && size.height > 0
 
   return (
     <ChartContext.Provider value={{ config }}>
       <div
+        ref={measureRef}
         data-slot="chart"
         data-chart={chartId}
         className={cn(
@@ -66,7 +103,7 @@ function ChartContainer({
         {...props}
       >
         <ChartStyle id={chartId} config={config} />
-        {mounted ? (
+        {hasLayout ? (
           <RechartsPrimitive.ResponsiveContainer>
             {children}
           </RechartsPrimitive.ResponsiveContainer>

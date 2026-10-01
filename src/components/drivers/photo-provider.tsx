@@ -11,6 +11,7 @@ import {
 } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { subscribeDriverChanged } from "@/lib/drivers/driver-events"
+import { withCacheBust } from "@/lib/drivers/photo"
 
 const PHOTO_BUCKET = "driver-photos"
 /** Signed URLs are refreshed well before the Supabase default 1h expiry. */
@@ -30,17 +31,6 @@ type PhotoState = {
 }
 
 const PhotoContext = createContext<PhotoState | null>(null)
-
-function withBust(url: string, version: string | null): string {
-  if (!version) return url
-  try {
-    const u = new URL(url)
-    u.searchParams.set("v", version)
-    return u.toString()
-  } catch {
-    return url
-  }
-}
 
 export function DriverPhotoProvider({
   driverId,
@@ -80,52 +70,59 @@ export function DriverPhotoProvider({
       setPhotoUrl(nextPath)
       return
     }
-    const { data: signed } = await supabase.storage
+    const { data: signed, error: signError } = await supabase.storage
       .from(PHOTO_BUCKET)
       .createSignedUrl(nextPath, SIGNED_TTL_SECONDS)
+    if (signError) {
+      console.error("[photo-provider] createSignedUrl failed:", signError.message, nextPath)
+    }
     signCountRef.current += 1
     // Prefer drivers.updated_at as the bust version; fall back to a monotonic
     // signing counter so re-signed URLs never collide with cached ones.
     const version = nextUpdatedAt ?? `s${signCountRef.current}`
-    setPhotoUrl(signed?.signedUrl ? withBust(signed.signedUrl, version) : null)
+    setPhotoUrl(signed?.signedUrl ? withCacheBust(signed.signedUrl, version) : null)
   }, [driverId])
 
-  const initialResolvedRef = useRef(false)
-
   useEffect(() => {
-    // Skip the first DB select when the caller already knows the photo path —
-    // sign it directly, then refreshes hit the DB for the live value.
-    if (initialResolvedRef.current) return
-    initialResolvedRef.current = true
+    // Initial sign — StrictMode-safe by construction. The previous shape
+    // (one-shot ref guard + setTimeout(0)) was eaten by StrictMode's
+    // double-invoke: mount scheduled the timer, cleanup cancelled it, the
+    // remount hit the guard and returned — nothing ever signed and every
+    // avatar stuck on initials after a hard refresh. The correct pattern is
+    // to run the work on EVERY effect invocation with per-invocation
+    // cancellation: the discarded first run's state writes are suppressed,
+    // the second run completes and lands the signed URL. This also re-signs
+    // when the caller supplies a different initial path (list refetch).
     let cancelled = false
-    let timer: ReturnType<typeof setTimeout> | null = null
-    const run = () => {
-      void (async () => {
-        try {
-          if (initialPhotoPath) {
-            if (!/^https?:\/\//i.test(initialPhotoPath)) {
-              const { data: signed } = await createClient()
-                .storage.from(PHOTO_BUCKET)
-                .createSignedUrl(initialPhotoPath, SIGNED_TTL_SECONDS)
-              signCountRef.current += 1
-              if (!cancelled) {
-                setPhotoUrl(signed?.signedUrl ? withBust(signed.signedUrl, `s${signCountRef.current}`) : null)
-              }
-              return
+    void (async () => {
+      try {
+        if (initialPhotoPath) {
+          if (!/^https?:\/\//i.test(initialPhotoPath)) {
+            const { data: signed, error: signError } = await createClient()
+              .storage.from(PHOTO_BUCKET)
+              .createSignedUrl(initialPhotoPath, SIGNED_TTL_SECONDS)
+            if (signError) {
+              // Was silent before — a failing sign must be diagnosable.
+              console.error("[photo-provider] createSignedUrl failed:", signError.message, initialPhotoPath)
             }
-            if (!cancelled) setPhotoUrl(initialPhotoPath)
+            signCountRef.current += 1
+            if (!cancelled) {
+              setPhotoUrl(signed?.signedUrl ? withCacheBust(signed.signedUrl, `s${signCountRef.current}`) : null)
+            }
             return
           }
-          await selectAndSign()
-        } finally {
-          if (!cancelled) setIsLoading(false)
+          if (!cancelled) setPhotoUrl(initialPhotoPath)
+          return
         }
-      })()
-    }
-    timer = setTimeout(run, 0)
+        await selectAndSign()
+      } catch (err) {
+        console.error("[photo-provider] initial sign failed:", err)
+      } finally {
+        if (!cancelled) setIsLoading(false)
+      }
+    })()
     return () => {
       cancelled = true
-      if (timer) clearTimeout(timer)
     }
   }, [initialPhotoPath, selectAndSign])
 
@@ -138,17 +135,6 @@ export function DriverPhotoProvider({
       refreshRef.current?.()
     })
   }, [driverId])
-
-  const lastInitialPathRef = useRef(initialPhotoPath)
-  useEffect(() => {
-    // The caller supplied a different path than before (e.g. a list row
-    // refetched after an upload) — re-read the DB so the avatar never keeps
-    // showing a stale photo.
-    if (lastInitialPathRef.current !== initialPhotoPath) {
-      lastInitialPathRef.current = initialPhotoPath
-      refreshRef.current?.()
-    }
-  }, [initialPhotoPath])
 
   // Periodically re-sign so URLs never outlive their TTL on long-lived tabs.
   useEffect(() => {

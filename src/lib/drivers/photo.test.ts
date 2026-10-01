@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
   DRIVER_PHOTO_BUCKET,
   DRIVER_PHOTO_MAX_BYTES,
@@ -9,6 +9,8 @@ import {
   driverPhotoTenantId,
   isDriverPhotoObjectPath,
   isDriverPhotoPathValid,
+  logPhotoRenderFailure,
+  withCacheBust,
 } from "./photo"
 
 const TENANT = "11111111-1111-1111-1111-111111111111"
@@ -62,6 +64,54 @@ describe("driverPhotoImageMeta", () => {
     expect(driverPhotoImageMeta(makeFile("doc.pdf", "application/pdf")).ok).toBe(false)
     expect(driverPhotoImageMeta(makeFile("virus.exe", "")).ok).toBe(false)
     expect(driverPhotoImageMeta(makeFile("noext", "")).ok).toBe(false)
+  })
+})
+
+describe("withCacheBust (Prompt M regression guard)", () => {
+  const SIGNED = "https://wwfnsbilmyxeawgzicmv.supabase.co/storage/v1/object/sign/tenant/driver/photo.png?token=abc123"
+
+  it("MERGES the cache-buster into the existing query (never ?v= concat)", () => {
+    const out = withCacheBust(SIGNED, "2026-10-01T00:00:00Z")
+    expect(out).toContain("token=abc123")
+    expect(out).toContain("v=2026-10-01T00%3A00%3A00Z")
+    expect(out).not.toContain("?v=")
+    // exactly one querystring start
+    expect(out.split("?").length).toBe(2)
+  })
+
+  it("keeps the token param usable for storage (parseable, single v)", () => {
+    const out = withCacheBust(SIGNED, "v2")
+    const u = new URL(out)
+    expect(u.searchParams.get("token")).toBe("abc123")
+    expect(u.searchParams.get("v")).toBe("v2")
+  })
+
+  it("passes through when there is no version", () => {
+    expect(withCacheBust(SIGNED, null)).toBe(SIGNED)
+  })
+
+  it("survives garbage input without throwing", () => {
+    expect(withCacheBust("not a url at all", "v3")).toBe("not a url at all")
+  })
+})
+
+describe("logPhotoRenderFailure (display diagnostics)", () => {
+  it("never throws for any input", () => {
+    expect(() => logPhotoRenderFailure(null)).not.toThrow()
+    expect(() => logPhotoRenderFailure("")).not.toThrow()
+    expect(() => logPhotoRenderFailure("https://x.supabase.co/storage/v1/object/sign/a?token=t")).not.toThrow()
+    expect(() => logPhotoRenderFailure("raw/storage/path.png")).not.toThrow()
+  })
+
+  it("classifies signed urls vs raw paths (spy on console.error)", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    logPhotoRenderFailure("https://x.supabase.co/storage/v1/object/sign/a/b.png?token=t")
+    expect(spy.mock.calls[0]?.[0]).toContain("signed url")
+    logPhotoRenderFailure("tenant/driver/photo-1.png")
+    expect(spy.mock.calls[1]?.[0]).toContain("raw path?")
+    logPhotoRenderFailure(null)
+    expect(spy).toHaveBeenCalledTimes(2)
+    spy.mockRestore()
   })
 })
 

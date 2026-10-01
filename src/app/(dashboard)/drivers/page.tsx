@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
 import { subscribeDriverChanged } from "@/lib/drivers/driver-events"
+import { logPhotoRenderFailure } from "@/lib/drivers/photo"
 import { DriverPhotoProvider, useDriverPhoto } from "@/components/drivers/photo-provider"
 import {
   EnterpriseModulePage,
@@ -173,7 +174,10 @@ function DriverAvatarImage({ name, initial }: { name: string | null; initial: st
           alt={name ?? ""}
           className="h-full w-full rounded-full object-cover"
           loading="lazy"
-          onError={() => setImgFailed(true)}
+          onError={() => {
+            logPhotoRenderFailure(photoUrl)
+            setImgFailed(true)
+          }}
         />
       ) : null}
       {!photoUrl || imgFailed ? (
