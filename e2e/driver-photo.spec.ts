@@ -59,12 +59,20 @@ async function gotoFirstDriver(page: Page): Promise<string | null> {
   return href
 }
 
-// ── Display after hard refresh (Prompt M regression) ─────────────────────────
+// ── Display after hard refresh (Prompt M / M2 regression) ────────────────────
 
  test.describe("Driver photo — display after hard refresh", () => {
-  test("avatar renders a signed URL with token= and decodes", async ({
+  test("avatar renders a signed URL with token=, decodes, and fires NO CSP error", async ({
     authed: page,
   }) => {
+    // Prompt M2: capture CSP violations for the whole display flow.
+    const cspErrors: string[] = []
+    page.on("console", (msg) => {
+      if (msg.type() === "error" && /Content Security Policy/i.test(msg.text())) {
+        cspErrors.push(msg.text().slice(0, 300))
+      }
+    })
+
     const href = await gotoFirstDriver(page)
     test.skip(href === null, "no seeded driver available")
 
@@ -93,6 +101,10 @@ async function gotoFirstDriver(page: Page): Promise<string | null> {
         { timeout: 15_000 },
       )
       .toBe(true)
+
+    // A decoded avatar + any CSP error means a DIFFERENT load was blocked —
+    // fail loudly so an img-src regression can never ship silently.
+    expect(cspErrors).toEqual([])
   })
 
   test("no <img> renders a raw storage path", async ({ authed: page }) => {

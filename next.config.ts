@@ -1,5 +1,6 @@
 import type { NextConfig } from "next"
 import { withSentryConfig } from "@sentry/nextjs"
+import { buildCsp } from "./src/lib/security/csp"
 
 // ── Cross-deployment routing ─────────────────────────────────────────────────
 // Two Vercel projects deploy this repo: a public LANDING deployment and an
@@ -87,33 +88,13 @@ const nextConfig: NextConfig = {
       },
       {
         key: 'Content-Security-Policy',
-        value: [
-          "default-src 'self'",
-          // React dev mode + Turbopack HMR need eval() (source-map
-          // reconstruction) — allow it only outside production. The
-          // production CSP below stays strict, same as the HSTS gate.
-          `script-src 'self' 'unsafe-inline'${process.env.NODE_ENV === 'development' ? " 'unsafe-eval'" : ''}`,
-          "style-src 'self' 'unsafe-inline'",
-          // The Supabase project origin must be img-src-allowlisted: driver
-          // photos render from PRIVATE-bucket signed URLs on that origin
-          // (e.g. https://<ref>.supabase.co/storage/v1/object/sign/...).
-          // Without it, prod blocks the <img> after refresh and every avatar
-          // falls back to initials — the optimistic blob: preview works, the
-          // persisted photo never does.
-          `img-src 'self' data: blob: ${new URL(process.env.NEXT_PUBLIC_SUPABASE_URL || "https://localhost").origin} https://*.supabase.co https://ui.shadcn.com https://images.unsplash.com`,
-          "font-src 'self'",
-          // Local Supabase stack (127.0.0.1:54321) is allowlisted ONLY in
-          // development so `next dev` against `supabase start` can reach REST/
-          // auth/storage from the browser. Production CSP stays strict.
-          ("connect-src 'self' https://*.supabase.co" +
-            (process.env.NODE_ENV === 'development'
-              ? ' http://127.0.0.1:54321 ws://127.0.0.1:54321'
-              : '') +
-            ' https://api.resend.com https://api.emailjs.com https://zatca.gov.sa https://*.ingest.sentry.io'),
-          "frame-ancestors 'none'",
-          "base-uri 'self'",
-          "form-action 'self'",
-        ].join('; '),
+        // Single source of truth in src/lib/security/csp.ts — vitest parses
+        // the produced header to keep the Supabase img-src origin locked in
+        // (Prompt M2 regression guard).
+        value: buildCsp({
+          isDev: process.env.NODE_ENV === 'development',
+          supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
+        }),
       },
     ];
 
