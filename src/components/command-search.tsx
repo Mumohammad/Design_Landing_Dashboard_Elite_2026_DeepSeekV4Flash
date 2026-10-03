@@ -30,7 +30,7 @@ import {
   type LucideIcon,
 } from "lucide-react"
 
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { useTranslation } from "@/hooks/use-translation"
 import { cn } from "@/lib/utils"
 
@@ -202,6 +202,9 @@ export function CommandSearch({ open, onOpenChange }: CommandSearchProps) {
         {/* Gradient top accent */}
         <div className="h-1 w-full bg-gradient-to-r from-elite-blue-500 via-elite-blue-600 to-elite-orange-500" />
         <DialogTitle className="sr-only">Command Search</DialogTitle>
+        <DialogDescription className="sr-only">
+          {t.common.searchPlaceholder}
+        </DialogDescription>
         <Command
           ref={commandRef}
           className="transition-transform duration-120 ease-out"
