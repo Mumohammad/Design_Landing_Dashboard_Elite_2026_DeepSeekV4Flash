@@ -568,6 +568,63 @@ export type TranslationStrings = {
     sourceObd: string
     sourceImport: string
   }
+  maintenanceModule: {
+    subtitle: string
+    kpiOpen: string
+    kpiInProgress: string
+    kpiCompletedMonth: string
+    kpiAvgCost: string
+    kpiVehiclesInMaintenance: string
+    colReportedBy: string
+    colFault: string
+    colCost: string
+    colProvider: string
+    colDateIn: string
+    colDateOut: string
+    colOdometer: string
+    filterStatus: string
+    filterType: string
+    filterVehicle: string
+    filterDateFrom: string
+    filterDateTo: string
+    addEvent: string
+    addEventDesc: string
+    editEvent: string
+    editEventDesc: string
+    completeEvent: string
+    completeEventDesc: string
+    cancelEvent: string
+    cancelEventDesc: string
+    cancelReason: string
+    cancelReasonRequired: string
+    fieldVehicle: string
+    fieldReportedByDriver: string
+    fieldFaultDescription: string
+    fieldCost: string
+    fieldProvider: string
+    fieldDateOut: string
+    fieldOdometerAtService: string
+    fieldPartsReplaced: string
+    fieldNextServiceKm: string
+    fieldNextServiceDate: string
+    fieldNotes: string
+    odometerDialog: string
+    odometerHistory: string
+    addOdometerReading: string
+    odometerReading: string
+    odometerRecordedAt: string
+    latestOdometer: string
+    noOdometerData: string
+    startEvent: string
+    viewOdometer: string
+    autoLoggedNote: string
+    exported: string
+    confirmCancel: string
+    errVehicleRequired: string
+    errDescriptionRequired: string
+    errCostRequired: string
+    errReadingRequired: string
+  }
   errors: {
     forbiddenTitle: string
     forbiddenDescription: string
