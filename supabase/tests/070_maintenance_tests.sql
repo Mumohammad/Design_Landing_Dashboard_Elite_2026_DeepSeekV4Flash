@@ -112,14 +112,14 @@ SELECT is(
 
 -- Seed a baseline reading (as postgres — the behavioral RLS round-trip runs later).
 INSERT INTO public.vehicle_odometer_logs (id, tenant_id, vehicle_id, reading, recorded_at, source)
-VALUES ('07000000-0000-0000-0000-00000000000a', (SELECT tenant_a FROM maint_fixture),
-        (SELECT vehicle_a FROM maint_fixture), 1000, now() - interval '10 days', 'manual')
+VALUES ('07000000-0000-0000-0000-00000000000a', '07000000-0000-0000-0000-000000000001',
+        '07000000-0000-0000-0000-000000000004', 1000, now() - interval '10 days', 'manual')
 ON CONFLICT (id) DO NOTHING;
 
 SELECT throws_ok(
   $$INSERT INTO public.vehicle_odometer_logs (tenant_id, vehicle_id, reading, recorded_at, source)
-    VALUES ((SELECT tenant_a FROM maint_fixture),
-            (SELECT vehicle_a FROM maint_fixture), 500, now(), 'manual')$$,
+    VALUES ('07000000-0000-0000-0000-000000000001',
+            '07000000-0000-0000-0000-000000000004', 500, now(), 'manual')$$,
   'P0001',
   'VEH003',
   'odometer regression trigger rejects a backwards reading (VEH003)'
@@ -127,8 +127,8 @@ SELECT throws_ok(
 
 SELECT lives_ok(
   $$INSERT INTO public.vehicle_odometer_logs (tenant_id, vehicle_id, reading, recorded_at, source)
-    VALUES ((SELECT tenant_a FROM maint_fixture),
-            (SELECT vehicle_a FROM maint_fixture), 1500, now(), 'manual')$$,
+    VALUES ('07000000-0000-0000-0000-000000000001',
+            '07000000-0000-0000-0000-000000000004', 1500, now(), 'manual')$$,
   'forward odometer reading is accepted'
 );
 
@@ -177,8 +177,8 @@ SELECT is(
 
 -- Seed one visible event row for tenant A (as postgres).
 INSERT INTO public.vehicle_maintenance_events (id, tenant_id, vehicle_id, maintenance_type, status, fault_description)
-VALUES ((SELECT event_id FROM maint_fixture), (SELECT tenant_a FROM maint_fixture),
-        (SELECT vehicle_a FROM maint_fixture), 'preventive', 'open', 'suite fixture event')
+VALUES ('07000000-0000-0000-0000-000000000008', '07000000-0000-0000-0000-000000000001',
+        '07000000-0000-0000-0000-000000000004', 'preventive', 'open', 'suite fixture event')
 ON CONFLICT (id) DO NOTHING;
 
 -- anon sees zero on both tables.
@@ -197,10 +197,8 @@ RESET ROLE;
 
 -- Fixture user (tenant A) sees exactly the tenant-A event + tenant-A odometer rows.
 SET LOCAL ROLE authenticated;
-SET LOCAL request.jwt.claims = jsonb_build_object(
-  'sub', (SELECT auth_id FROM maint_fixture),
-  'role', 'authenticated'
-);
+SELECT set_config('request.jwt.claims',
+  '{"sub": "07000000-0000-0000-0000-000000000006", "role": "authenticated"}', true);
 SELECT is(
   (SELECT count(*) FROM public.vehicle_maintenance_events),
   1::bigint,
@@ -208,13 +206,13 @@ SELECT is(
 );
 SELECT is(
   (SELECT count(*) FROM public.vehicle_maintenance_events
-   WHERE tenant_id = (SELECT tenant_b FROM maint_fixture)),
+   WHERE tenant_id = '07000000-0000-0000-0000-000000000002'),
   0::bigint,
   'cross-tenant event (tenant B) is invisible to the tenant-A user'
 );
 SELECT is(
   (SELECT count(*) FROM public.vehicle_odometer_logs
-   WHERE vehicle_id = (SELECT vehicle_b FROM maint_fixture)),
+   WHERE vehicle_id = '07000000-0000-0000-0000-000000000005'),
   0::bigint,
   'tenant-B vehicle odometer rows are invisible to the tenant-A user'
 );
@@ -223,58 +221,62 @@ RESET ROLE;
 -- ─── 5. Behavioral round-trip as the fixture user (5) ───────────────────────
 
 SET LOCAL ROLE authenticated;
-SET LOCAL request.jwt.claims = jsonb_build_object(
-  'sub', (SELECT auth_id FROM maint_fixture),
-  'role', 'authenticated'
-);
+SELECT set_config('request.jwt.claims',
+  '{"sub": "07000000-0000-0000-0000-000000000006", "role": "authenticated"}', true);
 
 -- The UI create path: insert event with the columns the action writes.
 SELECT lives_ok(
   $$INSERT INTO public.vehicle_maintenance_events
       (tenant_id, vehicle_id, maintenance_type, reported_by_driver_id, fault_description, status)
-    SELECT (SELECT tenant_a FROM maint_fixture), (SELECT vehicle_a FROM maint_fixture),
-           'repair', (SELECT driver_a FROM maint_fixture), 'behavioral round-trip event', 'open'$$,
+    SELECT '07000000-0000-0000-0000-000000000001', '07000000-0000-0000-0000-000000000004',
+           'repair', '07000000-0000-0000-0000-000000000003', 'behavioral round-trip event', 'open'$$,
   'authenticated insert of a maintenance event rides RLS (create path)'
 );
 
 -- The odometer auto-log path: forward reading inserted as the fixture user.
 SELECT lives_ok(
   $$INSERT INTO public.vehicle_odometer_logs (tenant_id, vehicle_id, reading, recorded_at, source)
-    SELECT (SELECT tenant_a FROM maint_fixture), (SELECT vehicle_a FROM maint_fixture),
+    SELECT '07000000-0000-0000-0000-000000000001', '07000000-0000-0000-0000-000000000004',
            2000, now(), 'manual'$$,
   'authenticated insert of a forward odometer reading rides RLS'
 );
 
--- The complete path: conditional claim flips open → completed.
+-- The complete path: conditional claim flips open → completed. pgTAP lives
+-- inside a scalar SELECT, and a data-modifying CTE must sit at top level, so
+-- the CTE returns the count through a second (side-effect-free) query:
+WITH claim AS (
+  UPDATE public.vehicle_maintenance_events
+  SET status = 'completed', date_out = now(), cost = 250
+  WHERE vehicle_id = '07000000-0000-0000-0000-000000000004'
+    AND status = 'open'
+  RETURNING 1
+)
 SELECT is(
-  (SELECT count(*) FROM (
-     UPDATE public.vehicle_maintenance_events
-     SET status = 'completed', date_out = now(), cost = 250
-     WHERE vehicle_id = (SELECT vehicle_a FROM maint_fixture)
-       AND status = 'open'
-     RETURNING 1
-   ) q),
+  (SELECT count(*) FROM claim),
   2::bigint,
   'conditional UPDATE completes both open events (complete-path claim semantics)'
 );
 
--- The vehicle release claim: only flips while still in_maintenance.
+-- The vehicle claim: only flips from available/assigned (start path).
+WITH claim AS (
+  UPDATE public.vehicles SET status = 'in_maintenance'
+  WHERE id = '07000000-0000-0000-0000-000000000004' AND status IN ('available','assigned')
+  RETURNING 1
+)
 SELECT is(
-  (SELECT count(*) FROM (
-     UPDATE public.vehicles SET status = 'in_maintenance'
-     WHERE id = (SELECT vehicle_a FROM maint_fixture) AND status IN ('available','assigned')
-     RETURNING 1
-   ) q),
+  (SELECT count(*) FROM claim),
   1::bigint,
   'vehicle can be claimed into in_maintenance from available/assigned (start path)'
 );
 
+-- The vehicle release claim: only flips while still in_maintenance.
+WITH release AS (
+  UPDATE public.vehicles SET status = 'available'
+  WHERE id = '07000000-0000-0000-0000-000000000004' AND status = 'in_maintenance'
+  RETURNING 1
+)
 SELECT is(
-  (SELECT count(*) FROM (
-     UPDATE public.vehicles SET status = 'available'
-     WHERE id = (SELECT vehicle_a FROM maint_fixture) AND status = 'in_maintenance'
-     RETURNING 1
-   ) q),
+  (SELECT count(*) FROM release),
   1::bigint,
   'vehicle is released from in_maintenance (complete-path release semantics)'
 );

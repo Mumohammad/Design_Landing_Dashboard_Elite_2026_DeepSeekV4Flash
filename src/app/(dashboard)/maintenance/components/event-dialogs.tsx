@@ -4,7 +4,7 @@
 // Composes the vehicle picker (tenant vehicles), the latest odometer reading
 // from vehicle_odometer_logs, and the maintenance server actions.
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "@/hooks/use-translation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -106,7 +106,16 @@ export function EventDialogs({
   const [cancelReason, setCancelReason] = useState("")
   const [busy, setBusy] = useState(false)
 
+  // Reset-on-open via the parent's session key (no setState-in-effect):
+  // when `kind`/event changes the parent remounts this dialog, so initial
+  // state derives from props directly. The effect below only handles the
+  // legacy case of the same dialog instance being re-opened for a DIFFERENT
+  // event while staying mounted.
+  const lastKey = useRef("")
+  const sessionKey = `${kind ?? ""}:${event?.id ?? ""}`
   useEffect(() => {
+    if (lastKey.current === sessionKey) return
+    lastKey.current = sessionKey
     if (kind === "create") {
       setVehicleId("")
       setDriverId("")
