@@ -625,6 +625,71 @@ export type TranslationStrings = {
     errCostRequired: string
     errReadingRequired: string
   }
+  platformsModule: {
+    subtitle: string
+    kpiActive: string
+    kpiTodayOrders: string
+    kpiMonthRevenue: string
+    kpiOutstanding: string
+    colCode: string
+    colRateType: string
+    colRate: string
+    addPlatform: string
+    addPlatformDesc: string
+    editPlatform: string
+    editPlatformDesc: string
+    deactivatePlatform: string
+    deactivateConfirm: string
+    fieldCode: string
+    fieldNameAr: string
+    fieldNameEn: string
+    fieldBrandColor: string
+    fieldRateType: string
+    fieldRatePerOrder: string
+    fieldApiBaseUrl: string
+    fieldSortOrder: string
+    drillDown: string
+    dailyRollup: string
+    monthlyRollup: string
+    paymentsLedger: string
+    activeDrivers: string
+    recordPayment: string
+    recordPaymentDesc: string
+    fieldPeriod: string
+    fieldExpected: string
+    fieldReceived: string
+    fieldPaymentDate: string
+    fieldPaymentRef: string
+    colExpected: string
+    colReceived: string
+    colOutstanding: string
+    colPaymentStatus: string
+    colPaymentDate: string
+    importEntries: string
+    importEntriesDesc: string
+    importCsv: string
+    importPlaceholder: string
+    importRowsParsed: string
+    importRowsOk: string
+    importRowsFailed: string
+    importRun: string
+    importPartial: string
+    importSuccess: string
+    addEntry: string
+    addEntryDesc: string
+    colDelivered: string
+    colFailed: string
+    colReturned: string
+    colDeliveredPct: string
+    colRevenue: string
+    colPeriod: string
+    noEntries: string
+    noPayments: string
+    errCodeRequired: string
+    errNameRequired: string
+    errAmountInvalid: string
+    errEntryRequired: string
+  }
   errors: {
     forbiddenTitle: string
     forbiddenDescription: string
