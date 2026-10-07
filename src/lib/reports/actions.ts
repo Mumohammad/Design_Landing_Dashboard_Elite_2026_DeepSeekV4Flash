@@ -1,22 +1,32 @@
 "use server"
 
-// Reports Server Action — v2.0 M7 async generation worker.
+// Reports Server Actions — v2.0 M7 async generation worker + document
+// lifecycle (Prompt O Part 5 surface).
 //
-// The flow mirrors the report_generation_log job queue:
+// The generation flow mirrors the report_generation_log job queue:
 //   1. requirePermission("reports", "export") + rate limit (10/hour)
-//   2. insert a row with status 'generating'
-//   3. collect rows (service-role), serialize to CSV, upload to the
+//   2. zod-validate the catalog report type + period
+//   3. insert a row with status 'generating'
+//   4. collect rows (service-role), serialize to CSV, upload to the
 //      `generated-reports` storage bucket under <tenant_id>/
-//   4. mark the row 'completed' with file_url/file_name/file_size_bytes
-//   5. on failure mark the row 'failed' with error_message
+//   5. mark the row 'completed' with file_url/file_name/file_size_bytes
+//   6. on failure mark the row 'failed' with error_message
 //
 // Generation is synchronous inside the action (fine for fleet-scale data);
 // the queue table still records every job for future background workers.
+//
+// Document lifecycle: markDocumentPrinted / archiveDocument flip
+// generated_documents.status with conditional UPDATEs (0 rows ⇒ race lost),
+// audited. Template-driven document CREATION is the pre-existing
+// generateDocumentAction (src/lib/templates/generator.ts) — REUSED, not
+// re-derived.
 
+import { revalidatePath } from "next/cache"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
 import { rateLimitReports } from "@/lib/auth/rate-limit"
 import { writeAuditLog } from "@/lib/auth/sessions"
+import { docDecisionSchema, reportGenerateSchema, type DocDecisionInput } from "@/types/reports-module"
 import { collectReportData, buildCsv, type ReportType } from "./generator"
 
 type ActionResult = { success: boolean; error?: string; reportId?: string }
@@ -27,7 +37,7 @@ function errorMessage(e: unknown): string {
 }
 
 export async function generateReportAction(
-  reportType: ReportType,
+  reportType: ReportType | string,
   params?: Record<string, unknown>
 ): Promise<ActionResult> {
   try {
@@ -40,15 +50,20 @@ export async function generateReportAction(
       return { success: false, error: "Rate limit exceeded (10 reports/hour). Try again later." }
     }
 
+    // Zod gate: only the eight live-table catalog types, valid period.
+    const year = Number(params?.year ?? new Date().getFullYear())
+    const month = Number(params?.month ?? new Date().getMonth() + 1)
+    const parsed = reportGenerateSchema.parse({ report_type: reportType, year, month })
+
     const admin = createAdminClient()
-    const safeParams = params ?? {}
+    const safeParams = { year: parsed.year, month: parsed.month }
 
     // 1. Queue the job
     const { data: logRow, error: insErr } = await admin
       .from("report_generation_log")
       .insert({
         tenant_id: currentUser.tenantId,
-        report_type: reportType,
+        report_type: parsed.report_type,
         report_params: safeParams,
         output_format: "csv",
         generated_by: currentUser.authUserId,
@@ -64,7 +79,7 @@ export async function generateReportAction(
 
     try {
       // 2. Collect + serialize
-      const output = await collectReportData(admin, currentUser.tenantId, reportType, safeParams)
+      const output = await collectReportData(admin, currentUser.tenantId, parsed.report_type, safeParams)
       const content = buildCsv(output.headers, output.rows)
       const fileName = output.filename
       const filePath = `${currentUser.tenantId}/${fileName}`
@@ -95,9 +110,10 @@ export async function generateReportAction(
         action: "report_generated",
         entityType: "report_generation_log",
         entityId: reportId,
-        newValues: { report_type: reportType, file_name: fileName, rows: output.rows.length },
+        newValues: { report_type: parsed.report_type, file_name: fileName, rows: output.rows.length },
       })
 
+      revalidatePath("/reports")
       return { success: true, reportId }
     } catch (e) {
       const msg = errorMessage(e)
@@ -107,6 +123,93 @@ export async function generateReportAction(
         .eq("id", reportId)
       return { success: false, error: msg }
     }
+  } catch (e) {
+    return { success: false, error: errorMessage(e) }
+  }
+}
+
+// ── Generated-document lifecycle (print / archive) ─────────────────────────
+
+/**
+ * Mark a generated document printed — conditional claim of the
+ * draft/generated row (0 rows ⇒ already printed/archived/raced away).
+ * reports:update.
+ */
+export async function markDocumentPrinted(input: DocDecisionInput): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requirePermission("reports", "update")
+    const currentUser = await getCurrentUser()
+    if (!currentUser) return { success: false, error: "Not authenticated." }
+
+    const parsed = docDecisionSchema.parse(input)
+    const admin = createAdminClient()
+
+    const { data, error } = await admin
+      .from("generated_documents")
+      .update({ status: "printed", printed_at: new Date().toISOString(), updated_by: currentUser.authUserId })
+      .eq("id", parsed.id)
+      .eq("tenant_id", currentUser.tenantId)
+      .in("status", ["draft", "generated"]) // conditional claim
+      .is("deleted_at", null)
+      .select("doc_number")
+      .single()
+    if (error) return { success: false, error: error.message }
+    if (!data) return { success: false, error: "The document is no longer printable." }
+
+    await writeAuditLog({
+      tenantId: currentUser.tenantId,
+      actorId: currentUser.authUserId,
+      module: "reports",
+      action: "document_printed",
+      entityType: "generated_document",
+      entityId: parsed.id,
+      newValues: { doc_number: data.doc_number },
+    })
+
+    revalidatePath("/reports")
+    return { success: true }
+  } catch (e) {
+    return { success: false, error: errorMessage(e) }
+  }
+}
+
+/**
+ * Archive a generated document — conditional claim of any live row
+ * (0 rows ⇒ already archived). reports:update.
+ */
+export async function archiveDocument(input: DocDecisionInput): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requirePermission("reports", "update")
+    const currentUser = await getCurrentUser()
+    if (!currentUser) return { success: false, error: "Not authenticated." }
+
+    const parsed = docDecisionSchema.parse(input)
+    const admin = createAdminClient()
+
+    const { data, error } = await admin
+      .from("generated_documents")
+      .update({ status: "archived", updated_by: currentUser.authUserId })
+      .eq("id", parsed.id)
+      .eq("tenant_id", currentUser.tenantId)
+      .neq("status", "archived") // conditional claim
+      .is("deleted_at", null)
+      .select("doc_number")
+      .single()
+    if (error) return { success: false, error: error.message }
+    if (!data) return { success: false, error: "The document is already archived." }
+
+    await writeAuditLog({
+      tenantId: currentUser.tenantId,
+      actorId: currentUser.authUserId,
+      module: "reports",
+      action: "document_archived",
+      entityType: "generated_document",
+      entityId: parsed.id,
+      newValues: { doc_number: data.doc_number },
+    })
+
+    revalidatePath("/reports")
+    return { success: true }
   } catch (e) {
     return { success: false, error: errorMessage(e) }
   }

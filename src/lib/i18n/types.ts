@@ -927,6 +927,66 @@ export type TranslationStrings = {
     errNameRequired: string
     errReasonRequired: string
   }
+  reportsModule: {
+    subtitle: string
+    tabReports: string
+    tabTemplates: string
+    tabDocuments: string
+    kpiTotalReports: string
+    kpiCompleted: string
+    kpiGenerating: string
+    kpiFailed: string
+    colType: string
+    colFormat: string
+    colStatus: string
+    colFile: string
+    colSize: string
+    colCreated: string
+    colExpires: string
+    colDownload: string
+    selectType: string
+    selectMonth: string
+    selectYear: string
+    generateReport: string
+    generateSuccess: string
+    statusGenerating: string
+    statusCompleted: string
+    statusFailed: string
+    statusExpired: string
+    typeDriverPerformance: string
+    typePayrollSummary: string
+    typeFleetCost: string
+    typeRevenue: string
+    typeViolationsReport: string
+    typeAttendanceSummary: string
+    typeExecutiveDashboard: string
+    typeHsReconciliation: string
+    templatesTitle: string
+    colTemplateCode: string
+    colTemplateName: string
+    colCategory: string
+    colFields: string
+    colDescription: string
+    generateDoc: string
+    generateDocDesc: string
+    docsTitle: string
+    colDocNumber: string
+    colTemplate: string
+    colGeneratedAt: string
+    colPrintedAt: string
+    colVerify: string
+    printDoc: string
+    archiveDoc: string
+    docStatusDraft: string
+    docStatusGenerated: string
+    docStatusPrinted: string
+    docStatusArchived: string
+    verifyLink: string
+    noTemplates: string
+    noDocuments: string
+    noReports: string
+    errDriverRequired: string
+  }
   errors: {
     forbiddenTitle: string
     forbiddenDescription: string

@@ -7,6 +7,7 @@
 // completed. Pure helpers here are unit-testable without a live DB.
 
 import type { SupabaseClient } from "@supabase/supabase-js"
+import { monthRange } from "./module-utils"
 
 export type ReportType =
   | "driver_performance"
@@ -360,12 +361,15 @@ export async function collectReportData(
     }
 
     case "hs_reconciliation": {
+      // Real last-day range — a hard-coded `-31` suffix is an invalid date
+      // literal for 28/29/30-day months and PostgREST rejects the filter.
+      const range = monthRange(year, month)
       const { data } = await admin
         .from("daily_order_entries")
         .select("entry_date,orders_delivered,orders_failed,orders_returned,gross_revenue,platform_reported_revenue,revenue_variance,platform:delivery_platforms(name_ar)")
         .eq("tenant_id", tenantId)
-        .gte("entry_date", `${year}-${String(month).padStart(2, "0")}-01`)
-        .lte("entry_date", `${year}-${String(month).padStart(2, "0")}-31`)
+        .gte("entry_date", range.start)
+        .lte("entry_date", range.end)
         .is("deleted_at", null)
         .order("entry_date", { ascending: true })
         .limit(1000)
