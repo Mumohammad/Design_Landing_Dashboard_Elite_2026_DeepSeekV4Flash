@@ -148,6 +148,7 @@ export type TranslationStrings = {
     pageOf: string
     selectAll: string
     selected: string
+    invalidInput: string
   }
   dashboard: {
     totalDrivers: string
@@ -812,6 +813,119 @@ export type TranslationStrings = {
     errPeriodRequired: string
     errAmountInvalid: string
     errCodeRequired: string
+  }
+  hrModule: {
+    subtitle: string
+    kpiOnLeaveToday: string
+    kpiPendingLeave: string
+    kpiExceptionsToday: string
+    kpiTrainingsExpiring: string
+    tabLeave: string
+    tabAttendance: string
+    tabTraining: string
+    tabPerformance: string
+    tabSettings: string
+    leaveQueueTitle: string
+    approveLeave: string
+    rejectLeave: string
+    leaveDecisionReason: string
+    leaveDecisionReasonRequired: string
+    colLeaveType: string
+    colLeaveDays: string
+    colLeaveRange: string
+    colLeaveStatus: string
+    colLeaveReason: string
+    balancesTitle: string
+    balColType: string
+    balColEntitled: string
+    balColUsed: string
+    balColPending: string
+    balColRemaining: string
+    noBalances: string
+    holidaysTitle: string
+    addHoliday: string
+    editHoliday: string
+    colHolidayName: string
+    colHolidayDate: string
+    colCalendarType: string
+    colHolidayDuration: string
+    fieldNameAr: string
+    fieldNameEn: string
+    fieldHolidayDate: string
+    fieldDuration: string
+    fieldCalendarType: string
+    fieldRecurring: string
+    noHolidays: string
+    attendanceTitle: string
+    attendanceDate: string
+    statusPresent: string
+    statusLate: string
+    statusAbsentExcused: string
+    statusAbsentUnexcused: string
+    statusHalfDay: string
+    statusOnLeave: string
+    statusPublicHoliday: string
+    statusDayOff: string
+    colLate: string
+    colOvertime: string
+    editCell: string
+    editCellDesc: string
+    fieldStatus: string
+    fieldLateMinutes: string
+    fieldOvertimeMinutes: string
+    lockedBadge: string
+    lockedCellToast: string
+    trainingsTitle: string
+    addTraining: string
+    addTrainingDesc: string
+    colCourse: string
+    colTrainingDate: string
+    colExpiry: string
+    colDaysLeft: string
+    colProvider: string
+    colScore: string
+    fieldCourse: string
+    fieldTrainingDate: string
+    fieldExpiry: string
+    fieldProvider: string
+    fieldScore: string
+    fieldPassed: string
+    noTrainings: string
+    noExpiring: string
+    reviewsTitle: string
+    addReview: string
+    addReviewDesc: string
+    editReview: string
+    colPeriod: string
+    colReviewDate: string
+    colOverall: string
+    colReviewStatus: string
+    fieldReviewPeriod: string
+    fieldReviewDate: string
+    fieldAttendanceScore: string
+    fieldViolationsScore: string
+    fieldPlatformKpiScore: string
+    fieldOverallScore: string
+    fieldStrengths: string
+    fieldImprovements: string
+    fieldGoals: string
+    noReviews: string
+    periodsTitle: string
+    lockPeriod: string
+    lockPeriodDesc: string
+    reopenPeriod: string
+    reopenPeriodDesc: string
+    reopenReason: string
+    reopenReasonRequired: string
+    colPeriodLabel: string
+    colPeriodStatus: string
+    openStatus: string
+    lockedStatus: string
+    errDriverRequired: string
+    errCourseRequired: string
+    errDateRequired: string
+    errNameRequired: string
+    errReasonRequired: string
   }
   errors: {
     forbiddenTitle: string
