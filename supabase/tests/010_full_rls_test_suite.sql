@@ -23,6 +23,8 @@
 -- ═══════════════════════════════════════════════════════════════════
 
 -- Simulate an authenticated user's JWT context
+BEGIN;
+
 CREATE OR REPLACE FUNCTION _set_jwt(p_auth_user_id UUID, p_tenant_id UUID)
 RETURNS void AS $$
 BEGIN
@@ -872,12 +874,21 @@ SELECT ok(
 -- SECTION 14: DRIVER APPLICATIONS — Anon access is limited
 -- ═══════════════════════════════════════════════════════════════════
 
--- Verify driver_applications has limited anon access (insert only, via policy)
+-- Anonymous metadata writes were replaced by one service-role transaction.
 SELECT ok(
-  (SELECT count(*)::int FROM pg_policies
-   WHERE tablename = 'driver_applications'
-     AND policyname = 'driver_apps_anon_insert') = 1,
-  'driver_applications has limited anon INSERT policy'
+  NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename IN ('driver_applications', 'driver_application_documents')
+      AND roles @> ARRAY['anon']::name[]
+      AND cmd = 'INSERT'
+  )
+  AND has_function_privilege(
+    'service_role',
+    'public.provision_driver_application_atomic(text,jsonb,jsonb)',
+    'EXECUTE'
+  ),
+  'driver application metadata writes use the service-role atomic RPC only'
 );
 
 SELECT ok(
@@ -916,3 +927,5 @@ DROP FUNCTION IF EXISTS _set_admin();
 DROP FUNCTION IF EXISTS _set_owner_claims(UUID);
 
 SELECT * FROM finish();
+
+ROLLBACK;

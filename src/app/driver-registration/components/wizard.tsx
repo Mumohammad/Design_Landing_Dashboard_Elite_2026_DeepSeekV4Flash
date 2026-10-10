@@ -95,11 +95,13 @@ function ReviewPanel({
   consent,
   setConsent,
   onBack,
+  tenantSlug,
 }: {
   onEdit: (key: StepKey) => void
   consent: { terms: boolean; privacy: boolean }
   setConsent: (c: { terms: boolean; privacy: boolean }) => void
   onBack: () => void
+  tenantSlug: string
 }) {
   const { dict, data, locale } = useDriverRegistration()
   const [phase, setPhase] = React.useState<"idle" | "validating" | "submitting" | "error">("idle")
@@ -232,7 +234,7 @@ function ReviewPanel({
       profilePhotoPath: data.profilePhotoPath,
     }
 
-    const res = await submitDriverApplication(payload)
+    const res = await submitDriverApplication(tenantSlug, payload)
     if (res.ok) {
       setResult({ applicationNumber: res.applicationNumber, applicationId: res.applicationId, statusToken: res.statusToken })
     } else {
@@ -342,7 +344,13 @@ function ReviewPanel({
 }
 
 // ═══ Wizard shell ════════════════════════════════════════════════════════════
-export function Wizard({ platformOptions }: { platformOptions: PlatformOption[] }) {
+export function Wizard({
+  platformOptions,
+  tenantSlug,
+}: {
+  platformOptions: PlatformOption[]
+  tenantSlug: string
+}) {
   const { dict, data, patch } = useDriverRegistration()
   const [current, setCurrent] = React.useState<StepKey>("personal")
   const [consent, setConsent] = React.useState({ terms: false, privacy: false })
@@ -453,6 +461,7 @@ export function Wizard({ platformOptions }: { platformOptions: PlatformOption[] 
                     consent={consent}
                     setConsent={setConsent}
                     onBack={goBack}
+                    tenantSlug={tenantSlug}
                   />
                 )}
               </motion.div>

@@ -28,6 +28,8 @@
 --   fixture guards, finish() at the end.
 -- ============================================================================
 
+BEGIN;
+
 SELECT plan(22);
 
 -- ─── Fixtures (run as postgres; bypass RLS) ─────────────────────────────────
@@ -419,3 +421,5 @@ RESET ROLE;
 SET LOCAL ROLE postgres;
 
 SELECT * FROM finish();
+
+ROLLBACK;

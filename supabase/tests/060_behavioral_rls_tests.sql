@@ -26,6 +26,8 @@
 -- ====================================================================
 
 -- Skip all tests if pgTAP is not available
+BEGIN;
+
 SELECT plan(10);
 
 -- ─── Test 1: Anonymous SELECT on users table → DENY ──────────────
@@ -225,3 +227,5 @@ RESET ROLE;
 SET LOCAL ROLE postgres;
 
 SELECT * FROM finish();
+
+ROLLBACK;
