@@ -28,6 +28,8 @@
 -- no-op). plan(11) equals the actual assertion count.
 -- ============================================================================
 
+BEGIN;
+
 SELECT plan(11);
 
 -- ─── Fixtures (purge-first, fixed ids) ──────────────────────────────────────
@@ -85,7 +87,7 @@ BEGIN
           '{"_invite_provisioned": true}');
 
   INSERT INTO public.users (id, auth_user_id, tenant_id, email, role, status)
-  VALUES (v_uid, v_aid, v_t_a, 'veh-fk-fixture@test.local', 'supervisor', 'active');
+  VALUES (v_uid, v_aid, v_t_a, 'veh-fk-fixture@test.local', 'general_manager', 'active');
 
   INSERT INTO veh_fk_fixture (tenant_a, tenant_b, driver_a, vehicle_a, vehicle_b, auth_id, user_id)
   VALUES (v_t_a, v_t_b, v_d_a, v_v_a, v_v_b, v_aid, v_uid);
@@ -225,3 +227,5 @@ SELECT is(
 RESET ROLE;
 
 SELECT * FROM finish();
+
+ROLLBACK;

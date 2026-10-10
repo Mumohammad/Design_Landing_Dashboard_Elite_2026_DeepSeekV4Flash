@@ -22,6 +22,8 @@
 -- the test transaction.
 -- ============================================================================
 
+BEGIN;
+
 SELECT plan(41);
 
 -- ─── Fixtures (run as postgres; bypass RLS) ─────────────────────────────────
@@ -291,3 +293,5 @@ RESET ROLE;
 SET LOCAL ROLE postgres;
 
 SELECT * FROM finish();
+
+ROLLBACK;

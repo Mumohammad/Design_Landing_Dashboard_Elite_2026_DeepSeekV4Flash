@@ -29,6 +29,8 @@
 -- runner masked; a leak-poisoned re-run exposed it).
 -- ============================================================================
 
+BEGIN;
+
 SELECT plan(24);
 
 -- ─── Fixtures (run as postgres; bypass RLS) ─────────────────────────────────
@@ -295,3 +297,5 @@ RESET ROLE;
 SET LOCAL ROLE postgres;
 
 SELECT * FROM finish();
+
+ROLLBACK;

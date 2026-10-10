@@ -34,6 +34,8 @@
 -- function that does not exist in the environment.
 -- ============================================================================
 
+BEGIN;
+
 SELECT plan(25);
 
 -- Scratch store for the behavioral public-RPC probes. The probes must run
@@ -336,3 +338,5 @@ RESET ROLE;
 SET LOCAL ROLE postgres;
 
 SELECT * FROM finish();
+
+ROLLBACK;

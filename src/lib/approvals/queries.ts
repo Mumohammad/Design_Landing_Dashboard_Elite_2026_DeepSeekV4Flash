@@ -3,10 +3,10 @@
 // Read queries for the Approvals module (Prompt E) — the /approvals inbox.
 //
 // Server-side only: the unified queue read flows through the capped
-// SECURITY DEFINER RPC (fetch_pending_approvals, 20260926120000) after
-// requirePermission() — same pattern as src/lib/audit-trail/queries.ts and
-// the fetch_audit_trail_page surface. The tenant argument is ALWAYS taken
-// from getCurrentUser() server-side, never from the browser.
+// SECURITY DEFINER RPC (fetch_pending_approvals, 20260926120000). The RPC
+// binds the tenant to auth.uid() and applies each source module's approve
+// permission. The tenant argument is ALWAYS taken from getCurrentUser()
+// server-side, never from the browser.
 //
 // PDPL masking: applicant display names are masked per the users-module
 // consent gate (has_user_pdpl_consent batched per distinct requester with a
@@ -15,6 +15,7 @@
 
 import { getCurrentUser } from "@/lib/auth/authorization"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { createClient } from "@/lib/supabase/server"
 import {
   APPROVALS_PAGE_SIZE_DEFAULT,
   APPROVALS_PAGE_SIZE_MAX,
@@ -67,6 +68,7 @@ export async function fetchApprovalsPage(
 
   const cap = Math.min(Math.max(1, Math.floor(pageSize)), APPROVALS_PAGE_SIZE_MAX)
   const admin = createAdminClient()
+  const supabase = await createClient()
 
   const type =
     filters.type && filters.type !== "all" ? (filters.type as ApprovalItemType) : null
@@ -74,7 +76,7 @@ export async function fetchApprovalsPage(
 
   let rows: ApprovalQueueRow[] = []
   try {
-    const { data, error } = await admin.rpc("fetch_pending_approvals", {
+    const { data, error } = await supabase.rpc("fetch_pending_approvals", {
       p_tenant_id: currentUser.tenantId,
       p_type: type,
       p_from: fromIso,
