@@ -13,6 +13,7 @@
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",
+    "test:integration:storage": "vitest run --config vitest.storage-integration.config.mts --configLoader native",
     "test:watch": "vitest",
     "seed:drivers": "node scripts/seed-drivers-test-data.mts",
     "seed:users": "node scripts/seed-users-test-data.mts",

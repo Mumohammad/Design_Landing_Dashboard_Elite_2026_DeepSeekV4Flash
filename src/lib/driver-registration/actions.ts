@@ -12,9 +12,8 @@ import { notifyApplicantByEmail } from "@/lib/notifications/applicant-email"
 // Security:
 //   * Rate limited per IP (3/hour default).
 //   * Full zod re-validation server-side (never trust the client).
-//   * Written via the service-role client (RLS never blocks the insert).
-//   * tenant_id resolved server-side to the default tenant — never from the
-//     applicant.
+//   * Written through one service-role-only transaction RPC.
+//   * tenant_id resolved server-side from the explicit active tenant slug.
 //   * Notifications are awaited via Promise.allSettled: a failed channel is
 //     logged but never fails the submission (Supabase is the source of truth).
 // ─────────────────────────────────────────────────────────────────────────
@@ -87,6 +86,7 @@ async function notifyByEmail(application: FullApplication, applicationNumber: st
 }
 
 export async function submitDriverApplication(
+  tenantSlug: string,
   input: FullApplication
 ): Promise<SubmitResult> {
   try {
@@ -114,84 +114,17 @@ export async function submitDriverApplication(
     }
     const app = parsed.data
 
-    // 3. Resolve the default tenant (single tenant today, multi-tenant ready).
+    // 3. The service RPC resolves the explicit active tenant slug.
     const admin = createAdminClient()
-    const { data: tenant } = await admin
-      .from("tenants")
-      .select("id")
-      .eq("status", "active")
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .single()
-
-    if (!tenant) {
-      return { ok: false, error: "noTenant", fieldErrors: {} }
-    }
 
     const fullName =
       `${app.personal.firstName} ${app.personal.middleName ?? ""} ${app.personal.lastName}`.replace(/\s+/g, " ")
 
-    // 4. Insert the application (DB trigger assigns application_number + status_token_hash).
+    // 4. Prepare the server-generated status credential.
     const statusToken = randomBytes(32).toString('hex')
     const statusTokenHash = createHash('sha256').update(statusToken).digest('hex')
 
-    const { data: inserted, error: insertError } = await admin
-      .from("driver_applications")
-      .insert({
-        tenant_id: tenant.id,
-        locale: app.locale,
-        first_name: app.personal.firstName,
-        middle_name: app.personal.middleName || null,
-        last_name: app.personal.lastName,
-        full_name: fullName,
-        date_of_birth: app.personal.dateOfBirth || null,
-        nationality: app.personal.nationality,
-        gender: app.personal.gender,
-        mobile: app.contact.mobile,
-        alternative_mobile: app.contact.alternativeMobile || null,
-        email: app.contact.email || null,
-        city: app.contact.city,
-        district: app.contact.district,
-        address: app.contact.address,
-        identity_type: app.identity.identityType,
-        identity_number: app.identity.identityNumber,
-        identity_expiry: app.identity.identityExpiry || null,
-        license_number: app.license.licenseNumber,
-        license_type: app.license.licenseType,
-        license_country: app.license.licenseCountry,
-        license_expiry: app.license.licenseExpiry || null,
-        work_type: app.work.workType,
-        driver_category: app.work.driverCategory,
-        platform_codes: app.platforms.platforms,
-        has_vehicle: app.vehicle.hasVehicle,
-        vehicle_ownership: app.vehicle.ownership || null,
-        vehicle_type: app.vehicle.vehicleType || null,
-        vehicle_make: app.vehicle.make || null,
-        vehicle_model: app.vehicle.model || null,
-        vehicle_year: app.vehicle.year ? Number(app.vehicle.year) : null,
-        vehicle_plate: app.vehicle.plate || null,
-        vehicle_reg_expiry: app.vehicle.regExpiry || null,
-        vehicle_insurance_expiry: app.vehicle.insuranceExpiry || null,
-        consent_terms: app.consent.consentTerms,
-        consent_privacy: app.consent.consentPrivacy,
-        consent_at: new Date().toISOString(),
-        status: "submitted",
-        status_token_hash: statusTokenHash,
-        ip_hash: clientIp,
-      })
-      .select("id, application_number")
-      .single()
-
-    if (insertError || !inserted) {
-      console.error("[driver-registration] insert failed:", insertError?.message)
-      return { ok: false, error: "insert", fieldErrors: {} }
-    }
-
-    if (!APPLICATION_NUMBER_REGEX.test(inserted.application_number)) {
-      console.error("[driver-registration] unexpected application_number:", inserted.application_number)
-    }
-
-    // 5. Mirror uploaded document metadata (files already in private storage).
+    // 5. Provision application + document metadata in one DB transaction.
     const docs: { type: string; path: string; expiry: string | null }[] = [
       { type: "profile_photo", path: app.profilePhotoPath, expiry: null },
       { type: "identity", path: app.documents.identityAttachment, expiry: app.identity.identityExpiry || null },
@@ -214,8 +147,6 @@ export async function submitDriverApplication(
     const docRows = docs.map((d) => {
       const fileName = d.path.split("/").pop() ?? d.path
       return {
-        application_id: inserted.id,
-        tenant_id: tenant.id,
         document_type: d.type,
         file_name: fileName,
         storage_path: d.path,
@@ -225,10 +156,76 @@ export async function submitDriverApplication(
       }
     })
 
-    const { error: docError } = await admin.from("driver_application_documents").insert(docRows)
-    if (docError) {
-      // Document mirror failure shouldn't fail the application either.
-      console.error("[driver-registration] document mirror insert failed:", docError.message)
+    const applicationPayload = {
+      locale: app.locale,
+      first_name: app.personal.firstName,
+      middle_name: app.personal.middleName || null,
+      last_name: app.personal.lastName,
+      full_name: fullName,
+      date_of_birth: app.personal.dateOfBirth || null,
+      nationality: app.personal.nationality,
+      gender: app.personal.gender,
+      mobile: app.contact.mobile,
+      alternative_mobile: app.contact.alternativeMobile || null,
+      email: app.contact.email || null,
+      city: app.contact.city,
+      district: app.contact.district,
+      address: app.contact.address,
+      identity_type: app.identity.identityType,
+      identity_number: app.identity.identityNumber,
+      identity_expiry: app.identity.identityExpiry || null,
+      license_number: app.license.licenseNumber,
+      license_type: app.license.licenseType,
+      license_country: app.license.licenseCountry,
+      license_expiry: app.license.licenseExpiry || null,
+      work_type: app.work.workType,
+      driver_category: app.work.driverCategory,
+      platform_codes: app.platforms.platforms,
+      has_vehicle: app.vehicle.hasVehicle,
+      vehicle_ownership: app.vehicle.ownership || null,
+      vehicle_type: app.vehicle.vehicleType || null,
+      vehicle_make: app.vehicle.make || null,
+      vehicle_model: app.vehicle.model || null,
+      vehicle_year: app.vehicle.year ? Number(app.vehicle.year) : null,
+      vehicle_plate: app.vehicle.plate || null,
+      vehicle_reg_expiry: app.vehicle.regExpiry || null,
+      vehicle_insurance_expiry: app.vehicle.insuranceExpiry || null,
+      consent_terms: app.consent.consentTerms,
+      consent_privacy: app.consent.consentPrivacy,
+      consent_at: new Date().toISOString(),
+      status_token_hash: statusTokenHash,
+      ip_hash: createHash("sha256").update(clientIp).digest("hex"),
+    }
+
+    const { data: provisioned, error: provisionError } = await admin.rpc(
+      "provision_driver_application_atomic",
+      {
+        p_tenant_slug: tenantSlug,
+        p_application: applicationPayload,
+        p_documents: docRows,
+      }
+    )
+
+    if (provisionError || !provisioned) {
+      console.error("[driver-registration] atomic provisioning failed:", provisionError?.message)
+      const paths = [...new Set(docRows.map((doc) => doc.storage_path))]
+      const { error: cleanupError } = await admin.storage
+        .from("driver-applications")
+        .remove(paths)
+      if (cleanupError) {
+        console.error("[driver-registration] orphan cleanup failed:", cleanupError.message)
+      }
+      const tenantError = provisionError?.message.includes("APP_TENANT_")
+      return { ok: false, error: tenantError ? "noTenant" : "insert", fieldErrors: {} }
+    }
+
+    const inserted = provisioned as unknown as {
+      application_id: string
+      application_number: string
+    }
+
+    if (!APPLICATION_NUMBER_REGEX.test(inserted.application_number)) {
+      console.error("[driver-registration] unexpected application_number:", inserted.application_number)
     }
 
     // 6. Notifications: staff (EmailJS) + applicant (Resend). Awaited via allSettled so
@@ -241,7 +238,12 @@ export async function submitDriverApplication(
       if (r.status === "rejected") console.error("[driver-registration] notification channel failed:", r.reason)
     }
 
-    return { ok: true, applicationNumber: inserted.application_number, applicationId: inserted.id, statusToken }
+    return {
+      ok: true,
+      applicationNumber: inserted.application_number,
+      applicationId: inserted.application_id,
+      statusToken,
+    }
   } catch (err) {
     console.error("[driver-registration] unexpected error:", err)
     return { ok: false, error: "generic", fieldErrors: {} }

@@ -69,7 +69,6 @@ The core architecture is solid: RLS as the data boundary, `requirePermission()` 
 | L1 | Production CSP keeps `script-src 'unsafe-inline'` — weakens XSS defense; move to nonce/hash-based CSP | `next.config.ts` |
 | L2 | CSP `img-src` lacks the Supabase storage host — tenant logos served from Supabase Storage will be blocked | `next.config.ts` |
 | L3 | Duplicate platform-admin guard implementations (`src/lib/platform/admin-guard.ts` vs `src/lib/platform/admin.ts`) — consolidate | both |
-| L4 | Dead attack surface: `/api/platform/login` is unreferenced (platform login page now redirects to `/auth/sign-in`) — delete it (it also does service-role `signInWithPassword` with no rate limit) | route |
 | L5 | `users` PATCH doesn't enum-validate `status` (role is validated); DELETE soft-deletes but doesn't ban the auth user, so an existing session keeps working on `/api/*` paths | `api/platform/admin/users` |
 | L6 | 55× `console.error` instead of the structured pino logger (loses redaction + aggregation) | across `src/` |
 | L7 | Health endpoint returns **200 for `degraded`** — pure status-code monitors won't page on DB/auth failure | `api/health` |

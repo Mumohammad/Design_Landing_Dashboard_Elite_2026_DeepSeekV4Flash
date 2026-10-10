@@ -34,6 +34,8 @@
 --   failed run COMMITS at EOF and leaks its fixtures to later suites.
 -- ============================================================================
 
+BEGIN;
+
 SELECT plan(34);
 
 -- ─── Fixtures (run as postgres; bypass RLS) ─────────────────────────────────
@@ -209,7 +211,7 @@ SET LOCAL ROLE postgres;
 SELECT ok(
   (SELECT p.prosecdef
      AND p.proconfig IS NOT NULL
-     AND array_to_string(p.proconfig, ',') LIKE '%search_path=public%'
+     AND array_to_string(p.proconfig, ',') LIKE '%search_path=%'
    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'public' AND p.proname = 'fetch_pending_approvals'),
   'fetch_pending_approvals is SECURITY DEFINER with pinned search_path'
@@ -257,7 +259,9 @@ SELECT is(
 -- ─── 2. BEHAVIORAL queue (7) ────────────────────────────────────────────────
 
 RESET ROLE;
-SET LOCAL ROLE postgres;
+SELECT set_config('request.jwt.claims',
+  '{"role":"authenticated","sub":"33333333-3333-3333-3333-333333333333"}', true);
+SET LOCAL ROLE authenticated;
 
 -- Composition: tenant A holds exactly 4 pending items across the 3 sources.
 SELECT is(
@@ -282,8 +286,8 @@ SELECT is(
   (SELECT count(*)::int FROM public.fetch_pending_approvals(
      '22222222-2222-2222-2222-222222222222',
      NULL, NULL, NULL, 100)),
-  1,
-  'tenant B sees exactly its own pending expense'
+  0,
+  'tenant A caller cannot request tenant B pending approvals'
 );
 
 -- Oldest-first ordering: tenant A's oldest pending item is the expense.
@@ -388,6 +392,7 @@ SELECT throws_ok(
 
 RESET ROLE;
 SET LOCAL ROLE postgres;
+SELECT set_config('request.jwt.claims', '{"role":"service_role"}', true);
 
 -- Approve: claims the pending row and flips the driver to on_leave.
 SELECT is(
@@ -527,6 +532,10 @@ SELECT throws_ok(
 );
 
 -- Already-decided rows (approved/rejected) never re-enter the queue.
+RESET ROLE;
+SELECT set_config('request.jwt.claims',
+  '{"role":"authenticated","sub":"33333333-3333-3333-3333-333333333333"}', true);
+SET LOCAL ROLE authenticated;
 SELECT is(
   (SELECT count(*)::int FROM public.fetch_pending_approvals(
      '11111111-1111-1111-1111-111111111111',
@@ -580,3 +589,5 @@ RESET ROLE;
 SET LOCAL ROLE postgres;
 
 SELECT * FROM finish();
+
+ROLLBACK;

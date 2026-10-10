@@ -4,8 +4,9 @@
 //
 // Server-side only: audit_log is a Phase-A core table with SELECT-only RLS
 // for end users (ADR-007 append-only; INSERT is service-role-only via
-// writeAuditLog()). Reads flow through the service-role admin client after
-// requirePermission() — same pattern as src/lib/auth/user-reads.ts, whose
+// writeAuditLog()). Reads flow through the cookie-bound client after
+// requirePermission(); the RPC independently enforces the same permission —
+// the same pattern as src/lib/auth/user-reads.ts, whose
 // fetchAuditLog() this module supersedes for the audit surface (the stub page
 // it fed did no server-side filtering). READ-ONLY module: nothing here
 // writes any table.
@@ -15,6 +16,7 @@
 
 import { requirePermission, getCurrentUser } from "@/lib/auth/authorization"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { createClient } from "@/lib/supabase/server"
 import {
   AUDIT_PAGE_SIZE_DEFAULT,
   AUDIT_PAGE_SIZE_MAX,
@@ -82,6 +84,7 @@ export async function fetchAuditTrailPage(
 
   const cap = Math.min(Math.max(1, Math.floor(pageSize)), AUDIT_PAGE_SIZE_MAX)
   const admin = createAdminClient()
+  const supabase = await createClient()
 
   const actorId =
     filters.actor && filters.actor !== "all" && isUuid(filters.actor) ? filters.actor : null
@@ -89,11 +92,11 @@ export async function fetchAuditTrailPage(
     filters.entityType && filters.entityType !== "all" ? filters.entityType : null
   const { fromIso, toIso } = dateRangeBounds(filters.from ?? "", filters.to ?? "")
 
-  // Server-side filtered page (RLS-equivalent tenant scoping explicit on the
-  // definer function args; caps applied in SQL).
+  // Server-side filtered page (the definer RPC binds auth.uid() to its tenant
+  // and audit_log:read permission; caps are applied in SQL).
   let rows: AuditTrailRow[] = []
   try {
-    const { data, error } = await admin.rpc("fetch_audit_trail_page", {
+    const { data, error } = await supabase.rpc("fetch_audit_trail_page", {
       p_tenant_id: currentUser.tenantId,
       p_from: fromIso,
       p_to: toIso,
