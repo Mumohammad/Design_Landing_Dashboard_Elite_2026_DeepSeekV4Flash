@@ -3,13 +3,13 @@
 // tolerance — because the module uses integer-minor arithmetic.
 import { describe, expect, it } from "vitest"
 import { computeInvoiceTotals, round2 } from "./invoice-math"
+import { calculateVat, sumMoney } from "./decimal"
 
 describe("round2 (integer-minor rounding)", () => {
   it("rounds float artifacts exactly", () => {
     expect(round2(0.1 + 0.2)).toBe(0.3)
-    // 1.005 × 100 = 100.499... (float below .5) → rounds to 1.00.
-    // This matches Postgres round(1.005::numeric, 2) which truncates.
-    expect(round2(1.005)).toBe(1.0)
+    expect(round2(1.005)).toBe(1.01)
+    expect(round2(-1.005)).toBe(-1.01)
     expect(round2(2.5)).toBe(2.5)
     expect(round2(2.999)).toBe(3)
   })
@@ -26,8 +26,8 @@ describe("round2 (integer-minor rounding)", () => {
 // it) cannot sneak back in.
 describe("AR/expense VAT formula (createReceivable path)", () => {
   it("computes VAT and total with the canonical formula", () => {
-    const vat = (amount: number, rate: number) => round2((round2(amount) * rate) / 100)
-    const total = (amount: number, rate: number) => round2(round2(amount) + vat(amount, rate))
+    const vat = (amount: number, rate: number) => calculateVat(round2(amount), rate)
+    const total = (amount: number, rate: number) => sumMoney(round2(amount), vat(amount, rate))
     expect(vat(1000, 15)).toBe(150)
     expect(total(1000, 15)).toBe(1150)
     expect(vat(33.33, 15)).toBe(5.0) // 4.9995 → 5.00
@@ -35,12 +35,8 @@ describe("AR/expense VAT formula (createReceivable path)", () => {
   })
 
   it("matches Postgres rounding for edge values", () => {
-    // amount=4.1, vatRate=15 → raw product 4.1×15 = 61.49999999999999
-    // (binary float just BELOW the .5 boundary). round2 → 0.61 (matches DB).
-    expect(Math.round(4.1 * 15) / 100).toBe(0.61)
-    expect(round2((4.1 * 15) / 100)).toBe(0.61)
-    // Pre-rounding amount → 4.1 * 15 = same float → same result.
-    expect(round2((round2(4.1) * 15) / 100)).toBe(0.61)
+    expect(calculateVat(4.1, 15)).toBe(0.62)
+    expect(calculateVat("4.10", "15.00")).toBe(0.62)
   })
 })
 
@@ -96,6 +92,26 @@ describe("computeInvoiceTotals — discount", () => {
 })
 
 describe("computeInvoiceTotals — validation (INV codes)", () => {
+  it("rejects discounts exceeding the line gross", () => {
+    expect(() => computeInvoiceTotals([{ description: "A", quantity: 1, unit_price: 1, discount: 2 }])).toThrow("INV002")
+  })
+
+  it("computes using exactly the values persisted at database precision", () => {
+    const result = computeInvoiceTotals([{ description: "A", quantity: 1.2345, unit_price: 1.005 }])
+    expect(result.lines[0]).toMatchObject({ quantity: 1.235, unit_price: 1.01, amount: 1.25, vat_amount: 0.19 })
+    expect(result.total).toBe(1.44)
+  })
+
+  it("avoids fractional-quantity half-cent drift", () => {
+    const result = computeInvoiceTotals([{ description: "A", quantity: 0.5, unit_price: 8.21 }])
+    expect(result.lines[0].amount).toBe(4.11)
+    expect(result.total).toBe(4.73)
+  })
+
+  it("rejects values outside numeric(12,2) and rounded-to-zero quantities", () => {
+    expect(() => computeInvoiceTotals([{ description: "A", quantity: 1, unit_price: 10_000_000_000 }])).toThrow("INV002")
+    expect(() => computeInvoiceTotals([{ description: "A", quantity: 0.0001, unit_price: 10 }])).toThrow("INV002")
+  })
   it("rejects an empty line set with INV013", () => {
     expect(() => computeInvoiceTotals([])).toThrow("INV013")
   })

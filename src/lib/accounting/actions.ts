@@ -25,6 +25,7 @@ import { mapFinancialError, parseCsv, toCsv } from "@/lib/accounting/csv-utils"
 // passes through the SAME EPSILON-guarded function so no float artifact can
 // slip in through a differently-rounded copy (TEST-STRATEGY §4).
 import { round2 } from "@/lib/accounting/invoice-math"
+import { calculateVat, sumMoney } from "@/lib/accounting/decimal"
 import { rateLimitAccounting, rateLimitAccountingImport } from "@/lib/auth/rate-limit"
 import { moduleLogger, logPerformance } from "@/lib/logger"
 import { emit } from "@/lib/webhooks/events"
@@ -994,8 +995,8 @@ export async function createReceivable(input: {
     // pattern was flagged for replacement — the canonical EPSILON-guarded
     // round2 on the divided value matches expenses/invoices exactly.
     const amountR = round2(amount)
-    const vatAmount = round2((amountR * vatRate) / 100)
-    const total = round2(amountR + vatAmount)
+    const vatAmount = calculateVat(amountR, vatRate)
+    const total = sumMoney(amountR, vatAmount)
 
     const admin = createAdminClient()
     const { data: row, error } = await admin

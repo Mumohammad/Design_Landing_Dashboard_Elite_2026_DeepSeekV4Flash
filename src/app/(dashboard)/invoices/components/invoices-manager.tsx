@@ -32,6 +32,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { computeInvoiceTotals } from "@/lib/accounting/invoice-math"
+import { calculateVat, sumMoney } from "@/lib/accounting/decimal"
 
 // ── Row shapes ────────────────────────────────────────────────────────────
 
@@ -79,10 +81,6 @@ const STATUS_META: Record<string, { ar: string; en: string; className: string }>
   credited: { ar: "معتمدة بإشعار", en: "Credited", className: "bg-purple-500/15 text-purple-600 border-purple-500/20" },
 }
 
-function round2(n: number): number {
-  return Math.round((n + Number.EPSILON) * 100) / 100
-}
-
 function fmtMoney(n: number | null | undefined): string {
   return (n ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
@@ -112,22 +110,15 @@ function emptyLine(key: number): LineDraft {
 }
 
 function computeLineTotals(lines: LineDraft[]) {
-  let subtotal = 0
-  let discount = 0
-  let vat = 0
-  const valid = lines.filter((l) => l.description.trim() && Number(l.quantity) > 0)
-  for (const l of valid) {
-    const gross = round2(Number(l.quantity) * Number(l.unit_price || 0))
-    const disc = round2(Number(l.discount || 0))
-    const amount = round2(gross - disc)
-    const vatAmount = round2((amount * Number(l.vat_rate || 0)) / 100)
-    subtotal += amount
-    discount += disc
-    vat += vatAmount
+  try {
+    return computeInvoiceTotals(lines.map(l => ({
+      description: l.description, quantity: Number(l.quantity), unit_price: Number(l.unit_price),
+      discount: Number(l.discount || 0), vat_rate: Number(l.vat_rate || 0),
+    })))
+  } catch {
+    // Incomplete/invalid lines must not display plausible, incorrect totals.
+    return null
   }
-  const s = round2(subtotal)
-  const v = round2(vat)
-  return { subtotal: s, discount: round2(discount), vat_amount: v, total: round2(s + v) }
 }
 
 // ── Main component ────────────────────────────────────────────────────────
@@ -763,9 +754,9 @@ export function InvoicesManager() {
             </div>
 
             <div className="flex items-center justify-end gap-4 rounded-xl border border-border/50 bg-muted/20 px-4 py-3 text-sm">
-              <span className="text-muted-foreground">{ar ? "المجموع الفرعي" : "Subtotal"}: <b dir="ltr" className="tabular-nums">{fmtMoney(lineTotals.subtotal)}</b></span>
-              <span className="text-muted-foreground">VAT: <b dir="ltr" className="tabular-nums">{fmtMoney(lineTotals.vat_amount)}</b></span>
-              <span className="font-medium">{ar ? "الإجمالي" : "Total"}: <b dir="ltr" className="tabular-nums text-emerald-600">{fmtMoney(lineTotals.total)}</b></span>
+              <span className="text-muted-foreground">{ar ? "المجموع الفرعي" : "Subtotal"}: <b dir="ltr" className="tabular-nums">{lineTotals ? fmtMoney(lineTotals.subtotal) : "—"}</b></span>
+              <span className="text-muted-foreground">VAT: <b dir="ltr" className="tabular-nums">{lineTotals ? fmtMoney(lineTotals.vat_amount) : "—"}</b></span>
+              <span className="font-medium">{ar ? "الإجمالي" : "Total"}: <b dir="ltr" className="tabular-nums text-emerald-600">{lineTotals ? fmtMoney(lineTotals.total) : "—"}</b></span>
             </div>
 
             <div className="space-y-1.5">
@@ -997,7 +988,7 @@ export function InvoicesManager() {
             </div>
             {Number(debitAmount || 0) > 0 && (
               <p className="text-xs text-muted-foreground" dir="ltr">
-                VAT: {fmtMoney(round2((Number(debitAmount) * Number(formVatRate || 0)) / 100))} · Total: {fmtMoney(round2(Number(debitAmount) + (Number(debitAmount) * Number(formVatRate || 0)) / 100))} SAR
+                VAT: {fmtMoney(calculateVat(Number(debitAmount), Number(formVatRate || 0)))} · Total: {fmtMoney(sumMoney(Number(debitAmount), calculateVat(Number(debitAmount), Number(formVatRate || 0))))} SAR
               </p>
             )}
             <Input

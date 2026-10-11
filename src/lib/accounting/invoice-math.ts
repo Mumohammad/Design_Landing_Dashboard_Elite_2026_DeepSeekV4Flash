@@ -9,6 +9,8 @@
 //   total       = round2(subtotal + vat_amount)
 // All money passes through 2dp integer-minor arithmetic — no float drift.
 
+import { calculateVat, decimalRound, multiplyMoney, sumMoney } from "./decimal"
+
 export type InvoiceLineInput = {
   description: string
   quantity: number
@@ -36,16 +38,8 @@ export interface ComputedInvoiceTotals {
   total: number
 }
 
-/** Round to 2dp using integer-minor arithmetic (float-safe).
- *
- * NOTE: we intentionally do NOT add Number.EPSILON before rounding — the
- * epsilon addition can push borderline values (e.g. 1.005) to the wrong
- * cent. The canonical Postgres `round(n::numeric, 2)` truncates towards
- * zero at 2dp; `Math.round(n*100)/100` is the closest JS equivalent and
- * matches the DB for the values the invoice engine produces (all positive,
- * all pre-rounded via round2 at each computation step).
- */
-export const round2 = (n: number): number => Math.round(n * 100) / 100
+/** PostgreSQL numeric-compatible rounding, including negative half cents. */
+export const round2 = (n: number): number => decimalRound(n)
 
 /** Compute line totals + invoice totals. Throws Error(code) on bad input.
  * Lines without an explicit vat_rate fall back to `defaultVatRate`. */
@@ -62,30 +56,42 @@ export function computeInvoiceTotals(
   const computed = lines.map((l, i) => {
     const qty = Number(l.quantity)
     const price = Number(l.unit_price)
-    const disc = round2(Number(l.discount ?? 0))
+    const rawDiscount = Number(l.discount ?? 0)
+    const disc = Number.isFinite(rawDiscount) ? round2(rawDiscount) : rawDiscount
     const vatRate = Number(l.vat_rate ?? defaultVatRate)
     const desc = (l.description ?? "").trim()
     if (!desc) throw new Error("INV002: line description is required")
     if (!Number.isFinite(qty) || qty <= 0) throw new Error("INV002: quantity must be positive")
     if (!Number.isFinite(price) || price < 0) throw new Error("INV002: unit price cannot be negative")
-    if (!Number.isFinite(disc) || disc < 0) throw new Error("INV002: discount cannot be negative")
+    if (!Number.isFinite(rawDiscount) || rawDiscount < 0) throw new Error("INV002: discount cannot be negative")
     if (!Number.isFinite(vatRate) || vatRate < 0 || vatRate > 100) {
       throw new Error("INV002: VAT rate must be between 0 and 100")
     }
-    const gross = round2(qty * price)
-    const amount = round2(gross - disc)
-    const vatAmount = round2((amount * vatRate) / 100)
-    subtotal += amount
-    discount += disc
-    vat += vatAmount
+    // Match the persisted numeric(12,3)/(12,2)/(5,2) values before computing.
+    const storedQty = decimalRound(qty, 3)
+    const storedPrice = round2(price)
+    const storedRate = round2(vatRate)
+    if (storedQty <= 0 || storedQty >= 1_000_000_000 || storedPrice >= 10_000_000_000) {
+      throw new Error("INV002: line value exceeds database precision")
+    }
+    const gross = multiplyMoney(storedQty, storedPrice)
+    if (disc > gross) throw new Error("INV002: discount exceeds line gross amount")
+    const amount = sumMoney(gross, -disc)
+    const vatAmount = calculateVat(amount, storedRate)
+    subtotal = sumMoney(subtotal, amount)
+    discount = sumMoney(discount, disc)
+    vat = sumMoney(vat, vatAmount)
+    if ([gross, subtotal, discount, vat, sumMoney(subtotal, vat)].some(value => value >= 10_000_000_000)) {
+      throw new Error("INV002: invoice value exceeds database precision")
+    }
     return {
       line_no: i + 1,
       description: desc,
-      quantity: qty,
-      unit_price: round2(price),
+      quantity: storedQty,
+      unit_price: storedPrice,
       discount: disc,
       amount,
-      vat_rate: vatRate,
+      vat_rate: storedRate,
       vat_amount: vatAmount,
     }
   })
@@ -96,6 +102,6 @@ export function computeInvoiceTotals(
     subtotal: s,
     discount: round2(discount),
     vat_amount: v,
-    total: round2(s + v),
+    total: sumMoney(s, v),
   }
 }

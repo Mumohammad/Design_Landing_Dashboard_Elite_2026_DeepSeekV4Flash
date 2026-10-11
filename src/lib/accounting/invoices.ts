@@ -28,11 +28,13 @@
 
 import { revalidatePath } from "next/cache"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { createClient } from "@/lib/supabase/server"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
 import { writeAuditLog } from "@/lib/auth/sessions"
 import { mapFinancialError, toCsv } from "@/lib/accounting/csv-utils"
 import { idempotencyKey } from "@/lib/accounting/financial-events"
 import { computeInvoiceTotals, round2, type InvoiceLineInput } from "@/lib/accounting/invoice-math"
+import { calculateVat, sumMoney } from "@/lib/accounting/decimal"
 import { runEventDispatcher } from "@/lib/accounting/dispatcher"
 import { runZatcaAdapter } from "@/lib/accounting/zatca"
 
@@ -148,54 +150,22 @@ export async function createInvoiceDraft(
     )
     if (partyErr) return { success: false, error: partyErr }
 
-    const admin = createAdminClient()
-    const { data: inv, error } = await admin
-      .from("invoices")
-      .insert({
-        tenant_id: currentUser.tenantId,
+    const client = await createClient()
+    const { data: inv, error } = await client.rpc("save_invoice_draft_atomic", {
+      p_document: {
         invoice_type: input.invoice_type,
-        customer_id: input.invoice_type === "sales" ? input.customer_id : null,
-        supplier_id: input.invoice_type === "purchase" ? input.supplier_id : null,
+        customer_id: input.customer_id ?? null,
+        supplier_id: input.supplier_id ?? null,
         issue_date: input.issue_date,
         due_date: input.due_date,
         currency: input.currency ?? "SAR",
-        status: "draft",
-        subtotal: totals.subtotal,
-        discount: totals.discount,
-        vat_amount: totals.vat_amount,
-        total: totals.total,
         vat_rate: input.vat_rate ?? 15,
         notes: input.notes?.trim() || null,
-        created_by: currentUser.authUserId,
-      })
-      .select("id,invoice_number")
-      .single()
-    if (error) return { success: false, error: mapFinancialError(error.message) }
-
-    const { error: linesErr } = await admin.from("invoice_lines").insert(
-      totals.lines.map((l) => ({
-        tenant_id: currentUser.tenantId,
-        invoice_id: inv.id,
-        ...l,
-        created_by: currentUser.authUserId,
-      }))
-    )
-    if (linesErr) return { success: false, error: mapFinancialError(linesErr.message) }
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "invoices",
-      action: "invoice_draft_created",
-      entityType: "invoices",
-      entityId: inv.id,
-      newValues: {
-        invoice_number: inv.invoice_number,
-        invoice_type: input.invoice_type,
-        lines: totals.lines.length,
-        total: totals.total,
       },
+      p_lines: totals.lines,
     })
+    if (error) return { success: false, error: mapFinancialError(error.message) }
+    if (!inv?.id) return { success: false, error: "Invoice save returned no identifier." }
 
     revalidatePath("/invoices")
     revalidatePath("/accounting")
@@ -241,53 +211,23 @@ export async function updateInvoiceDraft(
       return { success: false, error: errorMessage(e) }
     }
 
-    const { error: updErr } = await admin
-      .from("invoices")
-      .update({
-        customer_id: input.invoice_type === "sales" ? input.customer_id : null,
-        supplier_id: input.invoice_type === "purchase" ? input.supplier_id : null,
+    const client = await createClient()
+    const { data: saved, error: saveError } = await client.rpc("save_invoice_draft_atomic", {
+      p_invoice_id: input.id,
+      p_document: {
+        invoice_type: input.invoice_type,
+        customer_id: input.customer_id ?? null,
+        supplier_id: input.supplier_id ?? null,
         issue_date: input.issue_date,
         due_date: input.due_date,
         currency: input.currency ?? "SAR",
-        subtotal: totals.subtotal,
-        discount: totals.discount,
-        vat_amount: totals.vat_amount,
-        total: totals.total,
         vat_rate: input.vat_rate ?? 15,
         notes: input.notes?.trim() || null,
-        updated_by: currentUser.authUserId,
-      })
-      .eq("id", input.id)
-      .eq("tenant_id", currentUser.tenantId)
-      .is("deleted_at", null)
-    if (updErr) return { success: false, error: mapFinancialError(updErr.message) }
-
-    // Replace lines (draft only — the DB blocks this once finalized).
-    const { error: delErr } = await admin
-      .from("invoice_lines")
-      .delete()
-      .eq("invoice_id", input.id)
-    if (delErr) return { success: false, error: mapFinancialError(delErr.message) }
-
-    const { error: linesErr } = await admin.from("invoice_lines").insert(
-      totals.lines.map((l) => ({
-        tenant_id: currentUser.tenantId,
-        invoice_id: input.id,
-        ...l,
-        created_by: currentUser.authUserId,
-      }))
-    )
-    if (linesErr) return { success: false, error: mapFinancialError(linesErr.message) }
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "invoices",
-      action: "invoice_draft_updated",
-      entityType: "invoices",
-      entityId: input.id,
-      newValues: { lines: totals.lines.length, total: totals.total },
+      },
+      p_lines: totals.lines,
     })
+    if (saveError) return { success: false, error: mapFinancialError(saveError.message) }
+    if (saved?.id !== input.id) return { success: false, error: "Invoice save returned no matching identifier." }
 
     revalidatePath("/invoices")
     revalidatePath("/accounting")
@@ -805,7 +745,7 @@ export async function issueDebitNote(input: {
       return { success: false, error: mapInv("INV002") }
     }
     const subtotal = round2(amount)
-    const vatAmount = round2((subtotal * vatRate) / 100)
+    const vatAmount = calculateVat(subtotal, vatRate)
 
     const { data: note, error } = await admin
       .from("debit_notes")
@@ -819,7 +759,7 @@ export async function issueDebitNote(input: {
         subtotal,
         discount: 0,
         vat_amount: vatAmount,
-        total: round2(subtotal + vatAmount),
+        total: sumMoney(subtotal, vatAmount),
         vat_rate: vatRate,
         reason,
         lines: [
@@ -852,7 +792,7 @@ export async function issueDebitNote(input: {
         reference_invoice_id: inv.id,
         subtotal,
         vat_amount: vatAmount,
-        total: round2(subtotal + vatAmount),
+        total: sumMoney(subtotal, vatAmount),
         reason,
       },
     })
@@ -874,7 +814,7 @@ export async function issueDebitNote(input: {
         debit_note_number: note.debit_note_number,
         reference_invoice_id: inv.id,
         reference_number: inv.invoice_number,
-        total: round2(subtotal + vatAmount),
+        total: sumMoney(subtotal, vatAmount),
         reason,
       },
     })

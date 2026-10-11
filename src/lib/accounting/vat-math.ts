@@ -6,13 +6,15 @@
 // is unit-tested against the three canonical scenarios.
 
 /** Canonical net position: output + adj-out − recoverable input − adj-in. */
+import { sumMoney } from "./decimal"
+
 export function computeVatNetPosition(
   outputVat: number,
   adjustmentsOutput: number,
   recoverableInputVat: number,
   adjustmentsInput: number
 ): number {
-  return outputVat + adjustmentsOutput - recoverableInputVat - adjustmentsInput
+  return sumMoney(outputVat, adjustmentsOutput, -recoverableInputVat, -adjustmentsInput)
 }
 
 export type VatNetNature = "payable" | "receivable" | "zero"
