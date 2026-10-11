@@ -24,6 +24,8 @@
 //
 // No ZATCA compliance is claimed (ZATCA-BOUNDARY.md §5).
 
+import { getZatcaNetworkBase } from "./zatca-config"
+
 export type CsidKind = "compliance" | "production"
 
 export interface ComplianceCsidResponse {
@@ -44,10 +46,6 @@ export interface ProductionCsidResponse {
   sandbox: boolean
 }
 
-function isOnboardingConfigured(): boolean {
-  return Boolean(process.env.ZATCA_API_BASE_URL)
-}
-
 function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : "Unknown error"
 }
@@ -61,9 +59,9 @@ export async function requestComplianceCsid(input: {
   csr: string
   otp: string
 }): Promise<ComplianceCsidResponse> {
-  const base = process.env.ZATCA_API_BASE_URL?.replace(/\/$/, "")
+  const base = getZatcaNetworkBase()
 
-  if (base && isOnboardingConfigured()) {
+  if (base) {
     const res = await fetch(`${base}/compliance`, {
       method: "POST",
       headers: {
@@ -75,7 +73,7 @@ export async function requestComplianceCsid(input: {
       body: JSON.stringify({ csr: input.csr }),
     })
     if (!res.ok) {
-      throw new Error(`ZATCA onboarding error ${res.status}: ${await res.text()}`)
+      throw new Error(`ZATCA onboarding error ${res.status}`)
     }
     const raw = (await res.json()) as Record<string, unknown>
     const csidBase64 = String(raw.binarySecurityToken ?? "")
@@ -113,9 +111,9 @@ export async function requestProductionCsid(input: {
   csidBase64: string
   csidSecret: string
 }): Promise<ProductionCsidResponse> {
-  const base = process.env.ZATCA_API_BASE_URL?.replace(/\/$/, "")
+  const base = getZatcaNetworkBase()
 
-  if (base && isOnboardingConfigured()) {
+  if (base) {
     const auth = Buffer.from(`${input.csidBase64}:${input.csidSecret}`).toString("base64")
     const res = await fetch(`${base}/production/csids`, {
       method: "POST",
@@ -128,7 +126,7 @@ export async function requestProductionCsid(input: {
       body: JSON.stringify({ compliance_request_id: input.complianceRequestId }),
     })
     if (!res.ok) {
-      throw new Error(`ZATCA onboarding error ${res.status}: ${await res.text()}`)
+      throw new Error(`ZATCA onboarding error ${res.status}`)
     }
     const raw = (await res.json()) as Record<string, unknown>
     const csidBase64 = String(raw.binarySecurityToken ?? "")
