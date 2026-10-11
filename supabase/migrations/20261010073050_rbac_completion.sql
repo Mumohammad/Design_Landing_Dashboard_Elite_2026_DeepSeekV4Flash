@@ -891,6 +891,12 @@ CREATE POLICY storage_company_assets_delete ON storage.objects
 -- 6. Explicit least-privilege Data API grants.
 -- ---------------------------------------------------------------------------
 
+-- Staging history 20260903164208 added an ALL policy to the credential store,
+-- contradicting 055/056. Remove it BEFORE policy-derived grants and the strict
+-- postcondition. This migration is still pending on the audited staging DB.
+-- 20261011133623 repeats the repair for databases that already applied RBAC.
+DROP POLICY IF EXISTS zatca_csids_tenant_isolation ON public.zatca_csids;
+
 REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM anon, authenticated;
 
 DO $$

@@ -1,6 +1,9 @@
 import type { NextConfig } from "next"
 import { withSentryConfig } from "@sentry/nextjs"
 import { buildCsp } from "./src/lib/security/csp"
+import { verifyNativePreviewEnvironment } from "./scripts/preview-safety.mjs"
+
+verifyNativePreviewEnvironment(process.env)
 
 // ── Cross-deployment routing ─────────────────────────────────────────────────
 // Two Vercel projects deploy this repo: a public LANDING deployment and an

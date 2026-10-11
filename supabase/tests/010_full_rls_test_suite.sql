@@ -176,8 +176,12 @@ SELECT ok(
 );
 
 SELECT ok(
-  (SELECT count(*) FROM pg_policies WHERE tablename = 'public_lookup_rate_limits') = 0,
-  'public_lookup_rate_limits has RLS but no policies (service-role only)'
+  (SELECT relrowsecurity FROM pg_class WHERE oid='public.public_lookup_rate_limits'::regclass)
+  AND NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public'
+    AND tablename='public_lookup_rate_limits' AND roles <> ARRAY['service_role']::name[])
+  AND NOT has_table_privilege('anon','public.public_lookup_rate_limits','SELECT,INSERT,UPDATE,DELETE')
+  AND NOT has_table_privilege('authenticated','public.public_lookup_rate_limits','SELECT,INSERT,UPDATE,DELETE'),
+  'public_lookup_rate_limits has RLS, no client policies/grants (service-role only)'
 );
 
 -- ═══════════════════════════════════════════════════════════════════

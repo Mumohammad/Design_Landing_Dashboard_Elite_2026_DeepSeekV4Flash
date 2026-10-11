@@ -1,0 +1,48 @@
+{
+  "project_ref": "viowrovartosrkqukjxy",
+  "observed_at": "2026-10-11",
+  "hash_normalization": "UTF-8; normalize checkout CRLF to LF and remove trailing CR/LF; retained statements array contains one element per version",
+  "active_migrations": true,
+  "migrations": [
+    {
+      "name": "add_multi_tenant_rls",
+      "sha256": "7977a04fbb2c2a9cf8b32251590f49922ae59fa885f04b59186b011d9b833de4",
+      "version": "20260903062109"
+    },
+    {
+      "name": "white_label_tenants_and_security_fixes",
+      "sha256": "5d32c6206fcaf5a0f897b880985cd88758e648e08324266c30aea82211d1fa9b",
+      "version": "20260903164208"
+    },
+    {
+      "name": "audit_remediation_rls_searchpath_anon_hardening",
+      "sha256": "af827bffeae3a1e3842da16128675f36d096d50a8525b5e8971ed2427e19b73f",
+      "version": "20260904152818"
+    },
+    {
+      "name": "revoke_public_execute_internal_functions",
+      "sha256": "bc15058e96b18fcb8386ea812bdf733eb3830f8792a2b6e046b03241053cf5a5",
+      "version": "20260904153328"
+    },
+    {
+      "name": "platform_admins_console_foundation",
+      "sha256": "d6b21a4906f4b7024e61954f864924fc6e6d5a56425cdef47df52ab84539c106",
+      "version": "20260905065316"
+    },
+    {
+      "name": "is_platform_admin_helper",
+      "sha256": "4634b0eaee6d955dd17db26c9b49574e74fb2e364feca639d93085b66ee5364b",
+      "version": "20260905073848"
+    },
+    {
+      "name": "tenants_trial_ends_at",
+      "sha256": "ebed8b4095b0178b5b9eff97d92e5494ba704d9d4caf896fb5d79d425581bc54",
+      "version": "20260905074247"
+    },
+    {
+      "name": "hot_fk_indexes_and_admin_policy_initplan",
+      "sha256": "d77456df2d698cad723a2ae11cdac6866566e33307a1931ec120a90e47dd4cfa",
+      "version": "20260906213149"
+    }
+  ]
+}

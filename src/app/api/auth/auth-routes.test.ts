@@ -11,7 +11,7 @@ import { NextRequest } from "next/server"
 
 // ── Mocks (hoisted) ────────────────────────────────────────────────────────
 
-const { limiterState, ssrState, resetPasswordMock } = vi.hoisted(() => {
+const { limiterState, ssrState, resetPasswordMock, emailRedirectMock } = vi.hoisted(() => {
   const limiterState = {
     signInResult: { success: true, remaining: 9, resetAt: Date.now() + 60_000 },
     forgotResult: { success: true, remaining: 2, resetAt: Date.now() + 3_600_000 },
@@ -19,7 +19,7 @@ const { limiterState, ssrState, resetPasswordMock } = vi.hoisted(() => {
   }
   const ssrState = { succeed: true }
   const resetPasswordMock = vi.fn()
-  return { limiterState, ssrState, resetPasswordMock }
+  return { limiterState, ssrState, resetPasswordMock, emailRedirectMock: vi.fn() }
 })
 
 vi.mock("@/lib/auth/rate-limit", () => {
@@ -87,7 +87,7 @@ vi.mock("@/lib/supabase/server", () => ({
 }))
 
 vi.mock("@/lib/redirects", () => ({
-  authCallbackUrlWithReturn: () => "https://dashboard.example.test/auth/confirm",
+  authCallbackUrlWithReturn: emailRedirectMock,
 }))
 
 vi.mock("@/lib/errors", () => ({
@@ -128,6 +128,7 @@ beforeEach(() => {
   limiterState.throwUnavailable = false
   ssrState.succeed = true
   resetPasswordMock.mockReset().mockResolvedValue({ error: null })
+  emailRedirectMock.mockReset().mockReturnValue("https://dashboard.example.test/auth/confirm")
 })
 
 // ── POST /api/auth/sign-in ─────────────────────────────────────────────────
@@ -198,6 +199,13 @@ describe("POST /api/auth/sign-in", () => {
 // ── POST /api/auth/forgot-password ─────────────────────────────────────────
 
 describe("POST /api/auth/forgot-password", () => {
+  it("503 and no email when an absolute recovery origin cannot be established", async () => {
+    emailRedirectMock.mockImplementation(() => { throw new Error("configuration detail") })
+    const res = await forgot(jsonPost("/api/auth/forgot-password", { email: "user@example.com" }))
+    expect(res.status).toBe(503)
+    expect((await res.json()).code).toBe("ERR_INTERNAL")
+    expect(resetPasswordMock).not.toHaveBeenCalled()
+  })
   it("200 neutral success and sends the email server-side", async () => {
     const res = await forgot(jsonPost("/api/auth/forgot-password", { email: "user@example.com" }))
     expect(res.status).toBe(200)

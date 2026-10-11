@@ -138,14 +138,29 @@ export function authCallbackUrlWithReturn(): string {
   if (typeof window !== "undefined") {
     return `${window.location.origin}/auth/confirm`
   }
-  return REDIRECTS.authConfirmUrl
+  // Email APIs require an absolute URL. Never fall back to Supabase's Site
+  // URL (which may be production), or trust request/forwarded Host headers.
+  const origin = process.env.NEXT_PUBLIC_APP_URL
+  let parsed: URL
+  try {
+    parsed = new URL(origin ?? "")
+  } catch {
+    throw new Error("Auth email origin is not configured")
+  }
+  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname)
+  if (parsed.username || parsed.password || parsed.pathname !== "/" ||
+      parsed.search || parsed.hash ||
+      (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && loopback))) {
+    throw new Error("Auth email origin must be a secure origin")
+  }
+  return `${parsed.origin}/auth/confirm`
 }
 
 /** Attach ?returnTo=… to the landing URL (open-redirect-safe). */
 export function landingUrlWithReturn(returnTo?: string | null): string {
   if (!returnTo) return REDIRECTS.landingUrl
   // Only same-site relative paths are eligible as return targets.
-  if (!returnTo.startsWith("/") || returnTo.startsWith("//")) {
+  if (!isSameOriginPath(returnTo)) {
     return REDIRECTS.landingUrl
   }
   const joiner = REDIRECTS.landingUrl.includes("?") ? "&" : "?"
@@ -155,6 +170,12 @@ export function landingUrlWithReturn(returnTo?: string | null): string {
 /** Validate a returnTo/query-provided path (relative, same-site only). */
 export function safeReturnPath(value: string | null | undefined): string {
   if (!value) return DASHBOARD_PATH
-  if (!value.startsWith("/") || value.startsWith("//")) return DASHBOARD_PATH
+  if (!isSameOriginPath(value)) return DASHBOARD_PATH
   return value
+}
+
+function isSameOriginPath(value: string): boolean {
+  // WHATWG URL parsing treats /\\host as //host and strips control characters.
+  return value.startsWith("/") && !value.startsWith("//") &&
+    !/[\\\u0000-\u0020\u007f]/.test(value)
 }

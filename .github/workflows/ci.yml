@@ -2,7 +2,7 @@ name: CI — EliteDev
 
 on:
   pull_request:
-    branches: [master, main, fix/launch-blockers-security, fix/rbac-completion]
+    branches: [master, main, fix/launch-blockers-security, fix/rbac-completion, feat/saas-accounting]
   push:
     branches: [master, main]
 
@@ -47,6 +47,12 @@ jobs:
 
     - name: Deploy config check
       run: node scripts/verify-deploy-config.mjs
+
+    - name: Preview safety regression tests
+      run: pnpm test:deployment
+
+    - name: Verify retained staging migration provenance
+      run: node scripts/verify-staging-history.mjs
 
     # ── FX-10: every API route must self-guard or be explicitly allowlisted ──
 

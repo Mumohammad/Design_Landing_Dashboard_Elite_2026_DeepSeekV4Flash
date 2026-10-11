@@ -3,7 +3,7 @@ name: Deploy — EliteDev
 on:
   # Also run on PRs for preview (only if CI passed)
   pull_request:
-    branches: [master, main, fix/launch-blockers-security, fix/rbac-completion]
+    branches: [master, main, fix/launch-blockers-security, fix/rbac-completion, feat/saas-accounting]
 
 # ⚠️ The `workflow_run` trigger (master production deploys) is intentionally
 # disabled as of 2026-09-13:
@@ -25,6 +25,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: read
   deployments: write
 
 env:
@@ -35,7 +36,7 @@ jobs:
   # ── Preview deployment (PRs only, after CI passes) ────────────────────────
   preview:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
     if: >
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository
@@ -46,11 +47,27 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 24
 
     - name: Verify CI passed
-      if: github.event_name == 'pull_request'
-      run: |
-        echo "PR deployment — CI checks should be green"
+      run: node scripts/preview-safety.mjs ci
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+
+    - name: Verify approved staging configuration
+      run: node scripts/preview-safety.mjs environment
+      env:
+        STAGING_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+        STAGING_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+        STAGING_SUPABASE_SERVICE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_KEY }}
 
     - name: Install Vercel CLI
       run: npm install -g vercel@latest
@@ -61,16 +78,28 @@ jobs:
         pnpm --version
 
     - name: Pull Vercel environment
-      run: vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
+      run: vercel pull --yes --environment=preview --git-branch="$PR_BRANCH" --token="$VERCEL_TOKEN"
+      env:
+        VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+
+    - name: Verify pulled preview runtime configuration
+      run: node scripts/preview-safety.mjs environment --pulled
+      env:
+        STAGING_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+        STAGING_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+        STAGING_SUPABASE_SERVICE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_KEY }}
 
     - name: Build with staging Supabase
-      run: vercel build --token=${{ secrets.VERCEL_TOKEN }}
+      run: vercel build --token="$VERCEL_TOKEN"
       env:
+        VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         # ── Staging Supabase (preview deployments use staging) ──
         NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
         NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
         SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_KEY }}
-        NEXT_PUBLIC_APP_URL: ${{ steps.deploy.outputs.url || 'http://localhost:3000' }}
+        # NEXT_PUBLIC_APP_URL comes from verified branch-specific Preview
+        # configuration. The deployment URL does not exist at build time.
         # ── Preview-specific settings ──
         LOG_LEVEL: info
         PERF_LOG_THRESHOLD_MS: 2000
@@ -79,34 +108,16 @@ jobs:
     - name: Deploy preview
       id: deploy
       run: |
-        URL=$(vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }})
+        URL=$(vercel deploy --prebuilt --token="$VERCEL_TOKEN")
         echo "url=$URL" >> "$GITHUB_OUTPUT"
         echo "🔗 Preview URL: $URL"
+      env:
+        VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
     - name: Smoke test preview
-      run: |
-        if [ -n "${{ steps.deploy.outputs.url }}" ]; then
-          sleep 10
-          echo "Testing preview: ${{ steps.deploy.outputs.url }}"
-
-          # Health check
-          HEALTH=$(curl -s "${{ steps.deploy.outputs.url }}/api/health" 2>/dev/null || echo "{}")
-          echo "Health: $HEALTH"
-
-          if echo "$HEALTH" | grep -q '"status":"healthy"\|"status":"degraded"'; then
-            echo "✅ Preview health check passed"
-          else
-            echo "⚠️ Preview health check returned unexpected response"
-          fi
-
-          # Auth boundary
-          REDIRECT=$(curl -s -o /dev/null -w "%{http_code}" "${{ steps.deploy.outputs.url }}/dashboard" 2>/dev/null || echo "000")
-          if [ "$REDIRECT" = "307" ] || [ "$REDIRECT" = "302" ] || [ "$REDIRECT" = "401" ]; then
-            echo "✅ Auth boundary working (redirect $REDIRECT)"
-          else
-            echo "⚠️ Auth boundary returned $REDIRECT"
-          fi
-        fi
+      run: node scripts/preview-safety.mjs smoke
+      env:
+        PREVIEW_URL: ${{ steps.deploy.outputs.url }}
 
   # ── Production deployment (master only, after CI passes) ──────────────────
   production:
