@@ -289,20 +289,18 @@ SELECT is(
   'readonly role cannot update expenses'
 );
 
-UPDATE public.users SET full_name_en = 'forbidden'
-WHERE id = '76666666-6666-4666-8666-666666666666';
-SELECT is(
-  (SELECT full_name_en FROM public.users WHERE id = '76666666-6666-4666-8666-666666666666'),
-  NULL::text,
-  'readonly role cannot update users'
+SELECT throws_ok(
+  $$UPDATE public.users SET full_name_en = 'forbidden'
+    WHERE id = '76666666-6666-4666-8666-666666666666'$$,
+  '42501', NULL,
+  'readonly role cannot update users at the grant boundary'
 );
 
-UPDATE public.roles SET description = 'forbidden'
-WHERE id = '76777777-7777-4777-8777-777777777777';
-SELECT is(
-  (SELECT description FROM public.roles WHERE id = '76777777-7777-4777-8777-777777777777'),
-  NULL::text,
-  'readonly role cannot update roles'
+SELECT throws_ok(
+  $$UPDATE public.roles SET description = 'forbidden'
+    WHERE id = '76777777-7777-4777-8777-777777777777'$$,
+  '42501', NULL,
+  'readonly role cannot update roles at the grant boundary'
 );
 
 SELECT throws_ok(

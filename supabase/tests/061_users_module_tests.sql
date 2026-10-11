@@ -145,7 +145,8 @@ SET LOCAL ROLE postgres;
 SELECT ok(
   (SELECT p.prosecdef
      AND p.proconfig IS NOT NULL
-     AND array_to_string(p.proconfig, ',') LIKE '%search_path=public%'
+     AND array_to_string(p.proconfig, ',') LIKE '%search_path=%'
+     AND array_to_string(p.proconfig, ',') NOT LIKE '%search_path=public%'
    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'public' AND p.proname = 'has_user_pdpl_consent'),
   'has_user_pdpl_consent is SECURITY DEFINER with pinned search_path'
@@ -218,7 +219,8 @@ SET LOCAL ROLE postgres;
 SELECT ok(
   (SELECT p.prosecdef
      AND p.proconfig IS NOT NULL
-     AND array_to_string(p.proconfig, ',') LIKE '%search_path=public%'
+     AND array_to_string(p.proconfig, ',') LIKE '%search_path=%'
+     AND array_to_string(p.proconfig, ',') NOT LIKE '%search_path=public%'
    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'public' AND p.proname = 'next_employee_code'),
   'next_employee_code is SECURITY DEFINER with pinned search_path'

@@ -2,7 +2,7 @@ name: CI — EliteDev
 
 on:
   pull_request:
-    branches: [master, main]
+    branches: [master, main, fix/launch-blockers-security]
   push:
     branches: [master, main]
 
@@ -146,11 +146,10 @@ jobs:
         NEXT_PUBLIC_APP_URL: http://localhost:3000
         PORT: "3000"
 
-  # ── pgTAP RLS tests (runs after CI passes, needs Docker) ─────────────────
+  # ── pgTAP RLS tests (independent release gate, needs Docker) ─────────────
   pgtap:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: ci
 
     steps:
     - name: Checkout
@@ -176,9 +175,9 @@ jobs:
       run: pnpm install --frozen-lockfile
 
     - name: Install Supabase CLI
-      run: |
-        npm install -g supabase
-        supabase --version
+      uses: supabase/setup-cli@v1
+      with:
+        version: v2.119.0
 
     - name: Start Supabase local stack
       run: |
@@ -214,7 +213,10 @@ jobs:
         # (Audit 2026-09-23: reversed order made every suite fail with
         # "function plan(integer) does not exist" while the runner still
         # reported the files as passed.)
-        psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -c "CREATE EXTENSION IF NOT EXISTS pgtap;"
+        # Keep pgTAP's helper tables out of the Data API's public schema. If
+        # installed in public after the migrations, Supabase default
+        # privileges grant those test-only tables broad Data API privileges.
+        psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -c "CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;"
         echo "✅ pgTAP extension ready"
 
     - name: Run pgTAP RLS tests
@@ -279,11 +281,10 @@ jobs:
       if: always()
       run: supabase stop 2>/dev/null || true
 
-  # ── E2E tests (runs on PRs only, needs staging env) ───────────────────────
+  # ── E2E tests (independent PR release gate, needs staging env) ────────────
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: ci
     if: github.event_name == 'pull_request'
     env:
       BASE_URL: ${{ secrets.STAGING_URL }}
@@ -313,6 +314,20 @@ jobs:
     - name: Install Playwright browsers
       run: pnpm exec playwright install --with-deps chromium
 
+    - name: Verify E2E configuration
+      run: |
+        missing=0
+        for var in BASE_URL TEST_USER_EMAIL TEST_USER_PASSWORD; do
+          if [ -z "${!var}" ]; then
+            echo "MISSING: $var is required for authenticated staging E2E"
+            missing=1
+          fi
+        done
+        if [ "$missing" -ne 0 ]; then
+          echo "Configure the corresponding GitHub Actions secrets; E2E must not silently skip."
+          exit 1
+        fi
+        echo "E2E staging URL and credentials are configured"
+
     - name: Run E2E smoke tests
       run: pnpm exec playwright test e2e/smoke.spec.ts --reporter=github
-      if: env.BASE_URL != ''

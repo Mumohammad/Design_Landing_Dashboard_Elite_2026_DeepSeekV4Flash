@@ -119,8 +119,8 @@ SELECT is(
      AND tablename IN ('driver_consents','driver_compliance_results','driver_compliance_overrides',
                        'driver_calendar_events','driver_assets','driver_cards','driver_card_prints')
      AND (qual LIKE '%get_my_tenant_id()%' OR with_check LIKE '%get_my_tenant_id()%')),
-  21,
-  'each new table has exactly sel/ins/upd tenant policies via get_my_tenant_id()'
+  18,
+  'driver subresources retain tenant-bound policies; derived compliance writes and card-print updates are service-owned'
 );
 
 SELECT is(

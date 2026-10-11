@@ -202,9 +202,9 @@ SET LOCAL ROLE anon;
 SELECT set_config('request.jwt.claims', '', true);
 
 SELECT is(
-  (SELECT count(*)::int FROM public.vehicles),
-  0,
-  'anon sees zero vehicles (RLS anon-zero re-asserted)'
+  has_table_privilege('anon', 'public.vehicles', 'SELECT'),
+  false,
+  'anon has no vehicles SELECT grant'
 );
 
 RESET ROLE;
