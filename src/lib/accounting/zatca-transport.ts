@@ -26,6 +26,7 @@
 
 import { computeInvoiceHash, signZatcaPayload, buildSigningInput } from "./zatca-crypto"
 import { moduleLogger } from "@/lib/logger"
+import { getZatcaNetworkBase } from "./zatca-config"
 
 export type ZatcaTransmissionStatus = "reported" | "cleared" | "rejected"
 
@@ -92,18 +93,6 @@ function signXmlIfConfigured(xml: string, privateKeyPem?: string | null): string
 
 const SANDBOX_UUID_PREFIX = "00000000-0000-4000-8000-"
 
-function isProdConfigured(): boolean {
-  // Production requires the gateway base URL AND the production CSID
-  // credentials (certificate + secret) that onboarding returns. Partial
-  // config keeps the transport in sandbox mode so a half-finished setup
-  // cannot silently transmit.
-  return Boolean(
-    process.env.ZATCA_API_BASE_URL &&
-      process.env.ZATCA_CSID_CERT &&
-      process.env.ZATCA_CSID_SECRET
-  )
-}
-
 /**
  * Resolve the effective production credentials: explicit (DB-backed) first,
  * env fallback second, null when neither is fully configured.
@@ -158,8 +147,10 @@ export async function transmitToZatca(input: ZatcaTransmitInput): Promise<ZatcaT
   // Explicit credentials (DB-backed) can activate production even without
   // env; otherwise env must be fully configured. Either way the gateway base
   // is required.
+  const base = getZatcaNetworkBase()
   const credentials = resolveCredentials(input)
-  if (credentials && process.env.ZATCA_API_BASE_URL) {
+  if (base && !credentials) throw new Error("ZATCA gateway credentials are missing; refusing simulated success.")
+  if (credentials && base) {
     // ── PRODUCTION (config-only, with retry for transient errors) ─────────
     // ZATCA REQUIREMENT: every production transmission MUST be signed with
     // a valid CSID private key. Transmitting unsigned XML to the live API
@@ -172,7 +163,6 @@ export async function transmitToZatca(input: ZatcaTransmitInput): Promise<ZatcaT
       throw new Error(msg)
     }
     const signedXml = signXmlIfConfigured(input.xml, credentials.privateKeyPem)
-    const base = process.env.ZATCA_API_BASE_URL.replace(/\/$/, "")
     const endpoint = input.pipeline === "clearance"
       ? "/invoices/clearance/single"
       : "/invoices/reporting/single"
@@ -208,8 +198,11 @@ export async function transmitToZatca(input: ZatcaTransmitInput): Promise<ZatcaT
         }
 
         const errorBody = await res.text()
-        log.warn({ status: res.status, body: errorBody, attempt: attempt + 1 }, "ZATCA transport error")
-        lastError = new Error(`ZATCA transport error ${res.status}: ${errorBody}`)
+        // Never log/propagate a gateway body: it may echo a certificate,
+        // credential, invoice PII or other sensitive request fields.
+        void errorBody
+        log.warn({ status: res.status, attempt: attempt + 1 }, "ZATCA transport error")
+        lastError = new Error(`ZATCA transport error ${res.status}`)
 
         // Retry only on transient errors (429, 502, 503, 504)
         if (!isRetryableStatus(res.status)) {
@@ -244,7 +237,7 @@ export async function transmitToZatca(input: ZatcaTransmitInput): Promise<ZatcaT
       pipeline: input.pipeline,
       status,
       reportedInvoiceUuid: sandboxUuid(input.docRef),
-      validationResults: { status: "PASSED", warnings: [] },
+      validationResults: { status: "NOT_VALIDATED", warnings: [] },
       message: "Sandbox ZATCA response — no real transmission occurred",
     },
   }
@@ -252,7 +245,7 @@ export async function transmitToZatca(input: ZatcaTransmitInput): Promise<ZatcaT
 
 /** True when running against the sandbox mock (no ZATCA env configured). */
 export function isSandboxTransport(): boolean {
-  return !isProdConfigured()
+  return !process.env.ZATCA_API_BASE_URL
 }
 
 /** Not needed for sandbox, but exported so callers can't guess UUIDs. */

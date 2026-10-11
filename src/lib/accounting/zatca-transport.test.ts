@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { transmitToZatca, isSandboxTransport, _sandboxUuid } from "./zatca-transport"
 import {
   buildSigningInput,
@@ -22,7 +22,7 @@ describe("transmitToZatca (sandbox mode)", () => {
     expect(res.status).toBe("reported")
     expect(res.uuid).toMatch(/^[0-9a-f-]{36}$/)
     expect(res.raw.sandbox).toBe(true)
-    expect((res.raw.validationResults as { status?: string } | undefined)?.status).toBe("PASSED")
+    expect((res.raw.validationResults as { status?: string } | undefined)?.status).toBe("NOT_VALIDATED")
   })
 
   it("returns cleared for the clearance pipeline", async () => {
@@ -49,18 +49,19 @@ describe("transmitToZatca (sandbox mode)", () => {
   })
 
   it("reports sandbox mode with partial config (base alone, or base + cert without secret)", () => {
-    vi.stubEnv("ZATCA_API_BASE_URL", "https://zatca.example.test")
-    expect(isSandboxTransport()).toBe(true) // CSID creds missing
+    vi.stubEnv("ZATCA_API_BASE_URL", "https://gw-fatoora.zatca.gov.sa/e-invoicing/developer-portal")
+    expect(isSandboxTransport()).toBe(false) // Invalid configuration is not a mock
     vi.stubEnv("ZATCA_CSID_CERT", "cert-b64")
-    expect(isSandboxTransport()).toBe(true) // secret still missing
+    expect(isSandboxTransport()).toBe(false) // Invalid configuration is not a mock
     vi.stubEnv("ZATCA_API_BASE_URL", "") // base empty → still sandbox
     expect(isSandboxTransport()).toBe(true)
   })
 })
 
-describe("transmitToZatca (production POST path — exercised with a mocked HTTP layer)", () => {
+describe("transmitToZatca (non-production POST path — mocked HTTP layer)", () => {
+  beforeEach(() => { vi.stubEnv("ZATCA_MODE", "sandbox") })
   it("reported-invoice POST: correct endpoint, XML content type, Basic CSID auth, body, and response mapping", async () => {
-    vi.stubEnv("ZATCA_API_BASE_URL", "https://zatca.example.test/") // trailing slash must be stripped
+    vi.stubEnv("ZATCA_API_BASE_URL", "https://gw-fatoora.zatca.gov.sa/e-invoicing/developer-portal/") // trailing slash must be stripped
     vi.stubEnv("ZATCA_CSID_CERT", "TUlJQ1BUQ0NBZU9n--cert-b64")
     vi.stubEnv("ZATCA_CSID_SECRET", "secret-key-123")
     vi.stubEnv("ZATCA_CSID_PRIVATE_KEY", generateZatcaKeyPair().privateKeyPem)
@@ -83,7 +84,7 @@ describe("transmitToZatca (production POST path — exercised with a mocked HTTP
     })
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(captured.url).toBe("https://zatca.example.test/invoices/reporting/single")
+    expect(captured.url).toBe("https://gw-fatoora.zatca.gov.sa/e-invoicing/developer-portal/invoices/reporting/single")
     expect(captured.init.method).toBe("POST")
     expect((captured.init.headers as Record<string, string>)["Content-Type"]).toBe("application/xml")
     // ZATCA reporting auth = Basic (binarySecurityToken:secret), NOT Bearer.
@@ -99,7 +100,7 @@ describe("transmitToZatca (production POST path — exercised with a mocked HTTP
   })
 
   it("clearance pipeline POSTs to the clearance endpoint and maps status to cleared", async () => {
-    vi.stubEnv("ZATCA_API_BASE_URL", "https://zatca.example.test")
+    vi.stubEnv("ZATCA_API_BASE_URL", "https://gw-fatoora.zatca.gov.sa/e-invoicing/developer-portal")
     vi.stubEnv("ZATCA_CSID_CERT", "cert-b64")
     vi.stubEnv("ZATCA_CSID_SECRET", "secret-key-123")
     vi.stubEnv("ZATCA_CSID_PRIVATE_KEY", generateZatcaKeyPair().privateKeyPem)
@@ -121,7 +122,7 @@ describe("transmitToZatca (production POST path — exercised with a mocked HTTP
       docRef: "INV-2026-000011",
     })
 
-    expect(captured.url).toBe("https://zatca.example.test/invoices/clearance/single")
+    expect(captured.url).toBe("https://gw-fatoora.zatca.gov.sa/e-invoicing/developer-portal/invoices/clearance/single")
     expect(captured.init.method).toBe("POST")
     expect(captured.init.body).toBe("<Invoice/>")
     expect(res.status).toBe("cleared")
@@ -132,7 +133,7 @@ describe("transmitToZatca (production POST path — exercised with a mocked HTTP
   it("explicit DB-backed credentials override env (Basic auth built from them)", async () => {
     // Fully misconfigured env — only the base URL is set; the DB credentials
     // must activate the production path anyway. Signing key via DB credentials.
-    vi.stubEnv("ZATCA_API_BASE_URL", "https://zatca.example.test")
+    vi.stubEnv("ZATCA_API_BASE_URL", "https://gw-fatoora.zatca.gov.sa/e-invoicing/developer-portal")
     const captured: { url: string; init: RequestInit } = { url: "", init: {} }
     const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
       captured.url = url
@@ -157,7 +158,7 @@ describe("transmitToZatca (production POST path — exercised with a mocked HTTP
   })
 
   it("signs the payload with the DB-backed private key and injects the signature into the XML", async () => {
-    vi.stubEnv("ZATCA_API_BASE_URL", "https://zatca.example.test")
+    vi.stubEnv("ZATCA_API_BASE_URL", "https://gw-fatoora.zatca.gov.sa/e-invoicing/developer-portal")
     const keyPair = generateZatcaKeyPair()
     const captured: { url: string; init: RequestInit } = { url: "", init: {} }
     const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
@@ -204,7 +205,7 @@ describe("transmitToZatca (production POST path — exercised with a mocked HTTP
     // ZATCA REQUIREMENT: production transmissions MUST be signed. Without a
     // signing key the transport refuses to send unsigned XML to avoid ZATCA
     // rejection and potential CSID flagging.
-    vi.stubEnv("ZATCA_API_BASE_URL", "https://zatca.example.test")
+    vi.stubEnv("ZATCA_API_BASE_URL", "https://gw-fatoora.zatca.gov.sa/e-invoicing/developer-portal")
     vi.stubEnv("ZATCA_CSID_CERT", "cert-b64")
     vi.stubEnv("ZATCA_CSID_SECRET", "secret-key-123")
     // No ZATCA_CSID_PRIVATE_KEY — the guard must throw.
@@ -217,6 +218,7 @@ describe("transmitToZatca (production POST path — exercised with a mocked HTTP
   it("stays in sandbox with explicit credentials but no gateway base URL", async () => {
     // Empty base URL → sandbox (credentials alone don't activate production).
     vi.stubEnv("ZATCA_API_BASE_URL", "")
+    vi.stubEnv("ZATCA_MODE", "mock")
     const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) }))
     vi.stubGlobal("fetch", fetchMock)
 
@@ -232,7 +234,7 @@ describe("transmitToZatca (production POST path — exercised with a mocked HTTP
   })
 
   it("throws with the HTTP status + body on a non-OK response", async () => {
-    vi.stubEnv("ZATCA_API_BASE_URL", "https://zatca.example.test")
+    vi.stubEnv("ZATCA_API_BASE_URL", "https://gw-fatoora.zatca.gov.sa/e-invoicing/developer-portal")
     vi.stubEnv("ZATCA_CSID_CERT", "cert-b64")
     vi.stubEnv("ZATCA_CSID_SECRET", "secret-key-123")
     vi.stubEnv("ZATCA_CSID_PRIVATE_KEY", generateZatcaKeyPair().privateKeyPem)
@@ -247,14 +249,14 @@ describe("transmitToZatca (production POST path — exercised with a mocked HTTP
 
     await expect(
       transmitToZatca({ xml: "<Invoice/>", pipeline: "reporting", docRef: "INV-2026-000012" })
-    ).rejects.toThrow("ZATCA transport error 401: unauthorized")
+    ).rejects.toThrow("ZATCA transport error 401")
   })
 
-  it("isSandboxTransport() flips to false only when base + CSID cert + secret are all configured", () => {
-    vi.stubEnv("ZATCA_API_BASE_URL", "https://zatca.example.test")
-    expect(isSandboxTransport()).toBe(true)
+  it("configured network mode is not described as offline mock mode", () => {
+    vi.stubEnv("ZATCA_API_BASE_URL", "https://gw-fatoora.zatca.gov.sa/e-invoicing/developer-portal")
+    expect(isSandboxTransport()).toBe(false)
     vi.stubEnv("ZATCA_CSID_CERT", "cert-b64")
-    expect(isSandboxTransport()).toBe(true)
+    expect(isSandboxTransport()).toBe(false)
     vi.stubEnv("ZATCA_CSID_SECRET", "secret-key-123")
     expect(isSandboxTransport()).toBe(false)
   })

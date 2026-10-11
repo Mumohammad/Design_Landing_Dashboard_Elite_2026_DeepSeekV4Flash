@@ -72,7 +72,9 @@ vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({ from: mocks.adminFrom }),
 }))
 
-import { saveZatcaCsid, listZatcaCsids, getZatcaCsidCredential, onboardZatcaCsids } from "./zatca-csid"
+vi.mock("server-only", () => ({}))
+import { saveZatcaCsid, listZatcaCsids, onboardZatcaCsids } from "./zatca-csid"
+import { getZatcaCsidCredential } from "./zatca-credentials"
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -169,7 +171,7 @@ describe("saveZatcaCsid", () => {
     expect(mocks.writeAuditLog).toHaveBeenCalledTimes(1)
     const audit = mocks.writeAuditLog.mock.calls[0][0]
     expect(audit.action).toBe("zatca_csid_saved")
-    expect(audit.newValues.secret).toMatch(/^supe…$/)
+    expect(audit.newValues.secret).toBe("••••")
     expect(audit.newValues.secret).not.toContain("super-secret-value")
     expect(audit.newValues.has_request_id).toBe(true)
   })
@@ -242,7 +244,7 @@ describe("listZatcaCsids", () => {
     const selectCols = builder.select.mock.calls[0][0] as string
     expect(selectCols).not.toContain("private_key")
     // rows masked: first 4 chars + ellipsis for long secrets; bullet-only for short
-    expect(res.csids![0].secretPreview).toBe("long…")
+    expect(res.csids![0].secretPreview).toBe("••••")
     expect(res.csids![1].secretPreview).toBe("••••")
     // full secrets absent
     expect(JSON.stringify(res.csids)).not.toContain("long-secret-1234")
@@ -265,6 +267,15 @@ describe("listZatcaCsids", () => {
 // ── getZatcaCsidCredential ─────────────────────────────────────────────────
 
 describe("getZatcaCsidCredential", () => {
+  it("rejects foreign tenant access before reading any credential", async () => {
+    await expect(getZatcaCsidCredential("production", "production", "tenant-foreign")).rejects.toThrow("Forbidden")
+    expect(mocks.adminFrom).not.toHaveBeenCalled()
+  })
+  it("rejects callers without approval permission", async () => {
+    mocks.requirePermission.mockRejectedValueOnce(new Error("Forbidden"))
+    await expect(getZatcaCsidCredential("production", "production", "tenant-0001")).rejects.toThrow("Forbidden")
+    expect(mocks.adminFrom).not.toHaveBeenCalled()
+  })
   it("returns the full server-only credential incl. privateKeyPem", async () => {
     const builder = mockBuilder({
       maybeSingleData: { csid_base64: "CERT-FULL", secret: "full-secret", private_key: KEY_PEM },
