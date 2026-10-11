@@ -12,7 +12,16 @@
 
 import { describe, expect, it } from "vitest"
 
-import { safeReturnPath, landingUrlWithReturn, REDIRECTS, DASHBOARD_PATH } from "./redirects"
+import { safeReturnPath, landingUrlWithReturn, withLocale, REDIRECTS, DASHBOARD_PATH } from "./redirects"
+
+describe("platform language handoff", () => {
+  it("keeps relative routes relative, preserving return parameters", () => {
+    expect(withLocale("/platform?returnTo=%2Faccounting", "en")).toBe("/platform?returnTo=%2Faccounting&lang=en")
+  })
+  it("preserves the configured host for a cross-deployment entry", () => {
+    expect(withLocale("https://elite-dashboard-blush.vercel.app/platform", "ar")).toBe("https://elite-dashboard-blush.vercel.app/platform?lang=ar")
+  })
+})
 
 describe("safeReturnPath — same-origin, single leading slash (invariant #4)", () => {
   it("accepts plain relative paths", () => {

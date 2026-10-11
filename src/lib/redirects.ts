@@ -87,6 +87,8 @@ const dashboardOrigin = IS_MULTI_DEPLOYMENT
 export const REDIRECTS = {
   /** Public marketing entry point. */
   landingUrl,
+  /** Marketing auth entry. Keeps host-scoped sessions on the existing auth host. */
+  platformUrl: IS_MULTI_DEPLOYMENT ? `${new URL(landingUrl).origin}/platform` : "/platform",
   /** The one and only dashboard destination (requirement: never blush/dashboard). */
   dashboardUrl: `${dashboardOrigin}${DASHBOARD_PATH}`,
   /** Sign-in — lives on the DASHBOARD deployment in multi-deployment mode. */
@@ -104,6 +106,13 @@ export const REDIRECTS = {
   /** Logout sink — clears cookies on the dashboard, then → landing. */
   signOutUrl: `${dashboardOrigin}/auth/sign-out`,
 } as const
+
+/** Carry a non-secret language preference across independent deployment hosts. */
+export function withLocale(url: string, locale: "ar" | "en"): string {
+  const parsed = new URL(url, "https://relative.invalid")
+  parsed.searchParams.set("lang", locale)
+  return /^https?:\/\//i.test(url) ? parsed.toString() : `${parsed.pathname}${parsed.search}${parsed.hash}`
+}
 
 /**
  * Resolve a possibly-relative redirect target against the request origin.

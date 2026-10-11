@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
+import { REDIRECTS, withLocale } from '@/lib/redirects';
 
 export const metadata: Metadata = {
   title: 'دخول الشركات | نخبة التطوير',
@@ -11,6 +12,7 @@ export const metadata: Metadata = {
 // then lands on the multi-tenant /dashboard. This page previously kept its own
 // raw supabase-js client whose session was invisible to the dashboard client,
 // forcing users to sign in repeatedly.
-export default function PlatformLoginPage() {
-  redirect('/auth/sign-in');
+export default async function PlatformLoginPage({ searchParams }: { searchParams: Promise<{ lang?: string }> }) {
+  const { lang } = await searchParams;
+  redirect(lang === 'ar' || lang === 'en' ? withLocale(REDIRECTS.signInUrl, lang) : REDIRECTS.signInUrl);
 }

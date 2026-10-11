@@ -3,31 +3,8 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { ArrowLeft, Mail, MapPin } from 'lucide-react';
-
-const platformLinks = [
-  { href: '#driver360', label: 'السائقون' },
-  { href: '#fleet', label: 'الأسطول' },
-  { href: '#payroll', label: 'الرواتب' },
-  { href: '#operations', label: 'العمليات' },
-  { href: '#reports', label: 'التقارير' },
-];
-
-const companyLinks = [
-  { href: '/platform', label: 'المنصة' },
-  { href: '/platform/register', label: 'سجّل شركتك' },
-  { href: '/auth/sign-in', label: 'تسجيل الدخول' },
-];
-
-const resourceLinks = [
-  { href: '/help', label: 'المساعدة والدعم' },
-  { href: '#faq', label: 'الأسئلة الشائعة' },
-  { href: '/driver-registration', label: 'تسجيل السائقين' },
-];
-
-const legalLinks = [
-  { href: '/privacy', label: 'سياسة الخصوصية' },
-  { href: '/terms', label: 'شروط الخدمة' },
-];
+import { useTranslation } from '@/hooks/use-translation';
+import { landingContent } from '@/lib/landing-content';
 
 function FlagEn() {
   return (
@@ -65,15 +42,14 @@ function LinkColumn({ title, links }: { title: string; links: { href: string; la
 }
 
 export function LandingFooter() {
+  const { locale, setLocale, t } = useTranslation();
+  const c = landingContent[locale];
+  const platformLinks = c.nav.links.filter(link => ['#driver360', '#fleet', '#payroll', '#operations', '#reports'].includes(link.href));
+  const companyLinks = [{ href: '/platform', label: c.nav.links[0].label }, { href: '/platform/register', label: c.nav.getStarted }];
+  const resourceLinks = [{ href: '/help', label: t.pages.help }, { href: '#faq', label: c.nav.links[8].label }, { href: '/driver-registration', label: c.nav.applyAsDriver }];
+  const legalLinks = [{ href: '/privacy', label: t.pages.privacy }, { href: '/terms', label: t.pages.terms }];
   function toggleLocale() {
-    try {
-      const current = localStorage.getItem('elite-locale') === 'en' ? 'en' : 'ar';
-      const next = current === 'ar' ? 'en' : 'ar';
-      localStorage.setItem('elite-locale', next);
-      window.location.reload();
-    } catch {
-      /* noop */
-    }
+    setLocale(locale === 'ar' ? 'en' : 'ar');
   }
 
   return (
@@ -86,15 +62,15 @@ export function LandingFooter() {
                 <Image alt="Elite Development" width={34} height={34} className="rounded-2xl object-cover" style={{ width: 34, height: 34 }} src="/logo.png" />
               </div>
               <div className="leading-tight">
-                <p className="font-bold text-foreground">نخبة التطوير</p>
+                <p className="font-bold text-foreground">{t.app.companyNameArabic}</p>
                 <p className="text-[11px] text-muted-foreground">Elite Development</p>
               </div>
             </div>
-            <p className="max-w-sm text-sm leading-relaxed text-muted-foreground">نظام التشغيل للعملية اللوجستية.</p>
+            <p className="max-w-sm text-sm leading-relaxed text-muted-foreground">{c.footer.tagline}</p>
             <div className="space-y-2 text-xs text-muted-foreground">
               <p className="flex items-center gap-2">
                 <MapPin className="h-3.5 w-3.5" aria-hidden="true" />
-                القصيم، المملكة العربية السعودية
+                {c.footer.address}
               </p>
               <a href="mailto:support@elite-dev.com" className="flex w-fit items-center gap-2 transition-colors hover:text-elite-blue-600 dark:hover:text-elite-blue-300">
                 <Mail className="h-3.5 w-3.5" aria-hidden="true" />
@@ -103,21 +79,21 @@ export function LandingFooter() {
             </div>
           </div>
           <div className="grid grid-cols-2 gap-8 sm:grid-cols-4 lg:col-span-4">
-            <LinkColumn title="المنصة" links={platformLinks} />
-            <LinkColumn title="الشركة" links={companyLinks} />
-            <LinkColumn title="الموارد" links={resourceLinks} />
-            <LinkColumn title="قانوني" links={legalLinks} />
+            <LinkColumn title={c.footer.columns[0].title} links={platformLinks} />
+            <LinkColumn title={c.footer.columns[1].title} links={companyLinks} />
+            <LinkColumn title={c.footer.columns[2].title} links={resourceLinks} />
+            <LinkColumn title={c.footer.columns[3].title} links={legalLinks} />
           </div>
         </div>
         <div className="mt-12 flex flex-col items-center justify-between gap-4 border-t border-border/40 pt-6 sm:flex-row">
-          <p className="text-xs text-muted-foreground">© {new Date().getFullYear()} نخبة التطوير — جميع الحقوق محفوظة.</p>
+          <p className="text-xs text-muted-foreground">{c.footer.copyright.replace('{year}', String(new Date().getFullYear()))}</p>
           <button
             onClick={toggleLocale}
             className="inline-flex items-center justify-center whitespace-nowrap text-sm transition-all border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50 h-8 rounded-md px-3 gap-2 font-semibold"
             aria-label="Toggle language"
           >
             <FlagEn />
-            English
+            {locale === 'ar' ? 'English' : 'العربية'}
             <ArrowLeft className="h-3.5 w-3.5 rtl:-scale-x-100" aria-hidden="true" />
           </button>
         </div>
