@@ -10,9 +10,26 @@
 // `startsWith("/")` guard in redirects.ts makes the corresponding
 // "falls back" assertions FAIL (the malicious input passes through).
 
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { safeReturnPath, landingUrlWithReturn, withLocale, REDIRECTS, DASHBOARD_PATH } from "./redirects"
+import { authCallbackUrlWithReturn, safeReturnPath, landingUrlWithReturn, withLocale, REDIRECTS, DASHBOARD_PATH } from "./redirects"
+
+afterEach(() => vi.unstubAllEnvs())
+
+describe("server-side single-host auth email origin", () => {
+  it("uses the explicitly configured Preview origin, never the Supabase Site URL", () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://elite-dashboard-fixture-elitesaasc-5643.vercel.app")
+    expect(authCallbackUrlWithReturn()).toBe("https://elite-dashboard-fixture-elitesaasc-5643.vercel.app/auth/confirm")
+  })
+  it("permits local development without sending links to production", () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "http://localhost:3000")
+    expect(authCallbackUrlWithReturn()).toBe("http://localhost:3000/auth/confirm")
+  })
+  it.each([undefined, "", "/auth/confirm", "http://example.test", "https://user:password@example.test", "https://example.test/path", "https://example.test/?query=1", "https://example.test/#fragment"])("fails closed for invalid/missing email origin (%s)", origin => {
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", origin)
+    expect(() => authCallbackUrlWithReturn()).toThrow(/Auth email origin/)
+  })
+})
 
 describe("platform language handoff", () => {
   it("keeps relative routes relative, preserving return parameters", () => {
@@ -58,6 +75,9 @@ describe("safeReturnPath — same-origin, single leading slash (invariant #4)", 
     // "\\\\evil" does not start with "/" and "/\\evil" is not a sane same-origin path
     // — both must fall back rather than being forwarded.
     expect(safeReturnPath("\\\\evil.example")).toBe(DASHBOARD_PATH)
+    expect(safeReturnPath("/\\evil.example")).toBe(DASHBOARD_PATH)
+    expect(safeReturnPath("/\t/evil.example")).toBe(DASHBOARD_PATH)
+    expect(safeReturnPath("/\n/evil.example")).toBe(DASHBOARD_PATH)
   })
 })
 
@@ -73,7 +93,7 @@ describe("landingUrlWithReturn — open-redirect-safe returnTo attachment", () =
   })
 
   it("drops dangerous returnTo values entirely (no param emitted)", () => {
-    for (const evil of ["//evil.example", "https://evil.example", "javascript:alert(1)"]) {
+    for (const evil of ["//evil.example", "https://evil.example", "javascript:alert(1)", "/\\evil.example", "/\t/evil.example"]) {
       expect(landingUrlWithReturn(evil)).toBe(REDIRECTS.landingUrl)
     }
   })

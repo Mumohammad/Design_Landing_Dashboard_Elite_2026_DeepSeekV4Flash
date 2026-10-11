@@ -9,7 +9,8 @@ import { NextRequest } from "next/server"
 
 // ── Mocks (hoisted) ────────────────────────────────────────────────────────
 
-const { authState, rlState } = vi.hoisted(() => ({
+const { authState, rlState, generateLinkMock } = vi.hoisted(() => ({
+  generateLinkMock: vi.fn(),
   authState: {
     createUserError: null as { message: string } | null,
     tenantsInsertError: null as { message: string } | null,
@@ -28,10 +29,7 @@ vi.mock("@supabase/supabase-js", () => ({
           authState.createUserError
             ? { data: { user: null }, error: authState.createUserError }
             : { data: { user: { id: "au1" } }, error: null },
-        generateLink: async () => ({
-          data: { properties: { action_link: "https://confirm.example.test" } },
-          error: null,
-        }),
+        generateLink: generateLinkMock,
       },
     },
     from: (table: string) => ({
@@ -125,6 +123,11 @@ function jsonPost(path: string, rawBody: string): NextRequest {
 // Supabase auth settings fetch → fails → route keeps default
 // emailConfirmationEnabled = true (deterministic responses).
 beforeEach(() => {
+  vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://elite-dashboard-fixture-elitesaasc-5643.vercel.app")
+  generateLinkMock.mockReset().mockResolvedValue({
+    data: { properties: { action_link: "https://confirm.example.test" } },
+    error: null,
+  })
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => ({ ok: false, json: async () => ({}) }))
@@ -137,6 +140,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
 })
 
 // ── POST /api/platform/register ────────────────────────────────────────────
@@ -222,6 +226,9 @@ describe("POST /api/platform/register (FX-08)", () => {
     const res = await post("Password123")
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ success: true, requires_confirmation: true })
+    expect(generateLinkMock).toHaveBeenCalledWith(expect.objectContaining({
+      options: { redirectTo: "https://elite-dashboard-fixture-elitesaasc-5643.vercel.app/auth/confirm" },
+    }))
   })
 
   it("exhausted per-IP window → 429 AUTH_RATE_LIMITED + Retry-After", async () => {

@@ -8,6 +8,7 @@ import {
   RateLimitUnavailableError,
 } from '@/lib/auth/rate-limit';
 import { ERROR_CODES } from '@/lib/errors/error-codes';
+import { authCallbackUrlWithReturn } from '@/lib/redirects';
 
 // FX-08: public registration password policy — min 10 chars, at least one
 // letter and one digit (password "a" was previously accepted).
@@ -128,6 +129,12 @@ export async function POST(req: NextRequest) {
       // Fail safe: keep the stricter default (send a confirmation link).
     }
 
+    // Resolve before creating an Auth account. A missing/unsafe origin must
+    // not mint a confirmation link defaulting to a different environment.
+    const confirmationRedirectTo = emailConfirmationEnabled
+      ? authCallbackUrlWithReturn()
+      : undefined;
+
     // Invite-provisioned user creation — direct signup is blocked by the auth trigger.
     // When confirmation is enabled the account starts unconfirmed so the user
     // must click the emailed link before signing in.
@@ -190,6 +197,7 @@ export async function POST(req: NextRequest) {
         type: 'signup',
         email,
         password,
+        options: { redirectTo: confirmationRedirectTo },
       });
 
       if (linkError || !linkData?.properties?.action_link) {

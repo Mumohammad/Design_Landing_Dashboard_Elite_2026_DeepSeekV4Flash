@@ -1,5 +1,10 @@
 # Live CRUD staging gate — 2026-10-11
 
+**Follow-up:** see [staging reconciliation and Preview isolation](staging-reconciliation-2026-10-11.md)
+for the restored migration history, fresh Postgres 17 validation, confirmed
+Preview configuration failures and remaining approval gates. The initial-step
+results below describe commit `873483d`, not a completed hosted CRUD test.
+
 Status: **not cleared for authenticated hosted CRUD or merge**. This first fix
 hardens the Actions preview path; it does not reconcile hosted migrations, prove
 preview isolation, or establish production readiness.

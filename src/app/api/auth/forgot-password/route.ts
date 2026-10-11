@@ -90,9 +90,21 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // 3. Send the recovery email (server-side; redirectTo is allow-listed by
   //    Supabase and validated in redirects.ts).
+  let redirectTo: string
+  try {
+    redirectTo = authCallbackUrlWithReturn()
+  } catch {
+    // A configuration error is not account-dependent. Do not send a link
+    // that can silently default to a different deployment's Site URL.
+    const def = ERROR_CODES.ERR_INTERNAL
+    return NextResponse.json(
+      { code: def.code, message_ar: def.messageAr, message_en: def.messageEn },
+      { status: 503 }
+    )
+  }
   const supabase = await createClient()
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: authCallbackUrlWithReturn(),
+    redirectTo,
   })
 
   if (error) {

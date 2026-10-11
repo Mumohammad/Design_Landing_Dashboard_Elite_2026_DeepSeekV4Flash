@@ -1,7 +1,7 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
-import { STAGING_REF, verifyPreviewEnvironment, selectCiRun, requiredJobState, previewOrigin, verifySmoke, waitForCi, smokePreview } from "./preview-safety.mjs"
+import { STAGING_REF, verifyPreviewEnvironment, verifyNativePreviewEnvironment, selectCiRun, requiredJobState, previewOrigin, verifySmoke, waitForCi, smokePreview } from "./preview-safety.mjs"
 
 const jwt = (ref, role) => `fixture.${Buffer.from(JSON.stringify({ ref, role })).toString("base64url")}.fixture`
 const config = () => ({
@@ -40,9 +40,31 @@ test("preview rejects missing/local/production app origins", () => {
   }
 })
 test("preview rejects inherited multi-host production routing", () => {
-  for (const name of ["DEPLOYMENT_ROLE", "NEXT_PUBLIC_DASHBOARD_URL", "NEXT_PUBLIC_LANDING_URL"]) {
+  for (const name of ["DEPLOYMENT_ROLE", "PUBLIC_DASHBOARD_URL", "PUBLIC_LANDING_URL", "NEXT_PUBLIC_DASHBOARD_URL", "NEXT_PUBLIC_LANDING_URL"]) {
     assert.throws(() => verifyPreviewEnvironment(config(), { ...pulled(config()), [name]: "foreign-fixture" }), /single-host routing/)
   }
+})
+test("preview rejects an inherited production site/email origin", () => {
+  assert.throws(() => verifyPreviewEnvironment(config(), { ...pulled(config()), NEXT_PUBLIC_SITE_URL: "https://elite-dashboard-blush.vercel.app" }), /site\/email origin/)
+  verifyPreviewEnvironment(config(), { ...pulled(config()), NEXT_PUBLIC_SITE_URL: pulled(config()).NEXT_PUBLIC_APP_URL })
+})
+test("native Vercel Preview builds require actual isolated configuration", () => {
+  const good = { ...pulled(config()), VERCEL_ENV: "preview" }
+  verifyNativePreviewEnvironment(good)
+  for (const bad of [{ ...good, NEXT_PUBLIC_SUPABASE_URL: "https://wwfnsbilmyxeawgzicmv.supabase.co" },
+    { ...good, NEXT_PUBLIC_APP_URL: "https://elite-dashboard-blush.vercel.app" },
+    { ...good, SUPABASE_SERVICE_ROLE_KEY: "" }, { ...good, PUBLIC_DASHBOARD_URL: "https://production.example.test" }]) {
+    assert.throws(() => verifyNativePreviewEnvironment(bad))
+  }
+})
+test("native Preview guard does not change production or local configuration", () => {
+  verifyNativePreviewEnvironment({ VERCEL_ENV: "production" })
+  verifyNativePreviewEnvironment({})
+})
+test("Next config invokes the native Preview guard before configuring the app", () => {
+  const text = readFileSync(new URL("../next.config.ts", import.meta.url), "utf8")
+  assert.ok(text.includes("verifyNativePreviewEnvironment(process.env)"))
+  assert.ok(text.indexOf("verifyNativePreviewEnvironment(process.env)") < text.indexOf("const nextConfig"))
 })
 test("new-style keys are supported without pretending to verify their project binding", () => {
   const env = { ...config(), STAGING_SUPABASE_ANON_KEY: "sb_publishable_fixture", STAGING_SUPABASE_SERVICE_KEY: "sb_secret_fixture" }

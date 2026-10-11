@@ -46,8 +46,12 @@ export function verifyPreviewEnvironment(env, pulled) {
     try { previewOrigin(pulled.NEXT_PUBLIC_APP_URL) } catch {
       throw new Error("Vercel Preview NEXT_PUBLIC_APP_URL must be a same-project preview origin")
     }
-    if (pulled.DEPLOYMENT_ROLE || pulled.NEXT_PUBLIC_DASHBOARD_URL || pulled.NEXT_PUBLIC_LANDING_URL) {
+    if (["DEPLOYMENT_ROLE", "PUBLIC_DASHBOARD_URL", "PUBLIC_LANDING_URL",
+      "NEXT_PUBLIC_DASHBOARD_URL", "NEXT_PUBLIC_LANDING_URL"].some(name => pulled[name])) {
       throw new Error("Preview must use single-host routing without production auth origins")
+    }
+    if (pulled.NEXT_PUBLIC_SITE_URL && pulled.NEXT_PUBLIC_SITE_URL !== pulled.NEXT_PUBLIC_APP_URL) {
+      throw new Error("Preview must not inherit a foreign site/email origin")
     }
     if (pulled.ZATCA_MODE && pulled.ZATCA_MODE !== "mock") {
       throw new Error("Preview must use offline ZATCA mock mode")
@@ -56,6 +60,18 @@ export function verifyPreviewEnvironment(env, pulled) {
       throw new Error("Preview must not enable external ZATCA submission")
     }
   }
+}
+
+// Native Vercel Git builds bypass Actions' pull/config guard. Validate their
+// actual build environment too, before Next compiles public values into JS.
+// This does not authenticate opaque keys or inspect Supabase Auth URL settings.
+export function verifyNativePreviewEnvironment(env) {
+  if (env.VERCEL_ENV !== "preview") return
+  verifyPreviewEnvironment({
+    STAGING_SUPABASE_URL: env.NEXT_PUBLIC_SUPABASE_URL,
+    STAGING_SUPABASE_ANON_KEY: env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    STAGING_SUPABASE_SERVICE_KEY: env.SUPABASE_SERVICE_ROLE_KEY,
+  }, env)
 }
 
 export function selectCiRun(runs, sha, prNumber) {
