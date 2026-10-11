@@ -4,19 +4,9 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { ArrowUpRight, ArrowLeft, Sparkles, Menu, X, Moon } from 'lucide-react';
-import { REDIRECTS } from '@/lib/redirects';
-
-const navItems = [
-  { href: '#platform', label: 'المنصة' },
-  { href: '#driver360', label: 'ملف السائق' },
-  { href: '#payroll', label: 'الرواتب' },
-  { href: '#fleet', label: 'الأسطول' },
-  { href: '#operations', label: 'العمليات' },
-  { href: '#compliance', label: 'الامتثال' },
-  { href: '#reports', label: 'التقارير' },
-  { href: '#pricing', label: 'الأسعار' },
-  { href: '#faq', label: 'الأسئلة' },
-];
+import { REDIRECTS, withLocale } from '@/lib/redirects';
+import { useTranslation } from '@/hooks/use-translation';
+import { landingContent } from '@/lib/landing-content';
 
 function FlagEn() {
   return (
@@ -37,6 +27,9 @@ function FlagEn() {
 }
 
 export function LandingHeader() {
+  const { locale, setLocale, t } = useTranslation();
+  const c = landingContent[locale];
+  const navItems = c.nav.links;
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
@@ -48,14 +41,7 @@ export function LandingHeader() {
   }, []);
 
   function toggleLocale() {
-    try {
-      const current = localStorage.getItem('elite-locale') === 'en' ? 'en' : 'ar';
-      const next = current === 'ar' ? 'en' : 'ar';
-      localStorage.setItem('elite-locale', next);
-      window.location.reload();
-    } catch {
-      /* noop */
-    }
+    setLocale(locale === 'ar' ? 'en' : 'ar');
   }
 
   function toggleTheme() {
@@ -74,7 +60,7 @@ export function LandingHeader() {
         style={{ background: 'linear-gradient(90deg, transparent, rgba(30,90,153,0.4) 30%, rgba(232,125,62,0.4) 70%, transparent)' }}
       ></div>
       <nav className="mx-auto flex h-16 max-w-7xl items-center gap-4 px-4 lg:px-8">
-        <Link className="flex shrink-0 items-center gap-3 group" aria-label="نخبة التطوير" href="/landing">
+        <Link className="flex shrink-0 items-center gap-3 group" aria-label={t.app.companyNameArabic} href="/landing">
           <div className="relative">
             <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-elite-blue-500 to-elite-orange-500 opacity-0 blur-md transition-opacity duration-300 group-hover:opacity-40"></div>
             <div className="relative flex items-center justify-center rounded-2xl bg-gradient-to-br from-elite-blue-500 via-elite-blue-400 to-elite-orange-500 shadow-lg shadow-elite-blue-500/20" style={{ width: 36, height: 36 }}>
@@ -82,8 +68,8 @@ export function LandingHeader() {
             </div>
           </div>
           <span className="hidden leading-tight sm:block">
-            <span className="block text-sm font-bold text-foreground">نخبة التطوير</span>
-            <span className="block text-[10px] font-medium text-muted-foreground">منصة لوجستيات التشغيل المؤسسي</span>
+            <span className="block text-sm font-bold text-foreground">{t.app.companyNameArabic}</span>
+            <span className="block text-[10px] font-medium text-muted-foreground">{t.app.tagline}</span>
           </span>
         </Link>
 
@@ -93,25 +79,25 @@ export function LandingHeader() {
           ))}
           <a href="/driver-registration" target="_blank" rel="noopener noreferrer" className="ms-2 inline-flex items-center gap-1.5 rounded-xl border border-elite-blue-500/30 bg-elite-blue-500/5 px-3.5 py-2 text-[13px] font-bold text-elite-blue-600 transition-all duration-200 hover:bg-elite-blue-500/10 hover:border-elite-blue-500/50 hover:shadow-md hover:shadow-elite-blue-500/10 dark:text-elite-blue-300">
             <ArrowUpRight className="h-3.5 w-3.5 rtl:-scale-x-100" aria-hidden="true" />
-            سجّل كسائق
+            {c.nav.applyAsDriver}
           </a>
         </div>
 
         <div className="ms-auto flex items-center gap-2 xl:ms-0">
           <button onClick={toggleLocale} className="inline-flex items-center justify-center whitespace-nowrap text-sm h-8 px-3 gap-2 rounded-xl font-semibold transition-all duration-200 hover:bg-elite-blue-500/5" aria-label="Toggle language">
             <FlagEn />
-            EN
+            {locale === 'ar' ? 'EN' : 'العربية'}
           </button>
           <button onClick={toggleTheme} className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all hover:bg-accent hover:text-accent-foreground size-9 cursor-pointer relative overflow-hidden" aria-label="Toggle theme">
             <Moon className="h-[1.2rem] w-[1.2rem] transition-transform duration-300" aria-hidden="true" />
             <span className="sr-only">Switch theme</span>
           </button>
-          <Link className="items-center justify-center whitespace-nowrap text-sm font-medium transition-all border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground h-8 gap-1.5 px-3 hidden rounded-xl sm:inline-flex" href={REDIRECTS.signInUrl}>
-            تسجيل الدخول
+          <Link className="inline-flex items-center justify-center whitespace-nowrap text-sm font-medium transition-all border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground h-8 gap-1.5 px-3 rounded-xl" href={withLocale(REDIRECTS.platformUrl, locale)}>
+            {t.auth.signInButton}
           </Link>
           <Link className="items-center justify-center whitespace-nowrap text-sm font-medium transition-all h-8 gap-1.5 px-3 hidden rounded-xl bg-gradient-to-r from-elite-blue-500 to-elite-blue-600 text-white shadow-lg shadow-elite-blue-500/25 duration-300 hover:from-elite-blue-600 hover:to-elite-blue-700 hover:shadow-xl hover:shadow-elite-blue-500/40 hover:scale-[1.02] active:scale-[0.98] sm:inline-flex" href="/platform/register">
             <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-            ابدأ الآن
+            {c.nav.getStarted}
             <ArrowLeft className="h-3.5 w-3.5 rtl:-scale-x-100" aria-hidden="true" />
           </Link>
           <button onClick={() => setMenuOpen(o => !o)} className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all hover:bg-accent hover:text-accent-foreground size-9 rounded-xl xl:hidden" aria-label="Menu" aria-expanded={menuOpen} aria-controls="landing-mobile-menu">
@@ -127,15 +113,12 @@ export function LandingHeader() {
           ))}
           <a href="/driver-registration" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-bold text-elite-blue-600 dark:text-elite-blue-300">
             <ArrowUpRight className="h-4 w-4 rtl:-scale-x-100" aria-hidden="true" />
-            سجّل كسائق
+            {c.nav.applyAsDriver}
           </a>
           <div className="flex gap-3 pt-4">
-            <Link className="inline-flex items-center justify-center whitespace-nowrap text-sm font-medium transition-all border bg-background shadow-xs hover:bg-accent h-8 gap-1.5 px-3 flex-1 rounded-xl" href={REDIRECTS.signInUrl}>
-              تسجيل الدخول
-            </Link>
             <Link className="inline-flex items-center justify-center whitespace-nowrap text-sm font-medium transition-all h-8 gap-1.5 px-3 flex-1 rounded-xl bg-gradient-to-r from-elite-blue-500 to-elite-blue-600 text-white shadow-lg shadow-elite-blue-500/25" href="/platform/register">
               <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-              ابدأ الآن
+              {c.nav.getStarted}
             </Link>
           </div>
         </div>

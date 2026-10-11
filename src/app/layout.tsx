@@ -5,6 +5,7 @@ import { ThemeProvider } from "@/components/theme-provider"
 import { SidebarConfigProvider } from "@/contexts/sidebar-context"
 import { LocaleProvider } from "@/contexts/locale-context"
 import { cairo, inter } from "@/lib/fonts"
+import { localeInitScript } from "@/lib/i18n/locale-init"
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? "https://elitedev.com.sa"),
@@ -21,23 +22,6 @@ export const metadata: Metadata = {
 
 // Inline script to prevent flash of wrong lang/dir before hydration.
 // Runs synchronously before React hydrates, reading the saved locale from localStorage.
-const localeInitScript = `
-(function() {
-  try {
-    var locale = localStorage.getItem('elite-locale');
-    if (locale === 'en' || locale === 'ar') {
-      document.documentElement.lang = locale;
-      document.documentElement.dir = locale === 'ar' ? 'rtl' : 'ltr';
-    } else {
-      document.documentElement.lang = 'ar';
-      document.documentElement.dir = 'rtl';
-    }
-  } catch (e) {
-    document.documentElement.lang = 'ar';
-    document.documentElement.dir = 'rtl';
-  }
-})();
-`
 
 export default function RootLayout({
   children,

@@ -158,9 +158,9 @@ export function LoginForm1({
                     render={({ field }) => (
                       <FormItem className="stagger-3">
                         <FormLabel>{t.auth.email}</FormLabel>
-                        <FormControl>
-                          <div className="relative">
+                        <div className="relative">
                             <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                          <FormControl>
                             <Input
                               type="email"
                               placeholder={t.auth.emailPlaceholder}
@@ -168,8 +168,8 @@ export function LoginForm1({
                               disabled={isLoading}
                               {...field}
                             />
-                          </div>
-                        </FormControl>
+                          </FormControl>
+                        </div>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -189,9 +189,9 @@ export function LoginForm1({
                             {t.auth.forgotPassword}
                           </a>
                         </div>
-                        <FormControl>
-                          <div className="relative">
+                        <div className="relative">
                             <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                          <FormControl>
                             <Input
                               type={showPassword ? "text" : "password"}
                               placeholder={t.auth.passwordPlaceholder}
@@ -199,6 +199,7 @@ export function LoginForm1({
                               disabled={isLoading}
                               {...field}
                             />
+                          </FormControl>
                             <button
                               type="button"
                               onClick={() => setShowPassword(!showPassword)}
@@ -208,8 +209,7 @@ export function LoginForm1({
                             >
                               {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                             </button>
-                          </div>
-                        </FormControl>
+                        </div>
                         <FormMessage />
                       </FormItem>
                     )}

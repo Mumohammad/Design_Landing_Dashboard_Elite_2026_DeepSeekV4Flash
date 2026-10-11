@@ -2,7 +2,7 @@ name: CI — EliteDev
 
 on:
   pull_request:
-    branches: [master, main, fix/launch-blockers-security]
+    branches: [master, main, fix/launch-blockers-security, fix/rbac-completion]
   push:
     branches: [master, main]
 

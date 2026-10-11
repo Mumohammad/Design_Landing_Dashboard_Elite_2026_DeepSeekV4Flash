@@ -4,8 +4,8 @@
 //
 // runEventDispatcher() polls the `financial_events` queue and materialises
 // journal entries, VAT ledger rows, receivables and adjustments through the
-// service-role-only SQL function `dispatch_pending_events()` (migration
-// 042). Each event is dispatched atomically and idempotently:
+// JWT-bound `dispatch_my_financial_events()` RPC. Each event is dispatched
+// atomically and idempotently within the caller's active tenant:
 //
 //   processed          → effects written (journal + VAT + AR/AP)
 //   skipped_duplicate  → the effect already existed (replay-safe)
@@ -18,7 +18,7 @@
 //   2. manually from the Accounting → Events monitor tab.
 
 import { revalidatePath } from "next/cache"
-import { createAdminClient } from "@/lib/supabase/admin"
+import { createClient } from "@/lib/supabase/server"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
 import { mapFinancialError } from "@/lib/accounting/csv-utils"
 
@@ -49,8 +49,8 @@ export async function runEventDispatcher(): Promise<DispatchSummary> {
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
 
-    const admin = createAdminClient()
-    const { data, error } = await admin.rpc("dispatch_pending_events", {
+    const client = await createClient()
+    const { data, error } = await client.rpc("dispatch_my_financial_events", {
       p_batch_size: 100,
     })
     if (error) return { success: false, error: mapFinancialError(error.message) }

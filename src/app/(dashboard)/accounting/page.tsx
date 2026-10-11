@@ -987,6 +987,7 @@ export default function AccountingPage() {
   const [paySupplier, setPaySupplier] = useState("")
   const [payReference, setPayReference] = useState("")
   const [payAllocs, setPayAllocs] = useState<PayAllocDraft[]>([])
+  const [payRequestId, setPayRequestId] = useState("")
 
   function syncAllocList(dir: "in" | "out", partyId?: string) {
     const rows = (dir === "in" ? openAr : openAp).filter((r) => {
@@ -1009,6 +1010,7 @@ export default function AccountingPage() {
   }
 
   function openPayDialog() {
+    setPayRequestId(crypto.randomUUID())
     setPayDirection("in")
     setPayDate(new Date().toISOString().slice(0, 10))
     setPayAmount("")
@@ -1024,6 +1026,7 @@ export default function AccountingPage() {
   async function handleRecordPayment() {
     setPayBusy(true)
     const res = await recordPayment({
+      request_id: payRequestId,
       direction: payDirection,
       payment_date: payDate,
       amount: Number(payAmount || 0),
@@ -1038,7 +1041,9 @@ export default function AccountingPage() {
     })
     setPayBusy(false)
     if (res.success) {
-      flash("ok", ar ? "تم تسجيل الدفعة وترحيلها." : "Payment recorded and posted.")
+      flash("ok", res.postingStatus === "posted"
+        ? (ar ? "تم تسجيل الدفعة وترحيلها." : "Payment recorded and posted.")
+        : (ar ? "تم حفظ الدفعة؛ بانتظار الترحيل المحاسبي." : "Payment saved; awaiting accounting posting."))
       setPayDialogOpen(false)
       setPayRefresh((k) => k + 1)
     } else {
