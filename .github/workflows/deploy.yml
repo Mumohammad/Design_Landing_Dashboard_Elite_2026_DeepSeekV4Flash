@@ -3,7 +3,7 @@ name: Deploy — EliteDev
 on:
   # Also run on PRs for preview (only if CI passed)
   pull_request:
-    branches: [master, main]
+    branches: [master, main, fix/launch-blockers-security]
 
 # ⚠️ The `workflow_run` trigger (master production deploys) is intentionally
 # disabled as of 2026-09-13:

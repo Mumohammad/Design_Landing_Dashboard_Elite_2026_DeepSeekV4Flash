@@ -344,9 +344,9 @@ RESET ROLE;
 SET LOCAL ROLE anon;
 SELECT set_config('request.jwt.claims', '{"role":"anon"}', true);
 SELECT is(
-  (SELECT count(*)::int FROM public.audit_log),
-  0,
-  'anon sees 0 audit rows (no policy grants anon access)'
+  has_table_privilege('anon', 'public.audit_log', 'SELECT'),
+  false,
+  'anon has no audit_log SELECT grant'
 );
 
 RESET ROLE;

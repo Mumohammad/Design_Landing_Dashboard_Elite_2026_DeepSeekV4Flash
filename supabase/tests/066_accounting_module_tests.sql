@@ -327,14 +327,13 @@ SELECT is(
 RESET ROLE;
 SET LOCAL ROLE anon;
 SELECT set_config('request.jwt.claims', '{"role":"anon"}', true);
-SELECT is(
-  (SELECT count(*)::int FROM public.finance_payments)
-+ (SELECT count(*)::int FROM public.invoices)
-+ (SELECT count(*)::int FROM public.expenses)
-+ (SELECT count(*)::int FROM public.journal_entries)
-+ (SELECT count(*)::int FROM public.journal_entry_lines),
-  0,
-  'anon sees 0 rows across all accounting tables'
+SELECT ok(
+  NOT has_table_privilege('anon', 'public.finance_payments', 'SELECT')
+  AND NOT has_table_privilege('anon', 'public.invoices', 'SELECT')
+  AND NOT has_table_privilege('anon', 'public.expenses', 'SELECT')
+  AND NOT has_table_privilege('anon', 'public.journal_entries', 'SELECT')
+  AND NOT has_table_privilege('anon', 'public.journal_entry_lines', 'SELECT'),
+  'anon has no SELECT grants on accounting tables'
 );
 
 RESET ROLE;

@@ -114,19 +114,22 @@ SELECT is(
      AND tablename  = 'objects'
      AND cmd IN ('SELECT', 'INSERT')
      AND (qual LIKE '%driver-photos%' OR with_check LIKE '%driver-photos%')
-     AND (qual LIKE '%foldername%' OR with_check LIKE '%foldername%')),
+     AND (qual LIKE '%storage_path_in_current_tenant%'
+          OR with_check LIKE '%storage_path_in_current_tenant%')
+     AND (qual LIKE '%user_has_permission%'
+          OR with_check LIKE '%user_has_permission%')),
   2,
-  'authenticated SELECT+INSERT storage policies cover driver-photos with tenant-folder checks'
+  'driver-photos SELECT+INSERT policies enforce active tenant paths and driver permissions'
 );
 
 SELECT is(
   (SELECT count(*)::int FROM pg_policies
    WHERE schemaname = 'storage'
      AND tablename  = 'objects'
-     AND cmd IN ('UPDATE', 'DELETE')
+     AND cmd = 'UPDATE'
      AND (qual LIKE '%driver-photos%' OR with_check LIKE '%driver-photos%')),
-  0,
-  'no authenticated UPDATE/DELETE storage policies for driver-photos (cleanup via service role)'
+  1,
+  'driver-photos UPDATE is permission-gated; no DELETE policy exists'
 );
 
 SELECT is(
@@ -162,10 +165,9 @@ SELECT is(
   (SELECT count(*)::int FROM pg_policies
    WHERE schemaname = 'public' AND tablename = 'audit_log'
      AND policyname = 'audit_log_insert_own_actor'
-     AND cmd = 'INSERT'
-     AND with_check LIKE '%get_my_tenant_id()%'),
-  1,
-  'audit_log_insert_own_actor policy exists (own tenant + own actor)'
+     AND cmd = 'INSERT'),
+  0,
+  'authenticated audit_log INSERT policy is removed'
 );
 
 SELECT throws_ok(
@@ -176,15 +178,14 @@ SELECT throws_ok(
     VALUES ('12700000-0000-0000-0000-000000000000',
             '99999999-9999-9999-9999-999999999999', 'drivers', 'photo_updated')$$,
   '42501', NULL,
-  'forging another actor_id into audit_log is RLS-denied'
+  'ordinary users cannot forge audit rows because direct INSERT is denied'
 );
 
 -- ─── 5. BEHAVIORAL: photo audit trail round-trip + immutability (2) ────────
 
 RESET ROLE;
-SET LOCAL ROLE authenticated;
-SELECT set_config('request.jwt.claims',
-  '{"sub": "12700000-0000-0000-0000-000000000002", "role": "authenticated"}', true);
+SET LOCAL ROLE service_role;
+SELECT set_config('request.jwt.claims', '{"role":"service_role"}', true);
 
 SELECT lives_ok(
   $$INSERT INTO public.audit_log
@@ -195,8 +196,13 @@ SELECT lives_ok(
             'photo_updated',
             jsonb_build_object('photo_url',
               '12700000-0000-0000-0000-000000000000/12700000-0000-0000-0000-000000000001/photo-1759000000-test.jpg'))$$,
-  'photo audit row inserts as the acting user (policy allows own tenant + actor)'
+  'service-role audit writer can insert a photo audit row'
 );
+
+RESET ROLE;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims',
+  '{"sub": "12700000-0000-0000-0000-000000000002", "role": "authenticated"}', true);
 
 SELECT ok(
   (SELECT count(*)::int FROM public.audit_log
