@@ -51,6 +51,9 @@ jobs:
     - name: Preview safety regression tests
       run: pnpm test:deployment
 
+    - name: Verify retained staging migration provenance
+      run: node scripts/verify-staging-history.mjs
+
     # ── FX-10: every API route must self-guard or be explicitly allowlisted ──
 
     - name: API route guard check
