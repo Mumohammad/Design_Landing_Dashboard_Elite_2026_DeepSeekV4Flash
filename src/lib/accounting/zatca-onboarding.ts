@@ -64,6 +64,8 @@ export async function requestComplianceCsid(input: {
   if (base) {
     const res = await fetch(`${base}/compliance`, {
       method: "POST",
+      redirect: "error",
+      signal: AbortSignal.timeout(30_000),
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
@@ -117,6 +119,8 @@ export async function requestProductionCsid(input: {
     const auth = Buffer.from(`${input.csidBase64}:${input.csidSecret}`).toString("base64")
     const res = await fetch(`${base}/production/csids`, {
       method: "POST",
+      redirect: "error",
+      signal: AbortSignal.timeout(30_000),
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",

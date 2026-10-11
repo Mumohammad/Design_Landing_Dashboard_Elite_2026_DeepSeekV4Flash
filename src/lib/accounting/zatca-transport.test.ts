@@ -86,6 +86,8 @@ describe("transmitToZatca (non-production POST path — mocked HTTP layer)", () 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(captured.url).toBe("https://gw-fatoora.zatca.gov.sa/e-invoicing/developer-portal/invoices/reporting/single")
     expect(captured.init.method).toBe("POST")
+    expect(captured.init.redirect).toBe("error")
+    expect(captured.init.signal).toBeInstanceOf(AbortSignal)
     expect((captured.init.headers as Record<string, string>)["Content-Type"]).toBe("application/xml")
     // ZATCA reporting auth = Basic (binarySecurityToken:secret), NOT Bearer.
     expect((captured.init.headers as Record<string, string>).Authorization).toBe(
@@ -201,7 +203,7 @@ describe("transmitToZatca (non-production POST path — mocked HTTP layer)", () 
     expect(windowSeconds.some((input) => verifyZatcaPayload(input, signatureBase64!, keyPair.publicKeyPem))).toBe(true)
   })
 
-  it("throws when no signing key is available in production mode (fail-closed)", async () => {
+  it("throws when no signing key is available in sandbox HTTP mode (fail-closed)", async () => {
     // ZATCA REQUIREMENT: production transmissions MUST be signed. Without a
     // signing key the transport refuses to send unsigned XML to avoid ZATCA
     // rejection and potential CSID flagging.
@@ -233,7 +235,7 @@ describe("transmitToZatca (non-production POST path — mocked HTTP layer)", () 
     expect(res.raw.sandbox).toBe(true)
   })
 
-  it("throws with the HTTP status + body on a non-OK response", async () => {
+  it("returns only a generic HTTP status error on a non-OK response", async () => {
     vi.stubEnv("ZATCA_API_BASE_URL", "https://gw-fatoora.zatca.gov.sa/e-invoicing/developer-portal")
     vi.stubEnv("ZATCA_CSID_CERT", "cert-b64")
     vi.stubEnv("ZATCA_CSID_SECRET", "secret-key-123")
