@@ -991,9 +991,7 @@ export async function createReceivable(input: {
       return { success: false, error: "Due date cannot be before the invoice date." }
     }
 
-    // TEST-STRATEGY §4: the old `Math.round(amount * vatRate) / 100` float
-    // pattern was flagged for replacement — the canonical EPSILON-guarded
-    // round2 on the divided value matches expenses/invoices exactly.
+    // Use exact base-10 multiplication and integer-minor accumulation.
     const amountR = round2(amount)
     const vatAmount = calculateVat(amountR, vatRate)
     const total = sumMoney(amountR, vatAmount)

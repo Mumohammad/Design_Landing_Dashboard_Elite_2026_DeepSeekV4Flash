@@ -33,7 +33,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { computeInvoiceTotals } from "@/lib/accounting/invoice-math"
-import { calculateVat, sumMoney } from "@/lib/accounting/decimal"
+import { formatAccountingDate, formatAmount } from "@/lib/i18n/format"
 
 // ── Row shapes ────────────────────────────────────────────────────────────
 
@@ -81,19 +81,6 @@ const STATUS_META: Record<string, { ar: string; en: string; className: string }>
   credited: { ar: "معتمدة بإشعار", en: "Credited", className: "bg-purple-500/15 text-purple-600 border-purple-500/20" },
 }
 
-function fmtMoney(n: number | null | undefined): string {
-  return (n ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
-function fmtDate(d: string | null | undefined): string {
-  if (!d) return "—"
-  try {
-    return new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
-  } catch {
-    return d
-  }
-}
-
 // ── Lines editor state ────────────────────────────────────────────────────
 
 interface LineDraft {
@@ -125,6 +112,8 @@ function computeLineTotals(lines: LineDraft[]) {
 
 export function InvoicesManager() {
   const { t, locale } = useTranslation()
+  const fmtMoney = (value: number | null | undefined) => formatAmount(value, locale)
+  const fmtDate = (value: string | null | undefined) => formatAccountingDate(value, locale)
   const ar = locale === "ar"
 
   const [rows, setRows] = useState<InvoiceRow[]>([])
@@ -504,6 +493,8 @@ export function InvoicesManager() {
 
   // Debit note
   const [debitAmount, setDebitAmount] = useState("")
+  const debitTotals = computeLineTotals([{ key: 0, description: "Debit note", quantity: "1",
+    unit_price: debitAmount, discount: "0", vat_rate: formVatRate || "0" }])
   const [debitReason, setDebitReason] = useState("")
   const [isDebiting, setIsDebiting] = useState(false)
   async function handleDebit() {
@@ -986,9 +977,9 @@ export function InvoicesManager() {
                 <Input type="number" dir="ltr" min="0" max="100" step="0.01" value={formVatRate} onChange={(e) => setFormVatRate(e.target.value)} className="h-9 text-end tabular-nums" />
               </div>
             </div>
-            {Number(debitAmount || 0) > 0 && (
+            {debitTotals && Number(debitAmount || 0) > 0 && (
               <p className="text-xs text-muted-foreground" dir="ltr">
-                VAT: {fmtMoney(calculateVat(Number(debitAmount), Number(formVatRate || 0)))} · Total: {fmtMoney(sumMoney(Number(debitAmount), calculateVat(Number(debitAmount), Number(formVatRate || 0))))} SAR
+                VAT: {fmtMoney(debitTotals.vat_amount)} · Total: {fmtMoney(debitTotals.total)} SAR
               </p>
             )}
             <Input
