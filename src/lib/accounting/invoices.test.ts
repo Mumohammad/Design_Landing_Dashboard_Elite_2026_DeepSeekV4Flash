@@ -30,6 +30,11 @@ beforeEach(() => {
 })
 
 describe("invoice draft transactional actions", () => {
+  it("rejects foreign currencies before create/update RPCs", async () => {
+    expect((await createInvoiceDraft({ ...draft, currency: "USD" })).success).toBe(false)
+    expect((await updateInvoiceDraft({ ...draft, id: "invoice-a", currency: "USD" })).success).toBe(false)
+    expect(mocks.rpc).not.toHaveBeenCalled()
+  })
   it("creates through JWT-bound RPC without supplied actor, tenant or totals", async () => {
     expect(await createInvoiceDraft(draft)).toEqual({ success: true, id: "invoice-a" })
     expect(mocks.permission).toHaveBeenCalledWith("invoices", "create")

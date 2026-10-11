@@ -120,6 +120,9 @@ export async function createInvoiceDraft(
 ): Promise<ActionResult & { id?: string }> {
   try {
     await requirePermission("invoices", "create")
+    if (input.currency != null && input.currency !== "SAR") {
+      return { success: false, error: "Accounting supports SAR only. / المحاسبة تدعم الريال السعودي فقط." }
+    }
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
 
@@ -182,6 +185,9 @@ export async function updateInvoiceDraft(
 ): Promise<ActionResult> {
   try {
     await requirePermission("invoices", "update")
+    if (input.currency != null && input.currency !== "SAR") {
+      return { success: false, error: "Accounting supports SAR only. / المحاسبة تدعم الريال السعودي فقط." }
+    }
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
 
