@@ -40,9 +40,9 @@ SET LOCAL ROLE anon;
 SELECT set_config('request.jwt.claims', '{"role": "anon"}', true);
 
 SELECT is(
-  (SELECT count(*)::int FROM users),
-  0,
-  'anon role sees 0 users rows (RLS blocks all)'
+  has_table_privilege('anon', 'public.users', 'SELECT'),
+  false,
+  'anon role has no users SELECT grant'
 );
 
 -- ─── Test 2: Auth same-tenant SELECT on users → ALLOW ────────────
@@ -179,8 +179,8 @@ SELECT set_config('request.jwt.claims',
 SELECT throws_ok(
   $$INSERT INTO roles (id, name, name_en, name_ar, tenant_id)
     VALUES (gen_random_uuid(), 'admin', 'Hack Role', 'دور اختراق', '00000000-0000-0000-0000-000000000001')$$,
-  42501, 'new row violates row-level security policy for table "roles"',
-  'authenticated INSERT on roles is denied by RLS (no policy)'
+  '42501', NULL,
+  'authenticated INSERT on roles is denied at the grant boundary'
 );
 
 -- ─── Test 9: Auth UPDATE on invites table → DENY (no policy) ─────
@@ -195,9 +195,10 @@ SELECT set_config('request.jwt.claims',
 );
 
 -- Try to update any invite (even if none exist, this tests RLS)
-SELECT lives_ok(
+SELECT throws_ok(
   $$UPDATE invites SET status = 'revoked' WHERE false$$,
-  'authenticated UPDATE on invites with no matching rows is safe (no-op)'
+  '42501', NULL,
+  'authenticated UPDATE on invites is denied at the grant boundary'
 );
 
 -- ─── Test 10: RLS enabled on all business-critical tables ────────

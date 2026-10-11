@@ -300,14 +300,13 @@ SET LOCAL ROLE postgres;
 RESET ROLE;
 SET LOCAL ROLE anon;
 SELECT set_config('request.jwt.claims', '{"role":"anon"}', true);
-SELECT is(
-  (SELECT count(*)::int FROM public.vehicles)
-+ (SELECT count(*)::int FROM public.vehicle_assignments)
-+ (SELECT count(*)::int FROM public.driver_payroll_periods)
-+ (SELECT count(*)::int FROM public.monthly_driver_orders)
-+ (SELECT count(*)::int FROM public.driver_cod_sessions),
-  0,
-  'anon sees 0 rows across all wired tables'
+SELECT ok(
+  NOT has_table_privilege('anon', 'public.vehicles', 'SELECT')
+  AND NOT has_table_privilege('anon', 'public.vehicle_assignments', 'SELECT')
+  AND NOT has_table_privilege('anon', 'public.driver_payroll_periods', 'SELECT')
+  AND NOT has_table_privilege('anon', 'public.monthly_driver_orders', 'SELECT')
+  AND NOT has_table_privilege('anon', 'public.driver_cod_sessions', 'SELECT'),
+  'anon has no SELECT grants on wired payroll and vehicle tables'
 );
 
 RESET ROLE;

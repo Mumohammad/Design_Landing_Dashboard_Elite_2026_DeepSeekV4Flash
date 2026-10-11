@@ -75,11 +75,12 @@ SELECT is(
 -- ─── 3. ADR-007 stays intact after the sweep ────────────────────────────────
 
 SELECT ok(
-  (SELECT count(*) = 1 FROM pg_policies
+  (SELECT count(*) = 0 FROM pg_policies
    WHERE schemaname = 'public'
      AND tablename  = 'audit_log'
-     AND policyname = 'audit_log_insert_own_actor'),
-  'audit_log INSERT policy (own tenant + own actor) is present'
+     AND cmd = 'INSERT')
+  AND NOT has_table_privilege('authenticated', 'public.audit_log', 'INSERT'),
+  'audit_log INSERT is service-role only'
 );
 
 SELECT ok(

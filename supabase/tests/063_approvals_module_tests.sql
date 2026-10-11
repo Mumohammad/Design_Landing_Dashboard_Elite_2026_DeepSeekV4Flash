@@ -356,12 +356,11 @@ SET LOCAL ROLE postgres;
 ALTER TABLE approvals_fixture OWNER TO anon;
 SET LOCAL ROLE anon;
 SELECT set_config('request.jwt.claims', '{"role":"anon"}', true);
-SELECT is(
-  (SELECT count(*)::int FROM public.expenses) +
-  (SELECT count(*)::int FROM public.driver_leave_requests) +
-  (SELECT count(*)::int FROM public.driver_applications),
-  0,
-  'anon sees 0 rows across all three decision sources'
+SELECT ok(
+  NOT has_table_privilege('anon', 'public.expenses', 'SELECT')
+  AND NOT has_table_privilege('anon', 'public.driver_leave_requests', 'SELECT')
+  AND NOT has_table_privilege('anon', 'public.driver_applications', 'SELECT'),
+  'anon has no SELECT grants on decision sources'
 );
 
 RESET ROLE;
