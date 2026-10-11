@@ -21,11 +21,12 @@ import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
 import { writeAuditLog } from "@/lib/auth/sessions"
 import { mapFinancialError } from "@/lib/accounting/csv-utils"
-import { idempotencyKey } from "@/lib/accounting/financial-events"
+import { createClient } from "@/lib/supabase/server"
+import { sumMoney } from "@/lib/accounting/decimal"
 import { runEventDispatcher } from "@/lib/accounting/dispatcher"
 import { round2 } from "@/lib/accounting/invoice-math"
 
-type ActionResult = { success: boolean; error?: string }
+type ActionResult = { success: boolean; error?: string; id?: string; postingStatus?: "posted" | "pending" }
 
 function errorMessage(e: unknown): string {
   if (e instanceof Error) return e.message
@@ -47,6 +48,7 @@ export type PaymentAllocationInput = {
 }
 
 export type RecordPaymentInput = {
+  request_id: string
   direction: PaymentDirection
   payment_date: string
   amount: number
@@ -61,180 +63,48 @@ export type RecordPaymentInput = {
 export async function recordPayment(input: RecordPaymentInput): Promise<ActionResult> {
   try {
     await requirePermission("accounting", "create")
-    const currentUser = await getCurrentUser()
-    if (!currentUser) return { success: false, error: "Not authenticated." }
-
-    const direction = input.direction
+    if (!(await getCurrentUser())) return { success: false, error: "Not authenticated." }
     const amount = round2(input.amount)
     const allocations = (input.allocations ?? []).map((a) => ({
-      receivable_id: a.receivable_id || null,
-      payable_id: a.payable_id || null,
-      allocated_amount: round2(a.amount),
+      receivable_id: a.receivable_id || null, payable_id: a.payable_id || null, amount: round2(a.amount),
     }))
-
-    // ── Validation (fast-fail; the DB enforces the same rules) ──────────
-    if (direction !== "in" && direction !== "out") {
+    if (!input.request_id || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input.request_id)
+      || !["in", "out"].includes(input.direction) || !["cash", "transfer", "cheque", "wps", "card"].includes(input.method)
+      || !/^\d{4}-\d{2}-\d{2}$/.test(input.payment_date)
+      || amount <= 0 || amount > 9_999_999_999.99 || allocations.length === 0 || allocations.length > 1000
+      || (input.direction === "in" ? !input.customer_id || !!input.supplier_id : !input.supplier_id || !!input.customer_id)
+      || (input.method !== "cash" && !input.bank_account_id)
+      || allocations.some((a) => a.amount <= 0 || a.amount > 9_999_999_999.99
+        || Number(!!a.receivable_id) + Number(!!a.payable_id) !== 1
+        || (input.direction === "in" ? !a.receivable_id : !a.payable_id))) {
       return { success: false, error: pmt("PMT004") }
     }
-    if (!Number.isFinite(amount) || amount <= 0 || !input.payment_date) {
-      return { success: false, error: pmt("PMT004") }
-    }
-    if (direction === "in" && !input.customer_id) {
-      return { success: false, error: pmt("PMT004") }
-    }
-    if (direction === "out" && !input.supplier_id) {
-      return { success: false, error: pmt("PMT004") }
-    }
-    if (input.method !== "cash" && !input.bank_account_id) {
-      return { success: false, error: pmt("PMT004") }
-    }
-
-    let sum = 0
-    for (const a of allocations) {
-      const targets = (a.receivable_id ? 1 : 0) + (a.payable_id ? 1 : 0)
-      if (targets !== 1 || !Number.isFinite(a.allocated_amount) || a.allocated_amount <= 0) {
-        return { success: false, error: pmt("PMT004") }
-      }
-      if (direction === "in" && !a.receivable_id) return { success: false, error: pmt("PMT004") }
-      if (direction === "out" && !a.payable_id) return { success: false, error: pmt("PMT004") }
-      sum += a.allocated_amount
-    }
-    if (allocations.length === 0) {
-      return { success: false, error: pmt("PMT004") }
-    }
-    if (Math.abs(sum - amount) > 0.01) {
+    if (sumMoney(...allocations.map((a) => a.amount)) !== amount) {
       return { success: false, error: pmt("PMT003") }
     }
-
-    const admin = createAdminClient()
-
-    // ── Over-allocation guard: each allocation must not exceed the
-    // outstanding balance of its target (defense-in-depth; the DB trigger
-    // PMT003 also enforces this).
-    for (const a of allocations) {
-      const table = a.receivable_id ? "receivables" : "payables"
-      const idCol = a.receivable_id ? "receivable_id" : "payable_id"
-      const targetId = a.receivable_id ?? a.payable_id
-      const { data: target } = await admin
-        .from(table)
-        .select("total_amount,paid_amount")
-        .eq("id", targetId!)
-        .eq("tenant_id", currentUser.tenantId)
-        .is("deleted_at", null)
-        .maybeSingle<{ total_amount: number; paid_amount: number }>()
-      if (!target) {
-        return { success: false, error: pmt("PMT005") }
-      }
-      const outstanding = Number(target.total_amount) - Number(target.paid_amount)
-      if (a.allocated_amount > outstanding + 0.01) {
-        return { success: false, error: pmt("PMT003") }
-      }
-    }
-
-    // ── Party + bank belong to the tenant ────────────────────────────────
-    // IMPORTANT: These queries MUST scope by tenant_id to prevent
-    // cross-tenant entity references (service-role bypasses RLS).
-    if (input.customer_id) {
-      const { data: c } = await admin
-        .from("customers").select("id").eq("id", input.customer_id)
-        .eq("tenant_id", currentUser.tenantId)
-        .is("deleted_at", null).maybeSingle()
-      if (!c) return { success: false, error: pmt("CUS001") }
-    }
-    if (input.supplier_id) {
-      const { data: s } = await admin
-        .from("suppliers").select("id").eq("id", input.supplier_id)
-        .eq("tenant_id", currentUser.tenantId)
-        .is("deleted_at", null).maybeSingle()
-      if (!s) return { success: false, error: pmt("SUP001") }
-    }
-    if (input.bank_account_id) {
-      const { data: b } = await admin
-        .from("bank_accounts").select("id").eq("id", input.bank_account_id)
-        .eq("tenant_id", currentUser.tenantId)
-        .is("deleted_at", null).maybeSingle()
-      if (!b) return { success: false, error: pmt("PMT006") }
-    }
-
-    // ── Insert payment + allocations ─────────────────────────────────────
-    const { data: pay, error: payErr } = await admin
-      .from("finance_payments")
-      .insert({
-        tenant_id: currentUser.tenantId,
-        direction,
-        customer_id: direction === "in" ? input.customer_id : null,
-        supplier_id: direction === "out" ? input.supplier_id : null,
-        payment_date: input.payment_date,
-        amount,
-        method: input.method,
+    const client = await createClient()
+    const { data, error } = await client.rpc("record_finance_payment_atomic", {
+      p_request_id: input.request_id,
+      p_payment: { direction: input.direction, payment_date: input.payment_date, amount, method: input.method,
         bank_account_id: input.method === "cash" ? null : input.bank_account_id,
-        reference: input.reference ?? null,
-        status: "pending",
-        created_by: currentUser.authUserId,
-      })
-      .select("id,payment_ref")
-      .single()
-    if (payErr) return { success: false, error: mapFinancialError(payErr.message) }
-
-    const { error: allocErr } = await admin.from("payment_allocations").insert(
-      allocations.map((a) => ({
-        tenant_id: currentUser.tenantId,
-        finance_payment_id: pay.id,
-        receivable_id: a.receivable_id,
-        payable_id: a.payable_id,
-        allocated_amount: a.allocated_amount,
-        allocated_by: currentUser.authUserId,
-      }))
-    )
-    if (allocErr) return { success: false, error: mapFinancialError(allocErr.message) }
-
-    // ── Event + auto-dispatch (same pattern as the invoice producers) ────
-    const { error: evtErr } = await admin.from("financial_events").insert({
-      tenant_id: currentUser.tenantId,
-      event_id: crypto.randomUUID(),
-      idempotency_key: idempotencyKey("payment", pay.id, "allocated"),
-      source_type: "payment",
-      source_id: pay.id,
-      event_type: "PaymentAllocatedEvent",
-      event_date: input.payment_date,
-      payload: {
-        payment_ref: pay.payment_ref,
-        direction,
-        amount,
-        method: input.method,
-        allocations: allocations.map((a) => ({
-          receivable_id: a.receivable_id,
-          payable_id: a.payable_id,
-          amount: a.allocated_amount,
-        })),
-      },
+        customer_id: input.direction === "in" ? input.customer_id : null,
+        supplier_id: input.direction === "out" ? input.supplier_id : null, reference: input.reference?.trim() || null },
+      p_allocations: allocations,
     })
-    if (evtErr && process.env.NODE_ENV !== "production") {
-      console.error("[financial_events] PaymentAllocatedEvent insert failed:", evtErr.message)
+    if (error) return { success: false, error: mapFinancialError(error.message) }
+    if (!data?.id) return { success: false, error: "Payment save did not return a committed identifier." }
+    if (data.status === "void") {
+      return { success: false, id: data.id, error: "This payment was voided. Start a new payment to record another receipt. / تم إلغاء هذه الدفعة. ابدأ دفعة جديدة لتسجيل عملية أخرى." }
     }
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "accounting",
-      action: "payment_recorded",
-      entityType: "finance_payments",
-      entityId: pay.id,
-      newValues: {
-        payment_ref: pay.payment_ref,
-        direction,
-        amount,
-        method: input.method,
-        allocations: allocations.length,
-      },
-    })
-
-    // runEventDispatcher never throws (returns a summary), so a permission
-    // gap on approve leaves the event pending for a later run.
+    // Posting needs accounting:approve. A create-only caller gets a durable,
+    // pending payment, never a false "posted" result.
     await runEventDispatcher()
-
+    const { data: saved, error: readError } = await client.from("finance_payments")
+      .select("status").eq("id", data.id).maybeSingle()
+    const postingStatus = !readError && saved?.status === "allocated" ? "posted" : "pending"
     revalidatePath("/accounting")
-    return { success: true }
+    revalidatePath("/payments")
+    return { success: true, id: data.id, postingStatus }
   } catch (e) {
     return { success: false, error: errorMessage(e) }
   }
@@ -243,60 +113,14 @@ export async function recordPayment(input: RecordPaymentInput): Promise<ActionRe
 export async function voidPayment(input: { id: string }): Promise<ActionResult> {
   try {
     await requirePermission("accounting", "approve")
-    const currentUser = await getCurrentUser()
-    if (!currentUser) return { success: false, error: "Not authenticated." }
-
-    const admin = createAdminClient()
-    const { data: pay } = await admin
-      .from("finance_payments")
-      .select("id,payment_ref,status,payment_date,amount")
-      .eq("id", input.id)
-      .eq("tenant_id", currentUser.tenantId)
-      .is("deleted_at", null)
-      .maybeSingle()
-    if (!pay) return { success: false, error: pmt("PMT005") }
-    if (pay.status === "void") return { success: false, error: pmt("PMT002") }
-
-    // Allocated payments have journal + AR/AP effects that must be reversed
-    // by the dispatcher; pending ones can be voided directly.
-    const hadEffects = pay.status === "allocated" || pay.status === "partially_allocated"
-
-    const { error: updErr } = await admin
-      .from("finance_payments")
-      .update({ status: "void", updated_by: currentUser.authUserId })
-      .eq("id", pay.id)
-    if (updErr) return { success: false, error: mapFinancialError(updErr.message) }
-
-    // Tenant-scoped event insert to prevent cross-tenant event emission
-    if (hadEffects) {
-      const { error: evtErr } = await admin.from("financial_events").insert({
-        tenant_id: currentUser.tenantId,
-        event_id: crypto.randomUUID(),
-        idempotency_key: idempotencyKey("payment", pay.id, "voided"),
-        source_type: "payment",
-        source_id: pay.id,
-        event_type: "PaymentVoidedEvent",
-        event_date: pay.payment_date,
-        payload: { payment_ref: pay.payment_ref },
-      })
-      if (evtErr && process.env.NODE_ENV !== "production") {
-        console.error("[financial_events] PaymentVoidedEvent insert failed:", evtErr.message)
-      }
-      await runEventDispatcher()
-    }
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "accounting",
-      action: "payment_voided",
-      entityType: "finance_payments",
-      entityId: pay.id,
-      newValues: { payment_ref: pay.payment_ref, status: "void" },
-    })
-
+    if (!(await getCurrentUser())) return { success: false, error: "Not authenticated." }
+    const client = await createClient()
+    const { data, error } = await client.rpc("void_finance_payment_atomic", { p_id: input.id })
+    if (error) return { success: false, error: mapFinancialError(error.message) }
+    if (!data?.id || data.status !== "void") return { success: false, error: "Payment reversal was not confirmed." }
     revalidatePath("/accounting")
-    return { success: true }
+    revalidatePath("/payments")
+    return { success: true, id: data.id }
   } catch (e) {
     return { success: false, error: errorMessage(e) }
   }
@@ -317,6 +141,9 @@ export async function createBankAccount(input: CreateBankAccountInput): Promise<
     await requirePermission("accounting", "create")
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
+    if (input.currency != null && input.currency !== "SAR") {
+      return { success: false, error: "Accounting supports SAR only. / المحاسبة تدعم الريال السعودي فقط." }
+    }
 
     if (!input.bank_name.trim() || !input.account_name.trim() || !input.iban.trim()) {
       return { success: false, error: pmt("PMT004") }
