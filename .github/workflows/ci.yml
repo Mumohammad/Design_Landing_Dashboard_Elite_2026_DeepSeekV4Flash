@@ -281,6 +281,35 @@ jobs:
     - name: Verify local Auth and Storage integration
       run: node scripts/run-storage-integration.mjs
 
+    - name: Configure disposable browser verification
+      run: |
+        node --input-type=module <<'NODE'
+        import { execFileSync } from 'node:child_process';
+        import { writeFileSync } from 'node:fs';
+        const local = JSON.parse(execFileSync('supabase', ['status', '--output', 'json'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
+        const url = new URL(local.API_URL);
+        if (!['localhost', '127.0.0.1'].includes(url.hostname) || url.port !== '58321') throw new Error('Local target required');
+        writeFileSync('.env.local', Object.entries({
+          NEXT_PUBLIC_SUPABASE_URL: local.API_URL,
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: local.ANON_KEY,
+          SUPABASE_SERVICE_ROLE_KEY: local.SERVICE_ROLE_KEY,
+          NEXT_PUBLIC_APP_URL: 'http://localhost:3107',
+        }).map(([key, value]) => `${key}=${value}`).join('\n'));
+        NODE
+
+    - name: Build and verify owner MFA in the browser
+      run: |
+        pnpm exec playwright install --with-deps chromium
+        pnpm build
+        pnpm start --port 3107 > /tmp/local-app.log 2>&1 &
+        ready=0
+        for i in $(seq 1 30); do
+          if curl -fsS http://localhost:3107/api/health > /dev/null; then ready=1; break; fi
+          sleep 2
+        done
+        test "$ready" = "1" || { echo "Local app dependencies are not ready"; exit 1; }
+        node scripts/verify-local-mfa.mjs
+
     - name: Stop Supabase
       if: always()
       run: supabase stop 2>/dev/null || true

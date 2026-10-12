@@ -43,7 +43,7 @@ import {
 import { cn } from "@/lib/utils"
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
-  const { t } = useTranslation()
+  const { t, locale } = useTranslation()
 
   const navGroups = [
     {
@@ -113,7 +113,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   }
 
   return (
-    <Sidebar {...props} className="sidebar-gradient text-white border-none shadow-xl">
+    <Sidebar side={locale === "ar" ? "right" : "left"} {...props} className="sidebar-gradient text-white border-none shadow-xl">
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>

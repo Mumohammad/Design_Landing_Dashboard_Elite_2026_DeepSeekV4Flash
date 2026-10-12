@@ -43,6 +43,12 @@ enable_signup = true
 double_confirm_changes = true
 enable_confirmations = false
 
+# Privileged users must be able to enroll and verify the required second factor.
+# These settings configure the disposable local stack, not the hosted project.
+[auth.mfa.totp]
+enroll_enabled = true
+verify_enabled = true
+
 # ── Storage ──────────────────────────────────────────────────────
 [storage]
 enabled = true
