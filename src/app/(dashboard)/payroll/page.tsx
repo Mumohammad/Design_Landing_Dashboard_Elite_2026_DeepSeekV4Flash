@@ -1,5 +1,6 @@
 "use client"
 
+import { integrationAvailable } from "@/lib/release/integrations"
 import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
@@ -443,11 +444,11 @@ export default function PayrollPage() {
             </button>
             <button
               onClick={handleDownloadWps}
-              disabled={isDownloading}
+              disabled={isDownloading || !integrationAvailable("wps")}
               className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3.5 text-sm font-medium text-emerald-600 transition-colors hover:bg-emerald-500/20 disabled:opacity-50"
             >
               {isDownloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-              WPS SIF
+              {ar ? "WPS — بانتظار اعتماد البنك" : "WPS — awaiting bank validation"}
             </button>
             {feedback && (
               <span className={`text-xs font-medium ${feedback.type === "ok" ? "text-emerald-600" : "text-red-500"}`}>

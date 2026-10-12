@@ -14,6 +14,7 @@
 //   The `X-Webhook-Signature` header contains `sha256=<hex-digest>`.
 //   Recipients compute `HMAC-SHA256(secret, body)` and compare.
 
+import { integrationAvailable, INTEGRATION_UNAVAILABLE } from "@/lib/release/integrations"
 import crypto from "crypto"
 import { moduleLogger, logPerformance } from "@/lib/logger"
 import {
@@ -56,6 +57,7 @@ const MAX_REDIRECT_HOPS = 3
  *   ```
  */
 export async function emitWebhookEvent(input: DispatchEventInput): Promise<void> {
+  if (!integrationAvailable("webhooks")) return
   const startTime = Date.now()
 
   try {
@@ -389,6 +391,7 @@ export async function processRetries(): Promise<{
   succeeded: number
   failed: number
 }> {
+  if (!integrationAvailable("webhooks")) throw new Error(INTEGRATION_UNAVAILABLE)
   const startTime = Date.now()
   const pendingRetries = await getPendingRetries(50)
 

@@ -1,34 +1,33 @@
 # EliteDev — Supabase CLI Configuration
 # Used by: supabase start (local dev), supabase test (pgTAP), CI pipeline
 
-[project]
-id = "elitedev-local"
+project_id = "elite-release-20261012"
 
 [api]
 enabled = true
-port = 54321
+port = 58321
 schemas = ["public", "graphql_public"]
 extra_search_path = ["public", "extensions"]
 max_rows = 1000
 
 [db]
-port = 54322
-shadow_port = 54320
-major_version = 15
+port = 58322
+shadow_port = 58320
+major_version = 17
 
 [db.pooler]
 enabled = false
 
 [studio]
 enabled = true
-port = 54323
+port = 58323
 api_url = "http://localhost"
 
-[inbucket]
+[local_smtp]
 enabled = true
-port = 54324
-smtp_port = 54325
-pop3_port = 54326
+port = 58324
+smtp_port = 58325
+pop3_port = 58326
 
 [auth]
 enabled = true
@@ -54,5 +53,3 @@ file_size_limit = "50MiB"
 enabled = true
 
 # ── Database secrets (local only — never commit production values) ──
-[db.password]
-# Default local password — overridden by env var in CI

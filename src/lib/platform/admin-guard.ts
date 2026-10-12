@@ -14,6 +14,10 @@ export async function verifyPlatformAdmin(req: NextRequest): Promise<GuardOk | G
   const { data: { user }, error } = await anon.auth.getUser(token);
   if (error || !user) return { ok: false, status: 401 };
 
+  // Verify claims on the same access token; never trust client-decoded AAL.
+  const { data: claims, error: claimsError } = await anon.auth.getClaims(token);
+  if (claimsError || claims?.claims.aal !== 'aal2') return { ok: false, status: 403 };
+
   const service = createClient(url, process.env.SUPABASE_SERVICE_ROLE_KEY!);
   const { data: admin } = await service
     .from('platform_admins')

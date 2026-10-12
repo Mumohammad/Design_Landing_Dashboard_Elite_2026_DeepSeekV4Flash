@@ -1,3 +1,5 @@
+# RELEASE HOLD: both jobs are disabled pending the gates in docs/release-status-2026-10-12.md.
+# Native Git deployments are also disabled in vercel.json.
 name: Deploy — EliteDev
 
 on:
@@ -36,9 +38,9 @@ jobs:
   preview:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: >
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+    # Release hold: staging isolation and exact-commit CI approval are not configured.
+    # Re-enable only after the release runbook gates are satisfied.
+    if: false
     environment:
       name: preview
       url: ${{ steps.deploy.outputs.url }}

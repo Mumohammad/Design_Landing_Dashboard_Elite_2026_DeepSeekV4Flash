@@ -1,6 +1,8 @@
 # DISASTER_RECOVERY.md — EliteDev Platform
 
-**Last Updated:** 2026-08-22
+**Last Updated:** 2026-10-12
+
+> Release hold: the schedules and RPO/RTO below are proposed targets, not verified operational guarantees. No production restore drill or Storage backup evidence has been recorded. Follow [the release gates](release-status-2026-10-12.md) before launch.
 **Platform:** Vercel + Supabase (PostgreSQL)
 **Owner:** Platform Engineering
 
@@ -24,12 +26,16 @@
 
 | Backup Type | Frequency | Retention | Source |
 |-------------|-----------|-----------|--------|
-| Automatic daily | Every 24h | 7 days (Free), 30 days (Pro) | Supabase |
-| Point-in-time recovery | Continuous (Pro) | 7 days | Supabase Pro plan |
-| Manual pg_dump | Weekly | 90 days | `scripts/backup-db.sh` |
+| Automatic daily | Plan-dependent | Pro: 7 days; confirm current project entitlement | Supabase |
+| Point-in-time recovery | Requires enabled PITR add-on | Confirm purchased retention | Supabase |
+| Independent export | Schedule to be implemented and verified | Policy to be approved | Operator-owned backup process |
 | Migration snapshots | Per migration | Forever | Git (supabase/migrations/) |
 
+Free projects need independent exports. Do not assume paid backup or PITR coverage without checking the actual project dashboard. See [Supabase backup documentation](https://supabase.com/docs/guides/platform/backups).
+
 ### Storage (Supabase Storage)
+
+Database backups contain Storage metadata, **not file bytes**. The following schedules are proposals; no recurring bucket-sync job or restore evidence is verified. A release requires an encrypted object backup and a timed recovery drill.
 
 | Backup Type | Frequency | Retention | Source |
 |-------------|-----------|-----------|--------|

@@ -227,7 +227,7 @@ SELECT is(
 
 RESET ROLE;
 SET LOCAL ROLE authenticated;
-SELECT set_config('request.jwt.claims', '{"role":"authenticated"}', true);
+SELECT set_config('request.jwt.claims', '{"role":"authenticated","aal":"aal2"}', true);
 SELECT is(
   has_function_privilege('authenticated', 'public.fetch_pending_approvals(uuid, text, timestamptz, timestamptz, integer)', 'EXECUTE'),
   true,
@@ -260,7 +260,7 @@ SELECT is(
 
 RESET ROLE;
 SELECT set_config('request.jwt.claims',
-  '{"role":"authenticated","sub":"33333333-3333-3333-3333-333333333333"}', true);
+  '{"role":"authenticated","aal":"aal2","sub":"33333333-3333-3333-3333-333333333333"}', true);
 SET LOCAL ROLE authenticated;
 
 -- Composition: tenant A holds exactly 4 pending items across the 3 sources.
@@ -366,7 +366,7 @@ SELECT ok(
 RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claims',
-  '{"role":"authenticated","sub":"33333333-3333-3333-3333-333333333333"}', true);
+  '{"role":"authenticated","aal":"aal2","sub":"33333333-3333-3333-3333-333333333333"}', true);
 SELECT is(
   (SELECT count(*)::int FROM public.expenses
    WHERE is_approved = false AND deleted_at IS NULL)
@@ -533,7 +533,7 @@ SELECT throws_ok(
 -- Already-decided rows (approved/rejected) never re-enter the queue.
 RESET ROLE;
 SELECT set_config('request.jwt.claims',
-  '{"role":"authenticated","sub":"33333333-3333-3333-3333-333333333333"}', true);
+  '{"role":"authenticated","aal":"aal2","sub":"33333333-3333-3333-3333-333333333333"}', true);
 SET LOCAL ROLE authenticated;
 SELECT is(
   (SELECT count(*)::int FROM public.fetch_pending_approvals(

@@ -1,5 +1,7 @@
 # P0-1 — Production Supabase Project & Deploy Repoint — Runbook
 
+> Historical setup guide. The designated production project is now `wwfnsbilmyxeawgzicmv`; do not create or substitute another project. Deployment jobs are held. The current authority for this release is [release-status-2026-10-12.md](release-status-2026-10-12.md), including the requirement for explicit approval of live data changes.
+
 > Status: code changes prepared (2026-09-07). The Supabase project itself must
 > be created by a workspace owner with Supabase access. This document is the
 > exact procedure; the deploy job fails fast until it is completed.

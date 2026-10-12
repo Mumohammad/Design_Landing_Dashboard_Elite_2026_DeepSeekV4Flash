@@ -31,7 +31,7 @@
 
 BEGIN;
 
-SELECT plan(24);
+SELECT plan(28);
 
 -- ─── Fixtures (run as postgres; bypass RLS) ─────────────────────────────────
 
@@ -75,9 +75,7 @@ BEGIN
   VALUES (v_u, v_aid, v_t, 'users-module-fixture@test.local', 'supervisor', 'active')
   ON CONFLICT (id) DO UPDATE SET role = 'supervisor', status = 'active';
 
-  -- Append-only ledger: purge a leaked consent set for the fixture user
-  -- (audit_log-style immutability does not apply to user_consents).
-  DELETE FROM public.user_consents WHERE user_id = v_u;
+  -- Each test rolls back its append-only consent fixtures.
 
   INSERT INTO users_module_fixture (tenant_id, user_id) VALUES (v_t, v_u);
 END;
@@ -131,11 +129,11 @@ SELECT throws_ok(
 
 -- ─── 3. Uniqueness (1) ──────────────────────────────────────────────────────
 
-SELECT ok(
-  EXISTS (SELECT 1 FROM pg_indexes
-          WHERE schemaname = 'public' AND tablename = 'user_consents'
-            AND indexdef ILIKE 'CREATE UNIQUE INDEX%tenant_id%user_id%consent_type%version%'),
-  'UNIQUE (tenant_id, user_id, consent_type, version) exists'
+SELECT lives_ok(
+  $$INSERT INTO public.user_consents (tenant_id,user_id,consent_type,version,accepted)
+    SELECT f.tenant_id,f.user_id,'marketing','withdrawal-test',false FROM users_module_fixture f
+    UNION ALL SELECT f.tenant_id,f.user_id,'marketing','withdrawal-test',true FROM users_module_fixture f$$,
+  'Consent decisions for the same version can be appended'
 );
 
 -- ─── 4. has_user_pdpl_consent security (4) ──────────────────────────────────
@@ -162,7 +160,7 @@ SELECT is(
 
 RESET ROLE;
 SET LOCAL ROLE authenticated;
-SELECT set_config('request.jwt.claims', '{"role":"authenticated"}', true);
+SELECT set_config('request.jwt.claims', '{"role":"authenticated","aal":"aal2"}', true);
 SELECT is(
   has_function_privilege('authenticated', 'public.has_user_pdpl_consent(uuid, text)', 'EXECUTE'),
   true,
@@ -236,7 +234,7 @@ SELECT is(
 
 RESET ROLE;
 SET LOCAL ROLE authenticated;
-SELECT set_config('request.jwt.claims', '{"role":"authenticated"}', true);
+SELECT set_config('request.jwt.claims', '{"role":"authenticated","aal":"aal2"}', true);
 SELECT is(
   has_function_privilege('authenticated', 'public.next_employee_code(uuid)', 'EXECUTE'),
   true,
@@ -298,6 +296,12 @@ SELECT is(
 RESET ROLE;
 SET LOCAL ROLE postgres;
 
+RESET ROLE;
+SELECT throws_ok($$UPDATE public.user_consents SET accepted=true WHERE user_id=(SELECT user_id FROM users_module_fixture)$$,'P0001','CONSENT_APPEND_ONLY','Consent evidence cannot be edited even by service maintenance');
+SELECT throws_ok($$DELETE FROM public.user_consents WHERE user_id=(SELECT user_id FROM users_module_fixture)$$,'P0001','CONSENT_APPEND_ONLY','Consent evidence cannot be deleted');
+SELECT lives_ok($$INSERT INTO public.user_consents(tenant_id,user_id,consent_type,version,accepted,created_at)
+ SELECT tenant_id,user_id,'marketing','withdrawal-test',false,'2000-01-01'::timestamptz FROM users_module_fixture$$,'Withdrawal for an existing version is appended');
+SELECT is((SELECT public.has_user_pdpl_consent(user_id,'marketing') FROM users_module_fixture),false,'Latest server insertion wins even with a backdated client timestamp');
 SELECT * FROM finish();
 
 ROLLBACK;

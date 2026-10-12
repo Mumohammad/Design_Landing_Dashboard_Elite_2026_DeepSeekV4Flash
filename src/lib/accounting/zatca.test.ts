@@ -171,3 +171,5 @@ describe("runZatcaAdapter — sandbox flag mirrors the transport's real-POST con
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/accounting")
   })
 })
+
+vi.mock("@/lib/release/integrations", () => ({ integrationAvailable: () => true, INTEGRATION_UNAVAILABLE: "Unavailable" }))

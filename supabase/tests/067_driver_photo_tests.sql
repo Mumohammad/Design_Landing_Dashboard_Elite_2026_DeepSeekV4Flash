@@ -173,7 +173,7 @@ SELECT is(
 SELECT throws_ok(
   $$SET LOCAL ROLE authenticated;
     SELECT set_config('request.jwt.claims',
-      '{"sub": "12700000-0000-0000-0000-000000000002", "role": "authenticated"}', true);
+      '{"sub": "12700000-0000-0000-0000-000000000002", "role":"authenticated","aal":"aal2"}', true);
     INSERT INTO public.audit_log (tenant_id, actor_id, module, action)
     VALUES ('12700000-0000-0000-0000-000000000000',
             '99999999-9999-9999-9999-999999999999', 'drivers', 'photo_updated')$$,
@@ -202,7 +202,7 @@ SELECT lives_ok(
 RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claims',
-  '{"sub": "12700000-0000-0000-0000-000000000002", "role": "authenticated"}', true);
+  '{"sub": "12700000-0000-0000-0000-000000000002", "role":"authenticated","aal":"aal2"}', true);
 
 SELECT ok(
   (SELECT count(*)::int FROM public.audit_log

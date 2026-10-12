@@ -119,8 +119,8 @@ SELECT is(
      AND tablename IN ('driver_consents','driver_compliance_results','driver_compliance_overrides',
                        'driver_calendar_events','driver_assets','driver_cards','driver_card_prints')
      AND (qual LIKE '%get_my_tenant_id()%' OR with_check LIKE '%get_my_tenant_id()%')),
-  18,
-  'driver subresources retain tenant-bound policies; derived compliance writes and card-print updates are service-owned'
+  17,
+  'driver subresources retain tenant-bound policies; consents are append-only and derived writes are service-owned'
 );
 
 SELECT is(
@@ -156,7 +156,7 @@ SELECT is(
 
 RESET ROLE;
 SET LOCAL ROLE authenticated;
-SELECT set_config('request.jwt.claims', '{"role":"authenticated"}', true);
+SELECT set_config('request.jwt.claims', '{"role":"authenticated","aal":"aal2"}', true);
 SELECT is(
   has_function_privilege('authenticated', 'public.compute_driver_compliance(uuid)', 'EXECUTE'),
   false,
@@ -183,7 +183,7 @@ SELECT is(
 
 RESET ROLE;
 SET LOCAL ROLE authenticated;
-SELECT set_config('request.jwt.claims', '{"role":"authenticated"}', true);
+SELECT set_config('request.jwt.claims', '{"role":"authenticated","aal":"aal2"}', true);
 SELECT is(
   has_function_privilege('authenticated', 'public.driver_calendar_has_conflict(uuid, timestamptz, timestamptz, uuid)', 'EXECUTE'),
   true,

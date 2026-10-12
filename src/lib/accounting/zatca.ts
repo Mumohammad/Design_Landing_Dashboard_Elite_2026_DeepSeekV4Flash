@@ -20,6 +20,7 @@
 //
 // Permission: accounting:approve (same as the event dispatcher).
 
+import { integrationAvailable, INTEGRATION_UNAVAILABLE } from "@/lib/release/integrations"
 import { revalidatePath } from "next/cache"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
@@ -110,6 +111,7 @@ function partyName(row: PartyRow): string {
  * transform → transmit → record pipeline. Never throws — returns a summary.
  */
 export async function runZatcaAdapter(): Promise<ZatcaAdapterSummary> {
+  if (!integrationAvailable("zatca")) return { success: false, error: INTEGRATION_UNAVAILABLE }
   try {
     await requirePermission("accounting", "approve")
     const currentUser = await getCurrentUser()

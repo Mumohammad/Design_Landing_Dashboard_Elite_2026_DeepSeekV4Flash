@@ -14,6 +14,7 @@
 //
 // No ZATCA compliance is claimed (ZATCA-BOUNDARY.md §5).
 
+import { integrationAvailable, INTEGRATION_UNAVAILABLE } from "@/lib/release/integrations"
 import { randomUUID } from "node:crypto"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
@@ -66,6 +67,7 @@ function maskSecret(secret: string): string {
  * the row — no accumulating secrets.
  */
 export async function saveZatcaCsid(input: SaveCsidInput): Promise<{ success: boolean; error?: string }> {
+  if (!integrationAvailable("zatca")) return { success: false, error: INTEGRATION_UNAVAILABLE }
   try {
     await requirePermission("accounting", "approve")
     const currentUser = await getCurrentUser()
@@ -200,6 +202,7 @@ export interface OnboardZatcaResult {
  * deterministic mock, so this action is exercisable offline end-to-end.
  */
 export async function onboardZatcaCsids(input: OnboardZatcaInput): Promise<OnboardZatcaResult> {
+  if (!integrationAvailable("zatca")) return { success: false, error: INTEGRATION_UNAVAILABLE }
   try {
     await requirePermission("accounting", "approve")
     const currentUser = await getCurrentUser()

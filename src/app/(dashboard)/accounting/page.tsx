@@ -1,5 +1,6 @@
 "use client"
 
+import { integrationAvailable } from "@/lib/release/integrations"
 import { Fragment, useEffect, useState } from "react"
 import { useActionState } from "react"
 import { createClient } from "@/lib/supabase/client"
@@ -1962,6 +1963,7 @@ export default function AccountingPage() {
             </TabsContent>
 
             <TabsContent value="zatca" className="mt-4 space-y-4">
+              <p role="status" className="rounded-xl border p-4 text-sm">{ar ? "الإرسال والإعداد غير متاحين حتى اكتمال اختبارات واعتماد التكامل مع الهيئة." : "Submission and onboarding are unavailable until ZATCA integration validation is complete."}</p>
               <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
                 <CardHeader className="pb-3 flex-row items-center justify-between">
                   <div>
@@ -1974,7 +1976,7 @@ export default function AccountingPage() {
                   </div>
                   <Dialog open={onboardOpen} onOpenChange={setOnboardOpen}>
                     <DialogTrigger asChild>
-                      <button className={dialogBtn}>
+                      <button disabled={!integrationAvailable("zatca")} className={dialogBtn}>
                         <KeyRound className="h-3.5 w-3.5" />{ar ? "إعداد جديد" : "Onboard"}
                       </button>
                     </DialogTrigger>
@@ -2012,7 +2014,7 @@ export default function AccountingPage() {
                         </p>
                       </div>
                       <div className="flex items-center gap-3">
-                        <Button onClick={() => void handleOnboardZatca()} disabled={onboardBusy || !onboardOtp.trim()} className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800">
+                        <Button onClick={() => void handleOnboardZatca()} disabled={!integrationAvailable("zatca") || onboardBusy || !onboardOtp.trim()} className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800">
                           {onboardBusy ? <LoadingSpinner className="h-4 w-4" /> : <KeyRound className="h-4 w-4" />}
                           {ar ? "بدء الإعداد" : "Start onboarding"}
                         </Button>
@@ -2060,7 +2062,7 @@ export default function AccountingPage() {
                         : "Finalized sales documents transmitted as UBL 2.1 — sandbox by default, no compliance claimed"}
                     </CardDescription>
                   </div>
-                  <button onClick={handleRunZatca} disabled={zatcaBusy} className={dialogBtn}>
+                  <button onClick={handleRunZatca} disabled={zatcaBusy || !integrationAvailable("zatca")} className={dialogBtn}>
                     {zatcaBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
                     {ar ? "تشغيل المحوّل" : "Run adapter"}
                   </button>

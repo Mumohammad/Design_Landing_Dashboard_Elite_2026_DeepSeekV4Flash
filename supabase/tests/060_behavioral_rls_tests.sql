@@ -54,7 +54,7 @@ SET LOCAL ROLE authenticated;
 
 -- Use a fixture user that belongs to tenant_001
 SELECT set_config('request.jwt.claims',
-  '{"sub": "00000000-0000-0000-0000-000000000001", "role": "authenticated"}',
+  '{"sub": "00000000-0000-0000-0000-000000000001", "role":"authenticated","aal":"aal2"}',
   true
 );
 
@@ -71,7 +71,7 @@ SET LOCAL ROLE authenticated;
 
 -- User belongs to tenant_001; try to read tenant_002 data
 SELECT set_config('request.jwt.claims',
-  '{"sub": "00000000-0000-0000-0000-000000000001", "role": "authenticated"}',
+  '{"sub": "00000000-0000-0000-0000-000000000001", "role":"authenticated","aal":"aal2"}',
   true
 );
 
@@ -100,7 +100,7 @@ RESET ROLE;
 SET LOCAL ROLE postgres;
 
 SELECT set_config('request.jwt.claims',
-  '{"sub": "00000000-0000-0000-0000-000000000001", "role": "authenticated"}',
+  '{"sub": "00000000-0000-0000-0000-000000000001", "role":"authenticated","aal":"aal2"}',
   true
 );
 
@@ -115,7 +115,7 @@ RESET ROLE;
 SET LOCAL ROLE postgres;
 
 SELECT set_config('request.jwt.claims',
-  '{"sub": "00000000-0000-0000-0000-000000000001", "role": "authenticated"}',
+  '{"sub": "00000000-0000-0000-0000-000000000001", "role":"authenticated","aal":"aal2"}',
   true
 );
 
@@ -135,7 +135,7 @@ SELECT set_config('request.jwt.claims', '{}', true);
 UPDATE users SET role = 'supervisor' WHERE id = '00000000-0000-0000-0000-000000000002';
 
 SELECT set_config('request.jwt.claims',
-  '{"sub": "00000000-0000-0000-0000-000000000001", "role": "authenticated"}',
+  '{"sub": "00000000-0000-0000-0000-000000000001", "role":"authenticated","aal":"aal2"}',
   true
 );
 
@@ -172,7 +172,7 @@ RESET ROLE;
 SET LOCAL ROLE authenticated;
 
 SELECT set_config('request.jwt.claims',
-  '{"sub": "00000000-0000-0000-0000-000000000001", "role": "authenticated"}',
+  '{"sub": "00000000-0000-0000-0000-000000000001", "role":"authenticated","aal":"aal2"}',
   true
 );
 
@@ -190,7 +190,7 @@ RESET ROLE;
 SET LOCAL ROLE authenticated;
 
 SELECT set_config('request.jwt.claims',
-  '{"sub": "00000000-0000-0000-0000-000000000001", "role": "authenticated"}',
+  '{"sub": "00000000-0000-0000-0000-000000000001", "role":"authenticated","aal":"aal2"}',
   true
 );
 

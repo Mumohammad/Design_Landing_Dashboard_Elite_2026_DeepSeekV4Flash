@@ -121,3 +121,5 @@ describe("GET /api/webhooks/cron", () => {
     expect(res.status).toBe(500)
   })
 })
+
+vi.mock("@/lib/release/integrations", () => ({ integrationAvailable: () => true, INTEGRATION_UNAVAILABLE: "Unavailable" }))

@@ -28,6 +28,10 @@ export async function requirePlatformAdmin(req: NextRequest) {
   const { data: { user }, error } = await anon.auth.getUser(token);
   if (error || !user) return { error: 'unauthorized' as const, status: 401 as const };
 
+  // Verify claims on the same access token; never trust client-decoded AAL.
+  const { data: claims, error: claimsError } = await anon.auth.getClaims(token);
+  if (claimsError || claims?.claims.aal !== 'aal2') return { error: 'forbidden' as const, status: 403 as const };
+
   const service = serviceClient();
   const { data: adminRow } = await service
     .from('platform_admins')

@@ -133,3 +133,5 @@ describe("webhook actions audit-log actor (M7)", () => {
     }
   })
 })
+
+vi.mock("@/lib/release/integrations", () => ({ integrationAvailable: () => true, INTEGRATION_UNAVAILABLE: "Unavailable" }))

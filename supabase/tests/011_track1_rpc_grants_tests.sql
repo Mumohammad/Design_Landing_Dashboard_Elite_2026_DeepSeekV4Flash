@@ -60,7 +60,7 @@ SELECT ok(
 
 RESET ROLE;
 SET LOCAL ROLE authenticated;
-SELECT set_config('request.jwt.claims', '{"role":"authenticated"}', true);
+SELECT set_config('request.jwt.claims', '{"role":"authenticated","aal":"aal2"}', true);
 SELECT ok(
   (SELECT CASE
      WHEN to_regprocedure('public.compute_driver_completeness(uuid)') IS NULL THEN true
@@ -92,7 +92,7 @@ SELECT ok(
 
 RESET ROLE;
 SET LOCAL ROLE authenticated;
-SELECT set_config('request.jwt.claims', '{"role":"authenticated"}', true);
+SELECT set_config('request.jwt.claims', '{"role":"authenticated","aal":"aal2"}', true);
 SELECT ok(
   (SELECT CASE
      WHEN to_regprocedure('public.validate_chart_account()') IS NULL THEN true
@@ -112,7 +112,7 @@ SELECT is(
 
 RESET ROLE;
 SET LOCAL ROLE authenticated;
-SELECT set_config('request.jwt.claims', '{"role":"authenticated"}', true);
+SELECT set_config('request.jwt.claims', '{"role":"authenticated","aal":"aal2"}', true);
 SELECT is(
   has_function_privilege('authenticated', 'public.get_my_tenant_id()', 'EXECUTE'),
   true,
@@ -165,7 +165,7 @@ SELECT ok(
 
 RESET ROLE;
 SET LOCAL ROLE authenticated;
-SELECT set_config('request.jwt.claims', '{"role":"authenticated"}', true);
+SELECT set_config('request.jwt.claims', '{"role":"authenticated","aal":"aal2"}', true);
 SELECT ok(
   (SELECT CASE
      WHEN to_regprocedure('public.public_verify_document(text)') IS NULL THEN true
@@ -252,7 +252,7 @@ SELECT is(
 
 RESET ROLE;
 SET LOCAL ROLE authenticated;
-SELECT set_config('request.jwt.claims', '{"role":"authenticated"}', true);
+SELECT set_config('request.jwt.claims', '{"role":"authenticated","aal":"aal2"}', true);
 SELECT is(
   has_table_privilege('authenticated', 'public.public_lookup_rate_limits', 'SELECT'),
   false,
@@ -269,7 +269,7 @@ SELECT is(
 
 RESET ROLE;
 SET LOCAL ROLE authenticated;
-SELECT set_config('request.jwt.claims', '{"role":"authenticated"}', true);
+SELECT set_config('request.jwt.claims', '{"role":"authenticated","aal":"aal2"}', true);
 SELECT is(
   has_table_privilege('authenticated', 'public.zatca_csids', 'SELECT'),
   false,

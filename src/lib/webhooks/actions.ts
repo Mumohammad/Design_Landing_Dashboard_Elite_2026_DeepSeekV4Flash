@@ -7,6 +7,7 @@
 
 "use server"
 
+import { integrationAvailable, INTEGRATION_UNAVAILABLE } from "@/lib/release/integrations"
 import { getCurrentUser } from "@/lib/auth/authorization"
 import { requirePermission } from "@/lib/auth/authorization"
 import { writeAuditLog } from "@/lib/auth/sessions"
@@ -41,6 +42,7 @@ export async function listWebhookRegistrations(): Promise<
   { success: true; data: Awaited<ReturnType<typeof listWebhooks>> } |
   { success: false; error?: string }
 > {
+  if (!integrationAvailable("webhooks")) return { success: false, error: INTEGRATION_UNAVAILABLE }
   try {
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
@@ -63,6 +65,7 @@ export async function getWebhookRegistration(webhookId: string): Promise<
   { success: true; data: { webhook: Awaited<ReturnType<typeof getWebhook>>; stats: Awaited<ReturnType<typeof getDeliveryStats>> } } |
   { success: false; error?: string }
 > {
+  if (!integrationAvailable("webhooks")) return { success: false, error: INTEGRATION_UNAVAILABLE }
   try {
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
@@ -88,6 +91,7 @@ export async function createWebhookRegistration(input: CreateWebhookInput): Prom
   { success: true; data: Awaited<ReturnType<typeof createWebhook>>["webhook"]; secret: string } |
   { success: false; error?: string }
 > {
+  if (!integrationAvailable("webhooks")) return { success: false, error: INTEGRATION_UNAVAILABLE }
   try {
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
@@ -148,6 +152,7 @@ export async function updateWebhookRegistration(
   { success: true; data: Awaited<ReturnType<typeof updateWebhook>>["webhook"] } |
   { success: false; error?: string }
 > {
+  if (!integrationAvailable("webhooks")) return { success: false, error: INTEGRATION_UNAVAILABLE }
   try {
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
@@ -202,6 +207,7 @@ export async function updateWebhookRegistration(
 export async function deleteWebhookRegistration(webhookId: string): Promise<
   { success: true } | { success: false; error?: string }
 > {
+  if (!integrationAvailable("webhooks")) return { success: false, error: INTEGRATION_UNAVAILABLE }
   try {
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
@@ -238,6 +244,7 @@ export async function deleteWebhookRegistration(webhookId: string): Promise<
 export async function regenerateWebhookSecretAction(webhookId: string): Promise<
   { success: true; secret: string } | { success: false; error?: string }
 > {
+  if (!integrationAvailable("webhooks")) return { success: false, error: INTEGRATION_UNAVAILABLE }
   try {
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
@@ -278,6 +285,7 @@ export async function triggerWebhookRetries(): Promise<
   { success: true; data: Awaited<ReturnType<typeof processRetries>> } |
   { success: false; error?: string }
 > {
+  if (!integrationAvailable("webhooks")) return { success: false, error: INTEGRATION_UNAVAILABLE }
   try {
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }

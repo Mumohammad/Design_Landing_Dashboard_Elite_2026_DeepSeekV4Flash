@@ -87,7 +87,7 @@ DELETE FROM rbac_matrix
 WHERE command_name = 'UPDATE'
   AND table_name IN (
     'credit_notes', 'debit_notes', 'driver_salary_history',
-    'vehicle_odometer_logs'
+    'vehicle_odometer_logs', 'driver_consents'
   );
 
 INSERT INTO rbac_matrix
@@ -258,7 +258,7 @@ FROM rbac_matrix m ORDER BY m.table_name, m.command_name;
 -- General manager is the approved all-permissions role.
 SELECT set_config(
   'request.jwt.claims',
-  '{"role":"authenticated","sub":"00000000-0000-0000-0000-000000000001"}',
+  '{"role":"authenticated","aal":"aal2","sub":"00000000-0000-0000-0000-000000000001"}',
   true
 );
 SELECT ok(
@@ -271,7 +271,7 @@ FROM rbac_matrix m ORDER BY m.table_name, m.command_name;
 -- Active tenant-B role has no role_permissions rows.
 SELECT set_config(
   'request.jwt.claims',
-  '{"role":"authenticated","sub":"77000000-0000-4000-8000-000000000002"}',
+  '{"role":"authenticated","aal":"aal2","sub":"77000000-0000-4000-8000-000000000002"}',
   true
 );
 SELECT ok(
@@ -286,7 +286,7 @@ UPDATE public.users SET status = 'inactive'
 WHERE auth_user_id = '77000000-0000-4000-8000-000000000002';
 SELECT set_config(
   'request.jwt.claims',
-  '{"role":"authenticated","sub":"77000000-0000-4000-8000-000000000002"}',
+  '{"role":"authenticated","aal":"aal2","sub":"77000000-0000-4000-8000-000000000002"}',
   true
 );
 SELECT ok(
@@ -301,7 +301,7 @@ UPDATE public.users SET status = 'active', locked_until = now() + interval '1 ho
 WHERE auth_user_id = '77000000-0000-4000-8000-000000000002';
 SELECT set_config(
   'request.jwt.claims',
-  '{"role":"authenticated","sub":"77000000-0000-4000-8000-000000000002"}',
+  '{"role":"authenticated","aal":"aal2","sub":"77000000-0000-4000-8000-000000000002"}',
   true
 );
 SELECT ok(
@@ -365,7 +365,7 @@ UPDATE public.users SET status = 'active', locked_until = NULL, deleted_at = NUL
 WHERE auth_user_id = '77000000-0000-4000-8000-000000000002';
 SELECT set_config(
   'request.jwt.claims',
-  '{"role":"authenticated","sub":"77000000-0000-4000-8000-000000000002"}',
+  '{"role":"authenticated","aal":"aal2","sub":"77000000-0000-4000-8000-000000000002"}',
   true
 );
 
@@ -378,7 +378,7 @@ UPDATE public.users SET status = 'inactive'
 WHERE auth_user_id = '77000000-0000-4000-8000-000000000002';
 SELECT set_config(
   'request.jwt.claims',
-  '{"role":"authenticated","sub":"77000000-0000-4000-8000-000000000002"}',
+  '{"role":"authenticated","aal":"aal2","sub":"77000000-0000-4000-8000-000000000002"}',
   true
 );
 SELECT is(public.get_my_tenant_id(), NULL::uuid,
@@ -389,7 +389,7 @@ UPDATE public.users SET status = 'active', locked_until = now() + interval '1 ho
 WHERE auth_user_id = '77000000-0000-4000-8000-000000000002';
 SELECT set_config(
   'request.jwt.claims',
-  '{"role":"authenticated","sub":"77000000-0000-4000-8000-000000000002"}',
+  '{"role":"authenticated","aal":"aal2","sub":"77000000-0000-4000-8000-000000000002"}',
   true
 );
 SELECT is(public.get_my_tenant_id(), NULL::uuid,
@@ -400,7 +400,7 @@ UPDATE public.users SET locked_until = NULL, deleted_at = now()
 WHERE auth_user_id = '77000000-0000-4000-8000-000000000002';
 SELECT set_config(
   'request.jwt.claims',
-  '{"role":"authenticated","sub":"77000000-0000-4000-8000-000000000002"}',
+  '{"role":"authenticated","aal":"aal2","sub":"77000000-0000-4000-8000-000000000002"}',
   true
 );
 SELECT is(public.get_my_tenant_id(), NULL::uuid,
@@ -411,7 +411,7 @@ UPDATE public.users SET status = 'active', locked_until = NULL, deleted_at = NUL
 WHERE auth_user_id = '77000000-0000-4000-8000-000000000002';
 SELECT set_config(
   'request.jwt.claims',
-  '{"role":"authenticated","sub":"77000000-0000-4000-8000-000000000002"}',
+  '{"role":"authenticated","aal":"aal2","sub":"77000000-0000-4000-8000-000000000002"}',
   true
 );
 SELECT is(public.storage_path_in_current_tenant(
@@ -429,7 +429,7 @@ UPDATE public.users SET status = 'locked'
 WHERE auth_user_id = '77000000-0000-4000-8000-000000000002';
 SELECT set_config(
   'request.jwt.claims',
-  '{"role":"authenticated","sub":"77000000-0000-4000-8000-000000000002"}',
+  '{"role":"authenticated","aal":"aal2","sub":"77000000-0000-4000-8000-000000000002"}',
   true
 );
 SELECT is(public.storage_path_in_current_tenant(
@@ -441,7 +441,7 @@ UPDATE public.users SET status = 'active', locked_until = NULL, deleted_at = NUL
 WHERE auth_user_id = '77000000-0000-4000-8000-000000000002';
 SELECT set_config(
   'request.jwt.claims',
-  '{"role":"authenticated","sub":"77000000-0000-4000-8000-000000000002"}',
+  '{"role":"authenticated","aal":"aal2","sub":"77000000-0000-4000-8000-000000000002"}',
   true
 );
 
@@ -464,7 +464,7 @@ RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT set_config(
   'request.jwt.claims',
-  '{"role":"authenticated","sub":"00000000-0000-0000-0000-000000000001"}',
+  '{"role":"authenticated","aal":"aal2","sub":"00000000-0000-0000-0000-000000000001"}',
   true
 );
 SELECT is(
@@ -483,7 +483,7 @@ RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT set_config(
   'request.jwt.claims',
-  '{"role":"authenticated","sub":"00000000-0000-0000-0000-000000000001"}',
+  '{"role":"authenticated","aal":"aal2","sub":"00000000-0000-0000-0000-000000000001"}',
   true
 );
 SELECT is(
@@ -503,7 +503,7 @@ RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT set_config(
   'request.jwt.claims',
-  '{"role":"authenticated","sub":"77000000-0000-4000-8000-000000000002"}',
+  '{"role":"authenticated","aal":"aal2","sub":"77000000-0000-4000-8000-000000000002"}',
   true
 );
 

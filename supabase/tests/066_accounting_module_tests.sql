@@ -339,7 +339,7 @@ SELECT ok(
 RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claims',
-  '{"role":"authenticated","sub":"13333333-3333-3333-3333-333333333333"}', true);
+  '{"role":"authenticated","aal":"aal2","sub":"13333333-3333-3333-3333-333333333333"}', true);
 SELECT is(
   (SELECT count(*)::int FROM public.finance_payments
    WHERE tenant_id = '13111111-1111-1111-1111-111111111111'),
@@ -395,7 +395,7 @@ ON CONFLICT (id) DO UPDATE SET tenant_id = '13222222-2222-2222-2222-222222222222
 RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claims',
-  '{"role":"authenticated","sub":"13888888-8888-8888-8888-888888888888"}', true);
+  '{"role":"authenticated","aal":"aal2","sub":"13888888-8888-8888-8888-888888888888"}', true);
 SELECT is(
   (SELECT count(*)::int FROM public.finance_payments
    WHERE tenant_id = '13111111-1111-1111-1111-111111111111'),

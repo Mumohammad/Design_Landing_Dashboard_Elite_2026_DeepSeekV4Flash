@@ -476,12 +476,7 @@ ALTER POLICY "audit_log_select_own_tenant" ON public.audit_log
 -- represented in the migration history on this branch.
 ALTER TABLE public.tenants ADD COLUMN IF NOT EXISTS slug text;
 
-UPDATE public.tenants
-SET slug = COALESCE(
-  NULLIF(lower(trim(both '-' FROM regexp_replace(name_en, '[^a-zA-Z0-9]+', '-', 'g'))), ''),
-  'tenant'
-) || '-' || left(id::text, 8)
-WHERE slug IS NULL OR btrim(slug) = '';
+-- Existing tenant slugs require a separately reviewed operator assignment.
 
 CREATE OR REPLACE FUNCTION public.assign_tenant_slug()
 RETURNS trigger
@@ -512,7 +507,7 @@ CREATE TRIGGER trg_assign_tenant_slug
 
 REVOKE ALL ON FUNCTION public.assign_tenant_slug() FROM PUBLIC, anon, authenticated;
 
-ALTER TABLE public.tenants ALTER COLUMN slug SET NOT NULL;
+-- Existing rows can remain NULL; new inserts receive a slug from the trigger.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tenants_slug_active
   ON public.tenants (lower(slug))
   WHERE deleted_at IS NULL;

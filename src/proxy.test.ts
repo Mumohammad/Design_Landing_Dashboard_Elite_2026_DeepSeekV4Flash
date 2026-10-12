@@ -109,14 +109,14 @@ describe("platform-admin MFA boundary", () => {
 })
 
 describe("tenant-user MFA compatibility", () => {
-  it("preserves access for a non-privileged user when assurance is unavailable", async () => {
+  it("rejects access for a non-privileged user when assurance is unavailable", async () => {
     state.role = "supervisor"
     state.aal = null
     state.aalError = { message: "MFA service unavailable" }
 
     const response = await proxy(request("/dashboard"))
 
-    expect(response.status).toBe(200)
-    expect(response.headers.get("location")).toBeNull()
+    expect(response.status).toBe(307)
+    expect(new URL(response.headers.get("location")!).searchParams.get("error")).toBe("MFA_ASSURANCE_UNAVAILABLE")
   })
 })

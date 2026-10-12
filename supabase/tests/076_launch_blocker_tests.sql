@@ -152,7 +152,7 @@ VALUES
 SET LOCAL ROLE authenticated;
 SELECT set_config(
   'request.jwt.claims',
-  '{"sub":"76333333-3333-4333-8333-333333333333","role":"authenticated"}',
+  '{"sub":"76333333-3333-4333-8333-333333333333","role":"authenticated","aal":"aal2"}',
   true
 );
 
@@ -186,7 +186,7 @@ SELECT throws_ok(
 -- A same-tenant caller without drivers:update must also be rejected.
 SELECT set_config(
   'request.jwt.claims',
-  '{"sub":"76444444-4444-4444-8444-444444444444","role":"authenticated"}',
+  '{"sub":"76444444-4444-4444-8444-444444444444","role":"authenticated","aal":"aal2"}',
   true
 );
 
@@ -221,7 +221,7 @@ RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT set_config(
   'request.jwt.claims',
-  '{"sub":"76333333-3333-4333-8333-333333333333","role":"authenticated"}',
+  '{"sub":"76333333-3333-4333-8333-333333333333","role":"authenticated","aal":"aal2"}',
   true
 );
 SELECT public.set_driver_status(
@@ -237,7 +237,7 @@ SELECT is(
 -- Low-privilege write attempts are RLS no-ops on every priority table.
 SELECT set_config(
   'request.jwt.claims',
-  '{"sub":"76444444-4444-4444-8444-444444444444","role":"authenticated"}',
+  '{"sub":"76444444-4444-4444-8444-444444444444","role":"authenticated","aal":"aal2"}',
   true
 );
 
@@ -318,14 +318,15 @@ RESET ROLE;
 SET LOCAL ROLE anon;
 SELECT set_config('request.jwt.claims', '{"role":"anon"}', true);
 
-SELECT lives_ok(
+SELECT throws_ok(
   $$INSERT INTO storage.objects (bucket_id, name, metadata)
     VALUES (
       'driver-applications',
       'drafts/76000000-0000-4000-8000-000000000020/76000000-0000-4000-8000-000000000021.pdf',
       '{"mimetype":"application/pdf"}'::jsonb
     )$$,
-  'anonymous client can upload a valid driver-application draft path'
+  '42501'::char(5), NULL,
+  'anonymous client cannot upload without a server-issued signed grant'
 );
 
 SELECT throws_ok(
@@ -405,9 +406,14 @@ SELECT throws_ok(
 );
 
 -- Force the second statement in the RPC to fail. PostgreSQL must roll back
--- the first insert, while the server-action unit test verifies Storage cleanup.
+-- the first insert, while the server-action unit test verifies uploads survive retries.
 RESET ROLE;
 SET LOCAL ROLE postgres;
+INSERT INTO storage.objects (bucket_id, name, metadata) VALUES
+ ('driver-applications', 'drafts/76000000-0000-4000-8000-000000000010/76000000-0000-4000-8000-000000000011.jpg', '{"mimetype":"image/jpeg","size":100}'),
+ ('driver-applications', 'drafts/76000000-0000-4000-8000-000000000012/76000000-0000-4000-8000-000000000013.pdf', '{"mimetype":"application/pdf","size":100}'),
+ ('driver-applications', 'drafts/76000000-0000-4000-8000-000000000014/76000000-0000-4000-8000-000000000015.pdf', '{"mimetype":"application/pdf","size":100}');
+
 CREATE FUNCTION pg_temp.fail_launch_document_insert()
 RETURNS trigger
 LANGUAGE plpgsql

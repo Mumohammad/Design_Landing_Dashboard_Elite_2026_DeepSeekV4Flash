@@ -168,7 +168,7 @@ SELECT throws_ok(
 RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claims',
-  '{"sub": "06900000-0000-0000-0000-000000000006", "role": "authenticated"}', true);
+  '{"sub": "06900000-0000-0000-0000-000000000006", "role":"authenticated","aal":"aal2"}', true);
 
 SELECT is(
   (SELECT count(*)::int

@@ -410,3 +410,5 @@ describe("onboardZatcaCsids", () => {
     expect(csrInput.uid).toBe("310122993400001")
   })
 })
+
+vi.mock("@/lib/release/integrations", () => ({ integrationAvailable: () => true, INTEGRATION_UNAVAILABLE: "Unavailable" }))

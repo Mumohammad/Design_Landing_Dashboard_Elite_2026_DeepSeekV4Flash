@@ -186,7 +186,7 @@ RESET ROLE;
 SELECT set_config(
   'request.jwt.claims',
   json_build_object(
-    'role', 'authenticated',
+    'role', 'authenticated', 'aal', 'aal2',
     'sub', (SELECT user_a FROM sensitive_fixtures)
   )::text,
   true
@@ -278,7 +278,7 @@ SELECT is(
    WHERE schemaname = 'public' AND tablename IN ('driver_consents','violations')
      AND cmd = 'UPDATE'
      AND (qual LIKE '%get_my_tenant_id()%' OR with_check LIKE '%get_my_tenant_id()%')),
-  2::bigint, 'consents + violations have tenant-scoped UPDATE policies');
+  1::bigint, 'only violations have a tenant-scoped UPDATE policy; consents are immutable');
 
 -- ─── 7. behavioral: validate_leave_request + has_pdpl_consent (062) ──────────
 
@@ -317,16 +317,7 @@ SELECT isnt(
   'annual 25d rejected (exceeds 21d base entitlement)'
 );
 
--- Tear down fixtures so the file can re-run against the same DB.
-DELETE FROM public.driver_salary_history WHERE tenant_id IN (SELECT id FROM public.tenants WHERE name_en LIKE 'Sensitive Tenant %');
-DELETE FROM public.driver_consents   WHERE tenant_id IN (SELECT id FROM public.tenants WHERE name_en LIKE 'Sensitive Tenant %');
-DELETE FROM public.violations        WHERE tenant_id IN (SELECT id FROM public.tenants WHERE name_en LIKE 'Sensitive Tenant %');
-DELETE FROM public.tenant_memberships WHERE tenant_id IN (SELECT id FROM public.tenants WHERE name_en LIKE 'Sensitive Tenant %');
-DELETE FROM public.users             WHERE email LIKE 'sens-%@fixture.local';
-DELETE FROM auth.users               WHERE email LIKE 'sens-%@fixture.local';
-DELETE FROM public.drivers           WHERE tenant_id IN (SELECT id FROM public.tenants WHERE name_en LIKE 'Sensitive Tenant %');
-DELETE FROM public.tenants           WHERE name_en LIKE 'Sensitive Tenant %';
-
+-- Transaction rollback removes all fixtures, including immutable evidence.
 SELECT * FROM finish();
 
 ROLLBACK;

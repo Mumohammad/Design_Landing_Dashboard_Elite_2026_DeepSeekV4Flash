@@ -891,6 +891,13 @@ CREATE POLICY storage_company_assets_delete ON storage.objects
 -- 6. Explicit least-privilege Data API grants.
 -- ---------------------------------------------------------------------------
 
+DO $secrets$
+DECLARE p record;
+BEGIN
+ FOR p IN SELECT policyname FROM pg_policies WHERE schemaname='public' AND tablename='zatca_csids'
+ LOOP EXECUTE format('DROP POLICY %I ON public.zatca_csids',p.policyname); END LOOP;
+END;
+$secrets$;
 REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM anon, authenticated;
 
 DO $$

@@ -3,7 +3,8 @@
 import { createAdminClient } from "@/lib/supabase/admin"
 import { rateLimit, getClientIp } from "@/lib/auth/rate-limit"
 import { fullApplicationSchema, type FullApplication } from "./schema"
-import { createHash, randomBytes } from "crypto"
+import { createHash, createHmac, randomBytes } from "crypto"
+import { getUploadDraft, ownsUploadPath } from "./draft"
 import { notifyApplicantByEmail } from "@/lib/notifications/applicant-email"
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -144,6 +145,11 @@ export async function submitDriverApplication(
       }
     }
 
+    const draft = await getUploadDraft()
+    if (!draft || docs.some((doc) => !ownsUploadPath(draft, doc.path))) {
+      return { ok: false, error: "validation", fieldErrors: {} }
+    }
+
     const docRows = docs.map((d) => {
       const fileName = d.path.split("/").pop() ?? d.path
       return {
@@ -194,7 +200,8 @@ export async function submitDriverApplication(
       consent_privacy: app.consent.consentPrivacy,
       consent_at: new Date().toISOString(),
       status_token_hash: statusTokenHash,
-      ip_hash: createHash("sha256").update(clientIp).digest("hex"),
+      ip_hash: createHmac("sha256", process.env.SUPABASE_SERVICE_ROLE_KEY!)
+        .update(`driver-intake-ip-v1:${clientIp}`).digest("hex"),
     }
 
     const { data: provisioned, error: provisionError } = await admin.rpc(
@@ -208,13 +215,7 @@ export async function submitDriverApplication(
 
     if (provisionError || !provisioned) {
       console.error("[driver-registration] atomic provisioning failed:", provisionError?.message)
-      const paths = [...new Set(docRows.map((doc) => doc.storage_path))]
-      const { error: cleanupError } = await admin.storage
-        .from("driver-applications")
-        .remove(paths)
-      if (cleanupError) {
-        console.error("[driver-registration] orphan cleanup failed:", cleanupError.message)
-      }
+      // Never delete caller-supplied paths on failure; retries retain their uploads.
       const tenantError = provisionError?.message.includes("APP_TENANT_")
       return { ok: false, error: tenantError ? "noTenant" : "insert", fieldErrors: {} }
     }

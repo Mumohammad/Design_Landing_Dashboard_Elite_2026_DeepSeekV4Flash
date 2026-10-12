@@ -16,6 +16,9 @@ export const PUBLIC_ENDPOINTS: readonly string[] = [
   // Returns status only; no tenant or PII data. Read-only by construction.
   "/api/health",
 
+  // Disabled integration: always returns 503 without reading or processing payloads.
+  "/api/webhooks/incoming",
+
   // Scheduled jobs runner. FAIL-CLOSED: when CRON_SECRET is unset, every
   // request is rejected (401/500) — the route never performs work unauthenticated.
   "/api/webhooks/cron",

@@ -111,7 +111,7 @@ RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT set_config(
   'request.jwt.claims',
-  '{"role":"authenticated","sub":"00000000-0000-0000-0000-000000000001"}',
+  '{"role":"authenticated","aal":"aal2","sub":"00000000-0000-0000-0000-000000000001"}',
   true
 );
 SELECT lives_ok(
@@ -131,7 +131,7 @@ RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT set_config(
   'request.jwt.claims',
-  '{"role":"authenticated","sub":"00000000-0000-0000-0000-000000000002"}',
+  '{"role":"authenticated","aal":"aal2","sub":"00000000-0000-0000-0000-000000000002"}',
   true
 );
 SELECT throws_ok(
@@ -152,7 +152,7 @@ RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT set_config(
   'request.jwt.claims',
-  '{"role":"authenticated","sub":"00000000-0000-0000-0000-000000000001"}',
+  '{"role":"authenticated","aal":"aal2","sub":"00000000-0000-0000-0000-000000000001"}',
   true
 );
 SELECT throws_ok(
@@ -199,7 +199,7 @@ RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT set_config(
   'request.jwt.claims',
-  '{"role":"authenticated","sub":"00000000-0000-0000-0000-000000000001"}',
+  '{"role":"authenticated","aal":"aal2","sub":"00000000-0000-0000-0000-000000000001"}',
   true
 );
 SELECT is(
@@ -233,7 +233,7 @@ RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT set_config(
   'request.jwt.claims',
-  '{"role":"authenticated","sub":"00000000-0000-0000-0000-000000000002"}',
+  '{"role":"authenticated","aal":"aal2","sub":"00000000-0000-0000-0000-000000000002"}',
   true
 );
 SELECT is(
@@ -272,7 +272,7 @@ RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT set_config(
   'request.jwt.claims',
-  '{"role":"authenticated","sub":"00000000-0000-0000-0000-000000000001"}',
+  '{"role":"authenticated","aal":"aal2","sub":"00000000-0000-0000-0000-000000000001"}',
   true
 );
 SELECT throws_ok(
@@ -287,7 +287,7 @@ SELECT throws_ok(
 RESET ROLE;
 SET LOCAL ROLE postgres;
 SELECT ok(
-  EXISTS (
+  NOT EXISTS (
     SELECT 1 FROM pg_policies p
     WHERE p.schemaname = 'storage' AND p.tablename = 'objects'
       AND p.policyname = 'anon_insert_driver_drafts'
@@ -296,7 +296,7 @@ SELECT ok(
       AND p.with_check LIKE '%drafts/%'
       AND p.with_check LIKE '%array_length%'
   ),
-  'driver-applications retains its strict anonymous draft policy'
+  'driver-applications requires signed uploads instead of anonymous writes'
 );
 
 SELECT ok(
@@ -332,7 +332,7 @@ RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT set_config(
   'request.jwt.claims',
-  '{"role":"authenticated","sub":"00000000-0000-0000-0000-000000000001"}',
+  '{"role":"authenticated","aal":"aal2","sub":"00000000-0000-0000-0000-000000000001"}',
   true
 );
 SELECT throws_ok(

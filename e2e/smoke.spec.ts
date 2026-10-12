@@ -11,12 +11,13 @@ import { test as base, expect, type Page } from "@playwright/test"
 
 const test = base.extend<{ authed: Page }>({
   authed: async ({ page }, use) => {
-    const email = process.env.TEST_USER_EMAIL ?? "admin@elitedev.com.sa"
-    const password = process.env.TEST_USER_PASSWORD ?? "Test1234!"
+    const email = process.env.TEST_USER_EMAIL
+    const password = process.env.TEST_USER_PASSWORD
+    if (!email || !password) throw new Error("Dedicated TEST_USER_EMAIL and TEST_USER_PASSWORD are required")
 
     await page.goto("/auth/sign-in")
-    await page.getByLabel(/email/i).fill(email)
-    await page.getByLabel(/password/i).fill(password)
+    await page.getByLabel(/email|البريد الإلكتروني/i).fill(email)
+    await page.getByLabel(/^(password|كلمة المرور)$/i).fill(password)
     await page.getByRole("button", { name: /sign in|login|تسجيل/i }).click()
     await page.waitForURL(/\/dashboard/, { timeout: 30_000 })
     await use(page) // eslint-disable-line react-hooks/rules-of-hooks -- Playwright fixture `use`, not React
@@ -36,8 +37,8 @@ test.describe("Public Pages", () => {
 
   test("sign-in page loads", async ({ page }) => {
     await page.goto("/auth/sign-in")
-    await expect(page.getByLabel(/email/i)).toBeVisible({ timeout: 15_000 })
-    await expect(page.getByLabel(/password/i)).toBeVisible()
+    await expect(page.getByLabel(/email|البريد الإلكتروني/i)).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByLabel(/^(password|كلمة المرور)$/i)).toBeVisible()
   })
 
   test("root redirects to landing", async ({ page }) => {

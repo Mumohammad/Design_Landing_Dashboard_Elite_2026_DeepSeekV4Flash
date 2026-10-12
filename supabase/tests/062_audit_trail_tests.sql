@@ -199,7 +199,7 @@ SELECT is(
 
 RESET ROLE;
 SET LOCAL ROLE authenticated;
-SELECT set_config('request.jwt.claims', '{"role":"authenticated"}', true);
+SELECT set_config('request.jwt.claims', '{"role":"authenticated","aal":"aal2"}', true);
 SELECT is(
   has_function_privilege('authenticated', 'public.fetch_audit_trail_page(uuid, timestamptz, timestamptz, uuid, text, text, text, uuid, integer)', 'EXECUTE'),
   true,
@@ -218,7 +218,7 @@ SELECT is(
 
 RESET ROLE;
 SELECT set_config('request.jwt.claims',
-  '{"role":"authenticated","sub":"33333333-3333-3333-3333-333333333333"}', true);
+  '{"role":"authenticated","aal":"aal2","sub":"33333333-3333-3333-3333-333333333333"}', true);
 SET LOCAL ROLE authenticated;
 
 -- A tenant-A caller cannot use the tenant argument to read tenant B's rows.
@@ -301,7 +301,7 @@ SELECT is(
 
 RESET ROLE;
 SET LOCAL ROLE authenticated;
-SELECT set_config('request.jwt.claims', '{"role":"authenticated"}', true);
+SELECT set_config('request.jwt.claims', '{"role":"authenticated","aal":"aal2"}', true);
 
 SELECT throws_ok(
   $$UPDATE public.audit_log SET action = 'tampered' WHERE module = 'seed'$$,
@@ -352,7 +352,7 @@ SELECT is(
 RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claims',
-  '{"role":"authenticated","sub":"33333333-3333-3333-3333-333333333333"}', true);
+  '{"role":"authenticated","aal":"aal2","sub":"33333333-3333-3333-3333-333333333333"}', true);
 SELECT is(
   (SELECT count(*)::int FROM public.audit_log),
   3,

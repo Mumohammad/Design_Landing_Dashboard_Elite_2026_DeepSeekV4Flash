@@ -299,9 +299,9 @@ export async function acceptInvite(
       email: invite.email,
       password,
       email_confirm: true,
+      app_metadata: { _invite_provisioned: true },
       user_metadata: {
         full_name: fullName,
-        _invite_provisioned: true,
       },
     })
 

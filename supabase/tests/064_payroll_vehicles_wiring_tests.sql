@@ -312,7 +312,7 @@ SELECT ok(
 RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claims',
-  '{"role":"authenticated","sub":"12333333-3333-3333-3333-333333333333"}', true);
+  '{"role":"authenticated","aal":"aal2","sub":"12333333-3333-3333-3333-333333333333"}', true);
 SELECT is(
   (SELECT count(*)::int FROM public.vehicles
    WHERE id = '12666666-6666-6666-6666-666666666666'),
@@ -374,7 +374,7 @@ ON CONFLICT (id) DO UPDATE SET tenant_id = '12222222-2222-2222-2222-222222222222
 RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claims',
-  '{"role":"authenticated","sub":"12888888-8888-8888-8888-888888888888"}', true);
+  '{"role":"authenticated","aal":"aal2","sub":"12888888-8888-8888-8888-888888888888"}', true);
 SELECT is(
   (SELECT count(*)::int FROM public.vehicles
    WHERE tenant_id = '12111111-1111-1111-1111-111111111111'),

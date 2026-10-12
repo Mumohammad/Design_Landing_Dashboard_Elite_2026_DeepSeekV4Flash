@@ -4,6 +4,7 @@ const { mocks, application } = vi.hoisted(() => ({
   mocks: {
     rpc: vi.fn(),
     remove: vi.fn(),
+    ownsPath: vi.fn(() => true),
     notify: vi.fn(async () => undefined),
   },
   application: {
@@ -83,15 +84,28 @@ vi.mock("@/lib/notifications/applicant-email", () => ({
   notifyApplicantByEmail: mocks.notify,
 }))
 
+vi.mock("./draft", () => ({
+  getUploadDraft: vi.fn(async () => "11111111-1111-4111-8111-111111111111"),
+  ownsUploadPath: mocks.ownsPath,
+}))
+
 import { submitDriverApplication } from "./actions"
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-only-key")
+  mocks.ownsPath.mockReturnValue(true)
   mocks.remove.mockResolvedValue({ error: null })
 })
 
-describe("submitDriverApplication atomic compensation", () => {
-  it("deletes every uploaded Storage object and reports failure when the atomic RPC fails", async () => {
+describe("submitDriverApplication upload ownership", () => {
+  it("rejects another draft before provisioning or deleting files", async () => {
+    mocks.ownsPath.mockReturnValue(false)
+    expect(await submitDriverApplication("tenant-a", application as never)).toMatchObject({ ok: false, error: "validation" })
+    expect(mocks.rpc).not.toHaveBeenCalled()
+    expect(mocks.remove).not.toHaveBeenCalled()
+  })
+  it("retains uploads for retry when the atomic RPC fails", async () => {
     mocks.rpc.mockResolvedValue({
       data: null,
       error: { message: "fault-injected document insert failure" },
@@ -104,15 +118,11 @@ describe("submitDriverApplication atomic compensation", () => {
       "provision_driver_application_atomic",
       expect.objectContaining({ p_tenant_slug: "tenant-a" })
     )
-    expect(mocks.remove).toHaveBeenCalledWith([
-      application.profilePhotoPath,
-      application.documents.identityAttachment,
-      application.documents.licenseAttachment,
-    ])
+    expect(mocks.remove).not.toHaveBeenCalled()
     expect(mocks.notify).not.toHaveBeenCalled()
   })
 
-  it("rejects an unknown tenant and still removes uploaded objects", async () => {
+  it("rejects an unknown tenant without deleting files", async () => {
     mocks.rpc.mockResolvedValue({
       data: null,
       error: { message: "APP_TENANT_NOT_FOUND: unknown or inactive tenant" },
@@ -121,6 +131,6 @@ describe("submitDriverApplication atomic compensation", () => {
     const result = await submitDriverApplication("missing-tenant", application as never)
 
     expect(result).toMatchObject({ ok: false, error: "noTenant" })
-    expect(mocks.remove).toHaveBeenCalledTimes(1)
+    expect(mocks.remove).not.toHaveBeenCalled()
   })
 })

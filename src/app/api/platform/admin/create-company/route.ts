@@ -25,32 +25,16 @@ export async function POST(req: NextRequest) {
     if (inviteError) throw inviteError;
     if (!invite.user) throw new Error('Failed to invite owner');
 
-    const trialEnds = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
-    const { data: tenant, error: tenantError } = await service.from('tenants').insert({
-      name_en: company_name,
-      name_ar: company_name,
-      slug,
-      domain,
-      trial_ends_at: trialEnds,
-      created_by: guard.userId,
-    }).select('id').single();
-    if (tenantError) throw tenantError;
-
-    const { error: userError } = await service.from('users').upsert({
-      auth_user_id: invite.user.id,
-      tenant_id: tenant.id,
-      email: owner_email,
-      full_name_en: owner_name ?? null,
-      role: 'general_manager',
-      status: 'pending_invite',
-      invited_by: guard.userId,
-      invited_at: new Date().toISOString(),
-    }, { onConflict: 'auth_user_id' });
-    if (userError) throw userError;
-
-    const { data: pubUser } = await service.from('users').select('id').eq('auth_user_id', invite.user.id).single();
-    if (pubUser) {
-      await service.from('tenant_memberships').upsert({ tenant_id: tenant.id, user_id: pubUser.id, is_primary: true });
+    const { data: tenant, error: provisionError } = await service.rpc('provision_company_atomic', {
+      p_auth_user_id: invite.user.id,
+      p_company: { name: company_name, domain, slug },
+    });
+    if (provisionError) {
+      if (/^(22|23|42|P0)[A-Z0-9]{3}$/.test(provisionError.code ?? '')) {
+        const { error: cleanupError } = await service.auth.admin.deleteUser(invite.user.id);
+        if (cleanupError) console.error('Invited company owner requires reconciliation', { authUserId: invite.user.id });
+      }
+      return NextResponse.json({ error: 'Company provisioning failed; verify its outcome before retrying' }, { status: 503 });
     }
 
     await service.from('audit_log').insert({
@@ -63,7 +47,7 @@ export async function POST(req: NextRequest) {
       new_values: { company_name, domain, owner_email },
     });
 
-    return NextResponse.json({ success: true, tenant_id: tenant.id, slug });
+    return NextResponse.json({ success: true, tenant_id: tenant.id, slug: tenant.slug });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Failed to create company' }, { status: 500 });
   }

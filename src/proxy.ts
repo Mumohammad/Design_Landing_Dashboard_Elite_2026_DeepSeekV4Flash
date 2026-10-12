@@ -160,21 +160,17 @@ export async function proxy(request: NextRequest) {
   //         → pushed to /settings/mfa to enroll (that route is exempted below
   //         so enrollment itself is never blocked).
   //
-  //    Failure mode: privileged roles fail closed to an unprotected error
-  //    route; non-privileged roles retain availability and log a warning.
+  //    Failure mode: all assurance lookup failures fail closed.
   if (pathname !== "/auth/mfa-challenge" && pathname !== "/settings/mfa") {
     const { data: aal, error: aalError } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
     const privileged = profile.role === "general_manager" || profile.role === "admin"
 
-    if (aalError) {
-      if (privileged) {
-        const url = new URL("/auth/errors/internal-server-error", request.url)
-        url.searchParams.set("error", "MFA_ASSURANCE_UNAVAILABLE")
-        url.searchParams.set("returnTo", pathname)
-        return NextResponse.redirect(url)
-      }
-      console.warn("[proxy] MFA assurance check failed — failing open:", aalError.message)
-    } else if (aal) {
+    if (aalError || !aal) {
+      const url = new URL("/auth/errors/internal-server-error", request.url)
+      url.searchParams.set("error", "MFA_ASSURANCE_UNAVAILABLE")
+      url.searchParams.set("returnTo", pathname)
+      return NextResponse.redirect(url)
+    } else {
       const hasVerifiedFactor = aal.nextLevel === "aal2"
 
       if (hasVerifiedFactor && aal.currentLevel === "aal1") {
