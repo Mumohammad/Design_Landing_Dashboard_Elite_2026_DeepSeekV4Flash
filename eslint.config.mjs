@@ -19,6 +19,8 @@ const eslintConfig = [
       // Local developer tooling (Kilo Code worktrees / agent state) — never
       // shipped, and absent on CI.
       ".kilo/**",
+      // Supabase CLI state and disposable local verification artifacts.
+      "supabase/.temp/**",
       // Nested duplicate project accidentally committed as a broken gitlink
       // (mode 160000 with no .gitmodules entry). It is untracked and local-only.
       "Design_Landing_Dashboard_Elite_2026_DeepSeekV4Flash/**",

@@ -46,6 +46,22 @@ describe("buildCsp (Prompt M2 regression guard)", () => {
     expect(map.get("script-src")).toContain("'unsafe-eval'")
   })
 
+  it("production builds honor a configured custom API and realtime origin", () => {
+    const map = parseCsp(buildCsp({ isDev: false, supabaseUrl: "https://database.example.test" }))
+    expect(map.get("connect-src")).toContain("https://database.example.test")
+    expect(map.get("connect-src")).toContain("wss://database.example.test")
+    expect(map.get("connect-src")).not.toContain("127.0.0.1")
+    expect(map.get("script-src")).not.toContain("'unsafe-eval'")
+  })
+
+  it("production-build verification permits only the configured local API port", () => {
+    const map = parseCsp(buildCsp({ isDev: false, supabaseUrl: "http://127.0.0.1:58321" }))
+    expect(map.get("connect-src")).toContain("http://127.0.0.1:58321")
+    expect(map.get("connect-src")).toContain("ws://127.0.0.1:58321")
+    expect(map.get("connect-src")).not.toContain(LOCAL_SUPABASE_ORIGIN)
+    expect(map.get("script-src")).not.toContain("'unsafe-eval'")
+  })
+
   it("handles an unset/empty Supabase URL without crashing", () => {
     expect(() => buildCsp({ isDev: false, supabaseUrl: null })).not.toThrow()
     expect(() => buildCsp({ isDev: false, supabaseUrl: "" })).not.toThrow()

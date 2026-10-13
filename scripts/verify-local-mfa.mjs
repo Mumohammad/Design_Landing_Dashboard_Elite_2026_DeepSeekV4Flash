@@ -4,6 +4,7 @@
 import { chromium } from "@playwright/test"
 import { createClient } from "@supabase/supabase-js"
 import { createHmac, randomBytes, randomUUID } from "node:crypto"
+import { setTimeout } from "node:timers/promises"
 
 process.loadEnvFile(".env.local")
 const url = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL)
@@ -63,16 +64,43 @@ try {
   await page.getByRole("button", { name: /Verify authentication code|تأكيد رمز التحقق/ }).click()
   await page.getByText(/Two-factor authentication enabled successfully|تم تفعيل التحقق الثنائي بنجاح/).waitFor()
 
-  stage = "dashboard and persisted MFA state"
+  stage = "dashboard navigation"
   await page.goto("http://localhost:3107/dashboard")
   await page.waitForURL(/\/dashboard$/)
+  stage = "dashboard landmark and data loading"
   await page.locator("main").waitFor()
+  await page.getByText(/^(Total Drivers|إجمالي السائقين)$/).waitFor()
+  stage = "persisted MFA state"
   const profile = await admin.from("users").select("two_factor_enabled")
     .eq("auth_user_id", owner.data.user.id).single()
   if (profile.error || profile.data.two_factor_enabled !== true || pageErrors !== 0) {
     throw new Error("Persisted MFA state or browser runtime check failed")
   }
-  console.log("PASS: owner sign-in → MFA enrollment → TOTP verification → dashboard; no browser runtime errors")
+  stage = "sign-out denies dashboard access"
+  await page.goto("http://localhost:3107/auth/sign-out")
+  await page.waitForURL(/\/landing$/)
+  await page.goto("http://localhost:3107/dashboard")
+  await page.waitForURL(/\/auth\/sign-in/)
+
+  stage = "returning owner requires MFA challenge"
+  await page.getByLabel(/email|البريد الإلكتروني/i).fill(email)
+  await page.getByLabel(/^(password|كلمة المرور)$/i).fill(password)
+  await page.getByRole("button", { name: /sign in|تسجيل الدخول/i }).click()
+  stage = "returning owner challenge routing"
+  await page.waitForURL(/\/auth\/mfa-challenge/)
+  const challengeCode = page.getByPlaceholder("000000")
+  stage = "returning owner challenge input"
+  await challengeCode.waitFor()
+  // A successfully used TOTP cannot be replayed; wait for the next time step.
+  await setTimeout(30_000 - (Date.now() % 30_000) + 1_000)
+  stage = "returning owner TOTP verification"
+  await challengeCode.fill(totp(secret))
+  await challengeCode.press("Enter")
+  await page.waitForURL(/\/dashboard$/)
+  await page.locator("main").waitFor()
+  await page.getByText(/^(Total Drivers|إجمالي السائقين)$/).waitFor()
+  if (pageErrors !== 0) throw new Error("Browser runtime check failed")
+  console.log("PASS: owner sign-in → MFA enrollment → persisted MFA → dashboard data → sign-out → returning-user MFA challenge; no browser runtime errors")
 } catch (error) {
   // Avoid logging assertion values, credentials, factor secrets or page bodies.
   console.error(JSON.stringify({ result: "FAIL", stage, errorType: error.name }))

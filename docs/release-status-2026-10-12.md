@@ -1,4 +1,4 @@
-# Release status — 12 October 2026
+# Release status — updated 13 October 2026
 
 **Decision: HOLD. This branch is a remediation candidate, not a verified production release.**
 
@@ -14,7 +14,7 @@ Production target: Supabase `wwfnsbilmyxeawgzicmv`; Vercel `elitesaasc-5643/elit
 |---|---|---|
 | F01 — unscoped status RPC | Tenant/permission/account checks and restricted execution grants | Apply reviewed migrations before app rollout |
 | F02 — cross-tenant audit and approvals RPCs | Tenant-bound definer functions with behavioral isolation tests | Production rollout pending |
-| F03 — RBAC, inactive accounts, MFA | Database-wide permission policies; active/unlocked account checks; verified AAL2 for platform admins; fail-closed proxy and service-action assurance; self-profile access permits MFA enrollment | Authenticated browser enrollment/challenge and role workflows still require staging evidence |
+| F03 — RBAC, inactive accounts, MFA | Database-wide permission policies; active/unlocked account checks; verified AAL2 for platform admins; fail-closed proxy and service-action assurance; self-profile access permits MFA enrollment | Local owner enrollment, returning-user challenge and sign-out passed; hosted and other-role workflows still require staging evidence |
 | F04 — anonymous intake INSERT | Direct table grants/policies removed; service-only atomic intake RPC | Production rollout pending |
 | F05 — upload ownership/intake integrity | Signed draft cookie, server-issued Storage upload tokens, verified ownership, object metadata and size/type checks, reuse rejection, atomic application/document insert, safe retry behavior | Staging browser upload-to-submit flow still required; orphan uploads need an approved retention process |
 | F06 — payroll overwrite | Database trigger protects identity, approved amounts, terminal states and initial authenticated status | Production rollout pending |
@@ -68,3 +68,13 @@ These files are pending candidate migrations, not amendments to migrations alrea
 Draft [PR #69](https://github.com/Mumohammad/Design_Landing_Dashboard_Elite_2026_DeepSeekV4Flash/pull/69) is open. At commit `12266ea`, main CI and pgTAP/Auth/Storage passed. Hosted E2E failed its configuration gate because `STAGING_URL` (mapped to `BASE_URL`), `TEST_USER_EMAIL` and `TEST_USER_PASSWORD` are absent. Preview and production deployment jobs were intentionally skipped; no Vercel deployment was requested. Master is unprotected, but the user-required checks remain mandatory. No merge has been performed.
 
 Local owner-MFA verification is reproducible with `node scripts/verify-local-mfa.mjs` after building/starting the local app on port 3107 and starting this repository's disposable Supabase stack. It checks browser sign-in, required enrollment, TOTP verification, persisted MFA state and dashboard access without recording credentials or QR secrets. Fixtures are local-only and removed by the next local reset. CI runs this flow inside the disposable database job.
+
+## Follow-up verification — 13 October
+
+The expanded local browser check found two additional defects: nested dashboard `main` landmarks and a CSP `connect-src` directive that omitted the configured Supabase origin. The landmark is now unique. CSP now permits the configured API and WebSocket origins in both development and production builds, including custom domains and the explicitly configured isolated local stack; production still excludes `unsafe-eval` and the unconfigured default local stack.
+
+The rebuilt candidate passed the complete local owner flow: sign-in, mandatory MFA enrollment, TOTP verification, persisted MFA state, dashboard data loading, sign-out denying dashboard access, and the returning-user MFA challenge. No browser runtime errors occurred. Eight CSP regression tests, targeted lint and the production build/TypeScript check passed. Disposable `supabase/.temp` files are excluded from ESLint; application code and tests remain included.
+
+Local parallel unit runs hit filesystem-scan timeouts in the font-policy and ZATCA-copy audits; both passed when run together in isolation. Assertions and timeout limits were not changed. The normal full-suite CI result on the exact PR head remains mandatory.
+
+At `3b42056`, main CI passed, while the database job passed all 2,273 pgTAP assertions and eight Auth/Storage integration tests before failing the old browser check. The fixes above require a new exact-head CI run; current results are tracked on PR #69. Hosted staging configuration, Vercel access, recovery evidence and the reviewed production database rollout remain outstanding. No production release is claimed.

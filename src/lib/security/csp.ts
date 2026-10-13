@@ -33,6 +33,7 @@ export function supabaseOriginFromEnv(supabaseUrl?: string | null): string {
 
 export function buildCsp({ isDev, supabaseUrl }: CspOptions): string {
   const supabaseOrigin = supabaseOriginFromEnv(supabaseUrl)
+  const supabaseWebSocketOrigin = supabaseOrigin.replace(/^http/, "ws")
 
   return [
     "default-src 'self'",
@@ -50,10 +51,10 @@ export function buildCsp({ isDev, supabaseUrl }: CspOptions): string {
     // Fonts are self-hosted via next/font (no googleapis/gstatic anywhere) —
     // font-src stays 'self' only. See src/lib/font-policy.test.ts.
     "font-src 'self'",
-    // The local Supabase stack origin is allowlisted ONLY in development so
-    // `next dev` against `supabase start` can reach REST/auth/storage.
-    // Production connect-src stays strict.
-    "connect-src 'self' https://*.supabase.co" +
+    // Honor the configured API origin in every build, including custom domains
+    // and production-build verification against an isolated local stack.
+    // Only development adds the default local origin as a convenience.
+    `connect-src 'self' ${supabaseOrigin} ${supabaseWebSocketOrigin} https://*.supabase.co` +
       (isDev ? ` ${LOCAL_SUPABASE_ORIGIN} ws://127.0.0.1:54321` : "") +
       " https://api.resend.com https://api.emailjs.com https://zatca.gov.sa https://*.ingest.sentry.io",
     "frame-ancestors 'none'",
