@@ -11,6 +11,8 @@ const url = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL)
 if (!["localhost", "127.0.0.1"].includes(url.hostname) || url.port !== "58321") {
   throw new Error("This verification requires the isolated local Supabase project")
 }
+const appUrl = process.env.LOCAL_APP_URL ?? "http://localhost:3107"
+if (!["http://localhost:3107", "http://localhost:3108"].includes(appUrl)) throw new Error("Local app target required")
 const admin = createClient(url.href, process.env.SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
 })
@@ -48,7 +50,7 @@ try {
   let pageErrors = 0
   page.on("pageerror", () => { pageErrors++ })
   stage = "sign-in and mandatory MFA routing"
-  await page.goto("http://localhost:3107/auth/sign-in")
+  await page.goto(`${appUrl}/auth/sign-in`)
   await page.getByLabel(/email|البريد الإلكتروني/i).fill(email)
   await page.getByLabel(/^(password|كلمة المرور)$/i).fill(password)
   await page.getByRole("button", { name: /sign in|تسجيل الدخول/i }).click()
@@ -65,7 +67,7 @@ try {
   await page.getByText(/Two-factor authentication enabled successfully|تم تفعيل التحقق الثنائي بنجاح/).waitFor()
 
   stage = "dashboard navigation"
-  await page.goto("http://localhost:3107/dashboard")
+  await page.goto(`${appUrl}/dashboard`)
   await page.waitForURL(/\/dashboard$/)
   stage = "dashboard landmark and data loading"
   await page.locator("main").waitFor()
@@ -76,10 +78,15 @@ try {
   if (profile.error || profile.data.two_factor_enabled !== true || pageErrors !== 0) {
     throw new Error("Persisted MFA state or browser runtime check failed")
   }
+  if (process.env.VERIFY_INVOICE_CRUD === "1") {
+    stage = "invoice CRUD browser verification"
+    const { verifyInvoiceCrud } = await import("./verify-local-invoices.mjs")
+    await verifyInvoiceCrud(page, admin, company.data.id, appUrl)
+  }
   stage = "sign-out denies dashboard access"
-  await page.goto("http://localhost:3107/auth/sign-out")
+  await page.goto(`${appUrl}/auth/sign-out`)
   await page.waitForURL(/\/landing$/)
-  await page.goto("http://localhost:3107/dashboard")
+  await page.goto(`${appUrl}/dashboard`)
   await page.waitForURL(/\/auth\/sign-in/)
 
   stage = "returning owner requires MFA challenge"

@@ -119,6 +119,7 @@ export type ErrorCode =
   | "INV012"
   | "INV013"
   | "INV014"
+  | "INV015"
   // Accounting — Expenses (Phase 7, migration 040)
   | "EXP001"
   | "EXP002"
@@ -676,6 +677,12 @@ export const ERROR_CODES: Record<ErrorCode, ErrorDefinition> = {
     httpStatus: 422,
     messageAr: "الفاتورة تحتاج سطراً واحداً على الأقل.",
     messageEn: "An invoice needs at least one line.",
+  },
+  INV015: {
+    code: "INV015",
+    httpStatus: 409,
+    messageAr: "تم تعديل الفاتورة. أعد تحميلها قبل الحفظ أو الحذف.",
+    messageEn: "This invoice has changed. Reload it before saving or deleting.",
   },
   INV014: {
     code: "INV014",

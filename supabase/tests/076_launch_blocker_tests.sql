@@ -273,12 +273,9 @@ SELECT is(
   'readonly role cannot update payroll periods'
 );
 
-UPDATE public.invoices SET notes = 'forbidden'
-WHERE id = '76dddddd-dddd-4ddd-8ddd-dddddddddddd';
-SELECT is(
-  (SELECT notes FROM public.invoices WHERE id = '76dddddd-dddd-4ddd-8ddd-dddddddddddd'),
-  NULL::text,
-  'readonly role cannot update invoices'
+SELECT throws_ok(
+  $$UPDATE public.invoices SET notes='forbidden' WHERE id='76dddddd-dddd-4ddd-8ddd-dddddddddddd'$$,
+  '42501', NULL, 'readonly role cannot write invoices outside the atomic RPC'
 );
 
 UPDATE public.expenses SET description = 'forbidden'
