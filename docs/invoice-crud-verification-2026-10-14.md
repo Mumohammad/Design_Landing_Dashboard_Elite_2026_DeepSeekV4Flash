@@ -34,3 +34,9 @@ Supabase CLI project linking and production backup inspection return access-cont
 ## Remaining module work
 
 Accounting journal drafts still need update/delete controls and corresponding atomic, permission-aware operations. Submitted/posted/reversed journal entries require approval or reversal workflows rather than arbitrary CRUD. Bank accounts and other modules need independent lifecycle/permission/browser coverage; this invoice change does not certify every module for launch. Hosted end-to-end verification, recovery evidence and coordinated production rollout remain required.
+
+## UI follow-up
+
+Row actions now use a compact accessible menu. Visual inspection found mobile dialog clipping even though the document-width assertion passed; responsive dialog sizing and a zero minimum width on the form now keep the editor inside the viewport. The regression check also measures overflow within the dialog. The updated production build, create/edit/delete browser flow, audit persistence, mobile screenshot inspection, and complete owner MFA flow passed. Unit/database behavior is unchanged by this UI-only follow-up.
+
+The latest release access and recovery findings are in `release-status-2026-10-14.md` on the base release branch. A successful backup inspection reported no listed production backups and PITR disabled; migration login still returns intermittent authorization errors. No hosted migration or production deployment is included in this follow-up.

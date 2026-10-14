@@ -32,7 +32,9 @@ export async function verifyInvoiceCrud(page, admin, tenantId, appUrl) {
     }
     const row = page.getByRole("row").filter({ hasText: "Invoice browser fixture" })
     stage = "edit draft"
-    await row.getByRole("button", { name: /^(Edit|تعديل)$/ }).click()
+    await row.getByRole("button", { name: /Invoice actions|إجراءات الفاتورة/ }).click()
+    await page.getByRole("menuitem", { name: /^(Edit|تعديل)$/ }).click()
+    await expect(dialog).toBeVisible()
     await dialog.getByLabel(/Unit price|سعر الوحدة/).fill("10")
     await expect(dialog.getByText("11.50", { exact: true })).toBeVisible()
     await dialog.getByRole("button", { name: /Save draft|حفظ المسودة/ }).click()
@@ -44,14 +46,18 @@ export async function verifyInvoiceCrud(page, admin, tenantId, appUrl) {
 
     stage = "mobile layout"
     await page.setViewportSize({ width: 375, height: 812 })
-    await row.getByRole("button", { name: /^(Edit|تعديل)$/ }).click()
-    await page.screenshot({ path: "supabase/.temp/invoice-mobile.png", fullPage: true })
+    await row.getByRole("button", { name: /Invoice actions|إجراءات الفاتورة/ }).click()
+    await page.getByRole("menuitem", { name: /^(Edit|تعديل)$/ }).click()
+    await expect(dialog).toBeVisible()
+    await expect.poll(() => dialog.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(2)
+    await page.screenshot({ path: "supabase/.temp/invoice-mobile.png" })
     const widths = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth])
     if (widths[0] > widths[1] + 2) throw new Error("Invoice mobile viewport overflows")
     await dialog.getByRole("button", { name: /^(Cancel|إلغاء)$/ }).click()
     await page.setViewportSize({ width: 1280, height: 900 })
     stage = "delete draft"
-    await row.getByRole("button", { name: /^(Delete|حذف)$/ }).click()
+    await row.getByRole("button", { name: /Invoice actions|إجراءات الفاتورة/ }).click()
+    await page.getByRole("menuitem", { name: /^(Delete|حذف)$/ }).click()
     await dialog.getByRole("button", { name: /^(Delete draft|حذف المسودة)$/ }).click()
     await expect(dialog).toBeHidden()
     await expect(row).toHaveCount(0)

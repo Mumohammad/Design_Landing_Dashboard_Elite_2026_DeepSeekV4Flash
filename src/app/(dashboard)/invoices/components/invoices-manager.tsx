@@ -28,10 +28,11 @@ import {
 import { computeInvoiceTotals, round2 } from "@/lib/accounting/invoice-math"
 import { generateInvoiceDocument } from "@/lib/accounting/invoice-docs"
 import {
-  Pencil, Trash2, FileText, Plus, Send, Check, Ban, RotateCcw, ChevronDown, Download, Save, X, Printer,
+  MoreHorizontal, Pencil, Trash2, FileText, Plus, Send, Check, Ban, RotateCcw, Download, Save, X, Printer,
   Loader2, CheckCircle2, AlertTriangle, ReceiptText, BadgeDollarSign, CircleDollarSign,
 } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -639,77 +640,27 @@ export function InvoicesManager() {
           const canCredit = r.status === "finalized"
           const canDebit = r.status === "finalized"
           return (
-            <div className="flex flex-wrap items-center gap-1">
-              {r.status === "draft" && <>
-                <Button size="sm" variant="outline" disabled={busyId === r.id} onClick={() => void openEdit(r)}><Pencil className="h-3 w-3" />{ar ? "تعديل" : "Edit"}</Button>
-                <Button size="sm" variant="ghost" onClick={() => setDeleteTarget(r)}><Trash2 className="h-3 w-3" />{ar ? "حذف" : "Delete"}</Button>
-              </>}
-              {canIssue && (
-                <button
-                  onClick={() => void runAction("issue", r)}
-                  disabled={busyId === r.id}
-                  className="inline-flex h-7 items-center gap-1 rounded-lg border border-blue-500/25 bg-blue-500/10 px-2 text-xs font-medium text-blue-600 transition-colors hover:bg-blue-500/20 disabled:opacity-50"
-                >
-                  {busyId === r.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
-                  {ar ? "إصدار" : "Issue"}
-                </button>
-              )}
-              {canFinalize && (
-                <button
-                  onClick={() => void runAction("finalize", r)}
-                  disabled={busyId === r.id}
-                  className="inline-flex h-7 items-center gap-1 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-2 text-xs font-medium text-emerald-600 transition-colors hover:bg-emerald-500/20 disabled:opacity-50"
-                >
-                  {busyId === r.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-                  {ar ? "اعتماد" : "Finalize"}
-                </button>
-              )}
-              {canCredit && (
-                <button
-                  onClick={() => { setCreditTarget(r); setCreditReason("") }}
-                  className="inline-flex h-7 items-center gap-1 rounded-lg border border-purple-500/25 bg-purple-500/10 px-2 text-xs font-medium text-purple-600 transition-colors hover:bg-purple-500/20"
-                  title={ar ? "إشعار دائن" : "Credit note"}
-                >
-                  <RotateCcw className="h-3 w-3" />
-                  {ar ? "دائن" : "Credit"}
-                </button>
-              )}
-              {canDebit && (
-                <button
-                  onClick={() => { setDebitTarget(r); setDebitAmount(""); setDebitReason("") }}
-                  className="inline-flex h-7 items-center gap-1 rounded-lg border border-orange-500/25 bg-orange-500/10 px-2 text-xs font-medium text-orange-600 transition-colors hover:bg-orange-500/20"
-                  title={ar ? "إشعار مدين" : "Debit note"}
-                >
-                  <BadgeDollarSign className="h-3 w-3" />
-                  {ar ? "مدين" : "Debit"}
-                </button>
-              )}
-              {canCancel && (
-                <button
-                  onClick={() => { setCancelTarget(r); setCancelReason("") }}
-                  className="inline-flex h-7 items-center gap-1 rounded-lg border border-red-500/25 bg-red-500/10 px-2 text-xs font-medium text-red-600 transition-colors hover:bg-red-500/20"
-                >
-                  <Ban className="h-3 w-3" />
-                  {ar ? "إلغاء" : "Cancel"}
-                </button>
-              )}
-              <button
-                onClick={() => void handlePrint(r)}
-                disabled={printingId === r.id}
-                title={ar ? "طباعة / PDF مع رمز التحقق" : "Print / PDF with verification QR"}
-                className="inline-flex h-7 items-center gap-1 rounded-lg border border-slate-500/25 bg-slate-500/10 px-2 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-500/20 disabled:opacity-50"
-              >
-                {printingId === r.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Printer className="h-3 w-3" />}
-                {ar ? "طباعة" : "Print"}
-              </button>
-              <button
-                onClick={() => void openDetail(r)}
-                className="inline-flex h-7 items-center gap-1 rounded-lg border border-border/50 bg-muted/30 px-2 text-xs font-medium text-foreground/80 transition-colors hover:bg-muted/60"
-              >
-                <ChevronDown className="h-3 w-3" />
-                {ar ? "تفاصيل" : "Details"}
-              </button>
-            </div>
+            <DropdownMenu dir={ar ? "rtl" : "ltr"}>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" disabled={busyId === r.id || printingId === r.id} aria-label={`${ar ? "إجراءات الفاتورة" : "Invoice actions"} ${r.invoice_number}`}>
+                  {busyId === r.id || printingId === r.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreHorizontal className="h-4 w-4" />}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-44 rounded-xl">
+                <DropdownMenuItem onSelect={() => void openDetail(r)}><FileText className="h-4 w-4" />{ar ? "تفاصيل" : "Details"}</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => void handlePrint(r)}><Printer className="h-4 w-4" />{ar ? "طباعة" : "Print"}</DropdownMenuItem>
+                {canIssue && <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => void openEdit(r)}><Pencil className="h-4 w-4" />{ar ? "تعديل" : "Edit"}</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => void runAction("issue", r)}><Send className="h-4 w-4" />{ar ? "إصدار" : "Issue"}</DropdownMenuItem>
+                  <DropdownMenuItem className="text-destructive" onSelect={() => setDeleteTarget(r)}><Trash2 className="h-4 w-4" />{ar ? "حذف" : "Delete"}</DropdownMenuItem>
+                </>}
+                {canFinalize && <DropdownMenuItem onSelect={() => void runAction("finalize", r)}><Check className="h-4 w-4" />{ar ? "اعتماد" : "Finalize"}</DropdownMenuItem>}
+                {canCredit && <DropdownMenuItem onSelect={() => { setCreditTarget(r); setCreditReason("") }}><RotateCcw className="h-4 w-4" />{ar ? "دائن" : "Credit"}</DropdownMenuItem>}
+                {canDebit && <DropdownMenuItem onSelect={() => { setDebitTarget(r); setDebitAmount(""); setDebitReason("") }}><BadgeDollarSign className="h-4 w-4" />{ar ? "مدين" : "Debit"}</DropdownMenuItem>}
+                {canCancel && <DropdownMenuItem className="text-destructive" onSelect={() => { setCancelTarget(r); setCancelReason("") }}><Ban className="h-4 w-4" />{ar ? "إلغاء" : "Cancel"}</DropdownMenuItem>}
+              </DropdownMenuContent>
+            </DropdownMenu>
           )
         }}
         isLoading={isLoading}
@@ -735,7 +686,7 @@ export function InvoicesManager() {
 
       {/* ── Create draft dialog ───────────────────────────────────────── */}
       <Dialog open={createOpen} onOpenChange={(o) => { if (!o && !isSaving) setCreateOpen(false) }}>
-        <DialogContent className="max-w-2xl rounded-2xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-2xl rounded-2xl max-h-[85dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editTarget ? (ar ? "تعديل مسودة الفاتورة" : "Edit invoice draft") : (ar ? "فاتورة جديدة (مسودة)" : "New invoice (draft)")}</DialogTitle>
             <DialogDescription>
@@ -744,8 +695,8 @@ export function InvoicesManager() {
                 : "Save a draft, review the amounts, then issue it when ready. Finalized invoices cannot be edited."}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-2">
+          <div className="min-w-0 space-y-4">
+            <div className="grid min-w-0 gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>{ar ? "النوع" : "Type"}</Label>
                 <div className="flex gap-2">
@@ -879,7 +830,7 @@ export function InvoicesManager() {
 
       {/* ── Detail dialog ─────────────────────────────────────────────── */}
       <Dialog open={!!detailTarget} onOpenChange={(o) => { if (!o) setDetailTarget(null) }}>
-        <DialogContent className="max-w-2xl rounded-2xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-2xl rounded-2xl max-h-[85dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               <span dir="ltr" className="font-mono">{detailTarget?.invoice_number ?? ""}</span>
