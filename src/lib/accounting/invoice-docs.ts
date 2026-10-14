@@ -4,7 +4,7 @@
 //
 // generateInvoiceDocument(invoiceId): loads the invoice + lines + party +
 // tenant, builds the tax-QR payload (verification QR — NOT a ZATCA tax QR),
-// renders the bilingual RTL A4 HTML, uploads it to the tenant's
+// renders the bilingual RTL Letter HTML, uploads it to the tenant's
 // `invoice-documents` bucket, and records the document in
 // `generated_documents` (verify_url → /verify-document/[docNumber]).
 //
@@ -18,6 +18,8 @@ import { buildInvoiceHtml, type InvoiceDocData } from "./invoice-html"
 import { buildTaxQrPayload, qrPngDataUrl } from "./invoice-qr"
 import { mapFinancialError } from "./csv-utils"
 import { createHash, randomBytes } from "crypto"
+import { readFile } from "node:fs/promises"
+import path from "node:path"
 
 type ActionResult = {
   success: boolean
@@ -99,7 +101,7 @@ type TenantRow = {
  * Generate (or regenerate) the printable invoice document.
  * Returns the full HTML so the client can open a print dialog.
  */
-export async function generateInvoiceDocument(invoiceId: string): Promise<ActionResult> {
+export async function generateInvoiceDocument(invoiceId: string, bankAccountId?: string): Promise<ActionResult> {
   try {
     await requirePermission("invoices", "print")
     const currentUser = await getCurrentUser()
@@ -120,6 +122,7 @@ export async function generateInvoiceDocument(invoiceId: string): Promise<Action
       .from("invoice_lines")
       .select("line_no,description,quantity,unit_price,discount,amount,vat_rate,vat_amount")
       .eq("invoice_id", invoiceId)
+      .eq("tenant_id", currentUser.tenantId)
       .order("line_no", { ascending: true })
     if (linesErr) return { success: false, error: mapFinancialError(linesErr.message) }
 
@@ -128,6 +131,7 @@ export async function generateInvoiceDocument(invoiceId: string): Promise<Action
       .from(partyKind)
       .select("name_ar,name_en,tax_number,address,phone")
       .eq("id", inv.invoice_type === "sales" ? inv.customer_id : inv.supplier_id)
+      .eq("tenant_id", currentUser.tenantId)
       .maybeSingle<PartyRow>()
 
     const { data: tenant } = await admin
@@ -136,10 +140,25 @@ export async function generateInvoiceDocument(invoiceId: string): Promise<Action
       .eq("id", currentUser.tenantId)
       .maybeSingle<TenantRow>()
 
-    // Seller VAT number: real 15-digit number, else a documented 15-digit
-    // demo placeholder (the seed tenant uses 'VAT-PLACEHOLDER' — 013).
-    const sellerVat =
-      /^\d{15}$/.test(tenant?.vat_number ?? "") ? tenant!.vat_number! : "310122993400001"
+    if (!tenant || !/^\d{15}$/.test(tenant.vat_number ?? "")) {
+      return { success: false, error: "أضف الرقم الضريبي الصحيح في إعدادات الشركة أولاً. / Configure the company's 15-digit VAT number before printing a tax invoice." }
+    }
+    const sellerVat = tenant.vat_number!
+    const { data: balances, error: balanceError } = await admin
+      .from(inv.invoice_type === "sales" ? "receivables" : "payables")
+      .select("paid_amount").eq("tenant_id", currentUser.tenantId)
+      .eq("source_entity_type", inv.invoice_type === "sales" ? "invoice" : "purchase_invoice")
+      .eq("source_entity_id", inv.id).is("deleted_at", null)
+    if (balanceError) return { success: false, error: "Unable to load the invoice payment balance." }
+    let bank: { bank_name: string; account_name: string; iban: string } | null = null
+    if (bankAccountId) {
+      const result = await admin.from("bank_accounts").select("bank_name,account_name,iban")
+        .eq("id", bankAccountId).eq("tenant_id", currentUser.tenantId)
+        .eq("currency", inv.currency).eq("is_active", true).is("deleted_at", null).maybeSingle()
+      if (result.error || !result.data) return { success: false, error: "Select an active bank account in the invoice currency." }
+      bank = result.data
+    }
+    const logoDataUrl = `data:image/png;base64,${(await readFile(path.join(process.cwd(), "public", "logo.png"))).toString("base64")}`
 
     const docNumber = `INVDOC-${inv.invoice_number}`
 
@@ -176,6 +195,7 @@ export async function generateInvoiceDocument(invoiceId: string): Promise<Action
       companyPhone: tenant?.phone ?? null,
       companyAddress: tenant?.address ?? "",
       companyCity: tenant?.city ?? "",
+      logoDataUrl,
       partyNameAr: party?.name_ar ?? "—",
       partyNameEn: party?.name_en ?? "",
       partyTaxNumber: party?.tax_number ?? "",
@@ -189,6 +209,10 @@ export async function generateInvoiceDocument(invoiceId: string): Promise<Action
       discount: Number(inv.discount),
       vatAmount: Number(inv.vat_amount),
       total: Number(inv.total),
+      paidAmount: (balances ?? []).reduce((sum, balance) => sum + Number(balance.paid_amount), 0),
+      bankIban: bank?.iban,
+      bankName: bank?.bank_name,
+      bankBeneficiary: bank?.account_name,
       notes: inv.notes,
       statusLabelAr: status.ar,
       statusLabelEn: status.en,
@@ -241,6 +265,7 @@ export async function generateInvoiceDocument(invoiceId: string): Promise<Action
       .from("generated_documents")
       .select("id,deleted_at")
       .eq("doc_number", docNumber)
+      .eq("tenant_id", currentUser.tenantId)
       .maybeSingle<{ id: string; deleted_at: string | null }>()
     if (existing?.deleted_at) {
       // Restore the soft-deleted record so regeneration stays idempotent.

@@ -1,476 +1,125 @@
-// Financial Phase 6 — pure A4 invoice HTML builder (bilingual, RTL).
-// Designed to match the standard Saudi ZATCA tax invoice format exactly.
-// Mirrors src/lib/templates/document-html.ts: no server-only imports.
+import { RIYAL_SYMBOL } from "./riyal-symbol"
 
+// Reference invoice layout: Letter, 9pt Tahoma, monochrome RTL tables.
+// Rendering is pure; amounts are authoritative stored invoice values.
 export interface InvoiceDocLine {
-  line_no: number
-  description: string
-  quantity: number
-  unit_price: number
-  discount: number
-  amount: number
-  vat_rate: number
-  vat_amount: number
+  line_no: number; itemName?: string; description: string; quantity: number
+  unit_price: number; discount: number; amount: number; vat_rate: number; vat_amount: number
 }
-
 export interface InvoiceDocData {
-  /** Rendering flavour: full invoice layout, or a credit/debit note. */
   kind: "invoice" | "credit_note" | "debit_note"
-  docTypeAr: string
-  docTypeEn: string
-  invoiceNumber: string
-  referenceNumber?: string | null
-  companyNameAr: string
-  companyNameEn: string
-  companyVatNumber: string
-  companyCrNumber?: string | null
-  companyPhone?: string | null
-  companyAddress: string
-  companyCity: string
-  partyNameAr: string
-  partyNameEn: string
-  partyTaxNumber: string
-  partyAddress: string
-  partyPhone: string
-  issueDate: string
-  dueDate: string | null
-  currency: string
-  lines: InvoiceDocLine[]
-  subtotal: number
-  discount: number
-  vatAmount: number
-  total: number
-  paidAmount?: number
-  notes?: string | null
-  statusLabelAr: string
-  statusLabelEn: string
-  /** PNG data URL of the verification QR (built with qrcode + TLV payload). */
-  qrDataUrl: string
-  verifyUrl: string
-  generatedAt: string
-  /** Optional bank account IBAN for payment details */
-  bankIban?: string | null
+  docTypeAr: string; docTypeEn: string; invoiceNumber: string; referenceNumber?: string | null
+  companyNameAr: string; companyNameEn: string; companyVatNumber: string; companyCrNumber?: string | null
+  companyPhone?: string | null; companyAddress: string; companyCity: string; logoDataUrl?: string
+  partyNameAr: string; partyNameEn: string; partyTaxNumber: string; partyAddress: string; partyPhone: string
+  issueDate: string; dueDate: string | null; currency: string; lines: InvoiceDocLine[]
+  subtotal: number; discount: number; vatAmount: number; total: number; paidAmount?: number
+  notes?: string | null; statusLabelAr: string; statusLabelEn: string
+  qrDataUrl: string; verifyUrl: string; generatedAt: string
+  bankIban?: string | null; bankName?: string | null; bankBeneficiary?: string | null
 }
-
-function esc(text: string | null | undefined): string {
-  return (text ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
+function esc(value: string | null | undefined): string {
+  return (value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
 }
-
-function money(v: number | null | undefined, currency = "SAR"): string {
-  return `${(v ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`
+function number(value: number, precision = 2): string {
+  return value.toLocaleString("en-US", { minimumFractionDigits: precision, maximumFractionDigits: precision })
 }
-
-function moneyNoCurrency(v: number | null | undefined): string {
-  return (v ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+function date(value: string): string {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value.split("-").reverse().join("/") : value
 }
-
+function imageSource(value: string | undefined): string {
+  return value && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(value) ? value : ""
+}
 export function buildInvoiceHtml(d: InvoiceDocData): string {
-  const linesRows = d.lines
-    .map(
-      (l) => `<tr>
-    <td class="num">${l.line_no}</td>
-    <td class="desc">${esc(l.description)}</td>
-    <td class="num">${money(l.unit_price)}</td>
-    <td class="num">${l.quantity.toLocaleString("en-US")}</td>
-    <td class="num">${l.vat_rate}%</td>
-    <td class="num">${money(l.vat_amount)}</td>
-    <td class="num">${money(l.amount)}</td>
-  </tr>`
-    )
-    .join("")
-
-  const dueAmount = Math.max(0, d.total - (d.paidAmount ?? 0))
-
+  const rates = [...new Set(d.lines.map((line) => line.vat_rate))]
+  const vatLabel = rates.length === 1 ? `${rates[0]}%` : ""
+  const money = (value: number) => `<span class="money" aria-label="${esc(d.currency)} ${number(value)}">${d.currency === "SAR" ? RIYAL_SYMBOL : esc(d.currency)} ${number(value)}</span>`
+  const rows = d.lines.map((line) => `<tr>
+    <td class="item">${esc(line.itemName ?? String(line.line_no))}</td>
+    <td class="description">${esc(line.description)}</td>
+    <td class="number">${line.unit_price.toLocaleString("en-US", { maximumFractionDigits: 4 })}</td>
+    <td class="number">${line.quantity.toLocaleString("en-US", { maximumFractionDigits: 3 })}</td>
+    <td class="number">${number(line.amount)}</td>
+    <td class="number">${line.vat_rate}%</td>
+    <td class="number">${number(line.vat_amount)}</td>
+    <td class="number">${number(line.amount + line.vat_amount)}</td>
+  </tr>`).join("")
+  // Some imported invoices have an explicit post-tax adjustment. Never apply
+  // line discounts twice: canonical invoices already include them in subtotal.
+  const adjustment = Math.round((d.subtotal + d.vatAmount - d.total) * 100) / 100
+  const exceptionalStatus = /draft|cancelled/i.test(d.statusLabelEn)
   return `<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-<meta charset="utf-8" />
-<title>فاتورة ضريبية — ${esc(d.invoiceNumber)}</title>
+<html lang="ar" dir="rtl"><head><meta charset="utf-8" />
+<title>فاتورة رقم ${esc(d.invoiceNumber)} - ${esc(d.companyNameAr)}</title>
 <style>
-  @page { size: A4; margin: 12mm 10mm; }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: 'Segoe UI', Tahoma, 'Cairo', Arial, sans-serif;
-    color: #1a1a2e;
-    font-size: 11px;
-    line-height: 1.45;
-    background: #fff;
-  }
-  .doc { max-width: 190mm; margin: 0 auto; padding: 0; }
-
-  /* ── Header ── */
-  header {
-    text-align: center;
-    border-bottom: 2px solid #1a1a2e;
-    padding-bottom: 8px;
-    margin-bottom: 6px;
-  }
-  .title-tax {
-    font-size: 20px;
-    font-weight: 800;
-    color: #1a1a2e;
-    letter-spacing: 1px;
-    text-transform: uppercase;
-  }
-  .co-info {
-    display: flex;
-    justify-content: center;
-    gap: 20px;
-    margin-top: 6px;
-    font-size: 10.5px;
-    color: #475569;
-    direction: ltr;
-  }
-  .co-info span { white-space: nowrap; }
-  .co-info b { color: #1a1a2e; }
-
-  /* ── Invoice meta row ── */
-  .meta-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin: 10px 0;
-    font-size: 11px;
-  }
-  .meta-left {
-    text-align: right;
-  }
-  .meta-right {
-    text-align: left;
-    direction: ltr;
-  }
-  .meta-label {
-    font-size: 10px;
-    color: #94a3b8;
-    display: block;
-  }
-  .meta-value {
-    font-size: 13px;
-    font-weight: 700;
-    color: #1a1a2e;
-    display: block;
-    direction: ltr;
-  }
-
-  /* ── Client box ── */
-  .client-box {
-    border: 1px solid #e2e8f0;
-    border-radius: 4px;
-    padding: 8px 12px;
-    margin: 8px 0;
-    background: #f8fafc;
-  }
-  .client-box h3 {
-    font-size: 10px;
-    color: #94a3b8;
-    margin-bottom: 4px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-  .client-box p {
-    font-size: 11px;
-    color: #1a1a2e;
-    margin-bottom: 2px;
-  }
-
-  /* ── Items table ── */
-  table.items {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 10px;
-  }
-  table.items th {
-    background: #1a1a2e;
-    color: #fff;
-    border: 1px solid #111;
-    padding: 6px 5px;
-    font-size: 9.5px;
-    font-weight: 600;
-    text-align: center;
-    white-space: nowrap;
-  }
-  table.items td {
-    border: 1px solid #e2e8f0;
-    padding: 5px 5px;
-    font-size: 10.5px;
-  }
-  table.items tr:nth-child(even) td {
-    background: #f8fafc;
-  }
-  td.num {
-    direction: ltr;
-    text-align: right;
-    font-family: 'Consolas', 'Courier New', monospace;
-    white-space: nowrap;
-  }
-  td.desc {
-    font-weight: 600;
-  }
-
-  /* ── Totals section ── */
-  .totals-section {
-    display: flex;
-    justify-content: space-between;
-    margin-top: 12px;
-    gap: 20px;
-  }
-  .totals-left {
-    flex: 1;
-  }
-  .totals-right {
-    width: 50%;
-  }
-  .totals-table {
-    width: 100%;
-    border-collapse: collapse;
-  }
-  .totals-table td {
-    border: 1px solid #e2e8f0;
-    padding: 5px 8px;
-    font-size: 11px;
-  }
-  .totals-table td.lbl {
-    background: #f1f5f9;
-    font-weight: 600;
-    text-align: right;
-  }
-  .totals-table td.val {
-    direction: ltr;
-    text-align: right;
-    font-family: 'Consolas', monospace;
-    font-weight: 600;
-  }
-  .totals-table tr.grand td {
-    background: #1a1a2e;
-    color: #fff;
-    font-weight: 800;
-    font-size: 12px;
-  }
-  .totals-table tr.paid td {
-    background: #f0fdf4;
-    color: #15803d;
-  }
-  .totals-table tr.due td {
-    background: #fef2f2;
-    color: #dc2626;
-    font-weight: 800;
-  }
-
-  /* ── Payment / Bank info ── */
-  .payment-info {
-    margin-top: 10px;
-    padding: 8px 12px;
-    border: 1px solid #e2e8f0;
-    border-radius: 4px;
-    background: #f8fafc;
-    font-size: 10.5px;
-    color: #475569;
-  }
-  .payment-info .iban {
-    direction: ltr;
-    font-family: 'Consolas', monospace;
-    font-weight: 600;
-    color: #1a1a2e;
-  }
-
-  /* ── QR + Footer ── */
-  .bottom-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-end;
-    margin-top: 14px;
-    gap: 16px;
-  }
-  .qr-block {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-  }
-  .qr-block img {
-    width: 72px;
-    height: 72px;
-    border: 1px solid #cbd5e1;
-    border-radius: 4px;
-  }
-  .qr-verify {
-    font-size: 9px;
-    color: #94a3b8;
-    line-height: 1.4;
-  }
-  .qr-verify b {
-    display: block;
-    font-size: 9.5px;
-    color: #475569;
-    direction: ltr;
-  }
-  .signatures {
-    display: flex;
-    gap: 24px;
-  }
-  .sig {
-    text-align: center;
-    width: 110px;
-  }
-  .sig .line {
-    border-top: 1px solid #1a1a2e;
-    margin-top: 24px;
-    padding-top: 4px;
-    font-size: 10px;
-    color: #475569;
-  }
-
-  /* ── Notes ── */
-  .notes {
-    margin-top: 8px;
-    font-size: 10.5px;
-    color: #475569;
-    border-top: 1px dashed #cbd5e1;
-    padding-top: 6px;
-  }
-
-  /* ── Meta footer ── */
-  .meta-footer {
-    display: flex;
-    justify-content: space-between;
-    margin-top: 12px;
-    font-size: 9px;
-    color: #94a3b8;
-    border-top: 1px solid #e2e8f0;
-    padding-top: 5px;
-  }
-
-  @media print {
-    .doc { max-width: 100%; }
-    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  }
-</style>
-</head>
-<body>
-<div class="doc">
-  <!-- ── Header: TAX INVOICE title + company info ── -->
-  <header>
-    <div class="title-tax">فاتورة ضريبية / TAX Invoice</div>
-    <div class="co-info">
-      <span>${esc(d.companyNameAr)} ${esc(d.companyNameEn)}</span>
-      <span>VAT: <b>${esc(d.companyVatNumber || "—")}</b></span>
-      ${d.companyCrNumber ? `<span>CR: <b>${esc(d.companyCrNumber)}</b></span>` : ""}
-      ${d.companyPhone ? `<span>${esc(d.companyPhone)}</span>` : ""}
-    </div>
-  </header>
-
-  <!-- ── Invoice meta: number + date + client ── -->
-  <div class="meta-row">
-    <div class="meta-left">
-      <span class="meta-label">Invoice Date / تاريخ الإصدار</span>
-      <span class="meta-value">${esc(d.issueDate)}</span>
-      ${d.dueDate ? `<span class="meta-label" style="margin-top:4px;display:block">Due Date / تاريخ الاستحقاق</span>
-      <span class="meta-value" style="font-size:11px">${esc(d.dueDate)}</span>` : ""}
-    </div>
-    <div style="text-align:center">
-      <span class="meta-label">Invoice NO / رقم الفاتورة</span>
-      <span class="meta-value" style="font-size:16px">${esc(d.invoiceNumber)}</span>
-      ${d.referenceNumber ? `<span class="meta-label" style="margin-top:4px;display:block">Ref / مرجع</span>
-      <span class="meta-value" style="font-size:11px;direction:ltr">${esc(d.referenceNumber)}</span>` : ""}
-    </div>
-    <div class="meta-right">
-      <span class="meta-label">Client / العميل</span>
-      <span class="meta-value">${esc(d.partyTaxNumber || "—")}</span>
-    </div>
+@page { size: Letter; margin: 30pt 62.25pt; }
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: white; color: black; }
+body { font-family: Tahoma, Arial, sans-serif; font-size: 9pt; line-height: 10.5pt; }
+.doc { width: 487.5pt; margin: 0 auto; }
+.header { display: grid; direction: ltr; grid-template-columns: 150pt 225pt 112.5pt; min-height: 154.5pt; border-bottom: 2.25pt double black; }
+.title { text-align: left; font-size: 16.5pt; font-weight: 700; line-height: 20.25pt; }
+.qr { display: block; width: 67.5pt; height: 67.5pt; margin-top: 7.5pt; }
+.company { direction: rtl; text-align: right; padding-right: 30pt; line-height: 12.75pt; }
+.company h1 { margin: 0 0 3pt; font-size: 12pt; line-height: 15pt; }
+.logo { width: 112.5pt; height: 112.5pt; object-fit: contain; }
+.meta { display: flex; direction: ltr; justify-content: space-between; gap: 20pt; min-height: 87pt; padding-top: 18pt; padding-bottom: 20pt; }
+.invoice-meta { display: grid; grid-template-columns: 46.5pt 67.5pt; align-content: start; align-items: center; gap: 0 14.25pt; }
+.invoice-meta strong { direction: rtl; text-align: left; line-height: 10.5pt; }
+.invoice-meta span { text-align: right; direction: ltr; }
+.client { display: flex; direction: rtl; gap: 15pt; text-align: right; max-width: 285pt; }
+.client-label { min-width: 28pt; font-weight: bold; }
+.client-detail { direction: rtl; white-space: pre-line; overflow-wrap: anywhere; }
+.items { width: 100%; border: .75pt solid black; border-collapse: collapse; table-layout: fixed; direction: rtl; }
+.items th { height: 51.75pt; padding: 4pt 3pt; text-align: center; vertical-align: middle; font-size: 9pt; line-height: 10.5pt; border-top: .75pt solid; border-bottom: .75pt solid; }
+.items th:first-child { border-right: .75pt solid; } .items th:last-child { border-left: .75pt solid; }
+.items td { border: .75pt solid #555; vertical-align: top; padding: 4pt 3pt; line-height: 10.5pt; overflow-wrap: anywhere; }
+.items tbody tr { min-height: 50.25pt; break-inside: avoid; }
+.items thead { display: table-header-group; } .items .description { white-space: pre-line; text-align: right; }
+.items .item { text-align: right; } .number { text-align: center; direction: ltr; }
+.totals { direction: rtl; width: 195pt; margin-right: auto; border-collapse: collapse; break-inside: avoid; }
+.totals th { width: 125pt; text-align: right; font-size: 9pt; }
+.totals td { text-align: right; width: 70pt; vertical-align: top; }
+.totals th, .totals td { border-bottom: .5pt solid; padding: 3.75pt 4.5pt; line-height: 10.5pt; }
+.totals .grand th, .totals .grand td { font-weight: bold; border-bottom-width: 1pt; }
+.money { white-space: nowrap; direction: ltr; display: inline-block; }
+.riyal { display: inline-block; width: 8pt; height: 9pt; vertical-align: -.5pt; }
+.bank { margin-top: 39pt; text-align: right; font-style: italic; line-height: 10.5pt; break-inside: avoid; }
+.bank bdi { overflow-wrap: anywhere; } .notes { margin-top: 14pt; white-space: pre-line; overflow-wrap: anywhere; }
+.status { font-size: 9pt; line-height: 12pt; } .supplement { margin-top: 8pt; font-size: 8pt; }
+@media screen { body { padding: 30pt 0; } }
+@media print { body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
+</style></head><body><main class="doc">
+<header class="header">
+  <div class="title">${d.kind === "invoice" ? "فاتورة ضريبية<br>TAX Invoice" : `${esc(d.docTypeAr)}<br>${esc(d.docTypeEn)}`}
+    <img src="${imageSource(d.qrDataUrl)}" class="qr" alt="Invoice QR" />
+    ${exceptionalStatus ? `<div class="status">${esc(d.statusLabelAr)} / ${esc(d.statusLabelEn)}</div>` : ""}
   </div>
-
-  <!-- ── Client details box ── -->
-  <div class="client-box">
-    <h3>بيانات المشتري / Buyer Details</h3>
-    <p><b>${esc(d.partyNameAr)}</b> ${d.partyNameEn ? `— ${esc(d.partyNameEn)}` : ""}</p>
-    ${d.partyTaxNumber ? `<p>VAT: <span style="direction:ltr;display:inline">${esc(d.partyTaxNumber)}</span></p>` : ""}
-    ${d.partyAddress ? `<p>${esc(d.partyAddress)}</p>` : ""}
-    ${d.partyPhone ? `<p>Phone: <span style="direction:ltr;display:inline">${esc(d.partyPhone)}</span></p>` : ""}
+  <div class="company"><h1>${esc(d.companyNameAr || d.companyNameEn)}</h1>
+    <div>الرقم الضريبي : <bdi>${esc(d.companyVatNumber || "—")}</bdi></div>
+    ${d.companyPhone ? `<div>هاتف : <bdi>${esc(d.companyPhone)}</bdi></div>` : ""}
+    <div>${esc(d.companyAddress).replace(/\n/g, "<br>")}</div><div>${esc(d.companyCity)}</div>
   </div>
-
-  <!-- ── Items table (RTL columns: right to left) ── -->
-  <table class="items">
-    <thead>
-      <tr>
-        <th style="width:4%">#</th>
-        <th>Item / الصنف</th>
-        <th style="width:12%">Price / السعر</th>
-        <th style="width:7%">Qty / الكمية</th>
-        <th style="width:8%">VAT%</th>
-        <th style="width:12%">VAT Amount / الضريبة</th>
-        <th style="width:13%">Total With VAT / الإجمالي</th>
-      </tr>
-    </thead>
-    <tbody>${linesRows}</tbody>
-  </table>
-
-  <!-- ── Totals section ── -->
-  <div class="totals-section">
-    <div class="totals-left">
-      ${d.notes ? `<div class="notes"><b>ملاحظات / Notes:</b> ${esc(d.notes)}</div>` : ""}
-      ${d.bankIban ? `<div class="payment-info">
-        <b>تفاصيل الدفع / Payment Details</b><br/>
-        IBAN: <span class="iban">${esc(d.bankIban)}</span>
-      </div>` : ""}
-    </div>
-    <div class="totals-right">
-      <table class="totals-table">
-        <tbody>
-          <tr>
-            <td class="lbl">Total Before VAT / المجموع قبل الضريبة</td>
-            <td class="val">${moneyNoCurrency(d.subtotal)} ${esc(d.currency)}</td>
-          </tr>
-          ${d.discount > 0 ? `<tr>
-            <td class="lbl">Discount / الخصم</td>
-            <td class="val">-${moneyNoCurrency(d.discount)} ${esc(d.currency)}</td>
-          </tr>` : ""}
-          <tr>
-            <td class="lbl">VAT (${d.lines[0]?.vat_rate ?? 15}%) / ضريبة القيمة المضافة</td>
-            <td class="val">${moneyNoCurrency(d.vatAmount)} ${esc(d.currency)}</td>
-          </tr>
-          <tr class="grand">
-            <td>Total After VAT / الإجمالي شامل الضريبة</td>
-            <td class="val">${moneyNoCurrency(d.total)} ${esc(d.currency)}</td>
-          </tr>
-          ${(d.paidAmount ?? 0) > 0 ? `<tr class="paid">
-            <td class="lbl">Paid / المدفوع</td>
-            <td class="val">${moneyNoCurrency(d.paidAmount)} ${esc(d.currency)}</td>
-          </tr>` : ""}
-          <tr class="due">
-            <td class="lbl">Due Amount /المبلغ المستحق</td>
-            <td class="val">${moneyNoCurrency(dueAmount)} ${esc(d.currency)}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- ── QR + Signatures ── -->
-  <div class="bottom-row">
-    <div class="qr-block">
-      <img src="${esc(d.qrDataUrl)}" alt="QR" />
-      <div class="qr-verify">
-        رمز التحقق — مسح للتحقق<br/>
-        Verification QR
-        <b>${esc(d.verifyUrl)}</b>
-      </div>
-    </div>
-    <div class="signatures">
-      <div class="sig"><div class="line">توقيع المستلم / Receiver</div></div>
-      <div class="sig"><div class="line">المدير — التوقيع والختم / Manager</div></div>
-    </div>
-  </div>
-
-  <!-- ── Meta footer ── -->
-  <div class="meta-footer">
-    <span dir="ltr">Generated: ${esc(d.generatedAt)}</span>
-    <span>${esc(d.statusLabelAr)} / ${esc(d.statusLabelEn)}</span>
-    <span>وثيقة صادرة من ${esc(d.companyNameAr)}</span>
-  </div>
-</div>
-</body>
-</html>`
+  ${imageSource(d.logoDataUrl) ? `<img class="logo" src="${imageSource(d.logoDataUrl)}" alt="${esc(d.companyNameAr)}" />` : '<div></div>'}
+</header>
+<section class="meta">
+  <div class="invoice-meta"><span>${esc(d.invoiceNumber)}</span><strong>رقم الفاتورة<br>Invoice NO</strong>
+    <span>${esc(date(d.issueDate))}</span><strong>تاريخ الفاتورة<br>Invoice Date</strong></div>
+  <div class="client"><div class="client-label">العميل<br>Client</div><div class="client-detail"><strong>${esc(d.partyNameAr || d.partyNameEn)}</strong>${d.partyTaxNumber ? `<br>الرقم الضريبي <bdi>${esc(d.partyTaxNumber)}</bdi>` : ""}${d.partyAddress ? `<br>${esc(d.partyAddress)}` : ""}</div></div>
+</section>
+<table class="items"><colgroup><col style="width:35.25pt"><col style="width:66.75pt">${'<col style="width:66pt">'.repeat(5)}<col style="width:55.5pt"></colgroup>
+<thead><tr><th>البند<br>Item</th><th>الوصف<br>Description</th><th>السعر<br>Price</th><th>الكمية<br>Qty</th><th>المجموع قبل الضريبة<br>Total Before Tax</th><th>نسبة الضريبة<br>VAT ${esc(vatLabel)}</th><th>قيمة الضريبة<br>VAT Amount</th><th>المجموع مع الضريبة<br>Total With VAT</th></tr></thead>
+<tbody>${rows}</tbody></table>
+<table class="totals"><tbody>
+<tr><th>الإجمالي قبل الضريبة<br>Total Before VAT</th><td>${money(d.subtotal)}</td></tr>
+<tr><th>القيمة المضافة ${vatLabel ? `(${esc(vatLabel)})` : ""}</th><td>${money(d.vatAmount)}</td></tr>
+${adjustment !== 0 ? `<tr><th>${adjustment > 0 ? "خصم من إجمالي الفاتورة" : "تعديل إجمالي الفاتورة"}</th><td>${money(-adjustment)}</td></tr>` : d.discount > 0 ? `<tr><th>خصم البنود (مضمن)<br>Line discount (included)</th><td>${money(-d.discount)}</td></tr>` : ""}
+<tr class="grand"><th>الإجمالي بعد الضريبة<br>Total After VAT</th><td>${money(d.total)}</td></tr>
+<tr><th>مدفوع<br>Paid</th><td>${money(d.paidAmount ?? 0)}</td></tr>
+<tr><th>الرصيد المستحق<br>Due Amount</th><td>${money(Math.max(0, d.total - (d.paidAmount ?? 0)))}</td></tr>
+</tbody></table>
+${d.bankIban ? `<section class="bank">معلومات الحساب البنكي:<br>اسم البنك : ${esc(d.bankName)}<br>اسم المستفيد : ${esc(d.bankBeneficiary)}<br>رقم الايبان : <bdi dir="ltr">${esc(d.bankIban)}</bdi></section>` : ""}
+${d.notes ? `<section class="notes">${esc(d.notes)}</section>` : ""}
+${d.referenceNumber ? `<div class="supplement">مرجع / Ref: ${esc(d.referenceNumber)}</div>` : ""}
+</main></body></html>`
 }

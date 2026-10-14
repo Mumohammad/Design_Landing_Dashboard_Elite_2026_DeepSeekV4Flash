@@ -36,6 +36,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { BankAccountPicker } from "@/components/accounting/bank-account-picker"
+import { printDocument } from "@/lib/print-document"
 
 // ── Row shapes ────────────────────────────────────────────────────────────
 
@@ -485,21 +487,28 @@ export function InvoicesManager() {
 
   // ── Print / PDF (Phase 6) ───────────────────────────────────────────────
   const [printingId, setPrintingId] = useState<string | null>(null)
+  const [printTarget, setPrintTarget] = useState<InvoiceRow | null>(null)
+  const [printBank, setPrintBank] = useState("")
+  const [printError, setPrintError] = useState("")
   async function handlePrint(r: InvoiceRow) {
-    setPrintingId(r.id)
-    const res = await generateInvoiceDocument(r.id)
-    setPrintingId(null)
-    if (res.success && res.html) {
-      const win = window.open("", "_blank")
-      if (win) {
-        win.document.write(res.html)
-        win.document.close()
-        setTimeout(() => win.print(), 300)
-      }
-      flash("ok", ar ? `تم إنشاء مستند ${res.docNumber}` : `Document ${res.docNumber} generated`)
-    } else {
-      flash("err", res.error ?? "Print failed")
+    const win = window.open("", "_blank")
+    if (!win) {
+      setPrintError(ar ? "اسمح بالنوافذ المنبثقة للطباعة وحفظ PDF." : "Allow pop-ups to print or save a PDF.")
+      return
     }
+    win.opener = null
+    win.document.body.textContent = ar ? "جارٍ تجهيز الفاتورة…" : "Preparing invoice…"
+    setPrintingId(r.id)
+    setPrintError("")
+    try {
+      const res = await generateInvoiceDocument(r.id, printBank || undefined)
+      if (!res.success || !res.html) throw new Error(res.error ?? "Print failed")
+      await printDocument(win, res.html)
+      setPrintTarget(null)
+    } catch (error) {
+      win.close()
+      setPrintError(error instanceof Error ? error.message : "Print failed")
+    } finally { setPrintingId(null) }
   }
 
   // ── Lifecycle actions ───────────────────────────────────────────────────
@@ -648,7 +657,7 @@ export function InvoicesManager() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-44 rounded-xl">
                 <DropdownMenuItem onSelect={() => void openDetail(r)}><FileText className="h-4 w-4" />{ar ? "تفاصيل" : "Details"}</DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => void handlePrint(r)}><Printer className="h-4 w-4" />{ar ? "طباعة" : "Print"}</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => { setPrintTarget(r); setPrintBank(""); setPrintError("") }}><Printer className="h-4 w-4" />{ar ? "طباعة / حفظ PDF" : "Print / Save PDF"}</DropdownMenuItem>
                 {canIssue && <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onSelect={() => void openEdit(r)}><Pencil className="h-4 w-4" />{ar ? "تعديل" : "Edit"}</DropdownMenuItem>
@@ -674,6 +683,19 @@ export function InvoicesManager() {
           <Button variant="outline" disabled={isLoading || page * 50 >= totalCount} onClick={() => setPage((n) => n + 1)}>{ar ? "التالي" : "Next"}</Button>
         </div>
       </div>
+      <Dialog open={!!printTarget} onOpenChange={(open) => { if (!open && !printingId) setPrintTarget(null) }}>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto rounded-2xl">
+          <DialogHeader><DialogTitle>{ar ? "طباعة / حفظ PDF" : "Print / Save PDF"}</DialogTitle>
+            <DialogDescription>{ar ? "اختر حساب التحويل إن لزم. للحفظ اختر Save as PDF من نافذة الطباعة، بحجم Letter ومقياس 100% وبدون رؤوس وتذييلات المتصفح." : "Optionally select the receiving bank. Choose Save as PDF in the print dialog, with Letter paper, 100% scale, and browser headers/footers off."}</DialogDescription>
+          </DialogHeader>
+          <BankAccountPicker key={printTarget?.id} value={printBank} onChange={setPrintBank} ar={ar} disabled={!!printingId} />
+          {printError && <p role="alert" className="text-sm text-destructive">{printError}</p>}
+          <Button disabled={!!printingId} onClick={() => printTarget && void handlePrint(printTarget)}>
+            {printingId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
+            {ar ? "فتح الفاتورة للطباعة" : "Open invoice for printing"}
+          </Button>
+        </DialogContent>
+      </Dialog>
       <Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => { if (!open && !isDeleting) setDeleteTarget(null) }}>
         <DialogContent className="rounded-2xl">
           <DialogHeader><DialogTitle>{ar ? "حذف مسودة الفاتورة؟" : "Delete invoice draft?"}</DialogTitle>
