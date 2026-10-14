@@ -12,7 +12,7 @@
 ## Verification at initial push
 
 - New database test file passed 26 assertions, including stale edits, duplicate/checksum rejection, tenant/MFA isolation, transaction guards, history preservation and audit rollback.
-- Full local regression/build/lint processes were stopped due to memory pressure. They are not claimed as passed for this branch.
+- The full local database suite completed successfully: 2,354 assertions, zero failed files. Local build/type/lint processes were stopped due to memory pressure; those checks are not claimed passed locally for this branch.
 - CI runs unit tests, lint, production build/types, migration replay, database tests, storage integration and combined invoice/journal/bank browser lifecycle verification on an isolated runner. Review exact-head results before release.
 - The migration has only been applied to the isolated local database; no hosted mutation or production deployment occurred.
 

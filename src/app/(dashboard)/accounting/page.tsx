@@ -428,11 +428,11 @@ export default function AccountingPage() {
       setIsLoading(true)
       const supabase = createClient()
 
-      if (tab === "journal") {
+      if (tab === "journal" || tab === "payments") {
         const { data } = await supabase
           .from("chart_of_accounts")
           .select("id,account_code,name_ar,name_en,account_type,normal_balance")
-          .is("deleted_at", null)
+          .eq("is_active", true).is("deleted_at", null)
           .order("account_code", { ascending: true })
         if (data) setAccounts(data as AccountRow[])
       }
