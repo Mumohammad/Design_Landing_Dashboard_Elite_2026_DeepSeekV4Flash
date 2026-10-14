@@ -18,6 +18,8 @@
 
 import { revalidatePath } from "next/cache"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { createClient } from "@/lib/supabase/server"
+import { rateLimitAccounting } from "@/lib/auth/rate-limit"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
 import { writeAuditLog } from "@/lib/auth/sessions"
 import { mapFinancialError } from "@/lib/accounting/csv-utils"
@@ -152,7 +154,7 @@ export async function recordPayment(input: RecordPaymentInput): Promise<ActionRe
       const { data: b } = await admin
         .from("bank_accounts").select("id").eq("id", input.bank_account_id)
         .eq("tenant_id", currentUser.tenantId)
-        .is("deleted_at", null).maybeSingle()
+        .eq("is_active", true).is("deleted_at", null).maybeSingle()
       if (!b) return { success: false, error: pmt("PMT006") }
     }
 
@@ -312,48 +314,45 @@ export type CreateBankAccountInput = {
   coa_account_code?: string
 }
 
-export async function createBankAccount(input: CreateBankAccountInput): Promise<ActionResult> {
+async function saveBankAccount(input: CreateBankAccountInput, id?: string, expectedUpdatedAt?: string): Promise<ActionResult> {
   try {
-    await requirePermission("accounting", "create")
+    await requirePermission("accounting", id ? "update" : "create")
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
-
-    if (!input.bank_name.trim() || !input.account_name.trim() || !input.iban.trim()) {
-      return { success: false, error: pmt("PMT004") }
-    }
-
-    const admin = createAdminClient()
-    const { data: row, error } = await admin
-      .from("bank_accounts")
-      .insert({
-        tenant_id: currentUser.tenantId,
-        bank_name: input.bank_name.trim(),
-        account_name: input.account_name.trim(),
-        iban: input.iban.trim(),
-        account_number: input.account_number ?? null,
-        currency: input.currency ?? "SAR",
-        opening_balance: round2(input.opening_balance ?? 0) || 0,
-        is_active: true,
-        coa_account_code: input.coa_account_code?.trim() || "1100",
-        created_by: currentUser.authUserId,
-      })
-      .select("id")
-      .single()
-    if (error) return { success: false, error: mapFinancialError(error.message) }
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "accounting",
-      action: "bank_account_created",
-      entityType: "bank_accounts",
-      entityId: row.id,
-      newValues: { bank_name: input.bank_name, iban: input.iban },
+    const limit = await rateLimitAccounting(currentUser.id)
+    if (!limit.success) return { success: false, error: "Rate limit exceeded. Try again later." }
+    const client = await createClient()
+    const { error } = await client.rpc("save_bank_account", {
+      p_input: input, p_bank_id: id ?? null, p_expected_updated_at: expectedUpdatedAt ?? null,
     })
-
+    if (error) return { success: false, error: mapFinancialError(error.message) }
     revalidatePath("/accounting")
     return { success: true }
-  } catch (e) {
-    return { success: false, error: errorMessage(e) }
-  }
+  } catch (error) { return { success: false, error: mapFinancialError(errorMessage(error)) } }
+}
+
+export async function createBankAccount(input: CreateBankAccountInput): Promise<ActionResult> {
+  return saveBankAccount(input)
+}
+
+export async function updateBankAccount(input: CreateBankAccountInput & { id: string; expected_updated_at: string }): Promise<ActionResult> {
+  const { id, expected_updated_at, ...details } = input
+  return saveBankAccount(details, id, expected_updated_at)
+}
+
+export async function changeBankAccountState(input: { id: string; expected_updated_at: string; action: "activate" | "deactivate" | "delete" }): Promise<ActionResult> {
+  try {
+    await requirePermission("accounting", input.action === "delete" ? "delete" : "update")
+    const currentUser = await getCurrentUser()
+    if (!currentUser) return { success: false, error: "Not authenticated." }
+    const limit = await rateLimitAccounting(currentUser.id)
+    if (!limit.success) return { success: false, error: "Rate limit exceeded. Try again later." }
+    const client = await createClient()
+    const { error } = await client.rpc("change_bank_account_state", {
+      p_bank_id: input.id, p_expected_updated_at: input.expected_updated_at, p_action: input.action,
+    })
+    if (error) return { success: false, error: mapFinancialError(error.message) }
+    revalidatePath("/accounting")
+    return { success: true }
+  } catch (error) { return { success: false, error: mapFinancialError(errorMessage(error)) } }
 }

@@ -146,6 +146,11 @@ export type ErrorCode =
   | "PMT004"
   | "PMT005"
   | "PMT006"
+  | "BNK001"
+  | "BNK002"
+  | "BNK003"
+  | "BNK004"
+  | "BNK005"
   // Accounting — ZATCA Adapter (Phase 15, migration 054)
   | "ZAT001"
   | "ZAT002"
@@ -818,6 +823,22 @@ export const ERROR_CODES: Record<ErrorCode, ErrorDefinition> = {
     messageAr: "الحساب البنكي غير موجود أو لا ينتمي إلى هذه المنشأة.",
     messageEn: "Bank account not found or does not belong to this tenant.",
   },
+
+  BNK001: { code: "BNK001", httpStatus: 422,
+    messageAr: "تحقق من أسماء الحساب والآيبان والعملة ودقة الرصيد الافتتاحي.",
+    messageEn: "Check the account names, IBAN checksum, currency and opening balance precision." },
+  BNK002: { code: "BNK002", httpStatus: 409,
+    messageAr: "تم تغيير الحساب البنكي. أعد تحميله أولاً.",
+    messageEn: "This bank account changed. Reload it first." },
+  BNK003: { code: "BNK003", httpStatus: 409,
+    messageAr: "للحساب سجل مالي. يمكنك تعديل الأسماء أو تعطيله مع الاحتفاظ بتفاصيله المالية.",
+    messageEn: "This account has financial history. You may change its names or deactivate it; financial details must remain intact." },
+  BNK004: { code: "BNK004", httpStatus: 409,
+    messageAr: "يوجد حساب بنفس الآيبان لهذه المنشأة.",
+    messageEn: "An account with this IBAN already exists for this tenant." },
+  BNK005: { code: "BNK005", httpStatus: 422,
+    messageAr: "اختر حساباً بنكياً نشطاً وحساب أصول نشطاً من دليل حسابات المنشأة.",
+    messageEn: "Select an active tenant bank account and an active asset account from the chart of accounts." },
 
   // ── Accounting — Periods (Phase 1) ─────────────────────────────────────
   ACC001: {

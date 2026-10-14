@@ -43,7 +43,7 @@ import {
   type ZatcaCsidEnvironment,
 } from "@/lib/accounting/zatca-csid"
 import { computeVatNetPosition } from "@/lib/accounting/vat-math"
-import { recordPayment, voidPayment, createBankAccount } from "@/lib/accounting/payments"
+import { recordPayment, voidPayment, createBankAccount, updateBankAccount, changeBankAccountState } from "@/lib/accounting/payments"
 import {
   resolveVatReviewItem,
   exportVatReconciliationCsv,
@@ -170,6 +170,8 @@ interface PaymentRow {
 
 interface BankAccountRow {
   id: string
+  updated_at: string
+  account_number: string | null
   bank_name: string
   account_name: string
   iban: string
@@ -411,6 +413,9 @@ export default function AccountingPage() {
   const [onboardBusy, setOnboardBusy] = useState(false)
   const [payments, setPayments] = useState<PaymentRow[]>([])
   const [bankAccounts, setBankAccounts] = useState<BankAccountRow[]>([])
+  const [bankPage, setBankPage] = useState(0)
+  const [bankCount, setBankCount] = useState(0)
+  const [bankLoadError, setBankLoadError] = useState(false)
   const [openAr, setOpenAr] = useState<OpenArApRow[]>([])
   const [openAp, setOpenAp] = useState<OpenArApRow[]>([])
   const [custOptions, setCustOptions] = useState<{ id: string; name: string }[]>([])
@@ -514,10 +519,10 @@ export default function AccountingPage() {
             .limit(200),
           supabase
             .from("bank_accounts")
-            .select("id,bank_name,account_name,iban,currency,opening_balance,is_active,coa_account_code")
+            .select("id,bank_name,account_name,iban,account_number,currency,opening_balance,is_active,coa_account_code,updated_at", { count: "exact" })
             .is("deleted_at", null)
-            .order("bank_name", { ascending: true })
-            .limit(50),
+            .order("bank_name", { ascending: true }).order("id", { ascending: true })
+            .range(bankPage * 50, bankPage * 50 + 49),
           supabase
             .from("receivables")
             .select("id,invoice_ref,invoice_date,due_date,amount,vat_amount,total_amount,paid_amount,status,customer_id,customers(name_ar,name_en)")
@@ -546,7 +551,12 @@ export default function AccountingPage() {
             .limit(200),
         ])
         if (payRes.data) setPayments(payRes.data as unknown as PaymentRow[])
-        if (bankRes.data) setBankAccounts(bankRes.data as BankAccountRow[])
+        setBankLoadError(!!bankRes.error)
+        if (bankRes.data) {
+          setBankAccounts(bankRes.data as BankAccountRow[])
+          setBankCount(bankRes.count ?? 0)
+          if (bankPage > 0 && (bankRes.count ?? 0) <= bankPage * 50) setBankPage(0)
+        }
         if (arRes.data) {
           setOpenAr(
             (arRes.data as unknown as (ArApRow & { customers?: { name_ar: string | null; name_en: string | null } | null })[]).map((r) => ({
@@ -598,7 +608,7 @@ export default function AccountingPage() {
 
       setIsLoading(false)
     })()
-  }, [tab, payRefresh, vatRefresh])
+  }, [tab, payRefresh, vatRefresh, bankPage])
 
   // ── VAT return (Phase 12) — auto-select the latest period once the
   // reconciliation list is loaded, then fetch its return summary. Mirror the
@@ -1135,31 +1145,53 @@ export default function AccountingPage() {
   const [bankAccNum, setBankAccNum] = useState("")
   const [bankOpening, setBankOpening] = useState("")
   const [bankCoa, setBankCoa] = useState("1100")
+  const [bankCurrency, setBankCurrency] = useState("SAR")
+  const [bankEdit, setBankEdit] = useState<BankAccountRow | null>(null)
+  const [bankError, setBankError] = useState<string | null>(null)
+  const [bankStateTarget, setBankStateTarget] = useState<{ bank: BankAccountRow; action: "activate" | "deactivate" | "delete" } | null>(null)
+  const [bankStateError, setBankStateError] = useState<string | null>(null)
+
+  function openBankForm(bank?: BankAccountRow) {
+    setBankEdit(bank ?? null)
+    setBankError(null)
+    setBankName(bank?.bank_name ?? "")
+    setBankAccName(bank?.account_name ?? "")
+    setBankIban(bank?.iban ?? "")
+    setBankAccNum(bank?.account_number ?? "")
+    setBankOpening(String(bank?.opening_balance ?? 0))
+    setBankCoa(bank?.coa_account_code ?? "1100")
+    setBankCurrency(bank?.currency ?? "SAR")
+    setBankDialogOpen(true)
+  }
+
+  async function handleBankState() {
+    if (!bankStateTarget) return
+    setBankBusy(true)
+    const res = await changeBankAccountState({ id: bankStateTarget.bank.id,
+      expected_updated_at: bankStateTarget.bank.updated_at, action: bankStateTarget.action })
+    setBankBusy(false)
+    if (!res.success) { setBankStateError(res.error ?? "Failed"); return }
+    setBankStateTarget(null)
+    setPayRefresh((value) => value + 1)
+    flash("ok", ar ? "تم تحديث حالة الحساب البنكي." : "Bank account status updated.")
+  }
 
   async function handleCreateBank() {
     setBankBusy(true)
-    const res = await createBankAccount({
-      bank_name: bankName,
-      account_name: bankAccName,
-      iban: bankIban,
-      account_number: bankAccNum || null,
-      currency: "SAR",
-      opening_balance: Number(bankOpening || 0),
-      coa_account_code: bankCoa || "1100",
-    })
+    const details = {
+      bank_name: bankName, account_name: bankAccName, iban: bankIban,
+      account_number: bankAccNum || null, currency: bankCurrency,
+      opening_balance: Number(bankOpening || 0), coa_account_code: bankCoa,
+    }
+    const res = bankEdit
+      ? await updateBankAccount({ ...details, id: bankEdit.id, expected_updated_at: bankEdit.updated_at })
+      : await createBankAccount(details)
     setBankBusy(false)
     if (res.success) {
-      flash("ok", ar ? "تمت إضافة الحساب البنكي." : "Bank account added.")
+      flash("ok", ar ? "تم حفظ الحساب البنكي." : "Bank account saved.")
       setBankDialogOpen(false)
-      setBankName("")
-      setBankAccName("")
-      setBankIban("")
-      setBankAccNum("")
-      setBankOpening("")
-      setPayRefresh((k) => k + 1)
-    } else {
-      flash("err", res.error ?? "Failed")
-    }
+      setPayRefresh((value) => value + 1)
+    } else { setBankError(res.error ?? "Failed") }
   }
 
   // Receivable form
@@ -2299,18 +2331,18 @@ export default function AccountingPage() {
                 <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
                   <CardHeader className="pb-3 flex-row items-center justify-between">
                     <CardTitle className="text-base flex items-center gap-2"><Building2 className="h-4 w-4 text-elite-blue-600" />{ar ? "الحسابات البنكية" : "Bank accounts"}</CardTitle>
-                    <Dialog open={bankDialogOpen} onOpenChange={setBankDialogOpen}>
+                    <Dialog open={bankDialogOpen} onOpenChange={(open) => { if (!bankBusy) setBankDialogOpen(open) }}>
                       <DialogTrigger asChild>
-                        <button className={dialogBtn}>
+                        <button className={dialogBtn} onClick={() => openBankForm()}>
                           <Plus className="h-3.5 w-3.5" />{ar ? "حساب جديد" : "Add account"}
                         </button>
                       </DialogTrigger>
-                      <DialogContent className="max-w-md rounded-2xl">
+                      <DialogContent className="sm:max-w-lg rounded-2xl max-h-[90dvh] overflow-y-auto">
                         <DialogHeader>
-                          <DialogTitle>{ar ? "إضافة حساب بنكي" : "Add bank account"}</DialogTitle>
-                          <DialogDescription>{ar ? "يرتبط الحساب بحساب في دليل الحسابات (افتراضياً 1100 بنك)" : "Linked to a Chart of Accounts account (default 1100 Bank)"}</DialogDescription>
+                          <DialogTitle>{bankEdit ? (ar ? "تعديل الحساب البنكي" : "Edit bank account") : (ar ? "إضافة حساب بنكي" : "Add bank account")}</DialogTitle>
+                          <DialogDescription>{ar ? "اختر حساب أصول نشطاً. لا يمكن تغيير التفاصيل المالية بعد تسجيل حركة على الحساب." : "Choose an active asset account. Financial details are locked once this account has activity."}</DialogDescription>
                         </DialogHeader>
-                        <div className="space-y-3">
+                        <fieldset disabled={bankBusy} className="min-w-0 space-y-3">
                           <div className="grid gap-3 sm:grid-cols-2">
                             <div className="space-y-1.5">
                               <Label htmlFor="bankName">{ar ? "اسم البنك" : "Bank name"}</Label>
@@ -2342,27 +2374,33 @@ export default function AccountingPage() {
                                 onChange={(e) => setBankCoa(e.target.value)}
                                 className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                               >
-                                <option value="1100">{ar ? "1100 بنك" : "1100 Bank"}</option>
-                                <option value="1000">{ar ? "1000 نقدية" : "1000 Cash"}</option>
+                                <option value="">{ar ? "اختر حساباً" : "Select account"}</option>
+                                {accounts.filter((account) => account.account_type === "asset").map((account) => <option key={account.id} value={account.account_code}>{account.account_code} · {ar ? account.name_ar : account.name_en}</option>)}
                               </select>
                             </div>
                           </div>
+                          <div className="space-y-1.5">
+                            <Label htmlFor="bankCurrency">{ar ? "العملة" : "Currency"}</Label>
+                            <Input id="bankCurrency" dir="ltr" maxLength={3} value={bankCurrency} onChange={(event) => setBankCurrency(event.target.value.toUpperCase())} className="h-9 max-w-32" />
+                          </div>
+                          {bankError && <p role="alert" className="text-sm text-destructive">{bankError}</p>}
                           <div className="flex items-center gap-3">
                             <Button onClick={() => void handleCreateBank()} disabled={bankBusy} className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800">
                               {bankBusy ? <LoadingSpinner className="h-4 w-4" /> : <Save className="h-4 w-4" />}
-                              {ar ? "إضافة" : "Add"}
+                              {bankEdit ? (ar ? "حفظ التعديلات" : "Save changes") : (ar ? "إضافة" : "Add")}
                             </Button>
                           </div>
-                        </div>
+                        </fieldset>
                       </DialogContent>
                     </Dialog>
                   </CardHeader>
+                  {bankLoadError && <div role="alert" className="flex items-center justify-between px-4 pb-3 text-sm text-destructive"><span>{ar ? "تعذّر تحديث الحسابات البنكية." : "Bank accounts could not refresh."}</span><Button variant="outline" onClick={() => setPayRefresh((value) => value + 1)}>{ar ? "إعادة المحاولة" : "Retry"}</Button></div>}
                   {bankAccounts.length === 0 ? (
                     <p className="px-4 pb-6 text-sm text-muted-foreground">{ar ? "لا توجد حسابات بنكية." : "No bank accounts."}</p>
                   ) : (
                     <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
                       {bankAccounts.map((b) => (
-                        <div key={b.id} className="rounded-xl border border-border/50 bg-muted/20 p-4">
+                        <div key={b.id} data-testid="bank-account-card" className="min-w-0 rounded-xl border border-border/50 bg-muted/20 p-4">
                           <div className="flex items-center justify-between gap-2">
                             <p className="text-sm font-semibold text-foreground">{b.bank_name}</p>
                             <Badge className={b.is_active ? "bg-emerald-500/15 text-emerald-600 border-emerald-500/20" : "bg-gray-500/15 text-gray-600 border-gray-500/20"}>
@@ -2370,15 +2408,35 @@ export default function AccountingPage() {
                             </Badge>
                           </div>
                           <p className="mt-0.5 truncate text-xs text-muted-foreground">{b.account_name}</p>
-                          <p className="mt-2 font-mono text-xs text-foreground/80" dir="ltr">{b.iban}</p>
+                          <p className="mt-2 break-all font-mono text-xs text-foreground/80" dir="ltr">{b.iban}</p>
                           <p className="mt-2 text-xs text-muted-foreground" dir="ltr">
                             {ar ? "رصيد افتتاحي" : "Opening"}: <span className="font-semibold tabular-nums text-foreground">{fmtMoney(b.opening_balance)} {b.currency}</span> · CoA <span className="font-mono font-semibold text-foreground">{b.coa_account_code ?? "1100"}</span>
                           </p>
+                          <div className="mt-3 flex flex-wrap gap-2 border-t border-border/50 pt-3">
+                            <Button size="sm" variant="outline" onClick={() => openBankForm(b)}>{ar ? "تعديل" : "Edit"}</Button>
+                            <Button size="sm" variant="outline" onClick={() => { setBankStateError(null); setBankStateTarget({ bank: b, action: b.is_active ? "deactivate" : "activate" }) }}>{b.is_active ? (ar ? "تعطيل" : "Deactivate") : (ar ? "تفعيل" : "Activate")}</Button>
+                            <Button size="sm" variant="ghost" onClick={() => { setBankStateError(null); setBankStateTarget({ bank: b, action: "delete" }) }}>{ar ? "حذف" : "Delete"}</Button>
+                          </div>
                         </div>
                       ))}
                     </div>
                   )}
+                  <div className="flex items-center justify-between gap-2 border-t border-border/50 p-4 text-xs text-muted-foreground">
+                    <span>{bankAccounts.length} / {bankCount}</span>
+                    <div className="flex gap-2"><Button variant="outline" size="sm" disabled={bankPage === 0} onClick={() => setBankPage((page) => page - 1)}>{ar ? "السابق" : "Previous"}</Button><Button variant="outline" size="sm" disabled={(bankPage + 1) * 50 >= bankCount} onClick={() => setBankPage((page) => page + 1)}>{ar ? "التالي" : "Next"}</Button></div>
+                  </div>
                 </Card>
+                <Dialog open={!!bankStateTarget} onOpenChange={(open) => { if (!open && !bankBusy) setBankStateTarget(null) }}>
+                  <DialogContent>
+                    <DialogHeader><DialogTitle>{ar ? "تحديث حالة الحساب البنكي" : "Update bank account status"}</DialogTitle>
+                    <DialogDescription>{bankStateTarget?.action === "delete"
+                      ? (ar ? "يمكن حذف الحسابات غير المستخدمة فقط. عطّل الحساب للاحتفاظ بسجله المالي." : "Only unused accounts can be deleted. Deactivate an account to retain its financial history.")
+                      : (ar ? "الحسابات المعطلة لا تقبل مدفوعات أو حركات جديدة." : "Inactive accounts cannot accept new payments or transactions.")}</DialogDescription></DialogHeader>
+                    <p className="text-sm font-medium">{bankStateTarget?.bank.bank_name} · {bankStateTarget?.bank.account_name}</p>
+                    {bankStateError && <p role="alert" className="text-sm text-destructive">{bankStateError}</p>}
+                    <div className="flex justify-end gap-2"><Button variant="outline" disabled={bankBusy} onClick={() => setBankStateTarget(null)}>{ar ? "إلغاء" : "Cancel"}</Button><Button disabled={bankBusy} variant={bankStateTarget?.action === "delete" ? "destructive" : "default"} onClick={handleBankState}>{ar ? "تأكيد" : "Confirm"}</Button></div>
+                  </DialogContent>
+                </Dialog>
 
                 <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
                   <CardHeader className="pb-3 flex-row items-center justify-between">

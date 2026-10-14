@@ -231,7 +231,7 @@ FROM rbac_matrix m ORDER BY m.table_name, m.command_name;
 
 SELECT is(
   has_table_privilege('authenticated', format('public.%I', m.table_name), m.command_name),
-  NOT (m.table_name IN ('invoices','invoice_lines') AND m.command_name IN ('INSERT','UPDATE','DELETE')),
+  NOT (m.table_name IN ('invoices','invoice_lines','bank_accounts') AND m.command_name IN ('INSERT','UPDATE','DELETE')),
   format('authenticated %s grant on %s follows the authorized write path', m.command_name, m.table_name)
 )
 FROM rbac_matrix m ORDER BY m.table_name, m.command_name;
