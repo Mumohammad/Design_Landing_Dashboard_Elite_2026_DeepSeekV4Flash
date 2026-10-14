@@ -10,6 +10,7 @@ import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/ca
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
+import { BankAccountPicker } from "@/components/accounting/bank-account-picker"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { LoadingSpinner } from "@/components/ui/loading-spinner"
@@ -2504,7 +2505,7 @@ export default function AccountingPage() {
 
                 {/* Record payment dialog */}
                 <Dialog open={payDialogOpen} onOpenChange={setPayDialogOpen}>
-                  <DialogContent className="max-w-lg rounded-2xl">
+                  <DialogContent className="max-h-[90dvh] overflow-y-auto rounded-2xl sm:max-w-lg">
                     <DialogHeader>
                       <DialogTitle>{ar ? "تسجيل دفعة" : "Record payment"}</DialogTitle>
                       <DialogDescription>
@@ -2539,7 +2540,7 @@ export default function AccountingPage() {
                           <select
                             id="payMethod"
                             value={payMethod}
-                            onChange={(e) => setPayMethod(e.target.value)}
+                            onChange={(e) => { setPayMethod(e.target.value); setPayBank("") }}
                             className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           >
                             <option value="transfer">{ar ? "تحويل بنكي" : "Bank transfer"}</option>
@@ -2552,20 +2553,7 @@ export default function AccountingPage() {
                       </div>
 
                       {payMethod !== "cash" && (
-                        <div className="space-y-1.5">
-                          <Label htmlFor="payBank">{ar ? "الحساب البنكي" : "Bank account"}</Label>
-                          <select
-                            id="payBank"
-                            value={payBank}
-                            onChange={(e) => setPayBank(e.target.value)}
-                            className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                          >
-                            <option value="">—</option>
-                            {bankAccounts.filter((b) => b.is_active).map((b) => (
-                              <option key={b.id} value={b.id}>{b.bank_name} · {b.account_name}</option>
-                            ))}
-                          </select>
-                        </div>
+                        <BankAccountPicker value={payBank} onChange={setPayBank} ar={ar} disabled={payBusy} />
                       )}
 
                       {payDirection === "in" ? (

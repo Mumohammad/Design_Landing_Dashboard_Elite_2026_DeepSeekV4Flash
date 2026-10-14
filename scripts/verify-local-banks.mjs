@@ -65,6 +65,38 @@ export async function verifyBankCrud(page, admin, tenantId, appUrl) {
     if (audit.error || !["created", "updated", "deactivated", "activated", "deleted"]
       .every((action) => audit.data.some((entry) => entry.action === `bank_account_${action}`))) throw new Error("Bank audit incomplete")
     console.log("PASS: bank account browser create → edit → deactivate → reactivate → mobile → soft delete → reload → audit")
+    stage = "payment bank picker pagination and search"
+    const bankRows = Array.from({ length: 53 }, (_, index) => {
+      const bban = String(9000 + index).padStart(20, "0")
+      const check = String(98n - BigInt(`${bban}281000`) % 97n).padStart(2, "0")
+      return { tenant_id: tenantId, bank_name: index === 52 ? "Z Final Bank" : `A Bank ${String(index).padStart(2, "0")}`,
+        account_name: "Picker fixture", iban: `SA${check}${bban}`, coa_account_code: "8401" }
+    })
+    const choices = await admin.from("bank_accounts").insert(bankRows).select("id,bank_name")
+    if (choices.error) throw new Error("Picker fixtures failed")
+    const finalBank = choices.data.find((bank) => bank.bank_name === "Z Final Bank")
+    await page.reload()
+    await page.getByRole("tab", { name: /^(Payments|المدفوعات والبنوك)$/ }).click()
+    await expect(page.getByTestId("bank-account-card").filter({ hasText: "Z Final Bank" })).toHaveCount(0)
+    await page.getByRole("button", { name: /^(Record payment|New payment|تسجيل دفعة|دفعة جديدة)$/ }).click()
+    const picker = dialog.getByTestId("payment-bank-picker")
+    await expect(picker.getByRole("status")).toHaveText("1–25 / 53")
+    await picker.getByRole("button", { name: /^(Next accounts|التالي)$/ }).click()
+    await expect(picker.getByRole("status")).toHaveText("26–50 / 53")
+    await picker.getByRole("button", { name: /^(Next accounts|التالي)$/ }).click()
+    await expect(picker.getByRole("status")).toHaveText("51–53 / 53")
+    await picker.locator("#payBank").selectOption(finalBank.id)
+    await picker.locator("#payBankSearch").fill("A Bank 00")
+    await expect(picker.getByRole("status")).toHaveText("1–1 / 1")
+    await expect(picker.locator("#payBank")).toHaveValue(finalBank.id)
+    await picker.locator("#payBankSearch").fill("Z Final Bank")
+    await expect(picker.getByRole("status")).toHaveText("1–1 / 1")
+    await page.setViewportSize({ width: 375, height: 812 })
+    await expect.poll(() => dialog.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(2)
+    await page.screenshot({ path: "supabase/.temp/payment-bank-picker-mobile.png" })
+    await dialog.getByRole("button", { name: "Close", exact: true }).click()
+    await page.setViewportSize({ width: 1280, height: 900 })
+    console.log("PASS: payment bank picker finds account beyond management page, paginates, searches, retains selection and fits mobile")
   } catch (error) {
     console.error(JSON.stringify({ bankStage: stage }))
     await page.screenshot({ path: "supabase/.temp/bank-crud-failure.png" })
