@@ -4,7 +4,7 @@ Production is not approved for release. PR #69 remains draft and unmerged; invoi
 
 ## Verified external state
 
-- Vercel CLI access works for elitesaasc-5643 / elite-dashboard. The production deployment last verified is dpl_BQivroCHVCr6To9zARPX5fQCjboC, created 3 October 2026. No later production deployment is claimed.
+- Vercel CLI/API access works for elitesaasc-5643 / elite-dashboard (project prj_0FJTFtAXzBZMUP9rPyU7XtiEYteX). A fresh inspection supersedes the October 3 snapshot: production alias https://elite-dashboard-blush.vercel.app points to READY deployment dpl_6AvrHT1TvQwRJjyyENqrheoYZVWD, created 2026-10-13 21:02:35 UTC (14 October 00:02:35 Riyadh). Its source is `redeploy`, with GitHub master SHA 3362ab17b8da7240cd44ef15a6c8cd47c59bae21. It does not contain PR #69 or #70. The immutable URL is https://elite-dashboard-lfwxjc7un-elitesaasc-5643.vercel.app. Read-only health and sign-in requests returned HTTP 200; health reported app/database/auth OK but version unknown. Authenticated production CRUD has not been tested, and this session did not create that deployment.
 - The existing preview configuration points to production Supabase. Configure branch-specific staging variables before any hosted mutation tests.
 - The chosen staging project is viowrovartosrkqukjxy (elite-staging). Preserve its existing invoice and other data; do not reset it.
 - Supabase CLI project listing, linking, and production backup inspection succeeded on this date. Subsequent migration list/fetch requests failed at the temporary database login endpoint with HTTP 403 (insufficient privileges). Access is not consistently sufficient for migration operations.
