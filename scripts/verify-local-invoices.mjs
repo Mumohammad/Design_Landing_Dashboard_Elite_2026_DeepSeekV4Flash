@@ -55,6 +55,23 @@ export async function verifyInvoiceCrud(page, admin, tenantId, appUrl) {
     if (widths[0] > widths[1] + 2) throw new Error("Invoice mobile viewport overflows")
     await dialog.getByRole("button", { name: /^(Cancel|إلغاء)$/ }).click()
     await page.setViewportSize({ width: 1280, height: 900 })
+    stage = "invoice print and PDF preview"
+    const vat = await admin.from("tenants").update({ vat_number: "300000000000003" }).eq("id", tenantId)
+    if (vat.error) throw new Error("Print tenant fixture failed")
+    await page.context().addInitScript(() => { window.print = () => { window.__invoicePrinted = true } })
+    await row.getByRole("button", { name: /Invoice actions|إجراءات الفاتورة/ }).click()
+    await page.getByRole("menuitem", { name: /Print \/ Save PDF|طباعة \/ حفظ PDF/ }).click()
+    const popupPromise = page.waitForEvent("popup")
+    await dialog.getByRole("button", { name: /Open invoice for printing|فتح الفاتورة للطباعة/ }).click()
+    const popup = await popupPromise
+    await expect(popup.locator(".items tbody tr")).toHaveCount(1)
+    await expect(popup.locator(".items tbody td:last-child")).toHaveText("11.50")
+    await expect(popup.locator(".status")).toContainText("Draft")
+    await expect.poll(() => popup.evaluate(() => window.__invoicePrinted === true)).toBe(true)
+    if (!await popup.locator(".logo").evaluate((img) => img.complete && img.naturalWidth > 0)) throw new Error("Invoice logo did not load")
+    await popup.pdf({ path: "supabase/.temp/invoice-browser-print.pdf", preferCSSPageSize: true, printBackground: true })
+    await popup.close()
+    await expect(dialog).toBeHidden()
     stage = "delete draft"
     await row.getByRole("button", { name: /Invoice actions|إجراءات الفاتورة/ }).click()
     await page.getByRole("menuitem", { name: /^(Delete|حذف)$/ }).click()
@@ -69,7 +86,7 @@ export async function verifyInvoiceCrud(page, admin, tenantId, appUrl) {
       .eq("tenant_id", tenantId).eq("entity_id", created.data.id)
     if (audit.error || !["invoice_draft_created", "invoice_draft_updated", "invoice_draft_deleted"]
       .every((action) => audit.data.some((entry) => entry.action === action))) throw new Error("Invoice audit lifecycle incomplete")
-    console.log("PASS: invoice browser create → exact VAT → edit → mobile viewport → soft delete → reload → persisted audit")
+    console.log("PASS: invoice browser create → exact VAT → edit → mobile → print/PDF with loaded logo and gross VAT → soft delete → reload → audit")
   } catch (error) {
     console.error(JSON.stringify({ invoiceStage: stage }))
     await page.screenshot({ path: "supabase/.temp/invoice-crud-failure.png", fullPage: true })

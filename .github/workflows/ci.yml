@@ -2,7 +2,7 @@ name: CI — EliteDev
 
 on:
   pull_request:
-    branches: [master, main, fix/launch-blockers-security, codex/production-readiness-release, codex/accounting-invoices-crud, codex/accounting-journal-crud]
+    branches: [master, main, fix/launch-blockers-security, codex/production-readiness-release, codex/accounting-invoices-crud, codex/accounting-journal-crud, codex/accounting-bank-crud]
   push:
     branches: [master, main]
 
@@ -309,6 +309,7 @@ jobs:
         done
         test "$ready" = "1" || { echo "Local app dependencies are not ready"; exit 1; }
         VERIFY_INVOICE_CRUD=1 VERIFY_JOURNAL_CRUD=1 VERIFY_BANK_CRUD=1 node scripts/verify-local-mfa.mjs
+        node scripts/verify-invoice-print.mjs
 
     - name: Stop Supabase
       if: always()
