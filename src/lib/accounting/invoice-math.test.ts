@@ -7,9 +7,8 @@ import { computeInvoiceTotals, round2 } from "./invoice-math"
 describe("round2 (integer-minor rounding)", () => {
   it("rounds float artifacts exactly", () => {
     expect(round2(0.1 + 0.2)).toBe(0.3)
-    // 1.005 × 100 = 100.499... (float below .5) → rounds to 1.00.
-    // This matches Postgres round(1.005::numeric, 2) which truncates.
-    expect(round2(1.005)).toBe(1.0)
+    expect(round2(1.005)).toBe(1.01)
+    expect(round2(-1.005)).toBe(-1.01)
     expect(round2(2.5)).toBe(2.5)
     expect(round2(2.999)).toBe(3)
   })
@@ -35,12 +34,10 @@ describe("AR/expense VAT formula (createReceivable path)", () => {
   })
 
   it("matches Postgres rounding for edge values", () => {
-    // amount=4.1, vatRate=15 → raw product 4.1×15 = 61.49999999999999
-    // (binary float just BELOW the .5 boundary). round2 → 0.61 (matches DB).
-    expect(Math.round(4.1 * 15) / 100).toBe(0.61)
-    expect(round2((4.1 * 15) / 100)).toBe(0.61)
-    // Pre-rounding amount → 4.1 * 15 = same float → same result.
-    expect(round2((round2(4.1) * 15) / 100)).toBe(0.61)
+    const invoice = computeInvoiceTotals([{ description: "VAT boundary", quantity: 1, unit_price: 4.1 }])
+    expect(invoice.vat_amount).toBe(0.62)
+    expect(invoice.total).toBe(4.72)
+    expect(computeInvoiceTotals([{ description: "Quantity boundary", quantity: 1.005, unit_price: 1, vat_rate: 0 }]).total).toBe(1.01)
   })
 })
 
@@ -124,5 +121,26 @@ describe("computeInvoiceTotals — validation (INV codes)", () => {
   it("rejects non-finite money values with INV002 (NaN trap)", () => {
     expect(() => computeInvoiceTotals([{ description: "أ", quantity: 1, unit_price: Number.POSITIVE_INFINITY }])).toThrow("INV002")
     expect(() => computeInvoiceTotals([{ description: "أ", quantity: Number.NaN, unit_price: 5 }])).toThrow("INV002")
+  })
+})
+
+
+describe("invoice storage precision and limits", () => {
+  const line = { description: "Service", quantity: 1, unit_price: 10 }
+  it.each([
+    { quantity: 0.0001 }, { unit_price: 1.005 }, { discount: 0.001 },
+    { vat_rate: 15.001 }, { discount: 11 }, { quantity: 1e9 },
+    { unit_price: 1e10 }, { description: "x".repeat(1001) },
+  ])("rejects invalid line %j", (patch) => {
+    expect(() => computeInvoiceTotals([{ ...line, ...patch }])).toThrow("INV002")
+  })
+  it("rejects total overflow even when each line fits", () => {
+    expect(() => computeInvoiceTotals([{ ...line, unit_price: 9999999999.99 }])).toThrow("INV002")
+  })
+  it("supports the largest storable zero-rated total exactly", () => {
+    expect(computeInvoiceTotals([{ ...line, unit_price: 9999999999.99, vat_rate: 0 }]).total).toBe(9999999999.99)
+  })
+  it("rejects more than 200 lines", () => {
+    expect(() => computeInvoiceTotals(Array.from({ length: 201 }, () => line))).toThrow("INV013")
   })
 })
