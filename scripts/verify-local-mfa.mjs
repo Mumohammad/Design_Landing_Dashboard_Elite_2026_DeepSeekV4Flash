@@ -83,6 +83,11 @@ try {
     const { verifyInvoiceCrud } = await import("./verify-local-invoices.mjs")
     await verifyInvoiceCrud(page, admin, company.data.id, appUrl)
   }
+  if (process.env.VERIFY_JOURNAL_CRUD === "1") {
+    stage = "journal CRUD browser verification"
+    const { verifyJournalCrud } = await import("./verify-local-journals.mjs")
+    await verifyJournalCrud(page, admin, company.data.id, appUrl)
+  }
   stage = "sign-out denies dashboard access"
   await page.goto(`${appUrl}/auth/sign-out`)
   await page.waitForURL(/\/landing$/)

@@ -79,6 +79,7 @@ export type ErrorCode =
   | "JRN011"
   | "JRN012"
   | "JRN013"
+  | "JRN014"
   // Accounting — Periods (Phase 1)
   | "ACC001"
   | "ACC002"
@@ -501,6 +502,13 @@ export const ERROR_CODES: Record<ErrorCode, ErrorDefinition> = {
     httpStatus: 409,
     messageAr: "حالة القيد لا تسمح بهذا الإجراء.",
     messageEn: "Journal entry state does not permit this action.",
+  },
+
+  JRN014: {
+    code: "JRN014",
+    httpStatus: 409,
+    messageAr: "تم تغيير القيد. أعد تحميله قبل الحفظ أو الحذف.",
+    messageEn: "This journal changed. Reload it before saving or deleting.",
   },
 
   // ── Accounting — Chart of Accounts (Phase 2) ───────────────────────────
