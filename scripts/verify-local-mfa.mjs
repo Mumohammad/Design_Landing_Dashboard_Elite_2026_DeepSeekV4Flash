@@ -71,7 +71,8 @@ try {
   await page.waitForURL(/\/dashboard$/)
   stage = "dashboard landmark and data loading"
   await page.locator("main").waitFor()
-  await page.getByText(/^(Total Drivers|إجمالي السائقين)$/).waitFor()
+  await page.getByRole("region", { name: "Executive KPIs" })
+    .getByRole("link", { name: /^(Total Drivers|إجمالي السائقين)$/ }).waitFor()
   stage = "persisted MFA state"
   const profile = await admin.from("users").select("two_factor_enabled")
     .eq("auth_user_id", owner.data.user.id).single()
@@ -115,12 +116,18 @@ try {
   await challengeCode.press("Enter")
   await page.waitForURL(/\/dashboard$/)
   await page.locator("main").waitFor()
-  await page.getByText(/^(Total Drivers|إجمالي السائقين)$/).waitFor()
+  await page.getByRole("region", { name: "Executive KPIs" })
+    .getByRole("link", { name: /^(Total Drivers|إجمالي السائقين)$/ }).waitFor()
   if (pageErrors !== 0) throw new Error("Browser runtime check failed")
   console.log("PASS: owner sign-in → MFA enrollment → persisted MFA → dashboard data → sign-out → returning-user MFA challenge; no browser runtime errors")
 } catch (error) {
   // Avoid logging assertion values, credentials, factor secrets or page bodies.
-  console.error(JSON.stringify({ result: "FAIL", stage, errorType: error.name }))
+  const failureKind = /strict mode violation/.test(error.message) ? "ambiguous-locator"
+    : /Timeout/.test(error.name) ? "timeout"
+    : /Execution context was destroyed|navigation|interrupted/i.test(error.message) ? "navigation"
+    : /Target.*closed|page.*closed/i.test(error.message) ? "closed-page"
+    : "assertion-or-service"
+  console.error(JSON.stringify({ result: "FAIL", stage, errorType: error.name, failureKind }))
   process.exitCode = 1
 } finally {
   await browser?.close()
