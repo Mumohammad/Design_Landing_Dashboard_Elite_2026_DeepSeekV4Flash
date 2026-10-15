@@ -244,7 +244,7 @@ export function EventDialogs({
             {kind === "create" && (
               <div className="grid gap-1.5">
                 <Label>{m.fieldVehicle}</Label>
-                <select
+                <select aria-label={m.fieldVehicle}
                   value={vehicleId}
                   onChange={(e) => setVehicleId(e.target.value)}
                   className="h-9 rounded-xl border border-border/50 bg-muted/30 px-3 text-sm"
@@ -266,7 +266,7 @@ export function EventDialogs({
             {kind === "create" && (
               <div className="grid gap-1.5">
                 <Label>{m.fieldReportedByDriver}</Label>
-                <select
+                <select aria-label={m.fieldReportedByDriver}
                   value={driverId}
                   onChange={(e) => setDriverId(e.target.value)}
                   className="h-9 rounded-xl border border-border/50 bg-muted/30 px-3 text-sm"
@@ -282,7 +282,7 @@ export function EventDialogs({
             )}
             <div className="grid gap-1.5">
               <Label>{vm.maintenanceType}</Label>
-              <select
+              <select aria-label={vm.maintenanceType}
                 value={type}
                 onChange={(e) => setType(e.target.value as (typeof TYPES)[number])}
                 className="h-9 rounded-xl border border-border/50 bg-muted/30 px-3 text-sm"
@@ -295,35 +295,35 @@ export function EventDialogs({
             </div>
             <div className="grid gap-1.5">
               <Label>{m.fieldFaultDescription}</Label>
-              <Textarea value={fault} onChange={(e) => setFault(e.target.value)} rows={2} />
+              <Textarea aria-label={m.fieldFaultDescription} value={fault} onChange={(e) => setFault(e.target.value)} rows={2} />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="grid gap-1.5">
                 <Label>{m.fieldCost}</Label>
-                <Input dir="ltr" type="number" min="0" step="0.01" value={cost} onChange={(e) => setCost(e.target.value)} />
+                <Input aria-label={m.fieldCost} dir="ltr" type="number" min="0" step="0.01" value={cost} onChange={(e) => setCost(e.target.value)} />
               </div>
               <div className="grid gap-1.5">
                 <Label>{m.fieldProvider}</Label>
-                <Input value={provider} onChange={(e) => setProvider(e.target.value)} />
+                <Input aria-label={m.fieldProvider} value={provider} onChange={(e) => setProvider(e.target.value)} />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="grid gap-1.5">
                 <Label>{m.fieldNextServiceKm}</Label>
-                <Input dir="ltr" type="number" min="0" value={nextKm} onChange={(e) => setNextKm(e.target.value)} />
+                <Input aria-label={m.fieldNextServiceKm} dir="ltr" type="number" min="0" value={nextKm} onChange={(e) => setNextKm(e.target.value)} />
               </div>
               <div className="grid gap-1.5">
                 <Label>{m.fieldNextServiceDate}</Label>
-                <Input dir="ltr" type="date" value={nextDate} onChange={(e) => setNextDate(e.target.value)} />
+                <Input aria-label={m.fieldNextServiceDate} dir="ltr" type="date" value={nextDate} onChange={(e) => setNextDate(e.target.value)} />
               </div>
             </div>
             <div className="grid gap-1.5">
               <Label>{m.fieldPartsReplaced}</Label>
-              <Input value={parts} onChange={(e) => setParts(e.target.value)} />
+              <Input aria-label={m.fieldPartsReplaced} value={parts} onChange={(e) => setParts(e.target.value)} />
             </div>
             <div className="grid gap-1.5">
               <Label>{m.fieldNotes}</Label>
-              <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
+              <Textarea aria-label={m.fieldNotes} value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
             </div>
           </div>
         )}
@@ -335,19 +335,19 @@ export function EventDialogs({
             </p>
             <div className="grid gap-1.5">
               <Label>{m.fieldCost}</Label>
-              <Input dir="ltr" type="number" min="0" step="0.01" value={cost} onChange={(e) => setCost(e.target.value)} />
+              <Input aria-label={m.fieldCost} dir="ltr" type="number" min="0" step="0.01" value={cost} onChange={(e) => setCost(e.target.value)} />
             </div>
             <div className="grid gap-1.5">
               <Label>{m.fieldOdometerAtService}</Label>
-              <Input dir="ltr" type="number" min="0" value={odometer} onChange={(e) => setOdometer(e.target.value)} />
+              <Input aria-label={m.fieldOdometerAtService} dir="ltr" type="number" min="0" value={odometer} onChange={(e) => setOdometer(e.target.value)} />
             </div>
             <div className="grid gap-1.5">
               <Label>{m.fieldPartsReplaced}</Label>
-              <Input value={parts} onChange={(e) => setParts(e.target.value)} />
+              <Input aria-label={m.fieldPartsReplaced} value={parts} onChange={(e) => setParts(e.target.value)} />
             </div>
             <div className="grid gap-1.5">
               <Label>{m.fieldNotes}</Label>
-              <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
+              <Textarea aria-label={m.fieldNotes} value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
             </div>
           </div>
         )}
@@ -357,7 +357,7 @@ export function EventDialogs({
             <p className="text-sm text-muted-foreground">{m.confirmCancel}</p>
             <div className="grid gap-1.5">
               <Label>{m.cancelReason} *</Label>
-              <Textarea value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} rows={2} />
+              <Textarea aria-label={m.cancelReason} value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} rows={2} />
             </div>
           </div>
         )}

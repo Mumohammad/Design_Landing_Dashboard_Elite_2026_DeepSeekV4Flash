@@ -87,6 +87,12 @@ BEGIN
   INSERT INTO public.users (id, auth_user_id, tenant_id, email, role, status)
   VALUES (v_uid, v_aid, v_t_a, 'maint-fixture@test.local', 'supervisor', 'active');
 
+  INSERT INTO public.roles (tenant_id,name,name_ar,name_en) VALUES (v_t_a,'supervisor','Fixture','Fixture');
+  INSERT INTO public.role_permissions (role_id,permission_id)
+  SELECT r.id,p.id FROM public.roles r CROSS JOIN public.permissions p
+  WHERE r.tenant_id=v_t_a AND r.name='supervisor'
+    AND p.module IN ('maintenance','vehicles','drivers') AND p.action IN ('read','create','update');
+
   INSERT INTO maint_fixture (tenant_a, tenant_b, driver_a, vehicle_a, vehicle_b, auth_id, user_id, event_id, odo_id)
   VALUES (v_t_a, v_t_b, v_d_a, v_v_a, v_v_b, v_aid, v_uid, v_eid, v_oid);
 END;
@@ -183,16 +189,8 @@ ON CONFLICT (id) DO NOTHING;
 
 -- anon sees zero on both tables.
 SET LOCAL ROLE anon;
-SELECT is(
-  (SELECT count(*) FROM public.vehicle_maintenance_events),
-  0::bigint,
-  'anon sees zero vehicle_maintenance_events rows'
-);
-SELECT is(
-  (SELECT count(*) FROM public.vehicle_odometer_logs),
-  0::bigint,
-  'anon sees zero vehicle_odometer_logs rows'
-);
+SELECT throws_ok($$SELECT count(*) FROM public.vehicle_maintenance_events$$,'42501',NULL,'anonymous maintenance access denied');
+SELECT throws_ok($$SELECT count(*) FROM public.vehicle_odometer_logs$$,'42501',NULL,'anonymous odometer access denied');
 RESET ROLE;
 
 -- Fixture user (tenant A) sees exactly the tenant-A event + tenant-A odometer rows.

@@ -281,6 +281,9 @@ jobs:
     - name: Verify local Auth and Storage integration
       run: node scripts/run-storage-integration.mjs
 
+    - name: Verify payment races in disposable database
+      run: node scripts/verify-payment-concurrency.mjs --local-disposable
+
     - name: Configure disposable browser verification
       run: |
         node --input-type=module <<'NODE'
@@ -308,7 +311,7 @@ jobs:
           sleep 2
         done
         test "$ready" = "1" || { echo "Local app dependencies are not ready"; exit 1; }
-        VERIFY_INVOICE_CRUD=1 VERIFY_JOURNAL_CRUD=1 VERIFY_BANK_CRUD=1 node scripts/verify-local-mfa.mjs
+        VERIFY_INVOICE_CRUD=1 VERIFY_JOURNAL_CRUD=1 VERIFY_BANK_CRUD=1 VERIFY_OPERATIONS_CRUD=1 node scripts/verify-local-mfa.mjs
         node scripts/verify-invoice-print.mjs
 
     - name: Stop Supabase

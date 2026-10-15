@@ -94,6 +94,11 @@ try {
     const { verifyBankCrud } = await import("./verify-local-banks.mjs")
     await verifyBankCrud(page, admin, company.data.id, appUrl)
   }
+  if (process.env.VERIFY_OPERATIONS_CRUD === "1") {
+    stage = "operations CRUD browser verification"
+    const { verifyOperationsCrud } = await import("./verify-local-operations.mjs")
+    await verifyOperationsCrud(page, admin, company.data.id, appUrl)
+  }
   stage = "sign-out denies dashboard access"
   await page.goto(`${appUrl}/auth/sign-out`)
   await page.waitForURL(/\/landing$/)

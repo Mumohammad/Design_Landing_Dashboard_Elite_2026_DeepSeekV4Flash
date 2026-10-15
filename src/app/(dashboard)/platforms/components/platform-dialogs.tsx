@@ -95,25 +95,25 @@ export function PlatformDialog({
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
               <Label>{pm.fieldCode} *</Label>
-              <Input dir="ltr" value={code} onChange={(e) => setCode(e.target.value)} disabled={editing} />
+              <Input aria-label={pm.fieldCode} dir="ltr" value={code} onChange={(e) => setCode(e.target.value)} disabled={editing} />
             </div>
             <div className="grid gap-1.5">
               <Label>{pm.fieldBrandColor}</Label>
-              <Input dir="ltr" type="color" value={color} onChange={(e) => setColor(e.target.value)} className="h-9 p-1" />
+              <Input aria-label={pm.fieldBrandColor} dir="ltr" type="color" value={color} onChange={(e) => setColor(e.target.value)} className="h-9 p-1" />
             </div>
           </div>
           <div className="grid gap-1.5">
             <Label>{pm.fieldNameAr} *</Label>
-            <Input value={nameAr} onChange={(e) => setNameAr(e.target.value)} />
+            <Input aria-label={pm.fieldNameAr} value={nameAr} onChange={(e) => setNameAr(e.target.value)} />
           </div>
           <div className="grid gap-1.5">
             <Label>{pm.fieldNameEn}</Label>
-            <Input dir="ltr" value={nameEn} onChange={(e) => setNameEn(e.target.value)} />
+            <Input aria-label={pm.fieldNameEn} dir="ltr" value={nameEn} onChange={(e) => setNameEn(e.target.value)} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
               <Label>{pm.fieldRateType}</Label>
-              <select value={rateType} onChange={(e) => setRateType(e.target.value as (typeof RATE_TYPES)[number])} className="h-9 rounded-xl border border-border/50 bg-muted/30 px-3 text-sm">
+              <select aria-label={pm.fieldRateType} value={rateType} onChange={(e) => setRateType(e.target.value as (typeof RATE_TYPES)[number])} className="h-9 rounded-xl border border-border/50 bg-muted/30 px-3 text-sm">
                 {RATE_TYPES.map((rt) => (
                   <option key={rt} value={rt}>{rt}</option>
                 ))}
@@ -121,17 +121,17 @@ export function PlatformDialog({
             </div>
             <div className="grid gap-1.5">
               <Label>{pm.fieldRatePerOrder}</Label>
-              <Input dir="ltr" type="number" min="0" step="0.01" value={rate} onChange={(e) => setRate(e.target.value)} />
+              <Input aria-label={pm.fieldRatePerOrder} dir="ltr" type="number" min="0" step="0.01" value={rate} onChange={(e) => setRate(e.target.value)} />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
               <Label>{pm.fieldApiBaseUrl}</Label>
-              <Input dir="ltr" value={apiUrl} onChange={(e) => setApiUrl(e.target.value)} placeholder="https://" />
+              <Input aria-label={pm.fieldApiBaseUrl} dir="ltr" value={apiUrl} onChange={(e) => setApiUrl(e.target.value)} placeholder="https://" />
             </div>
             <div className="grid gap-1.5">
               <Label>{pm.fieldSortOrder}</Label>
-              <Input dir="ltr" type="number" min="0" value={sortOrder} onChange={(e) => setSortOrder(e.target.value)} />
+              <Input aria-label={pm.fieldSortOrder} dir="ltr" type="number" min="0" value={sortOrder} onChange={(e) => setSortOrder(e.target.value)} />
             </div>
           </div>
         </div>
@@ -220,22 +220,22 @@ export function PaymentDialog({
             </div>
             <div className="grid gap-1.5">
               <Label>{pm.fieldPaymentDate}</Label>
-              <Input dir="ltr" type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} />
+              <Input aria-label={pm.fieldPaymentDate} dir="ltr" type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
               <Label>{pm.fieldExpected}</Label>
-              <Input dir="ltr" type="number" min="0" step="0.01" value={expected} onChange={(e) => setExpected(e.target.value)} />
+              <Input aria-label={pm.fieldExpected} dir="ltr" type="number" min="0" step="0.01" value={expected} onChange={(e) => setExpected(e.target.value)} />
             </div>
             <div className="grid gap-1.5">
               <Label>{pm.fieldReceived}</Label>
-              <Input dir="ltr" type="number" min="0" step="0.01" value={received} onChange={(e) => setReceived(e.target.value)} />
+              <Input aria-label={pm.fieldReceived} dir="ltr" type="number" min="0" step="0.01" value={received} onChange={(e) => setReceived(e.target.value)} />
             </div>
           </div>
           <div className="grid gap-1.5">
             <Label>{pm.fieldPaymentRef}</Label>
-            <Input dir="ltr" value={paymentRef} onChange={(e) => setPaymentRef(e.target.value)} />
+            <Input aria-label={pm.fieldPaymentRef} dir="ltr" value={paymentRef} onChange={(e) => setPaymentRef(e.target.value)} />
           </div>
         </div>
         <DialogFooter>

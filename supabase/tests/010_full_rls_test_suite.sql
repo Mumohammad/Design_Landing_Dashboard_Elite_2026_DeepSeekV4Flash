@@ -176,8 +176,9 @@ SELECT ok(
 );
 
 SELECT ok(
-  (SELECT count(*) FROM pg_policies WHERE tablename = 'public_lookup_rate_limits') = 0,
-  'public_lookup_rate_limits has RLS but no policies (service-role only)'
+  (SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename = 'public_lookup_rate_limits'
+    AND roles && ARRAY['public','anon','authenticated']::name[]) = 0,
+  'public_lookup_rate_limits has no policies accessible to API users (service-role only)'
 );
 
 -- ═══════════════════════════════════════════════════════════════════

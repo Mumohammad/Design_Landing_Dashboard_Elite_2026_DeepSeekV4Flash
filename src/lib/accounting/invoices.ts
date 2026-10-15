@@ -105,6 +105,7 @@ async function saveDraft(input: InvoiceDraftInput, id?: string, expectedUpdatedA
   : Promise<ActionResult & { id?: string }> {
   try {
     await requirePermission("invoices", id ? "update" : "create")
+    if ((input.currency ?? "SAR") !== "SAR") return { success: false, error: "Accounting supports SAR only; existing foreign-currency invoices require review." }
     computeInvoiceTotals(input.lines, input.vat_rate ?? 15)
     const client = await createClient()
     const { data, error } = await client.rpc("save_invoice_draft", {

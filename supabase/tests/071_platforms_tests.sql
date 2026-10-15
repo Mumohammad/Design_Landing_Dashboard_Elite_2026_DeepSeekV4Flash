@@ -80,6 +80,12 @@ BEGIN
   INSERT INTO public.users (id, auth_user_id, tenant_id, email, role, status)
   VALUES (v_uid, v_aid, v_t_a, 'plat-fixture@test.local', 'supervisor', 'active');
 
+  INSERT INTO public.roles (tenant_id,name,name_ar,name_en) VALUES (v_t_a,'supervisor','Fixture','Fixture');
+  INSERT INTO public.role_permissions (role_id,permission_id)
+  SELECT r.id,p.id FROM public.roles r CROSS JOIN public.permissions p
+  WHERE r.tenant_id=v_t_a AND r.name='supervisor'
+    AND p.module IN ('platforms','orders','drivers') AND p.action IN ('read','create','update');
+
   INSERT INTO plat_fixture (tenant_a, tenant_b, driver_a, platform_a, platform_b, auth_id, user_id)
   VALUES (v_t_a, v_t_b, v_d_a, v_p_a, v_p_b, v_aid, v_uid);
 END;
@@ -163,9 +169,9 @@ VALUES ('07100000-0000-0000-0000-000000000001', '07100000-0000-0000-0000-0000000
 ON CONFLICT DO NOTHING;
 
 SET LOCAL ROLE anon;
-SELECT is((SELECT count(*) FROM public.delivery_platforms), 0::bigint, 'anon sees zero delivery_platforms');
-SELECT is((SELECT count(*) FROM public.daily_order_entries), 0::bigint, 'anon sees zero daily_order_entries');
-SELECT is((SELECT count(*) FROM public.platform_payments), 0::bigint, 'anon sees zero platform_payments');
+SELECT throws_ok($$SELECT count(*) FROM public.delivery_platforms$$,'42501',NULL,'anonymous platform access denied');
+SELECT throws_ok($$SELECT count(*) FROM public.daily_order_entries$$,'42501',NULL,'anonymous order access denied');
+SELECT throws_ok($$SELECT count(*) FROM public.platform_payments$$,'42501',NULL,'anonymous payment access denied');
 RESET ROLE;
 
 SET LOCAL ROLE authenticated;

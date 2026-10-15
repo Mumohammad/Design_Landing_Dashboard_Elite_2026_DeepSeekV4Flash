@@ -776,7 +776,8 @@ export function InvoicesManager() {
 
             <div className="space-y-1.5">
               <Label htmlFor="inv-currency">{ar ? "العملة" : "Currency"}</Label>
-              <Input id="inv-currency" value={formCurrency} maxLength={3} onChange={(e) => setFormCurrency(e.target.value.toUpperCase())} className="h-9 max-w-32" dir="ltr" />
+              <Input id="inv-currency" value={formCurrency} readOnly className="h-9 max-w-32" dir="ltr" />
+              <p className="text-xs text-muted-foreground">{ar ? "تدعم المحاسبة الريال السعودي فقط. تبقى السجلات القديمة بعملتها الأصلية للمراجعة." : "Accounting supports SAR. Existing foreign-currency records retain their original currency for review."}</p>
             </div>
             <div className="overflow-x-auto rounded-xl border border-border/50">
               <div className="grid min-w-[560px] grid-cols-[1fr_80px_90px_70px_70px_32px] gap-2 border-b border-border/50 bg-muted/30 px-3 py-2 text-[11px] font-medium text-muted-foreground">

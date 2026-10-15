@@ -92,7 +92,7 @@ export function ImportDialog({
         <div className="grid gap-3">
           <div className="grid gap-1.5">
             <Label>{pm.importCsv}</Label>
-            <Textarea
+            <Textarea aria-label={pm.importCsv}
               dir="ltr"
               value={csv}
               onChange={(e) => setCsv(e.target.value)}

@@ -42,7 +42,7 @@ SELECT throws_ok($$SELECT public.change_bank_account_state((result->>'id')::uuid
 SELECT set_config('request.jwt.claims','{"role":"authenticated","sub":"00000000-0000-0000-0000-000000000001","aal":"aal1"}',true);
 SELECT throws_ok($$SELECT public.save_bank_account(input) FROM bank_fixture$$,'P0001','AUTH007: accounting permission required','owner MFA required');
 SELECT set_config('request.jwt.claims','{"role":"authenticated","sub":"00000000-0000-0000-0000-000000000001","aal":"aal2"}',true);
-UPDATE bank_fixture SET result=public.save_bank_account(input || '{"iban":"GB82WEST12345698765432","currency":"GBP"}');
+UPDATE bank_fixture SET result=public.save_bank_account(input || '{"iban":"GB82WEST12345698765432","currency":"SAR"}');
 SELECT throws_ok($$SELECT public.change_bank_account_state((result->>'id')::uuid,'2000-01-01','delete') FROM bank_fixture$$,'P0001','BNK002: bank account changed; reload first','stale deletion rejected');
 SELECT lives_ok($$SELECT public.change_bank_account_state((result->>'id')::uuid,(result->>'updated_at')::timestamptz,'delete') FROM bank_fixture$$,'unused account can be soft deleted');
 RESET ROLE;

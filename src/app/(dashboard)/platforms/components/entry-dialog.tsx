@@ -164,7 +164,7 @@ export function EntryDialog({
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
               <Label>{om.fieldDate} *</Label>
-              <Input dir="ltr" type="date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} />
+              <Input aria-label={om.fieldDate} dir="ltr" type="date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} />
             </div>
             <div className="grid gap-1.5">
               <Label>{om.fieldShiftLabel}</Label>
@@ -183,24 +183,24 @@ export function EntryDialog({
           <div className="grid grid-cols-3 gap-3">
             <div className="grid gap-1.5">
               <Label>{om.fieldDelivered}</Label>
-              <Input dir="ltr" type="number" min="0" value={delivered} onChange={(e) => setDelivered(e.target.value)} placeholder="0" />
+              <Input aria-label={om.fieldDelivered} dir="ltr" type="number" min="0" value={delivered} onChange={(e) => setDelivered(e.target.value)} placeholder="0" />
             </div>
             <div className="grid gap-1.5">
               <Label>{om.fieldFailed}</Label>
-              <Input dir="ltr" type="number" min="0" value={failed} onChange={(e) => setFailed(e.target.value)} />
+              <Input aria-label={om.fieldFailed} dir="ltr" type="number" min="0" value={failed} onChange={(e) => setFailed(e.target.value)} />
             </div>
             <div className="grid gap-1.5">
               <Label>{om.fieldReturned}</Label>
-              <Input dir="ltr" type="number" min="0" value={returned} onChange={(e) => setReturned(e.target.value)} />
+              <Input aria-label={om.fieldReturned} dir="ltr" type="number" min="0" value={returned} onChange={(e) => setReturned(e.target.value)} />
             </div>
           </div>
           <div className="grid gap-1.5">
             <Label>{om.fieldRevenue}</Label>
-            <Input dir="ltr" type="number" min="0" step="0.01" value={revenue} onChange={(e) => setRevenue(e.target.value)} />
+            <Input aria-label={om.fieldRevenue} dir="ltr" type="number" min="0" step="0.01" value={revenue} onChange={(e) => setRevenue(e.target.value)} />
           </div>
           <div className="grid gap-1.5">
             <Label>{om.fieldNotes}</Label>
-            <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
+            <Input aria-label={om.fieldNotes} value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
         </div>
         <DialogFooter>

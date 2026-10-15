@@ -162,7 +162,7 @@ export function OdometerDialog({
           <div className="grid grid-cols-[1fr_auto] items-end gap-2">
             <div className="grid gap-1.5">
               <Label>{m.addOdometerReading}</Label>
-              <Input dir="ltr" type="number" min="0" value={reading} onChange={(e) => setReading(e.target.value)} placeholder="0" />
+              <Input aria-label={m.addOdometerReading} dir="ltr" type="number" min="0" value={reading} onChange={(e) => setReading(e.target.value)} placeholder="0" />
             </div>
             <Button onClick={submit} disabled={busy}>
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
