@@ -24,6 +24,10 @@ export async function verifyOperationsCrud(page, admin, tenantId, appUrl) {
     let row = page.getByRole('row').filter({ hasText: 'BROWSER' })
     await row.getByRole('button', { name: 'Edit', exact: true }).click()
     dialog = page.getByRole('dialog')
+    await expect(dialog.getByLabel('Code', { exact: true })).toHaveValue('BROWSER')
+    await expect(dialog.getByLabel('Code', { exact: true })).toBeDisabled()
+    await expect(dialog.getByLabel('Name (Arabic)', { exact: true })).toHaveValue('منصة اختبار')
+    await expect(dialog.getByLabel('Name (English)', { exact: true })).toHaveValue('Browser platform')
     await dialog.getByLabel('Name (English)', { exact: true }).fill('Browser platform edited')
     await dialog.getByRole('button', { name: 'Save', exact: true }).click()
     await expect(dialog).toBeHidden()
@@ -77,7 +81,10 @@ export async function verifyOperationsCrud(page, admin, tenantId, appUrl) {
       .eq('id', event.data.id).single()).data?.status).toBe('completed')
     expect((await admin.from('vehicles').select('status').eq('id', vehicle.data.id).single()).data?.status).toBe('available')
     console.log('PASS: platform create/edit/deactivate and maintenance create/edit/start/complete persisted through authenticated browser actions')
-  } catch {
+  } catch (error) {
+    console.error(JSON.stringify({ check: 'operations', stage, errorType: error.name,
+      failureKind: /strict mode violation/.test(error.message) ? 'ambiguous-locator'
+        : /Timeout/.test(error.name) ? 'timeout' : 'assertion-or-service' }))
     throw new Error(`Operations browser verification failed: ${stage}`)
   }
 }

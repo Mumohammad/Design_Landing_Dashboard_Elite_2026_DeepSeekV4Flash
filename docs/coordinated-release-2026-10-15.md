@@ -18,6 +18,8 @@ This is a release candidate, not a production deployment confirmation.
 - The resulting database passed 2,468 assertions across the database suites, including the final targeted 51-assertion payment rerun after correcting its privileged fixture setup. Tests enforce current RBAC/MFA and anonymous denial, rather than the old branches' permissive assumptions.
 - Concurrent retries produced one payment and one audit entry. Competing allocations allowed one commit and rejected the competing overspend.
 - Browser and hosted CI results must be appended after completion; a local build is not a hosted staging release check.
+- All eight local Auth/Storage integration tests passed after allowing 30 seconds for HTTP assertions; the initial five-second default timed out two assertions on the cold local stack.
+- Authenticated browser checks passed invoice create/edit/print/PDF/delete, journal draft CRUD, bank lifecycle and the paginated payment-bank picker. The operations run exposed a real platform edit-dialog bug: blank disabled code and blank names prevented saving. The dialog now initializes all identity fields from the selected record; the browser test asserts those values before editing.
 
 ## Confirmed external state and remaining release gates
 

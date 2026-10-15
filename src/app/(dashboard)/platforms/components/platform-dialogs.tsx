@@ -48,10 +48,10 @@ export function PlatformDialog({
   const pm = t.platformsModule
   const editing = platform != null
 
-  const [code, setCode] = useState("")
-  const [nameAr, setNameAr] = useState("")
-  const [nameEn, setNameEn] = useState("")
-  const [color, setColor] = useState("#1E5A99")
+  const [code, setCode] = useState(platform?.code ?? "")
+  const [nameAr, setNameAr] = useState(platform?.name_ar ?? "")
+  const [nameEn, setNameEn] = useState(platform?.name_en ?? "")
+  const [color, setColor] = useState(platform?.brand_color ?? "#1E5A99")
   const [rateType, setRateType] = useState<(typeof RATE_TYPES)[number]>(
     (platform?.rate_type as (typeof RATE_TYPES)[number]) ?? "flat"
   )
