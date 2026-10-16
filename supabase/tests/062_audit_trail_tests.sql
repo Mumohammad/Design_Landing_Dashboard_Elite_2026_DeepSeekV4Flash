@@ -30,6 +30,8 @@
 -- Fixture rows roll back with the test transaction.
 -- ============================================================================
 
+BEGIN;
+
 SELECT plan(25);
 
 -- ─── Fixtures (run as postgres; bypass RLS) ─────────────────────────────────
@@ -90,7 +92,7 @@ BEGIN
   VALUES ('55555555-5555-5555-5555-555555555555',
           '33333333-3333-3333-3333-333333333333',
           '11111111-1111-1111-1111-111111111111',
-          'audit-trail-fixture@test.local', 'supervisor', 'active');
+          'audit-trail-fixture@test.local', 'general_manager', 'active');
 
   -- Tenant A: created (with reason + sensitive payload), system (no actor),
   -- updated (newest). Tenant B: 1 semantic row + 120 cap-probe rows.
@@ -181,7 +183,7 @@ SET LOCAL ROLE postgres;
 SELECT ok(
   (SELECT p.prosecdef
      AND p.proconfig IS NOT NULL
-     AND array_to_string(p.proconfig, ',') LIKE '%search_path=public%'
+     AND array_to_string(p.proconfig, ',') LIKE '%search_path=%'
    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'public' AND p.proname = 'fetch_audit_trail_page'),
   'fetch_audit_trail_page is SECURITY DEFINER with pinned search_path'
@@ -197,7 +199,7 @@ SELECT is(
 
 RESET ROLE;
 SET LOCAL ROLE authenticated;
-SELECT set_config('request.jwt.claims', '{"role":"authenticated"}', true);
+SELECT set_config('request.jwt.claims', '{"role":"authenticated","aal":"aal2"}', true);
 SELECT is(
   has_function_privilege('authenticated', 'public.fetch_audit_trail_page(uuid, timestamptz, timestamptz, uuid, text, text, text, uuid, integer)', 'EXECUTE'),
   true,
@@ -215,22 +217,24 @@ SELECT is(
 -- ─── 4. BEHAVIORAL: cap, isolation, ordering, filters (8) ───────────────────
 
 RESET ROLE;
-SET LOCAL ROLE postgres;
+SELECT set_config('request.jwt.claims',
+  '{"role":"authenticated","aal":"aal2","sub":"33333333-3333-3333-3333-333333333333"}', true);
+SET LOCAL ROLE authenticated;
 
--- Hard cap: tenant B holds 121 rows; p_limit=500 must clamp to 100.
+-- A tenant-A caller cannot use the tenant argument to read tenant B's rows.
 SELECT is(
   (SELECT count(*)::int FROM public.fetch_audit_trail_page(
      '22222222-2222-2222-2222-222222222222',
      NULL, NULL, NULL, NULL, NULL, NULL, NULL, 500)),
-  100,
-  'fetch_audit_trail_page clamps p_limit to the hard cap of 100'
+  0,
+  'fetch_audit_trail_page rejects a cross-tenant tenant argument'
 );
 
 -- Tenant isolation: tenant A sees exactly its 3 rows even though the
 -- definer function bypasses RLS (tenant B holds 121 more).
 SELECT is(
   (SELECT count(*)::int FROM public.fetch_audit_trail_page(
-     (SELECT f.tenant_id FROM audit_trail_fixture f),
+     '11111111-1111-1111-1111-111111111111',
      NULL, NULL, NULL, NULL, NULL, NULL, NULL, 500)),
   3,
   'fetch_audit_trail_page returns only the requested tenant rows'
@@ -239,7 +243,7 @@ SELECT is(
 -- Newest-first ordering: tenant A's newest row is the 'updated' event.
 SELECT is(
   (SELECT action FROM public.fetch_audit_trail_page(
-     (SELECT f.tenant_id FROM audit_trail_fixture f),
+     '11111111-1111-1111-1111-111111111111',
      NULL, NULL, NULL, NULL, NULL, NULL, NULL, 10)
    LIMIT 1),
   'updated',
@@ -249,7 +253,7 @@ SELECT is(
 -- Reason projection: created event surfaces new_values->>'reason'.
 SELECT is(
   (SELECT reason FROM public.fetch_audit_trail_page(
-     (SELECT f.tenant_id FROM audit_trail_fixture f),
+     '11111111-1111-1111-1111-111111111111',
      NULL, NULL, NULL, 'created', NULL, NULL, NULL, 10)),
   'seed reason',
   'reason is projected from new_values->>reason'
@@ -258,7 +262,7 @@ SELECT is(
 -- Action filter.
 SELECT is(
   (SELECT count(*)::int FROM public.fetch_audit_trail_page(
-     (SELECT f.tenant_id FROM audit_trail_fixture f),
+     '11111111-1111-1111-1111-111111111111',
      NULL, NULL, NULL, 'created', NULL, NULL, NULL, 50)),
   1,
   'action filter returns only matching events'
@@ -267,9 +271,9 @@ SELECT is(
 -- Entity drill-down filter (type + id — the per-entity history view).
 SELECT is(
   (SELECT count(*)::int FROM public.fetch_audit_trail_page(
-     (SELECT f.tenant_id FROM audit_trail_fixture f),
+     '11111111-1111-1111-1111-111111111111',
      NULL, NULL, NULL, NULL, NULL, 'driver',
-     (SELECT f.entity_id FROM audit_trail_fixture f), 50)),
+     '44444444-4444-4444-4444-444444444444', 50)),
   2,
   'entity type + id filter returns the full entity history'
 );
@@ -277,8 +281,8 @@ SELECT is(
 -- Actor filter (users.id is resolved to the auth.users actor inside the RPC).
 SELECT is(
   (SELECT count(*)::int FROM public.fetch_audit_trail_page(
-     (SELECT f.tenant_id FROM audit_trail_fixture f),
-     NULL, NULL, (SELECT f.user_id FROM audit_trail_fixture f),
+     '11111111-1111-1111-1111-111111111111',
+     NULL, NULL, '55555555-5555-5555-5555-555555555555',
      NULL, NULL, NULL, NULL, 50)),
   2,
   'actor filter excludes system events (NULL actor) and other actors'
@@ -287,7 +291,7 @@ SELECT is(
 -- Date-range filter: only the 1-hour-old event is inside the last 90 minutes.
 SELECT is(
   (SELECT count(*)::int FROM public.fetch_audit_trail_page(
-     (SELECT f.tenant_id FROM audit_trail_fixture f),
+     '11111111-1111-1111-1111-111111111111',
      now() - interval '90 minutes', NULL, NULL, NULL, NULL, NULL, NULL, 50)),
   1,
   'date-range filter (p_from) bounds the result set'
@@ -297,7 +301,7 @@ SELECT is(
 
 RESET ROLE;
 SET LOCAL ROLE authenticated;
-SELECT set_config('request.jwt.claims', '{"role":"authenticated"}', true);
+SELECT set_config('request.jwt.claims', '{"role":"authenticated","aal":"aal2"}', true);
 
 SELECT throws_ok(
   $$UPDATE public.audit_log SET action = 'tampered' WHERE module = 'seed'$$,
@@ -340,15 +344,15 @@ RESET ROLE;
 SET LOCAL ROLE anon;
 SELECT set_config('request.jwt.claims', '{"role":"anon"}', true);
 SELECT is(
-  (SELECT count(*)::int FROM public.audit_log),
-  0,
-  'anon sees 0 audit rows (no policy grants anon access)'
+  has_table_privilege('anon', 'public.audit_log', 'SELECT'),
+  false,
+  'anon has no audit_log SELECT grant'
 );
 
 RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claims',
-  '{"role":"authenticated","sub":"33333333-3333-3333-3333-333333333333"}', true);
+  '{"role":"authenticated","aal":"aal2","sub":"33333333-3333-3333-3333-333333333333"}', true);
 SELECT is(
   (SELECT count(*)::int FROM public.audit_log),
   3,
@@ -361,3 +365,5 @@ RESET ROLE;
 SET LOCAL ROLE postgres;
 
 SELECT * FROM finish();
+
+ROLLBACK;

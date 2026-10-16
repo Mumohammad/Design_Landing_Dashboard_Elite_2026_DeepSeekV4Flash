@@ -1,6 +1,6 @@
-// Route-level tests for /api/platform/* (audit fix FX-07): raw Supabase /
+// Route-level tests for the supported /api/platform/* endpoints: raw Supabase /
 // PostgREST error text must never reach the client, and existing-vs-fresh
-// account responses must be byte-identical (anti-enumeration).
+// registration responses must be byte-identical (anti-enumeration).
 //
 // Run: pnpm exec vitest run src/app/api/platform/platform-routes.test.ts
 
@@ -11,9 +11,8 @@ import { NextRequest } from "next/server"
 
 const { authState, rlState } = vi.hoisted(() => ({
   authState: {
-    loginError: null as { message: string } | null,
-    createUserError: null as { message: string } | null,
-    tenantsInsertError: null as { message: string } | null,
+    createUserError: null as { message: string; code?: string } | null,
+    tenantsInsertError: null as { message: string; code?: string } | null,
   },
   rlState: {
     registerResult: null as { success: boolean; remaining: number; resetAt: number } | null,
@@ -24,21 +23,19 @@ const { authState, rlState } = vi.hoisted(() => ({
 vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
     auth: {
-      signInWithPassword: async () =>
-        authState.loginError
-          ? { data: { user: null }, error: authState.loginError }
-          : { data: { user: { id: "u1" } }, error: null },
       admin: {
         createUser: async () =>
           authState.createUserError
             ? { data: { user: null }, error: authState.createUserError }
             : { data: { user: { id: "au1" } }, error: null },
+        deleteUser: vi.fn(async () => ({ error: null })),
         generateLink: async () => ({
           data: { properties: { action_link: "https://confirm.example.test" } },
           error: null,
         }),
       },
     },
+    rpc: async () => ({ data: { id: "t1", slug: "acme" }, error: authState.tenantsInsertError }),
     from: (table: string) => ({
       select: () => ({
         eq: () => ({
@@ -111,12 +108,10 @@ vi.mock("@/lib/supabase/server", () => ({
 
 // ── Load the route modules once (same convention as auth-routes.test.ts) ──
 
-let loginPost: typeof import("./login/route").POST
 let registerPost: typeof import("./register/route").POST
 let meGet: typeof import("./me/route").GET
 
 beforeAll(async () => {
-  loginPost = (await import("./login/route")).POST
   registerPost = (await import("./register/route")).POST
   meGet = (await import("./me/route")).GET
 })
@@ -136,7 +131,6 @@ beforeEach(() => {
     "fetch",
     vi.fn(async () => ({ ok: false, json: async () => ({}) }))
   )
-  authState.loginError = null
   authState.createUserError = null
   authState.tenantsInsertError = null
   rlState.registerResult = null
@@ -145,46 +139,6 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals()
-})
-
-// ── POST /api/platform/login ───────────────────────────────────────────────
-
-describe("POST /api/platform/login (FX-07)", () => {
-  it("returns one generic 401 for EVERY Supabase auth failure reason", async () => {
-    for (const reason of [
-      "Invalid login credentials",
-      "Email not confirmed",
-      "User already registered",
-    ]) {
-      authState.loginError = { message: reason }
-      const res = await loginPost(
-        jsonPost("/api/platform/login", JSON.stringify({ email: "e@x.com", password: "pw" }))
-      )
-      expect(res.status, reason).toBe(401)
-      expect(await res.json(), reason).toEqual({ error: "Invalid email or password" })
-    }
-  })
-
-  it("two-email enumeration probe: unknown vs existing account → identical status AND body", async () => {
-    // "Unknown email" and "existing but unconfirmed" historically produced
-    // different Supabase messages; both must now be indistinguishable.
-    authState.loginError = { message: "Invalid login credentials" }
-    const unknown = await loginPost(
-      jsonPost("/api/platform/login", JSON.stringify({ email: "ghost@example.com", password: "pw" }))
-    )
-    authState.loginError = { message: "Email not confirmed" }
-    const existing = await loginPost(
-      jsonPost("/api/platform/login", JSON.stringify({ email: "real@example.com", password: "pw" }))
-    )
-    expect(unknown.status).toBe(existing.status)
-    expect(await unknown.text()).toBe(await existing.text())
-  })
-
-  it("outer catch is generic: malformed JSON → 500 with no leak", async () => {
-    const res = await loginPost(jsonPost("/api/platform/login", "{not json"))
-    expect(res.status).toBe(500)
-    expect(await res.json()).toEqual({ error: "Internal server error" })
-  })
 })
 
 // ── POST /api/platform/register ────────────────────────────────────────────
@@ -200,7 +154,7 @@ describe("POST /api/platform/register (FX-07)", () => {
   it("duplicate email is INDISTINGUISHABLE from success (anti-enumeration)", async () => {
     const fresh = await registerPost(jsonPost("/api/platform/register", payload))
 
-    authState.createUserError = { message: "User already registered" }
+    authState.createUserError = { message: "User already registered", code: "email_exists" }
     const existing = await registerPost(jsonPost("/api/platform/register", payload))
 
     expect(existing.status).toBe(fresh.status)
@@ -208,17 +162,17 @@ describe("POST /api/platform/register (FX-07)", () => {
     expect(existing.status).toBe(200)
   })
 
-  it("DB failure mid-registration → 500 with NO PostgREST text, table, or column names", async () => {
+  it("DB failure mid-registration → 503 with NO PostgREST text, table, or column names", async () => {
     authState.createUserError = null
     authState.tenantsInsertError = {
       message:
         'duplicate key value violates unique constraint "tenants_domain_key" on table "tenants"',
     }
     const res = await registerPost(jsonPost("/api/platform/register", payload))
-    expect(res.status).toBe(500)
+    expect(res.status).toBe(503)
     const text = await res.text()
     expect(text).not.toMatch(/duplicate key|violates|constraint|table|tenants/i)
-    expect(JSON.parse(text)).toEqual({ error: "Registration failed" })
+    expect(JSON.parse(text)).toEqual({ error: "Registration unavailable. Please contact support before retrying." })
   })
 })
 

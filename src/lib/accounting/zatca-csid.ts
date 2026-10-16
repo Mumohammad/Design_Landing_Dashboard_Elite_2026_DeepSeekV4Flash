@@ -14,6 +14,7 @@
 //
 // No ZATCA compliance is claimed (ZATCA-BOUNDARY.md §5).
 
+import { integrationAvailable, INTEGRATION_UNAVAILABLE } from "@/lib/release/integrations"
 import { randomUUID } from "node:crypto"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
@@ -55,9 +56,9 @@ function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : "Unknown error"
 }
 
-/** Mask a CSID secret for any UI surface: `ab12…` — the real value never leaves the server. */
+/** No credential characters or length leave the server, even in audit history. */
 function maskSecret(secret: string): string {
-  return secret.length <= 4 ? "••••" : `${secret.slice(0, 4)}…`
+  return secret ? "••••" : ""
 }
 
 /**
@@ -66,6 +67,7 @@ function maskSecret(secret: string): string {
  * the row — no accumulating secrets.
  */
 export async function saveZatcaCsid(input: SaveCsidInput): Promise<{ success: boolean; error?: string }> {
+  if (!integrationAvailable("zatca")) return { success: false, error: INTEGRATION_UNAVAILABLE }
   try {
     await requirePermission("accounting", "approve")
     const currentUser = await getCurrentUser()
@@ -155,30 +157,6 @@ export async function listZatcaCsids(): Promise<{
   }
 }
 
-/**
- * Read the full CSID credential (cert + secret + private key) for the
- * transport — SERVER ONLY, never called from the browser. Returns null when
- * the tenant has no matching CSID so the adapter can fall back to env-config
- * / sandbox mode.
- */
-export async function getZatcaCsidCredential(
-  environment: ZatcaCsidEnvironment,
-  kind: ZatcaCsidKind,
-  tenantId: string
-): Promise<{ csidBase64: string; secret: string; privateKeyPem: string | null } | null> {
-  const admin = createAdminClient()
-  const { data } = await admin
-    .from("zatca_csids")
-    .select("csid_base64,secret,private_key")
-    .eq("tenant_id", tenantId)
-    .eq("environment", environment)
-    .eq("kind", kind)
-    .eq("status", "issued")
-    .maybeSingle()
-  if (!data) return null
-  return { csidBase64: data.csid_base64, secret: data.secret, privateKeyPem: data.private_key ?? null }
-}
-
 // ── Onboarding orchestrator ────────────────────────────────────────────────
 
 export interface OnboardZatcaInput {
@@ -224,6 +202,7 @@ export interface OnboardZatcaResult {
  * deterministic mock, so this action is exercisable offline end-to-end.
  */
 export async function onboardZatcaCsids(input: OnboardZatcaInput): Promise<OnboardZatcaResult> {
+  if (!integrationAvailable("zatca")) return { success: false, error: INTEGRATION_UNAVAILABLE }
   try {
     await requirePermission("accounting", "approve")
     const currentUser = await getCurrentUser()

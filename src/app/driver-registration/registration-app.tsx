@@ -6,7 +6,7 @@ import { useDriverRegistration } from "@/contexts/driver-registration-context"
 import { WelcomeHero } from "./components/welcome-hero"
 import { Wizard, type PlatformOption } from "./components/wizard"
 
-export function RegistrationApp() {
+export function RegistrationApp({ tenantSlug }: { tenantSlug: string }) {
   const { locale } = useDriverRegistration()
   const [started, setStarted] = React.useState(false)
   const [platformOptions, setPlatformOptions] = React.useState<PlatformOption[]>([])
@@ -76,7 +76,7 @@ export function RegistrationApp() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, ease: "easeOut" }}
         >
-          <Wizard platformOptions={platformOptions} />
+          <Wizard platformOptions={platformOptions} tenantSlug={tenantSlug} />
         </motion.div>
       )}
     </AnimatePresence>

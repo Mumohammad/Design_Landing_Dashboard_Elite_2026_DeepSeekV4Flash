@@ -7,6 +7,7 @@
 // Security: Only accepts requests with the CRON_SECRET header.
 // FAILS CLOSED: Returns 503 if CRON_SECRET is not configured.
 
+import { integrationAvailable, INTEGRATION_UNAVAILABLE } from "@/lib/release/integrations"
 import { NextResponse } from "next/server"
 import { processRetries } from "@/lib/webhooks/dispatcher"
 import { cleanOldDeliveries } from "@/lib/webhooks/store"
@@ -45,6 +46,9 @@ export async function GET(req: Request): Promise<NextResponse> {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
+  if (!integrationAvailable("webhooks")) {
+    return NextResponse.json({ error: INTEGRATION_UNAVAILABLE }, { status: 503 })
+  }
   log.info("Starting webhook retry processing")
 
   try {

@@ -1,5 +1,6 @@
 "use client"
 
+import { integrationAvailable } from "@/lib/release/integrations"
 import { Fragment, useEffect, useState } from "react"
 import { useActionState } from "react"
 import { createClient } from "@/lib/supabase/client"
@@ -9,6 +10,7 @@ import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/ca
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
+import { BankAccountPicker } from "@/components/accounting/bank-account-picker"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { LoadingSpinner } from "@/components/ui/loading-spinner"
@@ -21,6 +23,8 @@ import {
   postJournalEntry,
   createReceivable,
   createJournalDraft,
+  updateJournalDraft,
+  deleteJournalDraft,
   submitJournalEntry,
   approveJournalEntry,
   rejectJournalEntry,
@@ -40,7 +44,7 @@ import {
   type ZatcaCsidEnvironment,
 } from "@/lib/accounting/zatca-csid"
 import { computeVatNetPosition } from "@/lib/accounting/vat-math"
-import { recordPayment, voidPayment, createBankAccount } from "@/lib/accounting/payments"
+import { recordPayment, voidPayment, createBankAccount, updateBankAccount, changeBankAccountState } from "@/lib/accounting/payments"
 import {
   resolveVatReviewItem,
   exportVatReconciliationCsv,
@@ -61,6 +65,7 @@ interface JournalRow {
   description_ar: string | null
   description_en: string | null
   posted_at: string | null
+  updated_at: string
   journal_approvals?: { status: string } | null
 }
 
@@ -166,6 +171,8 @@ interface PaymentRow {
 
 interface BankAccountRow {
   id: string
+  updated_at: string
+  account_number: string | null
   bank_name: string
   account_name: string
   iban: string
@@ -407,6 +414,9 @@ export default function AccountingPage() {
   const [onboardBusy, setOnboardBusy] = useState(false)
   const [payments, setPayments] = useState<PaymentRow[]>([])
   const [bankAccounts, setBankAccounts] = useState<BankAccountRow[]>([])
+  const [bankPage, setBankPage] = useState(0)
+  const [bankCount, setBankCount] = useState(0)
+  const [bankLoadError, setBankLoadError] = useState(false)
   const [openAr, setOpenAr] = useState<OpenArApRow[]>([])
   const [openAp, setOpenAp] = useState<OpenArApRow[]>([])
   const [custOptions, setCustOptions] = useState<{ id: string; name: string }[]>([])
@@ -419,11 +429,11 @@ export default function AccountingPage() {
       setIsLoading(true)
       const supabase = createClient()
 
-      if (tab === "journal") {
+      if (tab === "journal" || tab === "payments") {
         const { data } = await supabase
           .from("chart_of_accounts")
           .select("id,account_code,name_ar,name_en,account_type,normal_balance")
-          .is("deleted_at", null)
+          .eq("is_active", true).is("deleted_at", null)
           .order("account_code", { ascending: true })
         if (data) setAccounts(data as AccountRow[])
       }
@@ -431,7 +441,7 @@ export default function AccountingPage() {
       if (tab === "journal") {
         const { data } = await supabase
           .from("journal_entries")
-          .select("id,entry_ref,entry_date,entry_type,status,description_ar,description_en,posted_at,journal_approvals(status)")
+          .select("id,entry_ref,entry_date,entry_type,status,description_ar,description_en,posted_at,updated_at,journal_approvals(status)")
           .is("deleted_at", null)
           .order("entry_date", { ascending: false })
           .order("created_at", { ascending: false })
@@ -510,10 +520,10 @@ export default function AccountingPage() {
             .limit(200),
           supabase
             .from("bank_accounts")
-            .select("id,bank_name,account_name,iban,currency,opening_balance,is_active,coa_account_code")
+            .select("id,bank_name,account_name,iban,account_number,currency,opening_balance,is_active,coa_account_code,updated_at", { count: "exact" })
             .is("deleted_at", null)
-            .order("bank_name", { ascending: true })
-            .limit(50),
+            .order("bank_name", { ascending: true }).order("id", { ascending: true })
+            .range(bankPage * 50, bankPage * 50 + 49),
           supabase
             .from("receivables")
             .select("id,invoice_ref,invoice_date,due_date,amount,vat_amount,total_amount,paid_amount,status,customer_id,customers(name_ar,name_en)")
@@ -542,7 +552,12 @@ export default function AccountingPage() {
             .limit(200),
         ])
         if (payRes.data) setPayments(payRes.data as unknown as PaymentRow[])
-        if (bankRes.data) setBankAccounts(bankRes.data as BankAccountRow[])
+        setBankLoadError(!!bankRes.error)
+        if (bankRes.data) {
+          setBankAccounts(bankRes.data as BankAccountRow[])
+          setBankCount(bankRes.count ?? 0)
+          if (bankPage > 0 && (bankRes.count ?? 0) <= bankPage * 50) setBankPage(0)
+        }
         if (arRes.data) {
           setOpenAr(
             (arRes.data as unknown as (ArApRow & { customers?: { name_ar: string | null; name_en: string | null } | null })[]).map((r) => ({
@@ -594,7 +609,7 @@ export default function AccountingPage() {
 
       setIsLoading(false)
     })()
-  }, [tab, payRefresh, vatRefresh])
+  }, [tab, payRefresh, vatRefresh, bankPage])
 
   // ── VAT return (Phase 12) — auto-select the latest period once the
   // reconciliation list is loaded, then fetch its return summary. Mirror the
@@ -625,15 +640,34 @@ export default function AccountingPage() {
   // Journal entry form
   const [entryDate, setEntryDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [entryDesc, setEntryDesc] = useState("")
+  const [entryDescEn, setEntryDescEn] = useState("")
+  const [editTarget, setEditTarget] = useState<JournalRow | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<JournalRow | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [journalError, setJournalError] = useState<string | null>(null)
   const [lines, setLines] = useState<LineDraft[]>([
     { key: 1, account_id: "", description: "", debit: "", credit: "" },
     { key: 2, account_id: "", description: "", debit: "", credit: "" },
   ])
-  const [journalState, journalAction, isPosting] = useActionState(
+  async function reloadJournal() {
+    const supabase = createClient()
+    const { data } = await supabase
+      .from("journal_entries")
+      .select("id,entry_ref,entry_date,entry_type,status,description_ar,description_en,posted_at,updated_at,journal_approvals(status)")
+      .is("deleted_at", null)
+      .order("entry_date", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(100)
+    if (data) setJournals(data as unknown as JournalRow[])
+  }
+
+  const [asDraft, setAsDraft] = useState(true)
+  const [, journalAction, isPosting] = useActionState(
     async (_prev: { success: boolean; error?: string } | null, _form: FormData) => {
       const payload = {
         entry_date: entryDate,
         description_ar: entryDesc,
+        description_en: entryDescEn || null,
         lines: lines.map((l) => ({
           account_id: l.account_id,
           description: l.description,
@@ -641,8 +675,15 @@ export default function AccountingPage() {
           credit: Number(l.credit || 0),
         })),
       }
-      const res = asDraft ? await createJournalDraft(payload) : await postJournalEntry(payload)
-      if (res.success) closeDialog("journal")
+      const res = editTarget
+        ? await updateJournalDraft({ ...payload, id: editTarget.id, expected_updated_at: editTarget.updated_at })
+        : asDraft ? await createJournalDraft(payload) : await postJournalEntry(payload)
+      setJournalError(res.error ?? null)
+      if (res.success) {
+        closeDialog("journal")
+        setLineCache({})
+        await reloadJournal()
+      }
       return res
     },
     null
@@ -657,7 +698,6 @@ export default function AccountingPage() {
   const removeLine = (key: number) => setLines((prev) => (prev.length > 2 ? prev.filter((l) => l.key !== key) : prev))
 
   // Draft mode: save as draft (unbalanced allowed) vs post directly.
-  const [asDraft, setAsDraft] = useState(false)
 
   // ── Phase 3 action handlers ────────────────────────────────────────────
   const [feedback, setFeedback] = useState<{ type: "ok" | "err"; text: string } | null>(null)
@@ -670,21 +710,59 @@ export default function AccountingPage() {
   const [rejectReason, setRejectReason] = useState("")
   const [isRejecting, setIsRejecting] = useState(false)
 
-  async function reloadJournal() {
-    const supabase = createClient()
-    const { data } = await supabase
-      .from("journal_entries")
-      .select("id,entry_ref,entry_date,entry_type,status,description_ar,description_en,posted_at,journal_approvals(status)")
-      .is("deleted_at", null)
-      .order("entry_date", { ascending: false })
-      .order("created_at", { ascending: false })
-      .limit(100)
-    if (data) setJournals(data as unknown as JournalRow[])
-  }
-
   const flash = (type: "ok" | "err", text: string) => {
     setFeedback({ type, text })
     window.setTimeout(() => setFeedback(null), 6000)
+  }
+
+  function newJournal() {
+    setEditTarget(null)
+    setJournalError(null)
+    setEntryDate(new Date().toISOString().slice(0, 10))
+    setEntryDesc("")
+    setEntryDescEn("")
+    setAsDraft(true)
+    setLines([1, 2].map((key) => ({ key, account_id: "", description: "", debit: "", credit: "" })))
+    openDialog("journal")
+  }
+
+  async function editJournal(entry: JournalRow) {
+    setBusyEntryId(entry.id)
+    const client = createClient()
+    // One relational read keeps the header version and its lines in one snapshot.
+    const { data, error } = await client.from("journal_entries")
+      .select("*,journal_approvals(status),journal_entry_lines(account_id,description,debit_amount,credit_amount)")
+      .eq("id", entry.id).is("deleted_at", null).single()
+    setBusyEntryId(null)
+    if (error || !data || data.status !== "draft" || data.entry_type !== "manual" ||
+      ["submitted", "approved"].includes(data.journal_approvals?.status)) {
+      flash("err", ar ? "تعذّر فتح المسودة. أعد تحميل القائمة." : "Could not open this draft. Reload the list.")
+      return
+    }
+    setEditTarget(data as JournalRow)
+    setJournalError(null)
+    setEntryDate(data.entry_date)
+    setEntryDesc(data.description_ar ?? "")
+    setEntryDescEn(data.description_en ?? "")
+    setAsDraft(true)
+    setLines((data.journal_entry_lines as JournalLineRow[]).map((line, key) => ({
+      key, account_id: line.account_id, description: line.description ?? "",
+      debit: String(line.debit_amount), credit: String(line.credit_amount),
+    })))
+    openDialog("journal")
+  }
+
+  async function removeJournal() {
+    if (!deleteTarget) return
+    setBusyEntryId(deleteTarget.id)
+    const result = await deleteJournalDraft({ id: deleteTarget.id, expected_updated_at: deleteTarget.updated_at })
+    setBusyEntryId(null)
+    if (!result.success) { setDeleteError(result.error ?? "Failed"); return }
+    setDeleteTarget(null)
+    setLineCache({})
+    setExpandedEntryId(null)
+    await reloadJournal()
+    flash("ok", ar ? "تم حذف المسودة مع الاحتفاظ بسجل التدقيق." : "Draft deleted; audit history retained.")
   }
 
   // ── Journal entry-lines drill-down (Prompt I) ───────────────────────────
@@ -987,6 +1065,7 @@ export default function AccountingPage() {
   const [paySupplier, setPaySupplier] = useState("")
   const [payReference, setPayReference] = useState("")
   const [payAllocs, setPayAllocs] = useState<PayAllocDraft[]>([])
+  const [payRequestId, setPayRequestId] = useState("")
 
   function syncAllocList(dir: "in" | "out", partyId?: string) {
     const rows = (dir === "in" ? openAr : openAp).filter((r) => {
@@ -1009,6 +1088,7 @@ export default function AccountingPage() {
   }
 
   function openPayDialog() {
+    setPayRequestId(crypto.randomUUID())
     setPayDirection("in")
     setPayDate(new Date().toISOString().slice(0, 10))
     setPayAmount("")
@@ -1024,6 +1104,7 @@ export default function AccountingPage() {
   async function handleRecordPayment() {
     setPayBusy(true)
     const res = await recordPayment({
+      request_id: payRequestId,
       direction: payDirection,
       payment_date: payDate,
       amount: Number(payAmount || 0),
@@ -1038,7 +1119,9 @@ export default function AccountingPage() {
     })
     setPayBusy(false)
     if (res.success) {
-      flash("ok", ar ? "تم تسجيل الدفعة وترحيلها." : "Payment recorded and posted.")
+      flash("ok", res.postingStatus === "posted"
+        ? (ar ? "تم تسجيل الدفعة وترحيلها." : "Payment recorded and posted.")
+        : (ar ? "تم حفظ الدفعة؛ بانتظار الترحيل المحاسبي." : "Payment saved; awaiting accounting posting."))
       setPayDialogOpen(false)
       setPayRefresh((k) => k + 1)
     } else {
@@ -1068,31 +1151,53 @@ export default function AccountingPage() {
   const [bankAccNum, setBankAccNum] = useState("")
   const [bankOpening, setBankOpening] = useState("")
   const [bankCoa, setBankCoa] = useState("1100")
+  const [bankCurrency, setBankCurrency] = useState("SAR")
+  const [bankEdit, setBankEdit] = useState<BankAccountRow | null>(null)
+  const [bankError, setBankError] = useState<string | null>(null)
+  const [bankStateTarget, setBankStateTarget] = useState<{ bank: BankAccountRow; action: "activate" | "deactivate" | "delete" } | null>(null)
+  const [bankStateError, setBankStateError] = useState<string | null>(null)
+
+  function openBankForm(bank?: BankAccountRow) {
+    setBankEdit(bank ?? null)
+    setBankError(null)
+    setBankName(bank?.bank_name ?? "")
+    setBankAccName(bank?.account_name ?? "")
+    setBankIban(bank?.iban ?? "")
+    setBankAccNum(bank?.account_number ?? "")
+    setBankOpening(String(bank?.opening_balance ?? 0))
+    setBankCoa(bank?.coa_account_code ?? "1100")
+    setBankCurrency(bank?.currency ?? "SAR")
+    setBankDialogOpen(true)
+  }
+
+  async function handleBankState() {
+    if (!bankStateTarget) return
+    setBankBusy(true)
+    const res = await changeBankAccountState({ id: bankStateTarget.bank.id,
+      expected_updated_at: bankStateTarget.bank.updated_at, action: bankStateTarget.action })
+    setBankBusy(false)
+    if (!res.success) { setBankStateError(res.error ?? "Failed"); return }
+    setBankStateTarget(null)
+    setPayRefresh((value) => value + 1)
+    flash("ok", ar ? "تم تحديث حالة الحساب البنكي." : "Bank account status updated.")
+  }
 
   async function handleCreateBank() {
     setBankBusy(true)
-    const res = await createBankAccount({
-      bank_name: bankName,
-      account_name: bankAccName,
-      iban: bankIban,
-      account_number: bankAccNum || null,
-      currency: "SAR",
-      opening_balance: Number(bankOpening || 0),
-      coa_account_code: bankCoa || "1100",
-    })
+    const details = {
+      bank_name: bankName, account_name: bankAccName, iban: bankIban,
+      account_number: bankAccNum || null, currency: bankCurrency,
+      opening_balance: Number(bankOpening || 0), coa_account_code: bankCoa,
+    }
+    const res = bankEdit
+      ? await updateBankAccount({ ...details, id: bankEdit.id, expected_updated_at: bankEdit.updated_at })
+      : await createBankAccount(details)
     setBankBusy(false)
     if (res.success) {
-      flash("ok", ar ? "تمت إضافة الحساب البنكي." : "Bank account added.")
+      flash("ok", ar ? "تم حفظ الحساب البنكي." : "Bank account saved.")
       setBankDialogOpen(false)
-      setBankName("")
-      setBankAccName("")
-      setBankIban("")
-      setBankAccNum("")
-      setBankOpening("")
-      setPayRefresh((k) => k + 1)
-    } else {
-      flash("err", res.error ?? "Failed")
-    }
+      setPayRefresh((value) => value + 1)
+    } else { setBankError(res.error ?? "Failed") }
   }
 
   // Receivable form
@@ -1149,40 +1254,44 @@ export default function AccountingPage() {
         <div className="flex items-center gap-2">
           <Dialog open={openDialogs["journal"]} onOpenChange={(o) => setOpenDialogs((p) => ({ ...p, journal: o }))}>
             <DialogTrigger asChild>
-              <button className={dialogBtn} onClick={() => openDialog("journal")}>
+              <button className={dialogBtn} onClick={newJournal}>
                 <BookOpenText className="h-3.5 w-3.5" />
                 {ar ? "قييد جديد" : "New entry"}
               </button>
             </DialogTrigger>
-            <DialogContent className="max-w-2xl rounded-2xl">
+            <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl rounded-2xl">
               <DialogHeader>
-                <DialogTitle>{ar ? "قيد يومية يدوي" : "Manual journal entry"}</DialogTitle>
+                <DialogTitle>{editTarget ? (ar ? "تعديل مسودة القيد" : "Edit journal draft") : (ar ? "قيد يومية يدوي" : "Manual journal entry")}</DialogTitle>
                 <DialogDescription>
                   {ar ? "يُتحقق من توازن القيد قبل الترحيل؛ القيود المرحّلة غير قابلة للتعديل" : "Entries are balance-checked before posting; posted entries are immutable"}
                 </DialogDescription>
               </DialogHeader>
-              <form action={journalAction} className="space-y-4">
+              <form action={journalAction} className="space-y-4 min-w-0">
+                <fieldset disabled={isPosting} className="space-y-4 min-w-0">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="space-y-1.5">
                     <Label htmlFor="entryDate">{ar ? "التاريخ" : "Date"}</Label>
-                    <Input id="entryDate" type="date" dir="ltr" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} className="h-9" />
+                    <Input id="entryDate" required type="date" dir="ltr" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} className="h-9" />
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="entryDesc">{ar ? "الوصف" : "Description"}</Label>
-                    <Input id="entryDesc" value={entryDesc} onChange={(e) => setEntryDesc(e.target.value)} className="h-9" />
+                    <Input id="entryDesc" required maxLength={2000} value={entryDesc} onChange={(e) => setEntryDesc(e.target.value)} className="h-9" />
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-border/50">
+                <div className="overflow-x-auto rounded-xl border border-border/50">
+                <div className="min-w-[480px]">
                   <div className="grid grid-cols-[1fr_90px_90px_32px] gap-2 border-b border-border/50 bg-muted/30 px-3 py-2 text-[11px] font-medium text-muted-foreground">
                     <span>{ar ? "الحساب" : "Account"}</span>
                     <span>{ar ? "مدين" : "Debit"}</span>
                     <span>{ar ? "دائن" : "Credit"}</span>
                     <span />
                   </div>
-                  {lines.map((l) => (
+                  {lines.map((l, index) => (
                     <div key={l.key} className="grid grid-cols-[1fr_90px_90px_32px] items-center gap-2 px-3 py-2">
                       <select
+                        aria-label={`${ar ? "الحساب" : "Account"} ${index + 1}`}
+                        required
                         value={l.account_id}
                         onChange={(e) => updateLine(l.key, { account_id: e.target.value })}
                         className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -1199,6 +1308,7 @@ export default function AccountingPage() {
                         dir="ltr"
                         min="0"
                         step="0.01"
+                        aria-label={`${ar ? "مدين" : "Debit"} ${index + 1}`}
                         value={l.debit}
                         onChange={(e) => updateLine(l.key, { debit: e.target.value })}
                         className="h-9 text-end tabular-nums"
@@ -1208,12 +1318,14 @@ export default function AccountingPage() {
                         dir="ltr"
                         min="0"
                         step="0.01"
+                        aria-label={`${ar ? "دائن" : "Credit"} ${index + 1}`}
                         value={l.credit}
                         onChange={(e) => updateLine(l.key, { credit: e.target.value })}
                         className="h-9 text-end tabular-nums"
                       />
                       <button
                         type="button"
+                        aria-label={`${ar ? "حذف السطر" : "Remove line"} ${index + 1}`}
                         onClick={() => removeLine(l.key)}
                         disabled={lines.length <= 2}
                         className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-500 disabled:opacity-30"
@@ -1224,9 +1336,11 @@ export default function AccountingPage() {
                   ))}
                 </div>
 
-                <div className="flex items-center justify-between">
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <button
                     type="button"
+                    disabled={lines.length >= 200}
                     onClick={addLine}
                     className="text-xs font-medium text-elite-blue-600 hover:text-elite-blue-700"
                   >
@@ -1252,6 +1366,7 @@ export default function AccountingPage() {
                   <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
                     <input
                       type="checkbox"
+                      disabled={!!editTarget}
                       checked={asDraft}
                       onChange={(e) => setAsDraft(e.target.checked)}
                       className="h-3.5 w-3.5 rounded border-border accent-elite-blue-600"
@@ -1267,14 +1382,30 @@ export default function AccountingPage() {
                       {isPosting ? <LoadingSpinner className="h-4 w-4" /> : asDraft ? <Send className="h-4 w-4" /> : <Save className="h-4 w-4" />}
                       {asDraft ? (ar ? "حفظ كمسودة" : "Save draft") : (ar ? "ترحيل القيد" : "Post entry")}
                     </Button>
-                    {journalState?.error && <span className="text-xs text-red-500">{journalState.error}</span>}
+                    {journalError && <span role="alert" className="text-xs text-red-500">{journalError}</span>}
                   </div>
                 </div>
+                </fieldset>
               </form>
             </DialogContent>
           </Dialog>
         </div>
       </div>
+
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open && !busyEntryId) setDeleteTarget(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{ar ? "حذف مسودة القيد" : "Delete journal draft"}</DialogTitle>
+            <DialogDescription>{ar ? "ستُزال المسودة من القائمة مع الاحتفاظ ببنودها وسجل التدقيق." : "Remove this draft from the list while retaining its lines and audit history."}</DialogDescription>
+          </DialogHeader>
+          <p className="text-sm">{deleteTarget?.entry_ref} · {deleteTarget?.description_ar}</p>
+          {deleteError && <p role="alert" className="text-sm text-destructive">{deleteError}</p>}
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" disabled={!!busyEntryId} onClick={() => setDeleteTarget(null)}>{ar ? "إلغاء" : "Cancel"}</Button>
+            <Button variant="destructive" disabled={!!busyEntryId} onClick={removeJournal}>{ar ? "حذف المسودة" : "Delete draft"}</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="flex-wrap h-auto">
@@ -1307,7 +1438,8 @@ export default function AccountingPage() {
                     const s = JOURNAL_STATUS[j.status] ?? JOURNAL_STATUS.draft
                     const approval = j.journal_approvals?.status
                     const ap = APPROVAL_STATUS[approval ?? ""]
-                    const canSubmit = j.status === "draft" && approval !== "submitted"
+                    const canSubmit = j.status === "draft" && !["submitted", "approved"].includes(approval ?? "")
+                    const canEdit = canSubmit && j.entry_type === "manual"
                     const canApprove = j.status === "draft" && approval === "submitted"
                     const canReject = canApprove
                     const canReverse = j.status === "posted"
@@ -1341,6 +1473,10 @@ export default function AccountingPage() {
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1">
+                            {canEdit && <>
+                              <Button size="sm" variant="outline" disabled={busyEntryId === j.id} onClick={() => editJournal(j)}>{ar ? "تعديل" : "Edit"}</Button>
+                              <Button size="sm" variant="outline" disabled={busyEntryId === j.id} onClick={() => { setDeleteTarget(j); setDeleteError(null) }}>{ar ? "حذف" : "Delete"}</Button>
+                            </>}
                             {canSubmit && (
                               <button
                                 onClick={() => handleJournalAction("submit", j)}
@@ -1962,6 +2098,7 @@ export default function AccountingPage() {
             </TabsContent>
 
             <TabsContent value="zatca" className="mt-4 space-y-4">
+              <p role="status" className="rounded-xl border p-4 text-sm">{ar ? "الإرسال والإعداد غير متاحين حتى اكتمال اختبارات واعتماد التكامل مع الهيئة." : "Submission and onboarding are unavailable until ZATCA integration validation is complete."}</p>
               <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
                 <CardHeader className="pb-3 flex-row items-center justify-between">
                   <div>
@@ -1974,7 +2111,7 @@ export default function AccountingPage() {
                   </div>
                   <Dialog open={onboardOpen} onOpenChange={setOnboardOpen}>
                     <DialogTrigger asChild>
-                      <button className={dialogBtn}>
+                      <button disabled={!integrationAvailable("zatca")} className={dialogBtn}>
                         <KeyRound className="h-3.5 w-3.5" />{ar ? "إعداد جديد" : "Onboard"}
                       </button>
                     </DialogTrigger>
@@ -2012,7 +2149,7 @@ export default function AccountingPage() {
                         </p>
                       </div>
                       <div className="flex items-center gap-3">
-                        <Button onClick={() => void handleOnboardZatca()} disabled={onboardBusy || !onboardOtp.trim()} className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800">
+                        <Button onClick={() => void handleOnboardZatca()} disabled={!integrationAvailable("zatca") || onboardBusy || !onboardOtp.trim()} className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800">
                           {onboardBusy ? <LoadingSpinner className="h-4 w-4" /> : <KeyRound className="h-4 w-4" />}
                           {ar ? "بدء الإعداد" : "Start onboarding"}
                         </Button>
@@ -2060,7 +2197,7 @@ export default function AccountingPage() {
                         : "Finalized sales documents transmitted as UBL 2.1 — sandbox by default, no compliance claimed"}
                     </CardDescription>
                   </div>
-                  <button onClick={handleRunZatca} disabled={zatcaBusy} className={dialogBtn}>
+                  <button onClick={handleRunZatca} disabled={zatcaBusy || !integrationAvailable("zatca")} className={dialogBtn}>
                     {zatcaBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
                     {ar ? "تشغيل المحوّل" : "Run adapter"}
                   </button>
@@ -2200,18 +2337,18 @@ export default function AccountingPage() {
                 <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
                   <CardHeader className="pb-3 flex-row items-center justify-between">
                     <CardTitle className="text-base flex items-center gap-2"><Building2 className="h-4 w-4 text-elite-blue-600" />{ar ? "الحسابات البنكية" : "Bank accounts"}</CardTitle>
-                    <Dialog open={bankDialogOpen} onOpenChange={setBankDialogOpen}>
+                    <Dialog open={bankDialogOpen} onOpenChange={(open) => { if (!bankBusy) setBankDialogOpen(open) }}>
                       <DialogTrigger asChild>
-                        <button className={dialogBtn}>
+                        <button className={dialogBtn} onClick={() => openBankForm()}>
                           <Plus className="h-3.5 w-3.5" />{ar ? "حساب جديد" : "Add account"}
                         </button>
                       </DialogTrigger>
-                      <DialogContent className="max-w-md rounded-2xl">
+                      <DialogContent className="sm:max-w-lg rounded-2xl max-h-[90dvh] overflow-y-auto">
                         <DialogHeader>
-                          <DialogTitle>{ar ? "إضافة حساب بنكي" : "Add bank account"}</DialogTitle>
-                          <DialogDescription>{ar ? "يرتبط الحساب بحساب في دليل الحسابات (افتراضياً 1100 بنك)" : "Linked to a Chart of Accounts account (default 1100 Bank)"}</DialogDescription>
+                          <DialogTitle>{bankEdit ? (ar ? "تعديل الحساب البنكي" : "Edit bank account") : (ar ? "إضافة حساب بنكي" : "Add bank account")}</DialogTitle>
+                          <DialogDescription>{ar ? "اختر حساب أصول نشطاً. لا يمكن تغيير التفاصيل المالية بعد تسجيل حركة على الحساب." : "Choose an active asset account. Financial details are locked once this account has activity."}</DialogDescription>
                         </DialogHeader>
-                        <div className="space-y-3">
+                        <fieldset disabled={bankBusy} className="min-w-0 space-y-3">
                           <div className="grid gap-3 sm:grid-cols-2">
                             <div className="space-y-1.5">
                               <Label htmlFor="bankName">{ar ? "اسم البنك" : "Bank name"}</Label>
@@ -2243,27 +2380,34 @@ export default function AccountingPage() {
                                 onChange={(e) => setBankCoa(e.target.value)}
                                 className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                               >
-                                <option value="1100">{ar ? "1100 بنك" : "1100 Bank"}</option>
-                                <option value="1000">{ar ? "1000 نقدية" : "1000 Cash"}</option>
+                                <option value="">{ar ? "اختر حساباً" : "Select account"}</option>
+                                {accounts.filter((account) => account.account_type === "asset").map((account) => <option key={account.id} value={account.account_code}>{account.account_code} · {ar ? account.name_ar : account.name_en}</option>)}
                               </select>
                             </div>
                           </div>
+                          <div className="space-y-1.5">
+                            <Label htmlFor="bankCurrency">{ar ? "العملة" : "Currency"}</Label>
+                            <Input id="bankCurrency" dir="ltr" value={bankCurrency} readOnly className="h-9 max-w-32" />
+                            <p className="text-xs text-muted-foreground">{ar ? "تدعم المحاسبة الريال السعودي فقط. تبقى السجلات القديمة بعملتها الأصلية للمراجعة." : "Accounting supports SAR. Existing foreign-currency records retain their original currency for review."}</p>
+                          </div>
+                          {bankError && <p role="alert" className="text-sm text-destructive">{bankError}</p>}
                           <div className="flex items-center gap-3">
                             <Button onClick={() => void handleCreateBank()} disabled={bankBusy} className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800">
                               {bankBusy ? <LoadingSpinner className="h-4 w-4" /> : <Save className="h-4 w-4" />}
-                              {ar ? "إضافة" : "Add"}
+                              {bankEdit ? (ar ? "حفظ التعديلات" : "Save changes") : (ar ? "إضافة" : "Add")}
                             </Button>
                           </div>
-                        </div>
+                        </fieldset>
                       </DialogContent>
                     </Dialog>
                   </CardHeader>
+                  {bankLoadError && <div role="alert" className="flex items-center justify-between px-4 pb-3 text-sm text-destructive"><span>{ar ? "تعذّر تحديث الحسابات البنكية." : "Bank accounts could not refresh."}</span><Button variant="outline" onClick={() => setPayRefresh((value) => value + 1)}>{ar ? "إعادة المحاولة" : "Retry"}</Button></div>}
                   {bankAccounts.length === 0 ? (
                     <p className="px-4 pb-6 text-sm text-muted-foreground">{ar ? "لا توجد حسابات بنكية." : "No bank accounts."}</p>
                   ) : (
                     <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
                       {bankAccounts.map((b) => (
-                        <div key={b.id} className="rounded-xl border border-border/50 bg-muted/20 p-4">
+                        <div key={b.id} data-testid="bank-account-card" className="min-w-0 rounded-xl border border-border/50 bg-muted/20 p-4">
                           <div className="flex items-center justify-between gap-2">
                             <p className="text-sm font-semibold text-foreground">{b.bank_name}</p>
                             <Badge className={b.is_active ? "bg-emerald-500/15 text-emerald-600 border-emerald-500/20" : "bg-gray-500/15 text-gray-600 border-gray-500/20"}>
@@ -2271,15 +2415,35 @@ export default function AccountingPage() {
                             </Badge>
                           </div>
                           <p className="mt-0.5 truncate text-xs text-muted-foreground">{b.account_name}</p>
-                          <p className="mt-2 font-mono text-xs text-foreground/80" dir="ltr">{b.iban}</p>
+                          <p className="mt-2 break-all font-mono text-xs text-foreground/80" dir="ltr">{b.iban}</p>
                           <p className="mt-2 text-xs text-muted-foreground" dir="ltr">
                             {ar ? "رصيد افتتاحي" : "Opening"}: <span className="font-semibold tabular-nums text-foreground">{fmtMoney(b.opening_balance)} {b.currency}</span> · CoA <span className="font-mono font-semibold text-foreground">{b.coa_account_code ?? "1100"}</span>
                           </p>
+                          <div className="mt-3 flex flex-wrap gap-2 border-t border-border/50 pt-3">
+                            <Button size="sm" variant="outline" onClick={() => openBankForm(b)}>{ar ? "تعديل" : "Edit"}</Button>
+                            <Button size="sm" variant="outline" onClick={() => { setBankStateError(null); setBankStateTarget({ bank: b, action: b.is_active ? "deactivate" : "activate" }) }}>{b.is_active ? (ar ? "تعطيل" : "Deactivate") : (ar ? "تفعيل" : "Activate")}</Button>
+                            <Button size="sm" variant="ghost" onClick={() => { setBankStateError(null); setBankStateTarget({ bank: b, action: "delete" }) }}>{ar ? "حذف" : "Delete"}</Button>
+                          </div>
                         </div>
                       ))}
                     </div>
                   )}
+                  <div className="flex items-center justify-between gap-2 border-t border-border/50 p-4 text-xs text-muted-foreground">
+                    <span>{bankAccounts.length} / {bankCount}</span>
+                    <div className="flex gap-2"><Button variant="outline" size="sm" disabled={bankPage === 0} onClick={() => setBankPage((page) => page - 1)}>{ar ? "السابق" : "Previous"}</Button><Button variant="outline" size="sm" disabled={(bankPage + 1) * 50 >= bankCount} onClick={() => setBankPage((page) => page + 1)}>{ar ? "التالي" : "Next"}</Button></div>
+                  </div>
                 </Card>
+                <Dialog open={!!bankStateTarget} onOpenChange={(open) => { if (!open && !bankBusy) setBankStateTarget(null) }}>
+                  <DialogContent>
+                    <DialogHeader><DialogTitle>{ar ? "تحديث حالة الحساب البنكي" : "Update bank account status"}</DialogTitle>
+                    <DialogDescription>{bankStateTarget?.action === "delete"
+                      ? (ar ? "يمكن حذف الحسابات غير المستخدمة فقط. عطّل الحساب للاحتفاظ بسجله المالي." : "Only unused accounts can be deleted. Deactivate an account to retain its financial history.")
+                      : (ar ? "الحسابات المعطلة لا تقبل مدفوعات أو حركات جديدة." : "Inactive accounts cannot accept new payments or transactions.")}</DialogDescription></DialogHeader>
+                    <p className="text-sm font-medium">{bankStateTarget?.bank.bank_name} · {bankStateTarget?.bank.account_name}</p>
+                    {bankStateError && <p role="alert" className="text-sm text-destructive">{bankStateError}</p>}
+                    <div className="flex justify-end gap-2"><Button variant="outline" disabled={bankBusy} onClick={() => setBankStateTarget(null)}>{ar ? "إلغاء" : "Cancel"}</Button><Button disabled={bankBusy} variant={bankStateTarget?.action === "delete" ? "destructive" : "default"} onClick={handleBankState}>{ar ? "تأكيد" : "Confirm"}</Button></div>
+                  </DialogContent>
+                </Dialog>
 
                 <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
                   <CardHeader className="pb-3 flex-row items-center justify-between">
@@ -2347,7 +2511,7 @@ export default function AccountingPage() {
 
                 {/* Record payment dialog */}
                 <Dialog open={payDialogOpen} onOpenChange={setPayDialogOpen}>
-                  <DialogContent className="max-w-lg rounded-2xl">
+                  <DialogContent className="max-h-[90dvh] overflow-y-auto rounded-2xl sm:max-w-lg">
                     <DialogHeader>
                       <DialogTitle>{ar ? "تسجيل دفعة" : "Record payment"}</DialogTitle>
                       <DialogDescription>
@@ -2382,7 +2546,7 @@ export default function AccountingPage() {
                           <select
                             id="payMethod"
                             value={payMethod}
-                            onChange={(e) => setPayMethod(e.target.value)}
+                            onChange={(e) => { setPayMethod(e.target.value); setPayBank("") }}
                             className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           >
                             <option value="transfer">{ar ? "تحويل بنكي" : "Bank transfer"}</option>
@@ -2395,20 +2559,7 @@ export default function AccountingPage() {
                       </div>
 
                       {payMethod !== "cash" && (
-                        <div className="space-y-1.5">
-                          <Label htmlFor="payBank">{ar ? "الحساب البنكي" : "Bank account"}</Label>
-                          <select
-                            id="payBank"
-                            value={payBank}
-                            onChange={(e) => setPayBank(e.target.value)}
-                            className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                          >
-                            <option value="">—</option>
-                            {bankAccounts.filter((b) => b.is_active).map((b) => (
-                              <option key={b.id} value={b.id}>{b.bank_name} · {b.account_name}</option>
-                            ))}
-                          </select>
-                        </div>
+                        <BankAccountPicker value={payBank} onChange={setPayBank} ar={ar} disabled={payBusy} />
                       )}
 
                       {payDirection === "in" ? (

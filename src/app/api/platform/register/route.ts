@@ -135,7 +135,8 @@ export async function POST(req: NextRequest) {
       email,
       password,
       email_confirm: !emailConfirmationEnabled,
-      user_metadata: { _invite_provisioned: true, company_name, domain },
+      app_metadata: { _invite_provisioned: true },
+      user_metadata: { company_name, domain },
     });
 
     if (authError) {
@@ -143,7 +144,9 @@ export async function POST(req: NextRequest) {
       // fails ("User already registered" …) and used to surface as a raw
       // error string. Existing and fresh emails must behave identically:
       // same status, same body. Details stay in server logs only.
-      console.error('platform register: user create rejected:', authError.message);
+      if (!['email_exists', 'user_already_exists'].includes(authError.code ?? '')) {
+        return NextResponse.json({ error: 'Registration temporarily unavailable' }, { status: 503 });
+      }
       return NextResponse.json(
         { success: true, requires_confirmation: emailConfirmationEnabled },
         { status: 200 }
@@ -153,33 +156,24 @@ export async function POST(req: NextRequest) {
 
     // Provision the tenant + membership + role rows BEFORE returning, so the
     // workspace is fully ready the moment the user signs in.
-    const trialEnds = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
-    const { data: tenant, error: tenantError } = await supabase.from('tenants').insert({
-      name_en: company_name,
-      name_ar: company_name,
-      slug,
-      domain,
-      logo_url: logo_url || null,
-      brand_colors: { primary: brand_colors || '#1E5A99', secondary: '#E87D3E' },
-      trial_ends_at: trialEnds,
-      created_by: authData.user.id,
-    }).select('id').single();
-
-    if (tenantError) throw tenantError;
-
-    const { error: userError } = await supabase.from('users').upsert({
-      auth_user_id: authData.user.id,
-      tenant_id: tenant.id,
-      email,
-      role: 'general_manager',
-      status: 'active',
-      must_change_password: false,
-    }, { onConflict: 'auth_user_id' });
-    if (userError) throw userError;
-
-    const { data: pubUser } = await supabase.from('users').select('id').eq('auth_user_id', authData.user.id).single();
-    if (pubUser) {
-      await supabase.from('tenant_memberships').upsert({ tenant_id: tenant.id, user_id: pubUser.id, is_primary: true });
+    const { error: provisionError } = await supabase.rpc('provision_company_atomic', {
+      p_auth_user_id: authData.user.id,
+      p_company: {
+        name: company_name, slug, domain, logo_url: logo_url || null,
+        brand_colors: { primary: brand_colors || '#1E5A99', secondary: '#E87D3E' },
+      },
+    });
+    if (provisionError) {
+      // Only a definite PostgreSQL rejection proves that the transaction rolled
+      // back. A transport failure has an unknown outcome: retain the Auth user
+      // for reconciliation instead of risking deletion of a committed owner.
+      if (/^(22|23|42|P0)[A-Z0-9]{3}$/.test(provisionError.code ?? '')) {
+        const { error: cleanupError } = await supabase.auth.admin.deleteUser(authData.user.id);
+        if (cleanupError) console.error('Company provisioning requires reconciliation', { authUserId: authData.user.id });
+      } else {
+        console.error('Company provisioning outcome requires reconciliation', { authUserId: authData.user.id });
+      }
+      return NextResponse.json({ error: 'Registration unavailable. Please contact support before retrying.' }, { status: 503 });
     }
 
     // ── Confirmation step (only when the auth project requires it) ──

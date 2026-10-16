@@ -66,20 +66,16 @@ type UserProfile = {
   tenantId: string
   role: string
   status: string
+  locked_until?: string | null
 }
 
 type ProfileRow = {
+  locked_until?: string | null
   id: string
   auth_user_id: string
   tenant_id: string
   role: string
   status: string
-}
-
-type RoleRow = { id: string }
-
-type RolePermissionRow = {
-  permissions: { module: string; action: string } | null
 }
 
 /**
@@ -98,12 +94,12 @@ const getProfile = cache(async (): Promise<UserProfile | null> => {
 
   const { data, error } = await supabase
     .from("users")
-    .select("id, auth_user_id, tenant_id, role, status")
+    .select("id, auth_user_id, tenant_id, role, status, locked_until")
     .eq("auth_user_id", user.id)
     .is("deleted_at", null)
     .maybeSingle<ProfileRow>()
 
-  if (error || !data) return null
+  if (error || !data || data.status !== "active" || (data.locked_until && Date.parse(data.locked_until) > Date.now())) return null
 
   return {
     id: data.id,
@@ -112,50 +108,6 @@ const getProfile = cache(async (): Promise<UserProfile | null> => {
     role: data.role,
     status: data.status,
   }
-})
-
-/**
- * Fetch the set of `"module:action"` permission keys granted to the current
- * user's role. Cached per request so every `can()` call in a render reuses a
- * single role_permissions query (instead of one query per (module, action)).
- *
- * Returns an empty set for `general_manager` — the GM bypass short-circuits
- * before this is consulted, so the set is never read for GM.
- */
-const getUserPermissionKeys = cache(async (): Promise<Set<string>> => {
-  const profile = await getProfile()
-  if (!profile || profile.role === "general_manager") return new Set()
-
-  const supabase = await createClient()
-
-  // Look up the tenant-scoped role row id. `users.role` is a denormalized
-  // convenience column (schema plan 6.3); the authoritative grants live in
-  // `role_permissions` keyed by `roles.id`.
-  const { data: roleRow } = await supabase
-    .from("roles")
-    .select("id")
-    .eq("name", profile.role)
-    .eq("tenant_id", profile.tenantId)
-    .is("deleted_at", null)
-    .maybeSingle<RoleRow>()
-
-  if (!roleRow) return new Set()
-
-  // Fetch every permission granted to this role via the role_permissions join.
-  const { data, error } = await supabase
-    .from("role_permissions")
-    .select("permissions(module, action)")
-    .eq("role_id", roleRow.id)
-
-  if (error || !data) return new Set()
-
-  const keys = new Set<string>()
-  for (const row of data as unknown as RolePermissionRow[]) {
-    if (row.permissions) {
-      keys.add(`${row.permissions.module}:${row.permissions.action}`)
-    }
-  }
-  return keys
 })
 
 /**
@@ -182,14 +134,10 @@ export const can = cache(
     if (!profile) return { allowed: false, reason: "no_session" }
     if (profile.status !== "active") return { allowed: false, reason: "inactive" }
 
-    // general_manager bypasses all permission checks (auth plan 7.5).
-    if (profile.role === "general_manager") return { allowed: true }
-
-    const keys = await getUserPermissionKeys()
-    if (keys.has(`${module}:${action}`)) {
-      return { allowed: true }
-    }
-    return { allowed: false, reason: "forbidden" }
+    // Share the database permission, account-state and MFA boundary with RLS.
+    const supabase = await createClient()
+    const { data, error } = await supabase.rpc("user_has_permission", { p_module: module, p_action: action })
+    return { allowed: !error && data === true, reason: error || data !== true ? "insufficient_permission_or_assurance" : undefined }
   }
 )
 
@@ -232,7 +180,7 @@ export async function requirePermission(
  * denormalized `users.role` column is a convenience, not the source of truth
  * for grants.
  */
-export const getCurrentUser = cache(async (): Promise<{
+export const getCurrentUserForMfa = cache(async (): Promise<{
   /** Custom `users` row id — only for joins on the users table (e.g. reviewed_by). */
   id: string
   /** Supabase auth.users id — use for created_by/updated_by/actor_id columns. */
@@ -248,4 +196,13 @@ export const getCurrentUser = cache(async (): Promise<{
     tenantId: profile.tenantId,
     role: profile.role,
   }
+})
+
+// Business actions must not gain service-role access before MFA step-up.
+export const getCurrentUser = cache(async () => {
+  const profile = await getCurrentUserForMfa()
+  if (!profile) return null
+  const supabase = await createClient()
+  const { data, error } = await supabase.rpc("has_required_assurance")
+  return !error && data === true ? profile : null
 })

@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/client"
+import { authorizeApplicationUpload } from "./upload-actions"
 
 // ── Upload constraints ──────────────────────────────────────────────────────
 // Keep in sync with the storage RLS allowlist (migrations 059/060).
@@ -27,14 +28,7 @@ export interface UploadResult {
   error?: "type" | "size" | "network" | "unknown"
 }
 
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
-// ── Anonymous draft upload ──────────────────────────────────────────────────
-// Storage RLS allows anonymous inserts ONLY under driver-applications/drafts/
-// with UUID-format names. The previous path shape (drafts/<react useId>/<type>/
-// <timestamp>-<rand>.<ext>) violated that policy, so every upload was rejected
-// before the wizard could continue. Both path segments are now real UUIDs.
+// Upload grants are rate limited and bound to a server-issued HttpOnly draft cookie.
 export async function uploadApplicationFile(
   draftId: string,
   documentType: string,
@@ -44,18 +38,16 @@ export async function uploadApplicationFile(
   if (file.size > MAX_FILE_BYTES) return { ok: false, error: "size" }
 
   const supabase = createClient()
-  const rawExt = file.name.includes(".") ? file.name.split(".").pop() ?? "" : ""
-  const ext = rawExt.toLowerCase().replace(/[^a-z0-9]/g, "") || "bin"
-  const safeDraftId = UUID_RE.test(draftId) ? draftId : crypto.randomUUID()
-  // documentType stays in the signature for callers; the stored path is kept
-  // flat (drafts/<uuid>/<uuid>.<ext>) to match the storage policy exactly.
+  void draftId
   void documentType
-  const fileName = `${crypto.randomUUID()}.${ext}`
-  const path = `drafts/${safeDraftId}/${fileName}`
+  const grant = await authorizeApplicationUpload(file.type, file.size)
+  if (!grant) return { ok: false, error: "network" }
+  const { path, token } = grant
+  const fileName = path.split("/").pop()!
 
   const { error } = await supabase.storage
     .from("driver-applications")
-    .upload(path, file, {
+    .uploadToSignedUrl(path, token, file, {
       cacheControl: "3600",
       upsert: false,
       contentType: file.type,

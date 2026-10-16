@@ -1,0 +1,22 @@
+# Local credentials, database backups, and verification artifacts must never upload.
+.env*
+.vercel/
+.git/
+supabase/.temp/
+supabase/.branches/
+.kilo/
+node_modules/
+.next/
+out/
+build/
+coverage/
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+screenshots/
+loadtest/results/
+*.pem
+*.tsbuildinfo
+*-debug.log*
+Design_Landing_Dashboard_Elite_2026_DeepSeekV4Flash/

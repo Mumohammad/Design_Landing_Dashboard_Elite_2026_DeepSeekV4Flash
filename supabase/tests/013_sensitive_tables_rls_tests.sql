@@ -21,6 +21,8 @@
 -- request.jwt.claims so auth.uid() resolves.
 -- ============================================================================
 
+BEGIN;
+
 SELECT plan(24);
 
 -- ─── Fixtures (run as postgres; bypass RLS) ─────────────────────────────
@@ -86,11 +88,11 @@ BEGIN
 
   -- custom users + memberships (what get_my_tenant_id() reads)
   INSERT INTO public.users (auth_user_id, tenant_id, email, role, full_name_en, status, must_change_password)
-  VALUES (v_ua, v_ta, 'sens-a@fixture.local', 'operations_officer', 'Officer A', 'active', false)
+  VALUES (v_ua, v_ta, 'sens-a@fixture.local', 'general_manager', 'Officer A', 'active', false)
   RETURNING id INTO v_ca;
 
   INSERT INTO public.users (auth_user_id, tenant_id, email, role, full_name_en, status, must_change_password)
-  VALUES (v_ub, v_tb, 'sens-b@fixture.local', 'operations_officer', 'Officer B', 'active', false)
+  VALUES (v_ub, v_tb, 'sens-b@fixture.local', 'general_manager', 'Officer B', 'active', false)
   RETURNING id INTO v_cb;
 
   INSERT INTO public.tenant_memberships (user_id, tenant_id) VALUES (v_ca, v_ta), (v_cb, v_tb);
@@ -100,6 +102,10 @@ BEGIN
   VALUES (v_ta, 'سائق أ', '0500000001', 'freelancer', 'active') RETURNING id INTO v_da;
   INSERT INTO public.drivers (tenant_id, full_name_ar, primary_mobile, category, status)
   VALUES (v_tb, 'سائق ب', '0500000002', 'freelancer', 'active') RETURNING id INTO v_db;
+
+  UPDATE public.drivers
+  SET hire_date = CURRENT_DATE
+  WHERE id IN (v_da, v_db);
 
   INSERT INTO sensitive_fixtures (tenant_a, tenant_b, user_a, user_b, custom_a, custom_b, driver_a, driver_b)
   VALUES (v_ta, v_tb, v_ua, v_ub, v_ca, v_cb, v_da, v_db);
@@ -117,6 +123,9 @@ BEGIN
 
   INSERT INTO public.driver_consents (tenant_id, driver_id, consent_type, version, accepted, accepted_at)
   VALUES (f.tenant_a, f.driver_a, 'photo', 'v1', true, now());
+
+  INSERT INTO public.driver_consents (tenant_id, driver_id, consent_type, version, accepted, accepted_at)
+  VALUES (f.tenant_a, f.driver_a, 'sensitive_docs', 'v1', true, now());
 
   INSERT INTO public.violations (tenant_id, driver_id, incident_date, incident_description, deduction_amount, status)
   VALUES (f.tenant_a, f.driver_a, CURRENT_DATE, 'Fixture violation (A)', 100, 'open');
@@ -174,10 +183,35 @@ SELECT ok(pg_temp.anon_row_count('violations') <= 0, 'anon gets nothing from vio
 RESET ROLE;
 
 -- ─── 3. tenant isolation + own-tenant visibility ──────────────────────────
--- pgTAP runs as postgres (superuser, bypasses RLS), so behavioral per-role
--- isolation is proven by the anon 0-row checks above plus the policy-text
--- assertions below; the CI role-switch harness (058/060) covers live
--- authenticated-role behavior.
+SELECT set_config(
+  'request.jwt.claims',
+  json_build_object(
+    'role', 'authenticated', 'aal', 'aal2',
+    'sub', (SELECT user_a FROM sensitive_fixtures)
+  )::text,
+  true
+);
+SET LOCAL ROLE authenticated;
+
+SELECT is(
+  (SELECT count(*)::int FROM public.driver_salary_history),
+  1,
+  'tenant A sees only its own salary-history row'
+);
+
+SELECT is(
+  (SELECT count(*)::int FROM public.driver_consents),
+  2,
+  'tenant A sees only its own two required consent rows'
+);
+
+SELECT is(
+  (SELECT count(*)::int FROM public.violations),
+  1,
+  'tenant A sees only its own violation row'
+);
+
+RESET ROLE;
 
 SELECT is(
   (SELECT count(*) FROM pg_policies
@@ -244,50 +278,46 @@ SELECT is(
    WHERE schemaname = 'public' AND tablename IN ('driver_consents','violations')
      AND cmd = 'UPDATE'
      AND (qual LIKE '%get_my_tenant_id()%' OR with_check LIKE '%get_my_tenant_id()%')),
-  2::bigint, 'consents + violations have tenant-scoped UPDATE policies');
+  1::bigint, 'only violations have a tenant-scoped UPDATE policy; consents are immutable');
 
 -- ─── 7. behavioral: validate_leave_request + has_pdpl_consent (062) ──────────
 
-DO $$
-DECLARE
-  f record;
-  v_msg text;
-  v_ok boolean;
-BEGIN
-  SELECT * INTO f FROM sensitive_fixtures;
+SELECT ok(
+  public.has_pdpl_consent((SELECT driver_a FROM sensitive_fixtures)),
+  'has_pdpl_consent true after both required consents'
+);
 
-  -- has_pdpl_consent: consented driver -> true; unconsented -> false
-  SELECT public.has_pdpl_consent(f.driver_a) INTO v_ok;
-  PERFORM ok(v_ok, 'has_pdpl_consent true after photo consent');
+SELECT is(
+  public.has_pdpl_consent((SELECT driver_b FROM sensitive_fixtures)),
+  false,
+  'has_pdpl_consent false when one required consent is missing'
+);
 
-  SELECT public.has_pdpl_consent(f.driver_b) INTO v_ok;
-  PERFORM is(v_ok, false, 'has_pdpl_consent false without any consent');
+SELECT is(
+  public.validate_leave_request((SELECT driver_a FROM sensitive_fixtures), 'annual', 5),
+  NULL::text,
+  'annual 5d passes (entitlement 21/30)'
+);
 
-  -- validate_leave_request: annual within entitlement passes
-  v_msg := public.validate_leave_request(f.driver_a, 'annual', 5);
-  PERFORM is(v_msg, NULL, 'annual 5d passes (entitlement 21/30)');
+SELECT is(
+  public.validate_leave_request((SELECT driver_a FROM sensitive_fixtures), 'sick', 10),
+  NULL::text,
+  'sick 10d passes (full-pay tier)'
+);
 
-  -- sick within full-pay tier passes
-  v_msg := public.validate_leave_request(f.driver_a, 'sick', 10);
-  PERFORM is(v_msg, NULL, 'sick 10d passes (full-pay tier)');
+SELECT isnt(
+  public.validate_leave_request((SELECT driver_a FROM sensitive_fixtures), 'sick', 121),
+  NULL::text,
+  'sick 121d rejected (exceeds 120-day window)'
+);
 
-  -- sick beyond 120-day window fails
-  v_msg := public.validate_leave_request(f.driver_a, 'sick', 121);
-  PERFORM isnt(v_msg, NULL, 'sick 121d rejected (exceeds 120-day window)');
+SELECT isnt(
+  public.validate_leave_request((SELECT driver_a FROM sensitive_fixtures), 'annual', 25),
+  NULL::text,
+  'annual 25d rejected (exceeds 21d base entitlement)'
+);
 
-  -- annual beyond 21-day base entitlement fails (fixture hire_date = today)
-  v_msg := public.validate_leave_request(f.driver_a, 'annual', 25);
-  PERFORM isnt(v_msg, NULL, 'annual 25d rejected (exceeds 21d base entitlement)');
-END $$;
-
--- Tear down fixtures so the file can re-run against the same DB.
-DELETE FROM public.driver_salary_history WHERE tenant_id IN (SELECT id FROM public.tenants WHERE name_en LIKE 'Sensitive Tenant %');
-DELETE FROM public.driver_consents   WHERE tenant_id IN (SELECT id FROM public.tenants WHERE name_en LIKE 'Sensitive Tenant %');
-DELETE FROM public.violations        WHERE tenant_id IN (SELECT id FROM public.tenants WHERE name_en LIKE 'Sensitive Tenant %');
-DELETE FROM public.tenant_memberships WHERE tenant_id IN (SELECT id FROM public.tenants WHERE name_en LIKE 'Sensitive Tenant %');
-DELETE FROM public.users             WHERE email LIKE 'sens-%@fixture.local';
-DELETE FROM auth.users               WHERE email LIKE 'sens-%@fixture.local';
-DELETE FROM public.drivers           WHERE tenant_id IN (SELECT id FROM public.tenants WHERE name_en LIKE 'Sensitive Tenant %');
-DELETE FROM public.tenants           WHERE name_en LIKE 'Sensitive Tenant %';
-
+-- Transaction rollback removes all fixtures, including immutable evidence.
 SELECT * FROM finish();
+
+ROLLBACK;

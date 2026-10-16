@@ -63,6 +63,7 @@ export async function transitionPayrollStatus(input: unknown): Promise<PayrollAc
 
     const parsed = transitionSchema.parse(input)
     const { periodId, to, surface } = parsed
+    if (to === "approved") await requirePermission("payroll", "approve")
     const reason = parsed.reason?.trim() ?? ""
 
     const admin = createAdminClient()

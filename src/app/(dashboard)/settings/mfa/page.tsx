@@ -298,11 +298,12 @@ export default function MfaSettingsPage() {
 
             {/* Verification Input */}
             <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">
+              <label htmlFor="mfa-verification-code" className="text-sm font-medium text-foreground">
                 {ar ? "أدخل الرمز من تطبيق المصادقة" : "Enter the code from your authenticator app"}
               </label>
               <div className="flex gap-2">
                 <Input
+                  id="mfa-verification-code"
                   type="text"
                   inputMode="numeric"
                   pattern="[0-9]*"
@@ -315,6 +316,7 @@ export default function MfaSettingsPage() {
                 />
                 <Button
                   onClick={handleVerify}
+                  aria-label={ar ? "تأكيد رمز التحقق" : "Verify authentication code"}
                   disabled={verifying || verifyCode.length !== 6}
                   className="rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white"
                 >

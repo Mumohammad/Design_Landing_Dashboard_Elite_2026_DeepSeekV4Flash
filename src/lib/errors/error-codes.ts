@@ -79,6 +79,7 @@ export type ErrorCode =
   | "JRN011"
   | "JRN012"
   | "JRN013"
+  | "JRN014"
   // Accounting — Periods (Phase 1)
   | "ACC001"
   | "ACC002"
@@ -119,6 +120,7 @@ export type ErrorCode =
   | "INV012"
   | "INV013"
   | "INV014"
+  | "INV015"
   // Accounting — Expenses (Phase 7, migration 040)
   | "EXP001"
   | "EXP002"
@@ -144,6 +146,11 @@ export type ErrorCode =
   | "PMT004"
   | "PMT005"
   | "PMT006"
+  | "BNK001"
+  | "BNK002"
+  | "BNK003"
+  | "BNK004"
+  | "BNK005"
   // Accounting — ZATCA Adapter (Phase 15, migration 054)
   | "ZAT001"
   | "ZAT002"
@@ -502,6 +509,13 @@ export const ERROR_CODES: Record<ErrorCode, ErrorDefinition> = {
     messageEn: "Journal entry state does not permit this action.",
   },
 
+  JRN014: {
+    code: "JRN014",
+    httpStatus: 409,
+    messageAr: "تم تغيير القيد. أعد تحميله قبل الحفظ أو الحذف.",
+    messageEn: "This journal changed. Reload it before saving or deleting.",
+  },
+
   // ── Accounting — Chart of Accounts (Phase 2) ───────────────────────────
   COA001: {
     code: "COA001",
@@ -677,6 +691,12 @@ export const ERROR_CODES: Record<ErrorCode, ErrorDefinition> = {
     messageAr: "الفاتورة تحتاج سطراً واحداً على الأقل.",
     messageEn: "An invoice needs at least one line.",
   },
+  INV015: {
+    code: "INV015",
+    httpStatus: 409,
+    messageAr: "تم تعديل الفاتورة. أعد تحميلها قبل الحفظ أو الحذف.",
+    messageEn: "This invoice has changed. Reload it before saving or deleting.",
+  },
   INV014: {
     code: "INV014",
     httpStatus: 409,
@@ -803,6 +823,22 @@ export const ERROR_CODES: Record<ErrorCode, ErrorDefinition> = {
     messageAr: "الحساب البنكي غير موجود أو لا ينتمي إلى هذه المنشأة.",
     messageEn: "Bank account not found or does not belong to this tenant.",
   },
+
+  BNK001: { code: "BNK001", httpStatus: 422,
+    messageAr: "تحقق من أسماء الحساب والآيبان والعملة ودقة الرصيد الافتتاحي.",
+    messageEn: "Check the account names, IBAN checksum, currency and opening balance precision." },
+  BNK002: { code: "BNK002", httpStatus: 409,
+    messageAr: "تم تغيير الحساب البنكي. أعد تحميله أولاً.",
+    messageEn: "This bank account changed. Reload it first." },
+  BNK003: { code: "BNK003", httpStatus: 409,
+    messageAr: "للحساب سجل مالي. يمكنك تعديل الأسماء أو تعطيله مع الاحتفاظ بتفاصيله المالية.",
+    messageEn: "This account has financial history. You may change its names or deactivate it; financial details must remain intact." },
+  BNK004: { code: "BNK004", httpStatus: 409,
+    messageAr: "يوجد حساب بنفس الآيبان لهذه المنشأة.",
+    messageEn: "An account with this IBAN already exists for this tenant." },
+  BNK005: { code: "BNK005", httpStatus: 422,
+    messageAr: "اختر حساباً بنكياً نشطاً وحساب أصول نشطاً من دليل حسابات المنشأة.",
+    messageEn: "Select an active tenant bank account and an active asset account from the chart of accounts." },
 
   // ── Accounting — Periods (Phase 1) ─────────────────────────────────────
   ACC001: {

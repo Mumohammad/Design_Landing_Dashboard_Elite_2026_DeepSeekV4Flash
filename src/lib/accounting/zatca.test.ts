@@ -57,7 +57,7 @@ vi.mock("@/lib/accounting/csv-utils", () => ({
   mapFinancialError: mocks.mapFinancialError,
 }))
 
-vi.mock("./zatca-csid", () => ({
+vi.mock("./zatca-credentials", () => ({
   getZatcaCsidCredential: mocks.getZatcaCsidCredential,
 }))
 
@@ -128,25 +128,28 @@ describe("runZatcaAdapter — sandbox flag mirrors the transport's real-POST con
 
   it("reports sandbox=false when a stored CSID AND a gateway base URL are both configured", async () => {
     mocks.getZatcaCsidCredential.mockResolvedValue(STORED_CSID)
-    vi.stubEnv("ZATCA_API_BASE_URL", "https://gw-fatoora.example/e-invoicing/developer-portal")
+    vi.stubEnv("ZATCA_MODE", "sandbox")
+    vi.stubEnv("ZATCA_API_BASE_URL", "https://gw-fatoora.zatca.gov.sa/e-invoicing/developer-portal")
     const res = await runZatcaAdapter()
     expect(res.sandbox).toBe(false)
   })
 
   it("reports sandbox=false for the env-only path (base + CSID cert + secret)", async () => {
     mocks.getZatcaCsidCredential.mockResolvedValue(null)
-    vi.stubEnv("ZATCA_API_BASE_URL", "https://gw-fatoora.example/e-invoicing/developer-portal")
+    vi.stubEnv("ZATCA_MODE", "sandbox")
+    vi.stubEnv("ZATCA_API_BASE_URL", "https://gw-fatoora.zatca.gov.sa/e-invoicing/developer-portal")
     vi.stubEnv("ZATCA_CSID_CERT", "env-cert")
     vi.stubEnv("ZATCA_CSID_SECRET", "env-secret")
     const res = await runZatcaAdapter()
     expect(res.sandbox).toBe(false)
   })
 
-  it("reports sandbox=true for a partial env config (base URL without credentials)", async () => {
+  it("rejects legacy implicit network configuration rather than claiming mock success", async () => {
     mocks.getZatcaCsidCredential.mockResolvedValue(null)
     vi.stubEnv("ZATCA_API_BASE_URL", "https://gw-fatoora.example/e-invoicing/developer-portal")
     const res = await runZatcaAdapter()
-    expect(res.sandbox).toBe(true)
+    expect(res.success).toBe(false)
+    expect(res.error).toContain("requires explicit")
   })
 
   it("writes the same sandbox value to the audit log as the summary reports", async () => {
@@ -168,3 +171,5 @@ describe("runZatcaAdapter — sandbox flag mirrors the transport's real-POST con
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/accounting")
   })
 })
+
+vi.mock("@/lib/release/integrations", () => ({ integrationAvailable: () => true, INTEGRATION_UNAVAILABLE: "Unavailable" }))

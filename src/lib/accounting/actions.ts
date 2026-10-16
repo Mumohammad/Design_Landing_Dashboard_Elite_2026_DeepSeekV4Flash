@@ -16,6 +16,7 @@
 
 import { revalidatePath } from "next/cache"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { createClient } from "@/lib/supabase/server"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
 import { writeAuditLog } from "@/lib/auth/sessions"
 // Sync helpers live in a plain module (a "use server" file can only export
@@ -585,64 +586,59 @@ export async function postOpeningBalances(input: {
 // Reversal, approval workflow, period close/reopen. All route through atomic
 // service-role RPCs (migration 034) — no partial states.
 
-export async function createJournalDraft(input: {
+type JournalDraftInput = {
   entry_date: string
   description_ar: string
   description_en?: string | null
   lines: { account_id: string; description?: string; debit: number; credit: number }[]
-}): Promise<ActionResult> {
+}
+
+async function saveJournalDraft(input: JournalDraftInput, id?: string, expectedUpdatedAt?: string): Promise<ActionResult> {
   try {
-    await requirePermission("accounting", "create")
+    await requirePermission("accounting", id ? "update" : "create")
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
     const rl = await rateLimitAccounting(currentUser.id)
     if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
-
-    const lines = input.lines.filter((l) => l.debit > 0 || l.credit > 0)
-    if (lines.length < 2) {
-      return { success: false, error: "A journal entry needs at least two lines." }
-    }
-    if (!input.description_ar.trim()) {
-      return { success: false, error: "A description is required." }
-    }
-
-    const linesPayload = lines.map((l) => ({
-      account_id: l.account_id,
-      description: l.description?.trim() || null,
-      debit: round2(l.debit),
-      credit: round2(l.credit),
-    }))
-
-    const admin = createAdminClient()
-    const { data, error } = await admin.rpc("create_journal_draft", {
-      p_tenant_id: currentUser.tenantId,
-      p_entry_date: input.entry_date,
-      p_description_ar: input.description_ar.trim(),
-      p_description_en: input.description_en?.trim() || null,
-      p_created_by: currentUser.authUserId,
-      p_lines: linesPayload,
+    const client = await createClient()
+    const { error } = await client.rpc("save_journal_draft", {
+      p_input: input,
+      p_entry_id: id ?? null,
+      p_expected_updated_at: expectedUpdatedAt ?? null,
     })
     if (error) return { success: false, error: mapFinancialError(error.message) }
-
-    const row = Array.isArray(data) ? data[0] : data
-    if (!row?.out_entry_id) {
-      return { success: false, error: "Saving draft failed." }
-    }
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "accounting",
-      action: "journal_draft_created",
-      entityType: "journal_entries",
-      entityId: row.out_entry_id,
-      newValues: { entry_ref: row.out_entry_ref },
-    })
-
     revalidatePath("/accounting")
     return { success: true }
   } catch (e) {
-    return { success: false, error: errorMessage(e) }
+    return { success: false, error: mapFinancialError(errorMessage(e)) }
+  }
+}
+
+export async function createJournalDraft(input: JournalDraftInput): Promise<ActionResult> {
+  return saveJournalDraft(input)
+}
+
+export async function updateJournalDraft(input: JournalDraftInput & { id: string; expected_updated_at: string }): Promise<ActionResult> {
+  const { id, expected_updated_at, ...draft } = input
+  return saveJournalDraft(draft, id, expected_updated_at)
+}
+
+export async function deleteJournalDraft(input: { id: string; expected_updated_at: string }): Promise<ActionResult> {
+  try {
+    await requirePermission("accounting", "delete")
+    const currentUser = await getCurrentUser()
+    if (!currentUser) return { success: false, error: "Not authenticated." }
+    const rl = await rateLimitAccounting(currentUser.id)
+    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
+    const client = await createClient()
+    const { error } = await client.rpc("delete_journal_draft", {
+      p_entry_id: input.id, p_expected_updated_at: input.expected_updated_at,
+    })
+    if (error) return { success: false, error: mapFinancialError(error.message) }
+    revalidatePath("/accounting")
+    return { success: true }
+  } catch (e) {
+    return { success: false, error: mapFinancialError(errorMessage(e)) }
   }
 }
 

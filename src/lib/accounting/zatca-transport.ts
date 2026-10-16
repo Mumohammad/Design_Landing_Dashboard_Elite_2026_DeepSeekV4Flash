@@ -1,31 +1,13 @@
-// Financial Phase 15 — ZATCA transport (pluggable).
-//
-// The adapter transforms finalized invoices into UBL 2.1 XML and hands the
-// payload to this transport. Two modes:
-//
-//   SANDBOX (default, no env) — simulates a ZATCA response: a UUID and a
-//   status (Reported for standard invoices, Cleared for simplified B2C).
-//   Deterministic per document so tests and demos are stable.
-//
-//   PRODUCTION (config-only) — when ZATCA_API_BASE_URL + the production CSID
-//   credentials (ZATCA_CSID_CERT + ZATCA_CSID_SECRET, returned by the
-//   onboarding production-CSID step) are set, POSTs the payload to the ZATCA
-//   reporting/clearance endpoint with **Basic auth** (certificate:secret —
-//   the documented ZATCA reporting auth, confirmed by the Qoyod sandbox guide
-//   and the Fatoora developer community; the reporting API does NOT use a
-//   Bearer API key). When a signing private key (ZATCA_CSID_PRIVATE_KEY) is
-//   also configured, the payload is cryptographically signed first
-//   (zatca-crypto.ts) and the signature block is injected into the XML before
-//   POST. This path is intentionally NOT exercised against the live API yet:
-//   real ZATCA integration needs production credentials, onboarding
-//   certificates, and sandbox validation of the signing seam
-//   (ZATCA-BOUNDARY.md §1) — all future work. The seam exists so nothing in
-//   the engines changes when it lands.
-//
-// No ZATCA compliance is claimed (ZATCA-BOUNDARY.md §5).
+// ZATCA development transport. Offline mock is the default; real non-production
+// networking requires an explicit mode and an allowlisted official gateway.
+// Production is blocked while XML/signing/SDK validation remains incomplete.
+// Standard tax invoices use clearance; simplified tax invoices use reporting.
+// The current builder/adapter does not yet implement the full Phase 2 contract.
+// Mock responses are NOT authority validation or evidence of compliance.
 
 import { computeInvoiceHash, signZatcaPayload, buildSigningInput } from "./zatca-crypto"
 import { moduleLogger } from "@/lib/logger"
+import { getZatcaNetworkBase } from "./zatca-config"
 
 export type ZatcaTransmissionStatus = "reported" | "cleared" | "rejected"
 
@@ -42,12 +24,12 @@ export interface ZatcaTransportResponse {
 export interface ZatcaTransmitInput {
   /** UBL 2.1 payload built by zatca-ubl.ts. */
   xml: string
-  /** Which ZATCA pipeline: reporting (standard/compliance) vs clearance. */
+  /** Simplified invoices: reporting. Standard tax invoices: clearance. */
   pipeline: "reporting" | "clearance"
   /** Human document ref (invoice number etc.) — used for logging. */
   docRef: string
   /**
-   * Optional explicit production-CSID credentials (from the DB store via
+   * Optional explicit environment-specific CSID credentials (from the DB store via
    * getZatcaCsidCredential). When provided, the transport uses them for the
    * Basic auth header REGARDLESS of env. When absent, it falls back to the
    * env vars (ZATCA_CSID_CERT / ZATCA_CSID_SECRET). This lets the adapter
@@ -67,7 +49,7 @@ export interface ZatcaTransmitInput {
  * payload and return the signed XML with the `ds:SignatureValue` injected;
  * otherwise return the payload unchanged (sandbox/demo mode).
  *
- * Signing-time seam: the transport uses the current UTC time so re-running
+ * Unvalidated signing seam: the transport uses the current UTC time so re-running
  * the adapter for the same doc yields a different (valid) signature per
  * signing time — matching the XAdES-B-B model. The exact injection point and
  * signing-input layout MUST be validated against the ZATCA sandbox before
@@ -91,18 +73,6 @@ function signXmlIfConfigured(xml: string, privateKeyPem?: string | null): string
 }
 
 const SANDBOX_UUID_PREFIX = "00000000-0000-4000-8000-"
-
-function isProdConfigured(): boolean {
-  // Production requires the gateway base URL AND the production CSID
-  // credentials (certificate + secret) that onboarding returns. Partial
-  // config keeps the transport in sandbox mode so a half-finished setup
-  // cannot silently transmit.
-  return Boolean(
-    process.env.ZATCA_API_BASE_URL &&
-      process.env.ZATCA_CSID_CERT &&
-      process.env.ZATCA_CSID_SECRET
-  )
-}
 
 /**
  * Resolve the effective production credentials: explicit (DB-backed) first,
@@ -133,8 +103,8 @@ function sandboxUuid(docRef: string): string {
 
 /**
  * Transmit a UBL 2.1 payload to ZATCA.
- * Sandbox mode simulates the response; production mode (env-configured)
- * POSTs to the real API — currently documented but not exercised.
+ * Offline mode simulates a response. Non-production HTTP plumbing is available
+ * for development, but does not establish the full official integration contract.
  */
 /** Sleep helper for retry backoff. */
 function sleep(ms: number): Promise<void> {
@@ -155,12 +125,12 @@ const MAX_RETRIES = 2
 
 export async function transmitToZatca(input: ZatcaTransmitInput): Promise<ZatcaTransportResponse> {
   const log = moduleLogger("zatca")
-  // Explicit credentials (DB-backed) can activate production even without
-  // env; otherwise env must be fully configured. Either way the gateway base
-  // is required.
+  // A URL or stored credential never activates networking on its own.
+  const base = getZatcaNetworkBase()
   const credentials = resolveCredentials(input)
-  if (credentials && process.env.ZATCA_API_BASE_URL) {
-    // ── PRODUCTION (config-only, with retry for transient errors) ─────────
+  if (base && !credentials) throw new Error("ZATCA gateway credentials are missing; refusing simulated success.")
+  if (credentials && base) {
+    // Non-production gateway path (not yet SDK/sandbox validated).
     // ZATCA REQUIREMENT: every production transmission MUST be signed with
     // a valid CSID private key. Transmitting unsigned XML to the live API
     // would be rejected by ZATCA and could flag the tenant's CSID. Fail
@@ -172,14 +142,10 @@ export async function transmitToZatca(input: ZatcaTransmitInput): Promise<ZatcaT
       throw new Error(msg)
     }
     const signedXml = signXmlIfConfigured(input.xml, credentials.privateKeyPem)
-    const base = process.env.ZATCA_API_BASE_URL.replace(/\/$/, "")
     const endpoint = input.pipeline === "clearance"
       ? "/invoices/clearance/single"
       : "/invoices/reporting/single"
-    // ZATCA reporting/clearance auth is Basic with the PRODUCTION CSID
-    // certificate (binarySecurityToken) as username and the CSID secret as
-    // password (Qoyod sandbox guide + Fatoora community: "the username will
-    // be the binarysecuritytoken and the password will be the secret").
+    // Official security standard, section 5: certificate/secret Basic auth.
     const basicAuth = Buffer.from(`${credentials.csidBase64}:${credentials.secret}`).toString("base64")
 
     let lastError: Error | null = null
@@ -192,6 +158,8 @@ export async function transmitToZatca(input: ZatcaTransmitInput): Promise<ZatcaT
       try {
         const res = await fetch(`${base}${endpoint}`, {
           method: "POST",
+          redirect: "error",
+          signal: AbortSignal.timeout(30_000),
           headers: {
             "Content-Type": "application/xml",
             Authorization: `Basic ${basicAuth}`,
@@ -208,8 +176,11 @@ export async function transmitToZatca(input: ZatcaTransmitInput): Promise<ZatcaT
         }
 
         const errorBody = await res.text()
-        log.warn({ status: res.status, body: errorBody, attempt: attempt + 1 }, "ZATCA transport error")
-        lastError = new Error(`ZATCA transport error ${res.status}: ${errorBody}`)
+        // Never log/propagate a gateway body: it may echo a certificate,
+        // credential, invoice PII or other sensitive request fields.
+        void errorBody
+        log.warn({ status: res.status, attempt: attempt + 1 }, "ZATCA transport error")
+        lastError = new Error(`ZATCA transport error ${res.status}`)
 
         // Retry only on transient errors (429, 502, 503, 504)
         if (!isRetryableStatus(res.status)) {
@@ -230,9 +201,7 @@ export async function transmitToZatca(input: ZatcaTransmitInput): Promise<ZatcaT
   }
 
   // ── SANDBOX mock ───────────────────────────────────────────────────────
-  // Standard invoices are "reported" (compliance); simplified B2C invoices
-  // would be "cleared" — we don't model B2C yet, so pipeline is always
-  // reporting from the app. A stable UUID per doc keeps replays identical.
+  // Offline responses exercise application plumbing only.
   log.debug({ pipeline: input.pipeline }, "ZATCA sandbox mode — mock response")
   const status: ZatcaTransmissionStatus = input.pipeline === "clearance" ? "cleared" : "reported"
   return {
@@ -244,7 +213,7 @@ export async function transmitToZatca(input: ZatcaTransmitInput): Promise<ZatcaT
       pipeline: input.pipeline,
       status,
       reportedInvoiceUuid: sandboxUuid(input.docRef),
-      validationResults: { status: "PASSED", warnings: [] },
+      validationResults: { status: "NOT_VALIDATED", warnings: [] },
       message: "Sandbox ZATCA response — no real transmission occurred",
     },
   }
@@ -252,7 +221,7 @@ export async function transmitToZatca(input: ZatcaTransmitInput): Promise<ZatcaT
 
 /** True when running against the sandbox mock (no ZATCA env configured). */
 export function isSandboxTransport(): boolean {
-  return !isProdConfigured()
+  return !process.env.ZATCA_API_BASE_URL
 }
 
 /** Not needed for sandbox, but exported so callers can't guess UUIDs. */

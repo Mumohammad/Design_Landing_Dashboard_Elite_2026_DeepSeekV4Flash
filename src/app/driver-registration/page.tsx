@@ -1,6 +1,5 @@
-import "./print.css"
-import { RegistrationApp } from "./registration-app"
+import { notFound } from "next/navigation"
 
 export default function DriverRegistrationPage() {
-  return <RegistrationApp />
+  notFound()
 }

@@ -23,6 +23,8 @@
 -- ═══════════════════════════════════════════════════════════════════
 
 -- Simulate an authenticated user's JWT context
+BEGIN;
+
 CREATE OR REPLACE FUNCTION _set_jwt(p_auth_user_id UUID, p_tenant_id UUID)
 RETURNS void AS $$
 BEGIN
@@ -174,8 +176,9 @@ SELECT ok(
 );
 
 SELECT ok(
-  (SELECT count(*) FROM pg_policies WHERE tablename = 'public_lookup_rate_limits') = 0,
-  'public_lookup_rate_limits has RLS but no policies (service-role only)'
+  (SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename = 'public_lookup_rate_limits'
+    AND roles && ARRAY['public','anon','authenticated']::name[]) = 0,
+  'public_lookup_rate_limits has no policies accessible to API users (service-role only)'
 );
 
 -- ═══════════════════════════════════════════════════════════════════
@@ -183,8 +186,8 @@ SELECT ok(
 -- ═══════════════════════════════════════════════════════════════════
 
 -- 2.1 Core auth policies that must STILL exist (SELECT only after 058)
-SELECT policies_are('tenants', ARRAY['tenants_select_own', 'tenants_insert_own', 'tenants_update_own'],
-  'tenants has SELECT policy');
+SELECT policies_are('tenants', ARRAY['tenants_select_own', 'tenants_update_own'],
+  'tenants has SELECT and settings-gated UPDATE policies');
 SELECT policies_are('users', ARRAY['users_select_own_tenant'],
   'users has only SELECT policy after 058 hardening');
 SELECT policies_are('roles', ARRAY['roles_select_own_tenant'],
@@ -322,79 +325,30 @@ SELECT ok(
 
 SELECT _set_anon();
 
-SELECT is(
-  (SELECT count(*)::int FROM users),
-  0,
-  'anon: users returns 0 rows'
-);
-
-SELECT is(
-  (SELECT count(*)::int FROM tenants),
-  0,
-  'anon: tenants returns 0 rows'
-);
-
-SELECT is(
-  (SELECT count(*)::int FROM drivers),
-  0,
-  'anon: drivers returns 0 rows'
-);
-
-SELECT is(
-  (SELECT count(*)::int FROM vehicles),
-  0,
-  'anon: vehicles returns 0 rows'
-);
-
--- FIX: referenced non-existent table `payroll_periods` (SQLSTATE 42P01 aborts
--- a single-transaction run). Correct table: driver_payroll_periods.
-SELECT is(
-  (SELECT count(*)::int FROM driver_payroll_periods),
-  0,
-  'anon: driver_payroll_periods returns 0 rows'
-);
-
-SELECT is(
-  (SELECT count(*)::int FROM expenses),
-  0,
-  'anon: expenses returns 0 rows'
-);
-
-SELECT is(
-  (SELECT count(*)::int FROM invoices),
-  0,
-  'anon: invoices returns 0 rows'
-);
-
-SELECT is(
-  (SELECT count(*)::int FROM audit_log),
-  0,
-  'anon: audit_log returns 0 rows'
-);
-
-SELECT is(
-  (SELECT count(*)::int FROM roles),
-  0,
-  'anon: roles returns 0 rows'
-);
-
-SELECT is(
-  (SELECT count(*)::int FROM bank_accounts),
-  0,
-  'anon: bank_accounts returns 0 rows'
-);
-
-SELECT is(
-  (SELECT count(*)::int FROM customers),
-  0,
-  'anon: customers returns 0 rows'
-);
-
-SELECT is(
-  (SELECT count(*)::int FROM generated_documents),
-  0,
-  'anon: generated_documents returns 0 rows'
-);
+SELECT is(has_table_privilege('anon', 'public.users', 'SELECT'), false,
+  'anon: users SELECT grant is revoked');
+SELECT is(has_table_privilege('anon', 'public.tenants', 'SELECT'), false,
+  'anon: tenants SELECT grant is revoked');
+SELECT is(has_table_privilege('anon', 'public.drivers', 'SELECT'), false,
+  'anon: drivers SELECT grant is revoked');
+SELECT is(has_table_privilege('anon', 'public.vehicles', 'SELECT'), false,
+  'anon: vehicles SELECT grant is revoked');
+SELECT is(has_table_privilege('anon', 'public.driver_payroll_periods', 'SELECT'), false,
+  'anon: driver_payroll_periods SELECT grant is revoked');
+SELECT is(has_table_privilege('anon', 'public.expenses', 'SELECT'), false,
+  'anon: expenses SELECT grant is revoked');
+SELECT is(has_table_privilege('anon', 'public.invoices', 'SELECT'), false,
+  'anon: invoices SELECT grant is revoked');
+SELECT is(has_table_privilege('anon', 'public.audit_log', 'SELECT'), false,
+  'anon: audit_log SELECT grant is revoked');
+SELECT is(has_table_privilege('anon', 'public.roles', 'SELECT'), false,
+  'anon: roles SELECT grant is revoked');
+SELECT is(has_table_privilege('anon', 'public.bank_accounts', 'SELECT'), false,
+  'anon: bank_accounts SELECT grant is revoked');
+SELECT is(has_table_privilege('anon', 'public.customers', 'SELECT'), false,
+  'anon: customers SELECT grant is revoked');
+SELECT is(has_table_privilege('anon', 'public.generated_documents', 'SELECT'), false,
+  'anon: generated_documents SELECT grant is revoked');
 
 SELECT _set_admin();
 
@@ -690,7 +644,7 @@ SELECT _set_jwt('00000000-0000-0000-0000-000000000001'::uuid, '00000000-0000-000
 SELECT throws_ok(
   $$INSERT INTO roles (id, name, name_en, name_ar, tenant_id)
     VALUES (gen_random_uuid(), 'admin', 'Hack', 'اختراق', '00000000-0000-0000-0000-000000000001'::uuid)$$,
-  42501, 'new row violates row-level security policy for table "roles"',
+  '42501', NULL,
   'auth INSERT on roles is denied (no policy after 058)'
 );
 
@@ -699,7 +653,7 @@ SELECT throws_ok(
   $$INSERT INTO invites (id, email, tenant_id, role, status, token_hash, expires_at)
     VALUES (gen_random_uuid(), 'hack@test.com', '00000000-0000-0000-0000-000000000001'::uuid,
             'admin', 'pending', 'fakehash', now() + interval '7 days')$$,
-  42501, 'new row violates row-level security policy for table "invites"',
+  '42501', NULL,
   'auth INSERT on invites is denied (no policy after 058)'
 );
 
@@ -709,7 +663,7 @@ SELECT throws_ok(
     VALUES (gen_random_uuid(), '00000000-0000-0000-0000-000000000001'::uuid,
             '00000000-0000-0000-0000-000000000099'::uuid,
             '00000000-0000-0000-0000-000000000001'::uuid)$$,
-  42501, 'new row violates row-level security policy for table "user_role_assignments"',
+  '42501', NULL,
   'auth INSERT on user_role_assignments is denied (no policy after 058)'
 );
 
@@ -718,7 +672,7 @@ SELECT throws_ok(
   $$INSERT INTO tenant_memberships (id, user_id, tenant_id, is_primary)
     VALUES (gen_random_uuid(), '00000000-0000-0000-0000-000000000001'::uuid,
             '00000000-0000-0000-0000-000000000001'::uuid, false)$$,
-  42501, 'new row violates row-level security policy for table "tenant_memberships"',
+  '42501', NULL,
   'auth INSERT on tenant_memberships is denied (no policy after 058)'
 );
 
@@ -727,7 +681,7 @@ SELECT throws_ok(
   $$INSERT INTO journal_entries (tenant_id, entry_ref, entry_date, description_en, status)
     VALUES ('00000000-0000-0000-0000-000000000001'::uuid, 'TEST-001', current_date,
             'test', 'draft')$$,
-  42501, 'new row violates row-level security policy for table "journal_entries"',
+  '42501', NULL,
   'auth INSERT on journal_entries is denied (service-role only after 036)'
 );
 
@@ -737,7 +691,7 @@ SELECT throws_ok(
     VALUES ('00000000-0000-0000-0000-000000000001'::uuid,
             '00000000-0000-0000-0000-000000000099'::uuid,
             '00000000-0000-0000-0000-000000000098'::uuid, 100.00, 0)$$,
-  42501, 'new row violates row-level security policy for table "journal_entry_lines"',
+  '42501', NULL,
   'auth INSERT on journal_entry_lines is denied (service-role only after 036)'
 );
 
@@ -747,7 +701,7 @@ SELECT throws_ok(
     VALUES ('00000000-0000-0000-0000-000000000001'::uuid,
             '00000000-0000-0000-0000-000000000099'::uuid,
             '00000000-0000-0000-0000-000000000001'::uuid, 'approved')$$,
-  42501, 'new row violates row-level security policy for table "journal_approvals"',
+  '42501', NULL,
   'auth INSERT on journal_approvals is denied (self-approval prevention)'
 );
 
@@ -756,7 +710,7 @@ SELECT throws_ok(
   $$INSERT INTO financial_events (tenant_id, event_id, idempotency_key, event_type, source_type, source_id, event_date, payload)
     VALUES ('00000000-0000-0000-0000-000000000001'::uuid, gen_random_uuid(), 'test-idem-' || gen_random_uuid()::text, 'test', 'test', '00000000-0000-0000-0000-000000000099'::uuid,
             current_date, '{}'::jsonb)$$,
-  42501, 'new row violates row-level security policy for table "financial_events"',
+  '42501', NULL,
   'auth INSERT on financial_events is denied (append-only via service-role after 053)'
 );
 
@@ -872,12 +826,21 @@ SELECT ok(
 -- SECTION 14: DRIVER APPLICATIONS — Anon access is limited
 -- ═══════════════════════════════════════════════════════════════════
 
--- Verify driver_applications has limited anon access (insert only, via policy)
+-- Anonymous metadata writes were replaced by one service-role transaction.
 SELECT ok(
-  (SELECT count(*)::int FROM pg_policies
-   WHERE tablename = 'driver_applications'
-     AND policyname = 'driver_apps_anon_insert') = 1,
-  'driver_applications has limited anon INSERT policy'
+  NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename IN ('driver_applications', 'driver_application_documents')
+      AND roles @> ARRAY['anon']::name[]
+      AND cmd = 'INSERT'
+  )
+  AND has_function_privilege(
+    'service_role',
+    'public.provision_driver_application_atomic(text,jsonb,jsonb)',
+    'EXECUTE'
+  ),
+  'driver application metadata writes use the service-role atomic RPC only'
 );
 
 SELECT ok(
@@ -916,3 +879,5 @@ DROP FUNCTION IF EXISTS _set_admin();
 DROP FUNCTION IF EXISTS _set_owner_claims(UUID);
 
 SELECT * FROM finish();
+
+ROLLBACK;

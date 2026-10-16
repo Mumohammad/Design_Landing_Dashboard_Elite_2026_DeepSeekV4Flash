@@ -2,7 +2,7 @@ name: CI — EliteDev
 
 on:
   pull_request:
-    branches: [master, main]
+    branches: [master, main, fix/launch-blockers-security, codex/production-readiness-release, codex/accounting-invoices-crud, codex/accounting-journal-crud, codex/accounting-bank-crud]
   push:
     branches: [master, main]
 
@@ -69,7 +69,7 @@ jobs:
     - name: Build
       run: pnpm build
       env:
-        NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
+        NEXT_PUBLIC_SUPABASE_URL: http://localhost:58321
         NEXT_PUBLIC_SUPABASE_ANON_KEY: test-key
         NEXT_PUBLIC_APP_URL: http://localhost:3000
         SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
@@ -110,7 +110,7 @@ jobs:
 
     # ── Smoke test (production build, not dev server) ─────────────────────
 
-    - name: Smoke test health endpoint
+    - name: Smoke test readiness failure without dependencies
       run: |
         # Start production server from the build output
         PORT=3000 pnpm start > /tmp/elitedev.log 2>&1 &
@@ -119,7 +119,7 @@ jobs:
 
         # Wait for server to be ready
         for attempt in $(seq 1 30); do
-          health="$(curl -fsS http://127.0.0.1:3000/api/health 2>/dev/null || true)"
+          health="$(curl -sS http://127.0.0.1:3000/api/health 2>/dev/null || true)"
           if [ -n "$health" ]; then
             echo "✅ Server started (attempt $attempt)"
             break
@@ -134,23 +134,23 @@ jobs:
 
         # Verify health response
         echo "Health response: $health"
-        if printf '%s' "$health" | grep -q '"status":"healthy"\|"status":"degraded"'; then
-          echo "✅ Health check passed"
+        status=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/health)
+        if [ "$status" = "503" ] && printf '%s' "$health" | grep -q '"status":"unhealthy"'; then
+          echo "✅ Readiness correctly fails closed without dependent services"
         else
           echo "❌ Health check failed — unexpected response"
           exit 1
         fi
       env:
-        NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
+        NEXT_PUBLIC_SUPABASE_URL: http://localhost:58321
         NEXT_PUBLIC_SUPABASE_ANON_KEY: test-key
         NEXT_PUBLIC_APP_URL: http://localhost:3000
         PORT: "3000"
 
-  # ── pgTAP RLS tests (runs after CI passes, needs Docker) ─────────────────
+  # ── pgTAP RLS tests (independent release gate, needs Docker) ─────────────
   pgtap:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: ci
 
     steps:
     - name: Checkout
@@ -176,22 +176,22 @@ jobs:
       run: pnpm install --frozen-lockfile
 
     - name: Install Supabase CLI
-      run: |
-        npm install -g supabase
-        supabase --version
+      uses: supabase/setup-cli@v1
+      with:
+        version: v2.119.0
 
     - name: Start Supabase local stack
       run: |
         set -o pipefail
-        supabase start 2>&1 | tail -20
+        supabase start > /tmp/supabase-start.log 2>&1 || { echo "Local Supabase startup failed"; exit 1; }
         echo "Supabase started successfully"
 
     - name: Wait for database
       run: |
         # NOTE: `supabase db ping` does not exist in the Supabase CLI.
-        # Probe Postgres directly via psql on the local Supabase port (54322).
+        # Probe Postgres directly via psql on the local Supabase port (58322).
         for i in $(seq 1 60); do
-          if psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -tAc "SELECT 1" 2>/dev/null | grep -q "1"; then
+          if psql "postgresql://postgres:postgres@127.0.0.1:58322/postgres" -tAc "SELECT 1" 2>/dev/null | grep -q "1"; then
             echo "✅ Database is ready (attempt $i)"
             break
           fi
@@ -214,7 +214,10 @@ jobs:
         # (Audit 2026-09-23: reversed order made every suite fail with
         # "function plan(integer) does not exist" while the runner still
         # reported the files as passed.)
-        psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -c "CREATE EXTENSION IF NOT EXISTS pgtap;"
+        # Keep pgTAP's helper tables out of the Data API's public schema. If
+        # installed in public after the migrations, Supabase default
+        # privileges grant those test-only tables broad Data API privileges.
+        psql "postgresql://postgres:postgres@127.0.0.1:58322/postgres" -c "CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;"
         echo "✅ pgTAP extension ready"
 
     - name: Run pgTAP RLS tests
@@ -239,7 +242,7 @@ jobs:
           # anon/authenticated assertion would run as superuser).
           # -tA: emit bare TAP lines — in psql's default table format the
           # plan/`not ok` lines are wrapped in table borders and unparseable.
-          OUTPUT=$(psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -tA --single-transaction -f "$test_file" 2>&1)
+          OUTPUT=$(psql "postgresql://postgres:postgres@127.0.0.1:58322/postgres" -tA --single-transaction -f "$test_file" 2>&1)
           EXIT_CODE=$?
 
           # A file only counts as passed when it: exited 0, emitted a TAP plan
@@ -275,15 +278,50 @@ jobs:
           echo "✅ All pgTAP tests passed"
         fi
 
+    - name: Verify local Auth and Storage integration
+      run: node scripts/run-storage-integration.mjs
+
+    - name: Verify payment races in disposable database
+      run: node scripts/verify-payment-concurrency.mjs --local-disposable
+
+    - name: Configure disposable browser verification
+      run: |
+        node --input-type=module <<'NODE'
+        import { execFileSync } from 'node:child_process';
+        import { writeFileSync } from 'node:fs';
+        const local = JSON.parse(execFileSync('supabase', ['status', '--output', 'json'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
+        const url = new URL(local.API_URL);
+        if (!['localhost', '127.0.0.1'].includes(url.hostname) || url.port !== '58321') throw new Error('Local target required');
+        writeFileSync('.env.local', Object.entries({
+          NEXT_PUBLIC_SUPABASE_URL: local.API_URL,
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: local.ANON_KEY,
+          SUPABASE_SERVICE_ROLE_KEY: local.SERVICE_ROLE_KEY,
+          NEXT_PUBLIC_APP_URL: 'http://localhost:3107',
+        }).map(([key, value]) => `${key}=${value}`).join('\n'));
+        NODE
+
+    - name: Build and verify owner MFA in the browser
+      run: |
+        pnpm exec playwright install --with-deps chromium
+        pnpm build
+        pnpm start --port 3107 > /tmp/local-app.log 2>&1 &
+        ready=0
+        for i in $(seq 1 30); do
+          if curl -fsS http://localhost:3107/api/health > /dev/null; then ready=1; break; fi
+          sleep 2
+        done
+        test "$ready" = "1" || { echo "Local app dependencies are not ready"; exit 1; }
+        VERIFY_INVOICE_CRUD=1 VERIFY_JOURNAL_CRUD=1 VERIFY_BANK_CRUD=1 VERIFY_OPERATIONS_CRUD=1 node scripts/verify-local-mfa.mjs
+        node scripts/verify-invoice-print.mjs
+
     - name: Stop Supabase
       if: always()
       run: supabase stop 2>/dev/null || true
 
-  # ── E2E tests (runs on PRs only, needs staging env) ───────────────────────
+  # ── E2E tests (independent PR release gate, needs staging env) ────────────
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: ci
     if: github.event_name == 'pull_request'
     env:
       BASE_URL: ${{ secrets.STAGING_URL }}
@@ -313,6 +351,20 @@ jobs:
     - name: Install Playwright browsers
       run: pnpm exec playwright install --with-deps chromium
 
+    - name: Verify E2E configuration
+      run: |
+        missing=0
+        for var in BASE_URL TEST_USER_EMAIL TEST_USER_PASSWORD; do
+          if [ -z "${!var}" ]; then
+            echo "MISSING: $var is required for authenticated staging E2E"
+            missing=1
+          fi
+        done
+        if [ "$missing" -ne 0 ]; then
+          echo "Configure the corresponding GitHub Actions secrets; E2E must not silently skip."
+          exit 1
+        fi
+        echo "E2E staging URL and credentials are configured"
+
     - name: Run E2E smoke tests
       run: pnpm exec playwright test e2e/smoke.spec.ts --reporter=github
-      if: env.BASE_URL != ''

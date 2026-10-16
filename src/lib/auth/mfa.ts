@@ -12,7 +12,7 @@
 
 import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
-import { getCurrentUser } from "@/lib/auth/authorization"
+import { getCurrentUserForMfa as getCurrentUser } from "@/lib/auth/authorization"
 import { writeAuditLog } from "@/lib/auth/sessions"
 import { rateLimit2FA } from "@/lib/auth/rate-limit"
 import { moduleLogger } from "@/lib/logger"

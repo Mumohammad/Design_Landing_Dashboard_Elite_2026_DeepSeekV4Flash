@@ -22,7 +22,7 @@ export interface CalculatePayrollOutput extends PayrollCalculationResult {
 }
 
 function getNextMonthStart(year: number, month: number): string {
-  const next = month === 12 ? new Date(year + 1, 0, 1) : new Date(year, month, 1)
+  const next = new Date(Date.UTC(year, month, 1))
   return next.toISOString().split("T")[0]
 }
 
@@ -31,6 +31,8 @@ export async function calculateDriverPayroll(
 ): Promise<CalculatePayrollOutput> {
   const admin = createAdminClient()
   const { driverId, periodYear, periodMonth } = input
+
+  if (!Number.isInteger(periodYear) || periodYear < 2000 || periodYear > 2100 || !Number.isInteger(periodMonth) || periodMonth < 1 || periodMonth > 12) throw new Error("Invalid payroll period")
 
   // ── 1. LOAD DRIVER + PAYROLL RULE ─────────────────────────────────
   const { data: driver, error: driverError } = await admin
@@ -41,19 +43,20 @@ export async function calculateDriverPayroll(
     .single()
   if (driverError || !driver) throw new Error("DRV003")
 
-  const { data: rule } = await admin
+  const { data: rule, error: ruleError } = await admin
     .from("driver_payroll_rules")
     .select("*")
     .eq("driver_id", driverId)
     .eq("is_active", true)
     .is("deleted_at", null)
+    .lt("effective_date", getNextMonthStart(periodYear, periodMonth))
     .order("effective_date", { ascending: false })
     .limit(1)
     .single()
-  if (!rule) throw new Error("DRV005")
+  if (ruleError || !rule) throw new Error("DRV005")
 
   // ── 2. LOAD ATTENDANCE SUMMARY (must be locked) ───────────────────
-  const { data: attendancePeriod } = await admin
+  const { data: attendancePeriod, error: attendancePeriodError } = await admin
     .from("attendance_periods")
     .select("status")
     .eq("tenant_id", driver.tenant_id)
@@ -61,9 +64,9 @@ export async function calculateDriverPayroll(
     .eq("period_month", periodMonth)
     .is("deleted_at", null)
     .single()
-  if (attendancePeriod?.status !== "locked") throw new Error("PAY001")
+  if (attendancePeriodError || attendancePeriod?.status !== "locked") throw new Error("PAY001")
 
-  const { data: attSummary } = await admin
+  const { data: attSummary, error: attSummaryError } = await admin
     .from("driver_attendance_summary")
     .select("working_days_actual, days_absent_unexcused")
     .eq("driver_id", driverId)
@@ -72,25 +75,28 @@ export async function calculateDriverPayroll(
     .is("deleted_at", null)
     .single()
 
+  if (attSummaryError || !attSummary) throw new Error("Attendance summary unavailable")
+
   const working_days_target = rule.working_days_target ?? 26
   const working_days_actual = attSummary?.working_days_actual ?? 0
   const daily_rate = ((rule.base_salary ?? rule.package_amount ?? 0) as number) / working_days_target
 
   // ── 3. LOAD ORDERS DATA ───────────────────────────────────────────
-  const { data: ordersData } = await admin
+  const { data: ordersData, error: ordersDataError } = await admin
     .from("monthly_driver_orders")
     .select("total_delivered")
     .eq("driver_id", driverId)
     .eq("period_year", periodYear)
     .eq("period_month", periodMonth)
     .is("deleted_at", null)
+  if (ordersDataError) throw new Error("Orders unavailable")
   const orders_achieved = ordersData?.reduce((s: number, r: { total_delivered: number }) => s + (r.total_delivered ?? 0), 0) ?? 0
 
   // ── 4. LOAD APPROVED DEDUCTIONS FROM ALL MODULES ─────────────────
   const periodKey = `${periodYear}-${String(periodMonth).padStart(2, "0")}`
 
   // Violation deductions (pending = ready to apply this period)
-  const { data: violationLedger } = await admin
+  const { data: violationLedger, error: violationLedgerError } = await admin
     .from("violation_deduction_ledger")
     .select("id, deduction_amount, violation_id, violations(violation_ref)")
     .eq("driver_id", driverId)
@@ -99,7 +105,7 @@ export async function calculateDriverPayroll(
     .is("deleted_at", null)
 
   // Advances due this period
-  const { data: advances } = await admin
+  const { data: advances, error: advancesError } = await admin
     .from("payroll_advances")
     .select("id, amount")
     .eq("driver_id", driverId)
@@ -109,7 +115,7 @@ export async function calculateDriverPayroll(
 
   // COD deductions (unresolved shortfalls flagged for deduction)
   const monthStart = `${periodYear}-${String(periodMonth).padStart(2, "0")}-01`
-  const { data: codSessions } = await admin
+  const { data: codSessions, error: codSessionsError } = await admin
     .from("driver_cod_sessions")
     .select("id, cod_variance, cod_collected, cod_submitted")
     .eq("driver_id", driverId)
@@ -118,6 +124,8 @@ export async function calculateDriverPayroll(
     .eq("deduction_created", true)
     .eq("status", "pending")
     .is("deleted_at", null)
+
+  if (violationLedgerError || advancesError || codSessionsError) throw new Error("Payroll deductions unavailable")
 
   // ── 5. BUILD DEDUCTIONS ARRAY ─────────────────────────────────────
   const deductions = [
@@ -170,7 +178,7 @@ export async function calculateDriverPayroll(
     payroll_rule_id: rule.id,
     working_days_target,
     working_days_actual,
-    orders_target_monthly: rule.target_orders ?? 450,
+    target_orders_monthly: rule.target_orders ?? 450,
     orders_prorated_target: result.orders_prorated_target,
     orders_achieved,
     orders_variance: result.orders_variance,

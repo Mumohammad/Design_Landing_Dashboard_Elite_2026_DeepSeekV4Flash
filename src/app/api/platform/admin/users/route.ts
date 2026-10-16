@@ -36,7 +36,8 @@ export async function POST(req: NextRequest) {
     if (password) {
       const { data, error } = await service.auth.admin.createUser({
         email, password, email_confirm: true,
-        user_metadata: { _invite_provisioned: true, full_name_en: full_name ?? null },
+        app_metadata: { _invite_provisioned: true },
+      user_metadata: { full_name_en: full_name ?? null },
       });
       if (error) throw error;
       authUserId = data.user!.id;

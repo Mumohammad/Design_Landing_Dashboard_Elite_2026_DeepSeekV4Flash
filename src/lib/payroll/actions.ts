@@ -12,6 +12,7 @@
 // All three enforce authorization server-side with requirePermission() and
 // write immutable audit_log entries (ADR-007).
 
+import { integrationAvailable, INTEGRATION_UNAVAILABLE } from "@/lib/release/integrations"
 import { revalidatePath } from "next/cache"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
@@ -69,13 +70,14 @@ export async function calculatePayrollForPeriod(
     log.info({ userId: currentUser.id, tenantId: currentUser.tenantId, periodYear, periodMonth }, "calculatePayrollForPeriod started")
 
     const admin = createAdminClient()
-    const { data: drivers } = await admin
+    const { data: drivers, error: driversError } = await admin
       .from("drivers")
       .select("id")
       .eq("tenant_id", currentUser.tenantId)
       .in("status", ["active", "on_leave"])
       .is("deleted_at", null)
 
+    if (driversError) throw new Error("Unable to load payroll drivers")
     if (!drivers?.length) {
       return { success: false, error: "No active drivers found for this tenant." }
     }
@@ -114,7 +116,7 @@ export async function calculatePayrollForPeriod(
 
     revalidatePath("/payroll")
     return {
-      success: true,
+      success: errors.length === 0,
       calculated,
       error:
         errors.length > 0
@@ -170,6 +172,7 @@ export async function generateWpsFile(
   periodYear: number,
   periodMonth: number
 ): Promise<ActionResult & { content?: string; filename?: string }> {
+  if (!integrationAvailable("wps")) return { success: false, error: INTEGRATION_UNAVAILABLE }
   try {
     await requirePermission("payroll", "export")
     const currentUser = await getCurrentUser()

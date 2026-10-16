@@ -27,6 +27,7 @@
 // engines (Phase 9) can consume them exactly once.
 
 import { revalidatePath } from "next/cache"
+import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
 import { writeAuditLog } from "@/lib/auth/sessions"
@@ -97,203 +98,55 @@ async function emitEvent(input: {
   }
 }
 
-/** Verify a party exists and belongs to the tenant. Returns an error string or null. */
-async function verifyParty(kind: "customers" | "suppliers", id: string | null | undefined, tenantId: string): Promise<string | null> {
-  if (!id) return null
-  const admin = createAdminClient()
-  const { data } = await admin
-    .from(kind)
-    .select("id")
-    .eq("id", id)
-    .eq("tenant_id", tenantId)
-    .is("deleted_at", null)
-    .maybeSingle()
-  return data ? null : mapInv(kind === "customers" ? "CUS001" : "SUP001")
-}
-
-// ── Create draft ──────────────────────────────────────────────────────────
-
-export async function createInvoiceDraft(
-  input: InvoiceDraftInput
-): Promise<ActionResult & { id?: string }> {
+// Draft writes use the caller's authenticated session. The database validates
+// tenant, permission, version, party and money, then commits header/lines/audit
+// together. A failed edit leaves the previous draft intact.
+async function saveDraft(input: InvoiceDraftInput, id?: string, expectedUpdatedAt?: string)
+  : Promise<ActionResult & { id?: string }> {
   try {
-    await requirePermission("invoices", "create")
-    const currentUser = await getCurrentUser()
-    if (!currentUser) return { success: false, error: "Not authenticated." }
-
-    if (!input.issue_date || !input.due_date) {
-      return { success: false, error: mapInv("INV008") }
-    }
-    if (new Date(input.due_date) < new Date(input.issue_date)) {
-      return { success: false, error: mapInv("INV008") }
-    }
-    if (input.invoice_type === "sales" && !input.customer_id) {
-      return { success: false, error: mapInv("INV005") }
-    }
-    if (input.invoice_type === "purchase" && !input.supplier_id) {
-      return { success: false, error: mapInv("INV005") }
-    }
-
-    let totals: ReturnType<typeof computeInvoiceTotals>
-    try {
-      totals = computeInvoiceTotals(input.lines, input.vat_rate ?? 15)
-    } catch (e) {
-      return { success: false, error: errorMessage(e) }
-    }
-
-    const partyErr = await verifyParty(
-      input.invoice_type === "sales" ? "customers" : "suppliers",
-      input.invoice_type === "sales" ? input.customer_id : input.supplier_id,
-      currentUser.tenantId
-    )
-    if (partyErr) return { success: false, error: partyErr }
-
-    const admin = createAdminClient()
-    const { data: inv, error } = await admin
-      .from("invoices")
-      .insert({
-        tenant_id: currentUser.tenantId,
-        invoice_type: input.invoice_type,
-        customer_id: input.invoice_type === "sales" ? input.customer_id : null,
-        supplier_id: input.invoice_type === "purchase" ? input.supplier_id : null,
-        issue_date: input.issue_date,
-        due_date: input.due_date,
-        currency: input.currency ?? "SAR",
-        status: "draft",
-        subtotal: totals.subtotal,
-        discount: totals.discount,
-        vat_amount: totals.vat_amount,
-        total: totals.total,
-        vat_rate: input.vat_rate ?? 15,
-        notes: input.notes?.trim() || null,
-        created_by: currentUser.authUserId,
-      })
-      .select("id,invoice_number")
-      .single()
-    if (error) return { success: false, error: mapFinancialError(error.message) }
-
-    const { error: linesErr } = await admin.from("invoice_lines").insert(
-      totals.lines.map((l) => ({
-        tenant_id: currentUser.tenantId,
-        invoice_id: inv.id,
-        ...l,
-        created_by: currentUser.authUserId,
-      }))
-    )
-    if (linesErr) return { success: false, error: mapFinancialError(linesErr.message) }
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "invoices",
-      action: "invoice_draft_created",
-      entityType: "invoices",
-      entityId: inv.id,
-      newValues: {
-        invoice_number: inv.invoice_number,
-        invoice_type: input.invoice_type,
-        lines: totals.lines.length,
-        total: totals.total,
-      },
+    await requirePermission("invoices", id ? "update" : "create")
+    if ((input.currency ?? "SAR") !== "SAR") return { success: false, error: "Accounting supports SAR only; existing foreign-currency invoices require review." }
+    computeInvoiceTotals(input.lines, input.vat_rate ?? 15)
+    const client = await createClient()
+    const { data, error } = await client.rpc("save_invoice_draft", {
+      p_input: input,
+      p_invoice_id: id ?? null,
+      p_expected_updated_at: expectedUpdatedAt ?? null,
     })
-
+    if (error) return { success: false, error: mapFinancialError(error.message) }
     revalidatePath("/invoices")
     revalidatePath("/accounting")
-    return { success: true, id: inv.id }
+    return { success: true, id: data.id }
   } catch (e) {
-    return { success: false, error: errorMessage(e) }
+    return { success: false, error: mapFinancialError(errorMessage(e)) }
   }
 }
 
-// ── Update draft ───────────────────────────────────────────────────────────
+export async function createInvoiceDraft(input: InvoiceDraftInput): Promise<ActionResult & { id?: string }> {
+  return saveDraft(input)
+}
 
 export async function updateInvoiceDraft(
-  input: InvoiceDraftInput & { id: string }
+  input: InvoiceDraftInput & { id: string; expected_updated_at: string }
 ): Promise<ActionResult> {
+  const { id, expected_updated_at, ...draft } = input
+  return saveDraft(draft, id, expected_updated_at)
+}
+
+export async function deleteInvoiceDraft(input: { id: string; expected_updated_at: string }): Promise<ActionResult> {
   try {
-    await requirePermission("invoices", "update")
-    const currentUser = await getCurrentUser()
-    if (!currentUser) return { success: false, error: "Not authenticated." }
-
-    const admin = createAdminClient()
-    const { data: existing, error: fetchError } = await admin
-      .from("invoices")
-      .select("id,status,invoice_type")
-      .eq("id", input.id)
-      .eq("tenant_id", currentUser.tenantId)
-      .is("deleted_at", null)
-      .maybeSingle()
-    if (fetchError || !existing) return { success: false, error: mapInv("INV001") }
-    if (existing.status !== "draft") {
-      return { success: false, error: mapInv("INV006") }
-    }
-    if (existing.invoice_type !== input.invoice_type) {
-      return { success: false, error: mapInv("INV006") }
-    }
-    if (new Date(input.due_date) < new Date(input.issue_date)) {
-      return { success: false, error: mapInv("INV008") }
-    }
-
-    let totals: ReturnType<typeof computeInvoiceTotals>
-    try {
-      totals = computeInvoiceTotals(input.lines, input.vat_rate ?? 15)
-    } catch (e) {
-      return { success: false, error: errorMessage(e) }
-    }
-
-    const { error: updErr } = await admin
-      .from("invoices")
-      .update({
-        customer_id: input.invoice_type === "sales" ? input.customer_id : null,
-        supplier_id: input.invoice_type === "purchase" ? input.supplier_id : null,
-        issue_date: input.issue_date,
-        due_date: input.due_date,
-        currency: input.currency ?? "SAR",
-        subtotal: totals.subtotal,
-        discount: totals.discount,
-        vat_amount: totals.vat_amount,
-        total: totals.total,
-        vat_rate: input.vat_rate ?? 15,
-        notes: input.notes?.trim() || null,
-        updated_by: currentUser.authUserId,
-      })
-      .eq("id", input.id)
-      .eq("tenant_id", currentUser.tenantId)
-      .is("deleted_at", null)
-    if (updErr) return { success: false, error: mapFinancialError(updErr.message) }
-
-    // Replace lines (draft only — the DB blocks this once finalized).
-    const { error: delErr } = await admin
-      .from("invoice_lines")
-      .delete()
-      .eq("invoice_id", input.id)
-    if (delErr) return { success: false, error: mapFinancialError(delErr.message) }
-
-    const { error: linesErr } = await admin.from("invoice_lines").insert(
-      totals.lines.map((l) => ({
-        tenant_id: currentUser.tenantId,
-        invoice_id: input.id,
-        ...l,
-        created_by: currentUser.authUserId,
-      }))
-    )
-    if (linesErr) return { success: false, error: mapFinancialError(linesErr.message) }
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "invoices",
-      action: "invoice_draft_updated",
-      entityType: "invoices",
-      entityId: input.id,
-      newValues: { lines: totals.lines.length, total: totals.total },
+    await requirePermission("invoices", "delete")
+    const client = await createClient()
+    const { error } = await client.rpc("delete_invoice_draft", {
+      p_invoice_id: input.id,
+      p_expected_updated_at: input.expected_updated_at,
     })
-
+    if (error) return { success: false, error: mapFinancialError(error.message) }
     revalidatePath("/invoices")
     revalidatePath("/accounting")
     return { success: true }
   } catch (e) {
-    return { success: false, error: errorMessage(e) }
+    return { success: false, error: mapFinancialError(errorMessage(e)) }
   }
 }
 

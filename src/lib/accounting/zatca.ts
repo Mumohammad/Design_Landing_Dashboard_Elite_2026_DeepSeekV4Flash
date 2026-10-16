@@ -20,6 +20,7 @@
 //
 // Permission: accounting:approve (same as the event dispatcher).
 
+import { integrationAvailable, INTEGRATION_UNAVAILABLE } from "@/lib/release/integrations"
 import { revalidatePath } from "next/cache"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
@@ -27,7 +28,8 @@ import { writeAuditLog } from "@/lib/auth/sessions"
 import { mapFinancialError } from "@/lib/accounting/csv-utils"
 import { buildZatcaUblInvoice, type ZatcaInvoiceData, type ZatcaLine, type ZatcaParty } from "./zatca-ubl"
 import { transmitToZatca } from "./zatca-transport"
-import { getZatcaCsidCredential } from "./zatca-csid"
+import { getZatcaCsidCredential } from "./zatca-credentials"
+import { getZatcaNetworkBase } from "./zatca-config"
 
 export type ZatcaAdapterSummary = {
   success: boolean
@@ -109,6 +111,7 @@ function partyName(row: PartyRow): string {
  * transform → transmit → record pipeline. Never throws — returns a summary.
  */
 export async function runZatcaAdapter(): Promise<ZatcaAdapterSummary> {
+  if (!integrationAvailable("zatca")) return { success: false, error: INTEGRATION_UNAVAILABLE }
   try {
     await requirePermission("accounting", "approve")
     const currentUser = await getCurrentUser()
@@ -120,10 +123,10 @@ export async function runZatcaAdapter(): Promise<ZatcaAdapterSummary> {
     // CSID first, env fallback — see zatca-transport.ts resolveCredentials).
     // Mirror that decision here so the audit log / UI flash can never report
     // "not sandbox" while the transport is actually returning the mock.
-    const storedCsid = await getZatcaCsidCredential("production", "production", currentUser.tenantId)
-    const reportingBaseConfigured = Boolean(process.env.ZATCA_API_BASE_URL)
-    const envCredentialsConfigured = Boolean(process.env.ZATCA_CSID_CERT && process.env.ZATCA_CSID_SECRET)
-    const sandbox = !(reportingBaseConfigured && (storedCsid || envCredentialsConfigured))
+    const networkBase = getZatcaNetworkBase()
+    const environment = process.env.ZATCA_MODE === "simulation" ? "simulation" : "sandbox"
+    const storedCsid = networkBase ? await getZatcaCsidCredential(environment, "production", currentUser.tenantId) : null
+    const sandbox = !networkBase
 
     // ZATCA-relevant events for this tenant (any processing status — the
     // accounting dispatcher owns that column; our ledger is the idempotency

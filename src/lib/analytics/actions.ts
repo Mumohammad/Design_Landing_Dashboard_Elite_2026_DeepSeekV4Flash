@@ -565,8 +565,9 @@ export async function getDashboardSnapshot(
   })
 
   // ── Cross-module ops: approvals depth (#52 RPC) + audit volume (#51) ──────
-  // Both read through the admin client, scoped by the SERVER-side tenant id
-  // (never the browser). Depth/counts only — no PII-bearing column of the
+  // Approval depth uses the cookie-bound RPC (caller tenant + RBAC enforced
+  // in SQL); audit volume uses the admin aggregate scoped by the server-side
+  // tenant id. Depth/counts only — no PII-bearing column of the
   // queue or the audit payload projects into the snapshot (PDPL minimal
   // projection; the aggregates are counts).
   let auditEvents = 0
@@ -582,7 +583,7 @@ export async function getDashboardSnapshot(
   if (currentUser) {
     const admin = createAdminClient()
     try {
-      const { data, error } = await admin.rpc("fetch_pending_approvals", {
+      const { data, error } = await supabase.rpc("fetch_pending_approvals", {
         p_tenant_id: currentUser.tenantId,
         p_type: null,
         p_from: null,

@@ -27,6 +27,8 @@
 --   fixture guards with state resets, finish() at the end.
 -- ============================================================================
 
+BEGIN;
+
 SELECT plan(22);
 
 -- ─── Fixtures (run as postgres; bypass RLS) ─────────────────────────────────
@@ -325,20 +327,19 @@ SELECT is(
 RESET ROLE;
 SET LOCAL ROLE anon;
 SELECT set_config('request.jwt.claims', '{"role":"anon"}', true);
-SELECT is(
-  (SELECT count(*)::int FROM public.finance_payments)
-+ (SELECT count(*)::int FROM public.invoices)
-+ (SELECT count(*)::int FROM public.expenses)
-+ (SELECT count(*)::int FROM public.journal_entries)
-+ (SELECT count(*)::int FROM public.journal_entry_lines),
-  0,
-  'anon sees 0 rows across all accounting tables'
+SELECT ok(
+  NOT has_table_privilege('anon', 'public.finance_payments', 'SELECT')
+  AND NOT has_table_privilege('anon', 'public.invoices', 'SELECT')
+  AND NOT has_table_privilege('anon', 'public.expenses', 'SELECT')
+  AND NOT has_table_privilege('anon', 'public.journal_entries', 'SELECT')
+  AND NOT has_table_privilege('anon', 'public.journal_entry_lines', 'SELECT'),
+  'anon has no SELECT grants on accounting tables'
 );
 
 RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claims',
-  '{"role":"authenticated","sub":"13333333-3333-3333-3333-333333333333"}', true);
+  '{"role":"authenticated","aal":"aal2","sub":"13333333-3333-3333-3333-333333333333"}', true);
 SELECT is(
   (SELECT count(*)::int FROM public.finance_payments
    WHERE tenant_id = '13111111-1111-1111-1111-111111111111'),
@@ -394,7 +395,7 @@ ON CONFLICT (id) DO UPDATE SET tenant_id = '13222222-2222-2222-2222-222222222222
 RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claims',
-  '{"role":"authenticated","sub":"13888888-8888-8888-8888-888888888888"}', true);
+  '{"role":"authenticated","aal":"aal2","sub":"13888888-8888-8888-8888-888888888888"}', true);
 SELECT is(
   (SELECT count(*)::int FROM public.finance_payments
    WHERE tenant_id = '13111111-1111-1111-1111-111111111111'),
@@ -408,3 +409,5 @@ RESET ROLE;
 SET LOCAL ROLE postgres;
 
 SELECT * FROM finish();
+
+ROLLBACK;
