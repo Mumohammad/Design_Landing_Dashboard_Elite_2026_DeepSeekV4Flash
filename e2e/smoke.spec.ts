@@ -89,13 +89,11 @@ test.describe("Sidebar Navigation", () => {
   })
 
   test("can navigate to a module via sidebar", async ({ authed: page }) => {
-    // Click on a sidebar link (e.g., Drivers)
-    const driversLink = page.getByRole("link", { name: /drivers|السائقين/i }).first()
-    if (await driversLink.isVisible().catch(() => false)) {
-      await driversLink.click()
-      await page.waitForLoadState("networkidle", { timeout: 15_000 })
-      expect(page.url()).toContain("/drivers")
-    }
+    const driversLink = page.locator('[data-sidebar="sidebar"] a[href="/drivers"]')
+    await expect(driversLink).toBeVisible({ timeout: 15_000 })
+    await driversLink.click()
+    await expect(page).toHaveURL(/\/drivers(?:\?.*)?$/, { timeout: 30_000 })
+    await expect(page.locator("main")).toBeVisible()
   })
 })
 
