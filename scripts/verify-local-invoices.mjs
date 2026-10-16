@@ -1,4 +1,5 @@
 import { expect as baseExpect } from "@playwright/test"
+import { randomInt } from "node:crypto"
 
 const expect = baseExpect.configure({ timeout: 20_000 })
 
@@ -56,7 +57,8 @@ export async function verifyInvoiceCrud(page, admin, tenantId, appUrl) {
     await dialog.getByRole("button", { name: /^(Cancel|إلغاء)$/ }).click()
     await page.setViewportSize({ width: 1280, height: 900 })
     stage = "invoice print and PDF preview"
-    const vat = await admin.from("tenants").update({ vat_number: "300000000000003" }).eq("id", tenantId)
+    const fixtureVat = `3${randomInt(1_000_000_000_000, 10_000_000_000_000)}3`
+    const vat = await admin.from("tenants").update({ vat_number: fixtureVat }).eq("id", tenantId)
     if (vat.error) throw new Error("Print tenant fixture failed")
     await page.context().addInitScript(() => { window.print = () => { window.__invoicePrinted = true } })
     await row.getByRole("button", { name: /Invoice actions|إجراءات الفاتورة/ }).click()
