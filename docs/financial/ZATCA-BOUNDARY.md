@@ -4,7 +4,7 @@
 
 The owner requested the official invoice/QR integration on 18 October 2026. Implementation and validation are in scope. **Production remains disabled in code**, not configuration-only. Existing adapter, cryptography, onboarding and transport modules are development seams; they do not establish a completed official integration.
 
-The supplied SDK 3.0.8 exposed schema, discount, address, line-tax and PIH defects. The current continuation corrects those bounded problems and adds an offline synthetic regression using the SDK's demonstration signer. Passing that regression does not validate the application's own signer, real EGS onboarding, the live API contract or production QR.
+The supplied SDK 3.0.8 exposed schema, discount, address, line-tax and PIH defects. The continuation corrects those bounded problems, adds an application canonical hash restricted to the generated UBL profile and compares it against SDK hash generation. Offline format validation still uses the SDK's demonstration signer. Passing that regression does not validate a complete application signer, real EGS onboarding, the live API contract or production QR. Invoice networking is independently blocked until those requirements are implemented and tested.
 
 ## 2. Financial boundary
 

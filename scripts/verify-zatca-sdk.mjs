@@ -3,7 +3,8 @@
 import fs from "node:fs"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
-import { createHash, X509Certificate } from "node:crypto"
+import { createHash, createPrivateKey, createPublicKey, X509Certificate } from "node:crypto"
+import { createRequire } from "node:module"
 import ts from "typescript"
 import QRCode from "qrcode"
 
@@ -26,18 +27,31 @@ const certificate = new X509Certificate(Buffer.from(fs.readFileSync(defaults.cer
 if(certificate.fingerprint256 !== "95:95:30:09:5B:3D:00:05:70:10:DC:A9:2E:F5:18:4C:ED:4C:56:5C:9F:39:ED:41:6B:60:B4:7E:09:6A:D9:2A") {
   throw new Error("The SDK certificate differs from the reviewed public sample; refusing to use a potentially real credential")
 }
+try {
+  const sampleKey=createPrivateKey({key:Buffer.from(fs.readFileSync(defaults.privateKeyPath,"utf8").trim(),"base64"),type:"sec1",format:"der"})
+  if(!createPublicKey(sampleKey).export({type:"spki",format:"der"}).equals(certificate.publicKey.export({type:"spki",format:"der"}))) throw new Error()
+} catch {
+  throw new Error("The SDK key does not match the reviewed public demonstration certificate; refusing to use it")
+}
 const configPath = path.join(output,"sdk-config.json")
 fs.writeFileSync(configPath,JSON.stringify(defaults))
 const modules = new Map()
+const requireDependency = createRequire(import.meta.url)
 function loadModule(file) {
   file=path.resolve(file)
   if(modules.has(file)) return modules.get(file)
   const exports={}; modules.set(file,exports)
   const code=ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText
-  new Function("exports","require",code)(exports,(name)=>name==="qrcode"?QRCode:loadModule(path.resolve(path.dirname(file),name+".ts")))
+  new Function("exports","require",code)(exports,(name)=> {
+    if(name==="qrcode") return QRCode
+    if(["node:crypto","jsrsasign","xml-crypto","@xmldom/xmldom"].includes(name)) return requireDependency(name)
+    if(!name.startsWith("./")) throw new Error("Unexpected dependency in offline SDK harness")
+    return loadModule(path.resolve(path.dirname(file),name+".ts"))
+  })
   return exports
 }
 const {buildZatcaUblInvoice} = loadModule("src/lib/accounting/zatca-ubl.ts")
+const {computeInvoiceHash,buildSigningInput,verifyZatcaPayload} = loadModule("src/lib/accounting/zatca-crypto.ts")
 const genesis = Buffer.from(createHash("sha256").update("0").digest("hex"),"utf8").toString("base64")
 if(fs.readFileSync(defaults.pihPath,"utf8").trim()!==genesis) throw new Error("SDK PIH sample differs from the reviewed genesis fixture")
 const party={name:"Synthetic SDK test company",vatNumber:"399999999900003",crNumber:"1010010000",address:"Synthetic Street",buildingNumber:"1234",additionalNumber:"1234",district:"Synthetic District",city:"Riyadh",region:"Riyadh",postalCode:"12345",countryCode:"SA"}
@@ -50,22 +64,60 @@ function run(label,args,required=[]) {
   // SDK 3.0.8 exits 0 even after validation/signing failure. Require explicit
   // success text and every expected validation stage; never trust exit alone.
   const passed=!result.error && result.status===0 && !/GLOBAL VALIDATION RESULT\s*=\s*FAILED|failed to sign invoice|validation result\s*:\s*FAILED/i.test(log) && required.every((text)=>log.includes(text))
-  return {passed,stages:required.length,exit:result.status}
+  return {passed,stages:required.length,exit:result.status,log}
 }
-const evidence={sdkVersion:version,certificate:"public expired SDK demonstration certificate",signer:"SDK demonstration signer, not application signer",productionValidated:false,cases:[]}
+function compareHash(label, file) {
+  const generated=run(label+"-hash",["-generateHash","-invoice",file],["invoice hash has been generated successfully"])
+  const expected=generated.log.match(/INVOICE HASH = ([A-Za-z0-9+/]{43}=)/)?.[1]
+  return generated.passed && Boolean(expected) && computeInvoiceHash(fs.readFileSync(file,"utf8"))===expected
+}
+const evidence={sdkVersion:version,certificate:"public expired SDK demonstration certificate",signer:"SDK demonstration signer, not application signer",hashing:"application restricted canonicalization compared with SDK hash generation",productionValidated:false,cases:[]}
 for(const invoiceKind of ["standard","simplified"]) for(const docType of ["invoice","credit_note","debit_note"]) {
   const label=`${invoiceKind}-${docType}`
   const data={...base,invoiceKind,docType,...(docType!=="invoice"?{referenceInvoiceNumber:"SDK-ORIGINAL-000001",noteReason:"Synthetic test adjustment"}:{})}
   const input=path.join(output,label+".xml"), signed=path.join(output,label+"-sdk-signed.xml")
   fs.writeFileSync(input,buildZatcaUblInvoice(data))
+  const unsignedHash=compareHash(label+"-unsigned",input)
   const sign=run(label+"-sign",["-sign","-invoice",input,"-signedInvoice",signed],["invoice has been signed successfully"])
   const stages=["[XSD] validation result : PASSED","[EN] validation result : PASSED","[KSA] validation result : PASSED","[PIH] validation result : PASSED","GLOBAL VALIDATION RESULT = PASSED"]
   if(invoiceKind==="simplified") stages.push("[QR] validation result : PASSED","[SIGNATURE] validation result : PASSED")
   const validation=sign.passed?run(label+"-validate",["-validate","-invoice",signed],stages):{passed:false,stages:0}
-  const entry={case:label,signing:sign.passed,validation:validation.passed}
+  const signedHash=sign.passed && compareHash(label+"-signed",signed)
+  const entry={case:label,signing:sign.passed,validation:validation.passed,unsignedHash,signedHash}
   evidence.cases.push(entry)
-  console.log(`${entry.validation?"PASS":"FAIL"}: ${label} offline SDK sample validation`)
+  console.log(`${entry.validation&&unsignedHash&&signedHash?"PASS":"FAIL"}: ${label} SDK sample validation and application/SDK hash comparison`)
 }
+// Differential hash edge cases exercise canonical byte behavior, independently
+// of the SDK signer's reformatting and its public certificate's validity.
+const unsignedSample=fs.readFileSync(path.join(output,"simplified-invoice.xml"),"utf8")
+const variants={
+  unicode:unsignedSample.replace("Synthetic service","خدمة تجريبية &amp; &lt;service&gt; 🚚"),
+  crlf:unsignedSample.replaceAll("\n","\r\n"),
+  comments:unsignedSample.replace("<cbc:UBLVersionID>","<!-- ignored comment --><cbc:UBLVersionID>"),
+  cdata:unsignedSample.replace("Synthetic service","<![CDATA[Synthetic & <service>]]>"),
+  attributes:unsignedSample.replace('currencyID="SAR"','currencyID=\'SAR\''),
+}
+evidence.hashVariants=[]
+for(const [label,xml] of Object.entries(variants)) {
+  const file=path.join(output,`hash-${label}.xml`)
+  fs.writeFileSync(file,xml)
+  const passed=compareHash(`variant-${label}`,file)
+  evidence.hashVariants.push({case:label,passed})
+  console.log(`${passed?"PASS":"FAIL"}: application/SDK ${label} hash comparison`)
+}
+const signedSample=fs.readFileSync(path.join(output,"simplified-invoice-sdk-signed.xml"),"utf8")
+const signature=signedSample.match(/<ds:SignatureValue>([^<]+)<\/ds:SignatureValue>/)?.[1]
+// This checks only the SDK's observed primitive input. It does NOT validate
+// complete SignedInfo/SignedProperties binding or assert XMLDSig compliance.
+evidence.sdkDigestSignature=Boolean(signature) && verifyZatcaPayload(buildSigningInput(computeInvoiceHash(signedSample)),signature,certificate.publicKey.export({type:"spki",format:"pem"}))
+const tampered=path.join(output,"simplified-tampered.xml")
+fs.writeFileSync(tampered,signedSample.replace("Synthetic service","Altered synthetic service"))
+const rejected=run("tampered-validate",["-validate","-invoice",tampered])
+// SDK stops at the first failed stage: a changed canonical hash is rejected
+// by QR verification before it reaches SIGNATURE. Require valid structure/tax
+// stages so a schema/business error cannot masquerade as a crypto control.
+evidence.tamperingRejected=!rejected.passed && ["XSD","EN","KSA"].every((stage)=>rejected.log.includes(`[${stage}] validation result : PASSED`)) && /\[(?:QR|SIGNATURE)\] validation result : FAILED/.test(rejected.log) && !/GLOBAL VALIDATION RESULT = PASSED/.test(rejected.log)
+console.log(`${evidence.sdkDigestSignature&&evidence.tamperingRejected?"PASS":"FAIL"}: SDK digest-signature input and tampered-invoice rejection controls`)
 fs.writeFileSync(path.join(output,"evidence.json"),JSON.stringify(evidence,null,2))
 console.log("Application signing, genuine onboarding, authority acceptance and production QR remain unverified.")
-if(evidence.cases.some((entry)=>!entry.validation)) process.exitCode=1
+if(evidence.cases.some((entry)=>!entry.validation||!entry.unsignedHash||!entry.signedHash)||evidence.hashVariants.some((entry)=>!entry.passed)||!evidence.sdkDigestSignature||!evidence.tamperingRejected) process.exitCode=1

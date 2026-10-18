@@ -15,7 +15,7 @@ import {
   pemToBase64Body,
 } from "./zatca-crypto"
 
-const SAMPLE_XML = '<?xml version="1.0" encoding="UTF-8"?><Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"><cbc:ID>INV-2026-000001</cbc:ID></Invoice>'
+const SAMPLE_XML = '<?xml version="1.0" encoding="UTF-8"?><Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2"><cbc:ID>INV-2026-000001</cbc:ID></Invoice>'
 
 describe("generateZatcaKeyPair", () => {
   it("produces a secp256k1 PEM key pair", () => {
@@ -36,7 +36,8 @@ describe("invoice hash + PIH chain", () => {
   })
 
   it("hashes different XML to different digests", () => {
-    expect(computeInvoiceHash(SAMPLE_XML)).not.toBe(computeInvoiceHash(SAMPLE_XML + " "))
+    expect(computeInvoiceHash(SAMPLE_XML)).not.toBe(computeInvoiceHash(SAMPLE_XML.replace("000001", "000002")))
+    expect(computeInvoiceHash(SAMPLE_XML)).toBe(computeInvoiceHash(SAMPLE_XML + " \n"))
   })
 
   it("matches the supplied SDK's exact genesis PIH fixture", () => {
@@ -54,7 +55,7 @@ describe("invoice hash + PIH chain", () => {
 describe("digital signature", () => {
   it("signs and verifies a signing input round trip with the matching key", () => {
     const kp = generateZatcaKeyPair()
-    const input = buildSigningInput(computeInvoiceHash(SAMPLE_XML), "2026-08-15T10:30:00Z")
+    const input = buildSigningInput(computeInvoiceHash(SAMPLE_XML))
     const sig = signZatcaPayload(input, kp.privateKeyPem)
     expect(sig).not.toBe("")
     expect(verifyZatcaPayload(input, sig, kp.publicKeyPem)).toBe(true)
@@ -63,18 +64,17 @@ describe("digital signature", () => {
   it("fails verification with a different key or tampered input", () => {
     const kp = generateZatcaKeyPair()
     const other = generateZatcaKeyPair()
-    const input = buildSigningInput(computeInvoiceHash(SAMPLE_XML), "2026-08-15T10:30:00Z")
+    const input = buildSigningInput(computeInvoiceHash(SAMPLE_XML))
     const sig = signZatcaPayload(input, kp.privateKeyPem)
     expect(verifyZatcaPayload(input, sig, other.publicKeyPem)).toBe(false)
     expect(verifyZatcaPayload(Buffer.from("tampered"), sig, kp.publicKeyPem)).toBe(false)
   })
 
-  it("produces different signatures for different signing times (XAdES-B-B model)", () => {
-    const kp = generateZatcaKeyPair()
+  it("uses the raw digest input observed in SDK 3.0.8, with no invented time concatenation", () => {
     const hash = computeInvoiceHash(SAMPLE_XML)
-    const sigA = signZatcaPayload(buildSigningInput(hash, "2026-08-15T10:30:00Z"), kp.privateKeyPem)
-    const sigB = signZatcaPayload(buildSigningInput(hash, "2026-08-15T11:00:00Z"), kp.privateKeyPem)
-    expect(sigA).not.toBe(sigB)
+    expect(buildSigningInput(hash)).toEqual(Buffer.from(hash, "base64"))
+    expect(buildSigningInput(hash)).toHaveLength(32)
+    expect(() => buildSigningInput("not a digest")).toThrow("Base64 SHA-256")
   })
 })
 

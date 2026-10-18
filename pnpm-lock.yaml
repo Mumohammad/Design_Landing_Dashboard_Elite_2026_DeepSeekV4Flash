@@ -123,6 +123,9 @@ importers:
       '@upstash/redis':
         specifier: ^1.38.2
         version: 1.38.2
+      '@xmldom/xmldom':
+        specifier: ^0.8.15
+        version: 0.8.15
       bcryptjs:
         specifier: ^3.0.3
         version: 3.0.3
@@ -229,9 +232,6 @@ importers:
       '@types/react-dom':
         specifier: 19.2.3
         version: 19.2.3(@types/react@19.2.7)
-      '@xmldom/xmldom':
-        specifier: ^0.8.15
-        version: 0.8.15
       eslint:
         specifier: ^9.39.2
         version: 9.39.2(jiti@2.6.1)
