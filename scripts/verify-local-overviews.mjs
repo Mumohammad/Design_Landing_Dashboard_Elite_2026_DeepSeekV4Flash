@@ -101,6 +101,18 @@ export async function verifyOverviews(page, admin, tenantId, actorId, appUrl) {
       await search.pressSequentially('z')
       await expect(search).toHaveValue('x'.repeat(200))
       await expect(page.locator('tbody .animate-pulse')).toHaveCount(0)
+      await page.setViewportSize({ width: 390, height: 844 })
+      const empty = page.getByTestId('module-empty-state')
+      await expect(empty).toBeVisible()
+      const emptyBounds = await empty.boundingBox()
+      expect(emptyBounds.x).toBeGreaterThanOrEqual(0)
+      expect(emptyBounds.x + emptyBounds.width).toBeLessThanOrEqual(391)
+      for (const button of await empty.getByRole('button').all()) {
+        const bounds = await button.boundingBox()
+        expect(bounds.x).toBeGreaterThanOrEqual(0)
+        expect(bounds.x + bounds.width).toBeLessThanOrEqual(391)
+      }
+      await page.setViewportSize({ width: 1440, height: 1000 })
       await search.fill(needle)
       await expect(bodyRows.first()).toContainText(needle)
 

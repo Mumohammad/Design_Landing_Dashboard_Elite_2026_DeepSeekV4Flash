@@ -135,7 +135,7 @@ function EmptyState({
   action?: { label: string; onClick: () => void }
 }) {
   return (
-    <div className="flex flex-col items-center justify-center py-16 text-center">
+    <div data-testid="module-empty-state" className="flex flex-col items-center justify-center px-4 py-16 text-center">
       <div className="relative">
         <div className="absolute inset-0 rounded-full bg-gradient-to-br from-elite-blue-500/20 to-elite-orange-500/20 blur-2xl scale-150" />
         <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-muted/50 to-muted/30 border border-border/50 backdrop-blur-sm">
@@ -277,21 +277,7 @@ export function EnterpriseModulePage<T extends { id?: string }>({
                       columns={columns.length + actionColumnCount}
                     />
                   ))
-                ) : loadError ? (
-                  <tr><td colSpan={columns.length + actionColumnCount}>
-                    <div role="alert" className="flex flex-col items-center gap-3 px-4 py-12 text-center">
-                      <AlertCircle aria-hidden="true" className="h-6 w-6 text-destructive" />
-                      <p className="text-sm text-foreground">{loadError}</p>
-                      {onRetry && <Button variant="outline" onClick={onRetry}>{retryLabel}</Button>}
-                    </div>
-                  </td></tr>
-                ) : data.length === 0 ? (
-                  <tr>
-                    <td colSpan={columns.length + actionColumnCount}>
-                      <EmptyState message={emptyStateMessage} action={emptyStateAction} />
-                    </td>
-                  </tr>
-                ) : (
+                ) : loadError || data.length === 0 ? null : (
                   data.map((row, i) => (
                     <tr
                       key={row.id ?? i}
@@ -333,6 +319,15 @@ export function EnterpriseModulePage<T extends { id?: string }>({
               </tbody>
             </table>
           </div>
+          {/* Empty/error actions stay inside the visible panel, independently
+              of a wide table's horizontal scroll position (including RTL). */}
+          {!isLoading && (loadError ? (
+            <div role="alert" className="flex flex-col items-center gap-3 px-4 py-12 text-center">
+              <AlertCircle aria-hidden="true" className="h-6 w-6 text-destructive" />
+              <p className="text-sm text-foreground">{loadError}</p>
+              {onRetry && <Button variant="outline" onClick={onRetry}>{retryLabel}</Button>}
+            </div>
+          ) : data.length === 0 ? <EmptyState message={emptyStateMessage} action={emptyStateAction} /> : null)}
 
           {/* 5. PAGINATION */}
           {pagination && (
