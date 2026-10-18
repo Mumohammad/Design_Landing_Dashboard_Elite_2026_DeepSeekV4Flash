@@ -7,12 +7,14 @@ import { Button } from "@/components/ui/button"
 import { useTheme } from "@/hooks/use-theme"
 import { useCircularTransition } from "@/hooks/use-circular-transition"
 import "./theme-customizer/circular-transition.css"
+import { useTranslation } from "@/hooks/use-translation"
 
 interface ModeToggleProps {
   variant?: "outline" | "ghost" | "default"
 }
 
 export function ModeToggle({ variant = "outline" }: ModeToggleProps) {
+  const { locale } = useTranslation()
   const { theme } = useTheme()
   const { toggleTheme } = useCircularTransition()
 
@@ -63,7 +65,7 @@ export function ModeToggle({ variant = "outline" }: ModeToggleProps) {
         <Moon className="h-[1.2rem] w-[1.2rem] transition-transform duration-300 rotate-0 scale-100" />
       )}
       <span className="sr-only">
-        Switch to {isDarkMode ? "light" : "dark"} mode
+        {locale === "ar" ? (isDarkMode ? "التبديل إلى المظهر الفاتح" : "التبديل إلى المظهر الداكن") : `Switch to ${isDarkMode ? "light" : "dark"} mode`}
       </span>
     </Button>
   )

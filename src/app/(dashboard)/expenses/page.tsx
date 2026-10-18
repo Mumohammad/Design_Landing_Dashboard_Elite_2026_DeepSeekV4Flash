@@ -1,5 +1,6 @@
 "use client"
 
+import { LocalizedText, useUiText } from "@/components/localized-text"
 import { useCallback, useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
@@ -39,19 +40,19 @@ interface ExpenseRow {
   driver: { full_name_ar: string; driver_code: string } | null
 }
 
-const TYPE_META: Record<string, { ar: string; className: string }> = {
-  fuel: { ar: "وقود", className: "bg-amber-500/15 text-amber-600 border-amber-500/20" },
-  advance: { ar: "سلفة", className: "bg-blue-500/15 text-blue-600 border-blue-500/20" },
-  operational: { ar: "تشغيلي", className: "bg-gray-500/15 text-gray-600 border-gray-500/20" },
-  platform_commission: { ar: "عمولة", className: "bg-purple-500/15 text-purple-600 border-purple-500/20" },
-  maintenance: { ar: "صيانة", className: "bg-orange-500/15 text-orange-600 border-orange-500/20" },
-  other: { ar: "أخرى", className: "bg-gray-500/15 text-gray-600 border-gray-500/20" },
+const TYPE_META: Record<string, { ar: string; en: string; className: string }> = {
+  fuel: { ar: "وقود", en: "Fuel", className: "bg-amber-500/15 text-amber-600 border-amber-500/20" },
+  advance: { ar: "سلفة", en: "Advance", className: "bg-blue-500/15 text-blue-600 border-blue-500/20" },
+  operational: { ar: "تشغيلي", en: "Operational", className: "bg-gray-500/15 text-gray-600 border-gray-500/20" },
+  platform_commission: { ar: "عمولة", en: "Commission", className: "bg-purple-500/15 text-purple-600 border-purple-500/20" },
+  maintenance: { ar: "صيانة", en: "Maintenance", className: "bg-orange-500/15 text-orange-600 border-orange-500/20" },
+  other: { ar: "أخرى", en: "Other", className: "bg-gray-500/15 text-gray-600 border-gray-500/20" },
 }
 
-const RECOVER_META: Record<string, { ar: string; className: string }> = {
-  recoverable: { ar: "قابل للاسترداد", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/20" },
-  non_recoverable: { ar: "غير قابل للاسترداد", className: "bg-red-500/15 text-red-600 border-red-500/20" },
-  pending_review: { ar: "قيد المراجعة", className: "bg-amber-500/15 text-amber-600 border-amber-500/20" },
+const RECOVER_META: Record<string, { ar: string; en: string; className: string }> = {
+  recoverable: { ar: "قابل للاسترداد", en: "Recoverable", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/20" },
+  non_recoverable: { ar: "غير قابل للاسترداد", en: "Non-recoverable", className: "bg-red-500/15 text-red-600 border-red-500/20" },
+  pending_review: { ar: "قيد المراجعة", en: "Pending review", className: "bg-amber-500/15 text-amber-600 border-amber-500/20" },
 }
 
 function fmtDate(date: string): string {
@@ -65,7 +66,8 @@ function fmtMoney(n: number | null | undefined): string {
 const EXPENSE_SELECT = "id,expense_code,expense_type,category,amount,currency,expense_date,description,is_approved,vendor,vat_rate,vat_amount,vat_recoverability,coa_account_code,driver:drivers(full_name_ar,driver_code)"
 
 export default function ExpensesPage() {
-  const { t } = useTranslation()
+  const { t, locale } = useTranslation()
+  const ui = useUiText()
   const [data, setData] = useState<ExpenseRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [search, setSearch] = useState("")
@@ -151,10 +153,10 @@ export default function ExpensesPage() {
       key: "expense_type", header: "Type",
       render: (r) => {
         const m = TYPE_META[r.expense_type] ?? TYPE_META.other
-        return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${m.className}`}>{m.ar}</span>
+        return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${m.className}`}>{locale === "ar" ? m.ar : m.en}</span>
       },
     },
-    { key: "amount", header: "Net", render: (r) => <span dir="ltr" className="tabular-nums font-medium">{fmtMoney(r.amount)} SAR</span> },
+    { key: "amount", header: "Net", render: (r) => <span dir="ltr" className="tabular-nums font-medium">{fmtMoney(r.amount)} <LocalizedText text="SAR" /></span> },
     {
       key: "vat_amount", header: "VAT",
       render: (r) => (
@@ -171,7 +173,7 @@ export default function ExpensesPage() {
       render: (r) => {
         const m = RECOVER_META[r.vat_recoverability] ?? RECOVER_META.pending_review
         return r.is_approved
-          ? <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${m.className}`}>{m.ar}</span>
+          ? <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${m.className}`}>{locale === "ar" ? m.ar : m.en}</span>
           : <span className="text-xs text-muted-foreground">—</span>
       },
     },
@@ -248,7 +250,7 @@ export default function ExpensesPage() {
             : "border-red-500/20 bg-red-500/10 text-red-500"
         }`}>
           {feedback.type === "ok" ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
-          {feedback.text}
+          {ui(feedback.text)}
         </div>
       )}
 
@@ -285,15 +287,15 @@ export default function ExpensesPage() {
       <Dialog open={createOpen} onOpenChange={(o) => { if (!o) setCreateOpen(false) }}>
         <DialogContent className="max-w-lg rounded-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>مصروف جديد / New expense</DialogTitle>
+            <DialogTitle><LocalizedText text="New expense" /></DialogTitle>
             <DialogDescription>
-              يُنشأ كقيد انتظار (غير معتمد) برمز تلقائي EXP-…؛ يُعتمد لاحقاً مع احتساب الضريبة / Created pending with an auto code; approval captures VAT
+              <LocalizedText text="Created pending with an automatic code; approval captures VAT" />
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="exp-type">النوع / Type</Label>
+                <Label htmlFor="exp-type"><LocalizedText text="Type" /></Label>
                 <select
                   id="exp-type"
                   value={formType}
@@ -301,38 +303,38 @@ export default function ExpensesPage() {
                   className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   {EXPENSE_TYPES.map((tp) => (
-                    <option key={tp} value={tp}>{(TYPE_META[tp] ?? TYPE_META.other).ar} / {tp}</option>
+                    <option key={tp} value={tp}>{locale === "ar" ? (TYPE_META[tp] ?? TYPE_META.other).ar : (TYPE_META[tp] ?? TYPE_META.other).en}</option>
                   ))}
                 </select>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="exp-category">التصنيف / Category</Label>
+                <Label htmlFor="exp-category"><LocalizedText text="Category" /></Label>
                 <Input id="exp-category" value={formCategory} onChange={(e) => setFormCategory(e.target.value)} className="h-9" />
               </div>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="space-y-1.5">
-                <Label htmlFor="exp-amount">المبلغ (قبل الضريبة) / Net amount</Label>
+                <Label htmlFor="exp-amount"><LocalizedText text="Net amount" /></Label>
                 <Input id="exp-amount" type="number" dir="ltr" min="0" step="0.01" value={formAmount} onChange={(e) => setFormAmount(e.target.value)} className="h-9 text-end tabular-nums" />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="exp-date">التاريخ / Date</Label>
+                <Label htmlFor="exp-date"><LocalizedText text="Date" /></Label>
                 <Input id="exp-date" type="date" dir="ltr" value={formDate} onChange={(e) => setFormDate(e.target.value)} className="h-9" />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="exp-vat">الضريبة % / VAT %</Label>
+                <Label htmlFor="exp-vat"><LocalizedText text="VAT %" /></Label>
                 <Input id="exp-vat" type="number" dir="ltr" min="0" max="100" step="0.01" value={formVatRate} onChange={(e) => setFormVatRate(e.target.value)} className="h-9 text-end tabular-nums" />
               </div>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="exp-vendor">المورد / Vendor</Label>
+                <Label htmlFor="exp-vendor"><LocalizedText text="Vendor" /></Label>
                 <Input id="exp-vendor" value={formVendor} onChange={(e) => setFormVendor(e.target.value)} className="h-9" />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="exp-desc">الوصف / Description</Label>
+                <Label htmlFor="exp-desc"><LocalizedText text="Description" /></Label>
                 <Input id="exp-desc" value={formDescription} onChange={(e) => setFormDescription(e.target.value)} className="h-9" />
               </div>
             </div>
@@ -340,12 +342,12 @@ export default function ExpensesPage() {
             {formType && (
               <p className="rounded-xl border border-border/50 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
                 {mappingByType[formType]
-                  ? <>سيُرحّل الاعتماد لاحقاً إلى حساب <b dir="ltr">{mappingByType[formType]}</b> — {coaNames[mappingByType[formType]] ?? ""}</>
-                  : "لا يوجد ربط لهذه الفئة بعد / No CoA mapping for this category yet"}
+                  ? <><LocalizedText text="Will post to account" /> <b dir="ltr">{mappingByType[formType]}</b> — {coaNames[mappingByType[formType]] ?? ""}</>
+                  : ui("لا يوجد ربط لهذه الفئة بعد / No CoA mapping for this category yet")}
               </p>
             )}
 
-            {formError && <p className="text-xs text-red-500">{formError}</p>}
+            {formError && <p className="text-xs text-red-500">{ui(formError)}</p>}
 
             <div className="flex items-center gap-3">
               <Button
@@ -353,13 +355,9 @@ export default function ExpensesPage() {
                 disabled={isSaving || Number(formAmount || 0) <= 0 || !formDate}
                 className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800"
               >
-                {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                حفظ المصروف / Save expense
-              </Button>
+                {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}<LocalizedText text="Save expense" /></Button>
               <Button variant="ghost" onClick={() => setCreateOpen(false)}>
-                <X className="h-4 w-4" />
-                إلغاء / Cancel
-              </Button>
+                <X className="h-4 w-4" /><LocalizedText text="Cancel" /></Button>
             </div>
           </div>
         </DialogContent>
@@ -369,45 +367,40 @@ export default function ExpensesPage() {
       <Dialog open={!!approveTarget} onOpenChange={(o) => { if (!o) setApproveTarget(null) }}>
         <DialogContent className="max-w-md rounded-2xl">
           <DialogHeader>
-            <DialogTitle>اعتماد المصروف / Approve expense</DialogTitle>
+            <DialogTitle><LocalizedText text="Approve expense" /></DialogTitle>
             <DialogDescription>
               {approveTarget && (
                 <span dir="ltr" className="font-mono">{approveTarget.expense_code ?? approveTarget.id.slice(0, 8)}</span>
               )}
-              {" — "}
-              يحسب مبلغ الضريبة، ينشئ ذمماً دائنة ويصدر حدث الاعتماد / Computes VAT, creates a payable and emits the approval event
-            </DialogDescription>
+              {" — "}<LocalizedText text="Computes VAT, creates a payable and emits the approval event" /></DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             {previewCode && (
-              <p className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-400">
-                سيُرحّل إلى حساب <b dir="ltr">{previewCode}</b> — {coaNames[previewCode] ?? ""}
+              <p className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-400"><LocalizedText text="سيُرحّل إلى حساب" /><b dir="ltr">{previewCode}</b> — {coaNames[previewCode] ?? ""}
               </p>
             )}
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="exp-vat-rate">الضريبة % / VAT %</Label>
+                <Label htmlFor="exp-vat-rate"><LocalizedText text="VAT %" /></Label>
                 <Input id="exp-vat-rate" type="number" dir="ltr" min="0" max="100" step="0.01" value={approveVatRate} onChange={(e) => setApproveVatRate(e.target.value)} className="h-9 text-end tabular-nums" />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="exp-recover">تصنيف الاسترداد / Recoverability</Label>
+                <Label htmlFor="exp-recover"><LocalizedText text="Recoverability" /></Label>
                 <select
                   id="exp-recover"
                   value={approveRecoverability}
                   onChange={(e) => setApproveRecoverability(e.target.value as ExpenseVatRecoverability)}
                   className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  <option value="recoverable">قابل للاسترداد / Recoverable</option>
-                  <option value="non_recoverable">غير قابل للاسترداد / Non-recoverable</option>
-                  <option value="pending_review">قيد المراجعة / Pending review</option>
+                  <option value="recoverable"><LocalizedText text="Recoverable" /></option>
+                  <option value="non_recoverable"><LocalizedText text="Non-recoverable" /></option>
+                  <option value="pending_review"><LocalizedText text="Pending review" /></option>
                 </select>
               </div>
             </div>
 
             {approveTarget && Number(approveVatRate || 0) >= 0 && (
-              <p className="rounded-xl border border-border/50 bg-muted/20 px-3 py-2 text-xs text-muted-foreground" dir="ltr">
-                Net: {fmtMoney(approveTarget.amount)} · VAT: {fmtMoney((Number(approveTarget.amount) * Number(approveVatRate || 0)) / 100)} · Total: {fmtMoney(Number(approveTarget.amount) + (Number(approveTarget.amount) * Number(approveVatRate || 0)) / 100)} SAR
-              </p>
+              <p className="rounded-xl border border-border/50 bg-muted/20 px-3 py-2 text-xs text-muted-foreground" dir="ltr"><LocalizedText text="Net:" />{fmtMoney(approveTarget.amount)} <LocalizedText text="· VAT:" /> {fmtMoney((Number(approveTarget.amount) * Number(approveVatRate || 0)) / 100)} <LocalizedText text="· Total:" /> {fmtMoney(Number(approveTarget.amount) + (Number(approveTarget.amount) * Number(approveVatRate || 0)) / 100)}<LocalizedText text="SAR" /></p>
             )}
 
             <div className="flex items-center gap-3">
@@ -416,12 +409,8 @@ export default function ExpensesPage() {
                 disabled={isApproving || Number(approveVatRate) < 0 || Number(approveVatRate) > 100}
                 className="bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800"
               >
-                {isApproving ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />}
-                اعتماد / Approve
-              </Button>
-              <Button variant="ghost" onClick={() => setApproveTarget(null)}>
-                إلغاء / Cancel
-              </Button>
+                {isApproving ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />}<LocalizedText text="Approve" /></Button>
+              <Button variant="ghost" onClick={() => setApproveTarget(null)}><LocalizedText text="Cancel" /></Button>
             </div>
           </div>
         </DialogContent>

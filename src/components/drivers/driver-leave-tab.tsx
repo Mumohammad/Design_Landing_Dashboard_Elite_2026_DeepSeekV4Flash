@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslation } from "@/hooks/use-translation";
+import { LocalizedText, useUiText } from "@/components/localized-text"
 import { useCallback, useEffect, useState } from "react";
 
 import { CalendarClock, CheckCircle2, Loader2, XCircle } from "lucide-react";
@@ -28,7 +30,7 @@ type DriverLeaveTabProps = {
   driverId: string;
   /** Optional — some callers only pass driverId (+ isAr). */
   driverName?: string;
-  /** RTL flag passed by some callers; content is bilingual so no branching needed. */
+  /** Legacy caller prop; the shared locale context controls the interface. */
   isAr?: boolean;
   /**
    * Render-prop for per-row extra actions (edit while pending / cancel /
@@ -46,8 +48,10 @@ type DriverLeaveTabProps = {
 };
 
 export function DriverLeaveTab({ driverId, driverName, children }: DriverLeaveTabProps) {
+  const { locale } = useTranslation();
+  const ui = useUiText();
   const supabase = createClient();
-  const displayName = driverName?.trim() || "the driver";
+  const displayName = driverName?.trim() || (locale === "ar" ? "السائق" : "the driver");
   const [rows, setRows] = useState<LeaveRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [actingId, setActingId] = useState<string | null>(null);
@@ -77,11 +81,11 @@ export function DriverLeaveTab({ driverId, driverName, children }: DriverLeaveTa
         .filter((row) => row.status !== "rejected")
         .map((row) => ({
           ...row,
-          leave_type_name: row.leave_types?.name_en ?? row.leave_types?.name_ar ?? null,
+          leave_type_name: locale === "ar" ? (row.leave_types?.name_ar ?? row.leave_types?.name_en ?? null) : (row.leave_types?.name_en ?? row.leave_types?.name_ar ?? null),
         })),
     );
     setLoading(false);
-  }, [driverId, supabase]);
+  }, [driverId, supabase, locale]);
 
   useEffect(() => {
     void load();
@@ -122,11 +126,11 @@ export function DriverLeaveTab({ driverId, driverName, children }: DriverLeaveTa
         if (statusError) throw statusError;
       }
 
-      toast.success(`Leave ${action} for ${displayName}`);
+      toast.success(locale === "ar" ? `تم ${action === "approved" ? "اعتماد" : "رفض"} إجازة ${displayName}` : `Leave ${action} for ${displayName}`);
       await load();
       emitDriverChanged({ driverId, action: action === "approved" ? "status" : "leave" });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to update leave request";
+      const message = error instanceof Error ? error.message : ui("Failed to update leave request");
       toast.error(message);
     } finally {
       setActingId(null);
@@ -136,9 +140,7 @@ export function DriverLeaveTab({ driverId, driverName, children }: DriverLeaveTa
   if (loading) {
     return (
       <div className="flex items-center gap-2 rounded-lg border bg-card p-4 text-sm text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" />
-        Loading leave requests…
-      </div>
+        <Loader2 className="size-4 animate-spin" /><LocalizedText text="Loading leave requests…" /></div>
     );
   }
 
@@ -146,10 +148,8 @@ export function DriverLeaveTab({ driverId, driverName, children }: DriverLeaveTa
     return (
       <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed p-10 text-center">
         <CalendarClock className="size-6 text-muted-foreground" />
-        <p className="text-sm font-medium text-foreground">No leave requests</p>
-        <p className="text-xs text-muted-foreground">
-          Submit a leave request from the actions menu to track driver time off.
-        </p>
+        <p className="text-sm font-medium text-foreground"><LocalizedText text="No leave requests" /></p>
+        <p className="text-xs text-muted-foreground"><LocalizedText text="Submit a leave request from the actions menu to track driver time off." /></p>
       </div>
     );
   }
@@ -163,11 +163,11 @@ export function DriverLeaveTab({ driverId, driverName, children }: DriverLeaveTa
         >
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium text-foreground">
-              {row.leave_type_name ?? "Leave"}
+              {row.leave_type_name ?? (locale === "ar" ? "إجازة" : "Leave")}
             </p>
             <p className="text-xs text-muted-foreground">
               {row.start_date} → {row.end_date}
-              {row.days_requested ? ` · ${row.days_requested} days` : ""}
+              {row.days_requested ? ` · ${row.days_requested} ${locale === "ar" ? "يوم" : "days"}` : ""}
             </p>
             {/* Dual calendar (Saudi requirement): Gregorian + Umm al-Qura Hijri */}
             <p className="text-[11px] text-muted-foreground/80" dir="ltr">
@@ -175,7 +175,7 @@ export function DriverLeaveTab({ driverId, driverName, children }: DriverLeaveTa
             </p>
           </div>
           <Badge variant={STATUS_VARIANT[row.status] ?? "outline"} className="capitalize">
-            {row.status}
+            {ui(row.status.charAt(0).toUpperCase() + row.status.slice(1))}
           </Badge>
           {row.status === "pending" ? (
             <div className="flex items-center gap-1">
@@ -186,9 +186,7 @@ export function DriverLeaveTab({ driverId, driverName, children }: DriverLeaveTa
                 disabled={actingId === row.id}
                 onClick={() => void act(row, "approved")}
               >
-                <CheckCircle2 className="size-3.5 text-emerald-500" />
-                Approve
-              </Button>
+                <CheckCircle2 className="size-3.5 text-emerald-500" /><LocalizedText text="Approve" /></Button>
               <Button
                 size="sm"
                 variant="outline"
@@ -196,9 +194,7 @@ export function DriverLeaveTab({ driverId, driverName, children }: DriverLeaveTa
                 disabled={actingId === row.id}
                 onClick={() => void act(row, "rejected")}
               >
-                <XCircle className="size-3.5 text-destructive" />
-                Reject
-              </Button>
+                <XCircle className="size-3.5 text-destructive" /><LocalizedText text="Reject" /></Button>
             </div>
           ) : null}
           {children

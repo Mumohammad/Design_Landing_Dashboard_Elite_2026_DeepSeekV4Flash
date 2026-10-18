@@ -7,6 +7,7 @@
 // - parseCsv / toCsv   RFC-4180-ish CSV parser/serializer (no dependency)
 
 import { getErrorDefinition } from "@/lib/errors/error-codes"
+import { escapeCsvCell } from "@/lib/csv-cell"
 
 export type AccountType = "asset" | "liability" | "equity" | "income" | "expense"
 export type NormalBalance = "debit" | "credit"
@@ -77,9 +78,5 @@ export function parseCsv(text: string): string[][] {
 }
 
 export function toCsv(headers: string[], rows: (string | number | boolean | null)[][]): string {
-  const esc = (v: string | number | boolean | null): string => {
-    const s = v === null || v === undefined ? "" : String(v)
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-  }
-  return [headers.map(esc).join(","), ...rows.map((r) => r.map(esc).join(","))].join("\n")
+  return [headers.map(escapeCsvCell).join(","), ...rows.map((r) => r.map(escapeCsvCell).join(","))].join("\n")
 }

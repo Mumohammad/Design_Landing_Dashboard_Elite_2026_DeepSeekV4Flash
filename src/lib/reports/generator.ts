@@ -7,6 +7,7 @@
 // completed. Pure helpers here are unit-testable without a live DB.
 
 import type { SupabaseClient } from "@supabase/supabase-js"
+import { escapeCsvCell } from "@/lib/csv-cell"
 
 export type ReportType =
   | "driver_performance"
@@ -43,15 +44,16 @@ export const REPORT_TYPE_AR: Record<ReportType, string> = {
   custom: "مخصص",
 }
 
-// ── CSV serialization (RFC-4180-ish, UTF-8, CRLF) ─────────────────────
-function esc(v: unknown): string {
-  if (v === null || v === undefined) return ""
-  const s = String(v)
-  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s
+export const REPORT_TYPE_EN: Record<ReportType, string> = {
+  driver_performance: "Driver performance", payroll_summary: "Payroll summary",
+  fleet_cost: "Fleet cost", revenue: "Revenue", violations_report: "Violations",
+  attendance_summary: "Attendance summary", executive_dashboard: "Executive dashboard",
+  hs_reconciliation: "HungerStation reconciliation", custom: "Custom",
 }
 
+// ── CSV serialization (RFC-4180-ish, UTF-8, CRLF) ─────────────────────
 export function buildCsv(headers: string[], rows: unknown[][]): string {
-  const lines = [headers, ...rows].map((row) => row.map(esc).join(","))
+  const lines = [headers, ...rows].map((row) => row.map(escapeCsvCell).join(","))
   return lines.join("\r\n") + "\r\n"
 }
 

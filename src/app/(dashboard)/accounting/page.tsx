@@ -1,5 +1,6 @@
 "use client"
 
+import { LocalizedText } from "@/components/localized-text"
 import { integrationAvailable } from "@/lib/release/integrations"
 import { Fragment, useEffect, useState } from "react"
 import { useActionState } from "react"
@@ -1644,9 +1645,7 @@ export default function AccountingPage() {
                             </div>
                           </div>
                           {Number(rcvAmount || 0) > 0 && (
-                            <p className="text-xs text-muted-foreground" dir="ltr">
-                              VAT: {fmtMoney((Number(rcvAmount) * Number(rcvVat || 0)) / 100)} · Total: {fmtMoney(Number(rcvAmount) + (Number(rcvAmount) * Number(rcvVat || 0)) / 100)} SAR
-                            </p>
+                            <p className="text-xs text-muted-foreground" dir="ltr"><LocalizedText text="VAT:" />{fmtMoney((Number(rcvAmount) * Number(rcvVat || 0)) / 100)} <LocalizedText text="· Total:" /> {fmtMoney(Number(rcvAmount) + (Number(rcvAmount) * Number(rcvVat || 0)) / 100)}<LocalizedText text="SAR" /></p>
                           )}
                           <div className="flex items-center gap-3">
                             <Button type="submit" disabled={isSavingRcv} className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800">
@@ -1921,8 +1920,7 @@ export default function AccountingPage() {
                       <div className="rounded-xl border border-border/50 bg-muted/20 p-3 text-sm">
                         <p className="font-mono text-xs" dir="ltr">{resolveTarget.invoice_ref}</p>
                         <p className="mt-1 text-xs text-muted-foreground" dir="ltr">
-                          {fmtDate(resolveTarget.invoice_date)} · VAT {fmtMoney(resolveTarget.vat_amount)} SAR
-                        </p>
+                          {fmtDate(resolveTarget.invoice_date)} <LocalizedText text="· VAT" /> {fmtMoney(resolveTarget.vat_amount)}<LocalizedText text="SAR" /></p>
                       </div>
                       <div className="grid grid-cols-2 gap-2">
                         <button
@@ -2417,7 +2415,7 @@ export default function AccountingPage() {
                           <p className="mt-0.5 truncate text-xs text-muted-foreground">{b.account_name}</p>
                           <p className="mt-2 break-all font-mono text-xs text-foreground/80" dir="ltr">{b.iban}</p>
                           <p className="mt-2 text-xs text-muted-foreground" dir="ltr">
-                            {ar ? "رصيد افتتاحي" : "Opening"}: <span className="font-semibold tabular-nums text-foreground">{fmtMoney(b.opening_balance)} {b.currency}</span> · CoA <span className="font-mono font-semibold text-foreground">{b.coa_account_code ?? "1100"}</span>
+                            {ar ? "رصيد افتتاحي" : "Opening"}: <span className="font-semibold tabular-nums text-foreground">{fmtMoney(b.opening_balance)} {b.currency}</span> <LocalizedText text="· CoA" /> <span className="font-mono font-semibold text-foreground">{b.coa_account_code ?? "1100"}</span>
                           </p>
                           <div className="mt-3 flex flex-wrap gap-2 border-t border-border/50 pt-3">
                             <Button size="sm" variant="outline" onClick={() => openBankForm(b)}>{ar ? "تعديل" : "Edit"}</Button>

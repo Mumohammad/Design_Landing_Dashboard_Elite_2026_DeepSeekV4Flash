@@ -4,6 +4,7 @@
 // opening balances, per-tenant defaults). Embedded in the /accounting page's
 // "Accounts" tab. Bilingual (AR/EN, RTL-aware).
 
+import { useUiText } from "@/components/localized-text"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
@@ -149,6 +150,7 @@ function emptyForm(): AccountFormState {
 // ── Main component ───────────────────────────────────────────────────────
 
 export function ChartOfAccountsManager() {
+  const ui = useUiText()
   const { t, locale } = useTranslation()
   const ar = locale === "ar"
 
@@ -247,7 +249,7 @@ export function ChartOfAccountsManager() {
           <span className="font-medium">{r.name_ar}</span>
           <span className="text-xs text-muted-foreground" dir="ltr">{r.name_en}</span>
           {r.is_contra && (
-            <Badge className="bg-purple-500/15 text-purple-600 border-purple-500/20" title="Contra account">
+            <Badge className="bg-purple-500/15 text-purple-600 border-purple-500/20" title={ui("Contra account")}>
               {ar ? "مقابل" : "Contra"}
             </Badge>
           )}

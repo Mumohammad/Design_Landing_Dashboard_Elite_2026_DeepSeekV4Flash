@@ -1,3 +1,4 @@
+import { LocalizedText } from "@/components/localized-text"
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ArrowRight, CircleQuestionMark, FileSearch, Mail, UserPlus } from 'lucide-react';
@@ -45,12 +46,12 @@ export default function HelpPage() {
       <div className="mx-auto max-w-4xl px-4 py-16 lg:px-8">
         <Link href="/landing" className="inline-flex items-center gap-1.5 text-sm font-semibold text-muted-foreground transition-colors hover:text-elite-blue-600 dark:hover:text-elite-blue-300">
           <ArrowRight className="h-4 w-4" aria-hidden="true" />
-          العودة إلى الرئيسية
+          <LocalizedText text="Back to home" />
         </Link>
         <div className="mt-8 text-center">
-          <h1 className="text-3xl font-extrabold tracking-tight sm:text-4xl">كيف نقدر نساعدك؟</h1>
+          <h1 className="text-3xl font-extrabold tracking-tight sm:text-4xl"><LocalizedText text="How can we help?" /></h1>
           <p className="mx-auto mt-3 max-w-xl text-sm leading-7 text-muted-foreground">
-            إجابات سريعة وروابط مباشرة لأكثر ما يحتاجه مشغلو اللوجستيات والسائقون.
+            <LocalizedText text="Quick answers and direct links for logistics operators and drivers." />
           </p>
         </div>
         <div className="mt-12 grid gap-5 sm:grid-cols-2">
@@ -59,17 +60,17 @@ export default function HelpPage() {
               <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-elite-blue-500 to-elite-orange-500 text-white shadow-lg shadow-elite-blue-500/20">
                 <card.icon className="h-5 w-5" aria-hidden="true" />
               </span>
-              <h2 className="mt-4 text-base font-bold text-foreground">{card.title}</h2>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">{card.desc}</p>
+              <h2 className="mt-4 text-base font-bold text-foreground"><LocalizedText text={card.title} /></h2>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground"><LocalizedText text={card.desc} /></p>
               <Link href={card.href} className="mt-4 inline-flex items-center gap-1.5 text-sm font-bold text-elite-blue-600 transition-colors hover:text-elite-blue-700 dark:text-elite-blue-300">
-                {card.cta}
+                <LocalizedText text={card.cta} />
                 <ArrowRight className="h-4 w-4 rtl:-scale-x-100" aria-hidden="true" />
               </Link>
             </div>
           ))}
         </div>
         <p className="mt-12 text-center text-xs text-muted-foreground">
-          للدعم القانوني راجع <Link href="/terms" className="underline underline-offset-4 hover:text-foreground">شروط الخدمة</Link> و<Link href="/privacy" className="underline underline-offset-4 hover:text-foreground">سياسة الخصوصية</Link>.
+          <LocalizedText text="For legal information, see" /> <Link href="/terms" className="underline underline-offset-4 hover:text-foreground"><LocalizedText text="شروط الخدمة" /></Link> <LocalizedText text="and" /> <Link href="/privacy" className="underline underline-offset-4 hover:text-foreground"><LocalizedText text="سياسة الخصوصية" /></Link>.
         </p>
       </div>
     </main>

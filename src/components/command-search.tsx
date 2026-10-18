@@ -1,5 +1,6 @@
 "use client"
 
+import { LocalizedText } from "@/components/localized-text"
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import { Command as CommandPrimitive } from "cmdk"
@@ -201,7 +202,7 @@ export function CommandSearch({ open, onOpenChange }: CommandSearchProps) {
       <DialogContent className="overflow-hidden p-0 border-0 shadow-2xl shadow-elite-blue-950/30 max-w-[600px] rounded-2xl">
         {/* Gradient top accent */}
         <div className="h-1 w-full bg-gradient-to-r from-elite-blue-500 via-elite-blue-600 to-elite-orange-500" />
-        <DialogTitle className="sr-only">Command Search</DialogTitle>
+        <DialogTitle className="sr-only"><LocalizedText text="Command Search" /></DialogTitle>
         <DialogDescription className="sr-only">
           {t.common.searchPlaceholder}
         </DialogDescription>

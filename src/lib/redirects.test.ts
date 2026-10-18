@@ -12,7 +12,7 @@
 
 import { describe, expect, it } from "vitest"
 
-import { safeReturnPath, landingUrlWithReturn, REDIRECTS, DASHBOARD_PATH } from "./redirects"
+import { safeReturnPath, landingUrlWithReturn, REDIRECTS, DASHBOARD_PATH, withLocale } from "./redirects"
 
 describe("safeReturnPath — same-origin, single leading slash (invariant #4)", () => {
   it("accepts plain relative paths", () => {
@@ -49,6 +49,17 @@ describe("safeReturnPath — same-origin, single leading slash (invariant #4)", 
     // "\\\\evil" does not start with "/" and "/\\evil" is not a sane same-origin path
     // — both must fall back rather than being forwarded.
     expect(safeReturnPath("\\\\evil.example")).toBe(DASHBOARD_PATH)
+    expect(safeReturnPath("/\\evil.example")).toBe(DASHBOARD_PATH)
+  })
+
+  it("rejects sign-in loops and control characters", () => {
+    for (const path of ["/auth/sign-in", "/login", "/platform/login", "/auth/sign-out", "/./auth/sign-in", "/\tevil.example"]) {
+      expect(safeReturnPath(path)).toBe(DASHBOARD_PATH)
+    }
+  })
+  it("carries only the language preference while preserving returnTo", () => {
+    expect(withLocale("/auth/sign-in?returnTo=%2Finvoices", "en")).toBe("/auth/sign-in?returnTo=%2Finvoices&lang=en")
+    expect(withLocale("https://dashboard.example/auth/sign-in", "ar")).toBe("https://dashboard.example/auth/sign-in?lang=ar")
   })
 })
 

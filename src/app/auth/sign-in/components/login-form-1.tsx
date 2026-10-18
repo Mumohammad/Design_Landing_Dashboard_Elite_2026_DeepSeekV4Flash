@@ -74,9 +74,9 @@ export function LoginForm1({
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get("error")) return
     const supabase = createClient()
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        router.push(safeReturnPath(new URLSearchParams(window.location.search).get("returnTo") ?? DASHBOARD_PATH))
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) {
+        router.replace(safeReturnPath(new URLSearchParams(window.location.search).get("returnTo") ?? DASHBOARD_PATH))
         router.refresh()
       }
     })
@@ -125,8 +125,9 @@ export function LoginForm1({
       // under the two-deployment production topology).
       const returnTo = new URLSearchParams(window.location.search).get("returnTo")
       const safeReturnTo = safeReturnPath(returnTo ?? DASHBOARD_PATH)
-      router.push(safeReturnTo)
-      router.refresh()
+      // A full same-origin navigation reads the cookies just set by the API
+      // and avoids any unauthenticated prefetched router response.
+      window.location.replace(safeReturnTo)
     } catch {
       // Network / unexpected failure — show the generic error.
       setErrorMessage(t.auth.invalidCredentials)

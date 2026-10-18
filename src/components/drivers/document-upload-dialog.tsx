@@ -1,5 +1,7 @@
 "use client";
 
+import { LocalizedText, useUiText } from "@/components/localized-text"
+import { useTranslation } from "@/hooks/use-translation"
 import { useEffect, useMemo, useState } from "react";
 
 import { FileUp, Loader2, Upload } from "lucide-react";
@@ -86,6 +88,8 @@ export function DocumentUploadDialog({
   defaultDocType = null,
   onUploaded,
 }: DocumentUploadDialogProps) {
+  const ui = useUiText()
+  const { locale } = useTranslation()
   const supabase = createClient();
 
   const allowedTypes = useMemo<string[]>(() => {
@@ -204,44 +208,34 @@ export function DocumentUploadDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <FileUp className="size-5 text-primary" />
-            Upload Document
-          </DialogTitle>
-          <DialogDescription>
-            Upload a compliance document for this driver. Uploading the same type again replaces the
-            previous file.
-          </DialogDescription>
+            <FileUp className="size-5 text-primary" /><LocalizedText text="Upload Document" /></DialogTitle>
+          <DialogDescription><LocalizedText text="Upload a compliance document for this driver. Uploading the same type again replaces the previous file." /></DialogDescription>
         </DialogHeader>
 
         {existingPath ? (
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-950/30">
-            <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
-              Existing file will be replaced
-            </p>
-            <p className="text-xs text-amber-800 dark:text-amber-300/80">
-              A {docTypeLabel(docType).en} file is already on record for this driver.
-            </p>
+            <p className="text-sm font-medium text-amber-900 dark:text-amber-200"><LocalizedText text="Existing file will be replaced" /></p>
+            <p className="text-xs text-amber-800 dark:text-amber-300/80"><LocalizedText text="A" />{docTypeLabel(docType).en}<LocalizedText text="file is already on record for this driver." /></p>
           </div>
         ) : null}
 
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="doc-type">Document type</Label>
+            <Label htmlFor="doc-type"><LocalizedText text="Document type" /></Label>
             <Select
               value={docType}
               onValueChange={setDocType}
               disabled={allowedTypes.length <= 1}
             >
               <SelectTrigger id="doc-type">
-                <SelectValue placeholder="Select document type" />
+                <SelectValue placeholder={ui("Select document type")} />
               </SelectTrigger>
               <SelectContent>
                 {allowedTypes.map((type) => {
                   const label = docTypeLabel(type);
                   return (
                     <SelectItem key={type} value={type}>
-                      {label.en}
-                      {label.ar ? ` · ${label.ar}` : ""}
+                      {locale === "ar" ? (label.ar || label.en) : label.en}
                     </SelectItem>
                   );
                 })}
@@ -251,16 +245,16 @@ export function DocumentUploadDialog({
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
-              <Label htmlFor="doc-number">Document number (optional)</Label>
+              <Label htmlFor="doc-number"><LocalizedText text="Document number (optional)" /></Label>
               <Input
                 id="doc-number"
                 value={docNumber}
                 onChange={(event) => setDocNumber(event.target.value)}
-                placeholder="e.g. 2456…"
+                placeholder={ui("e.g. 2456…")}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="doc-expiry">Expiry date (optional)</Label>
+              <Label htmlFor="doc-expiry"><LocalizedText text="Expiry date (optional)" /></Label>
               <Input
                 id="doc-expiry"
                 type="date"
@@ -271,7 +265,7 @@ export function DocumentUploadDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="doc-file">File</Label>
+            <Label htmlFor="doc-file"><LocalizedText text="File" /></Label>
             <Input
               id="doc-file"
               type="file"
@@ -282,13 +276,9 @@ export function DocumentUploadDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={uploading}>
-            Cancel
-          </Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={uploading}><LocalizedText text="Cancel" /></Button>
           <Button onClick={() => void upload()} disabled={uploading || !file}>
-            {uploading ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
-            Upload
-          </Button>
+            {uploading ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}<LocalizedText text="Upload" /></Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -15,11 +15,11 @@ interface PerformanceRow {
   driver: { full_name_ar: string; driver_code: string } | null
 }
 
-const STATUS_META: Record<string, { ar: string; className: string }> = {
-  pending: { ar: "معلقة", className: "bg-amber-500/15 text-amber-600 border-amber-500/20" },
-  in_progress: { ar: "جارية", className: "bg-blue-500/15 text-blue-600 border-blue-500/20" },
-  completed: { ar: "مكتملة", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/20" },
-  cancelled: { ar: "ملغاة", className: "bg-red-500/15 text-red-600 border-red-500/20" },
+const STATUS_META: Record<string, { ar: string; en: string; className: string }> = {
+  pending: { ar: "معلقة", en: "Pending", className: "bg-amber-500/15 text-amber-600 border-amber-500/20" },
+  in_progress: { ar: "جارية", en: "In progress", className: "bg-blue-500/15 text-blue-600 border-blue-500/20" },
+  completed: { ar: "مكتملة", en: "Completed", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/20" },
+  cancelled: { ar: "ملغاة", en: "Cancelled", className: "bg-red-500/15 text-red-600 border-red-500/20" },
 }
 
 function fmtDate(date: string): string {
@@ -27,7 +27,7 @@ function fmtDate(date: string): string {
 }
 
 export default function HRPage() {
-  const { t } = useTranslation()
+  const { t, locale } = useTranslation()
   const [data, setData] = useState<PerformanceRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [search, setSearch] = useState("")
@@ -75,7 +75,7 @@ export default function HRPage() {
       key: "status", header: t.common.status,
       render: (r) => {
         const s = STATUS_META[r.status] ?? STATUS_META.pending
-        return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${s.className}`}>{s.ar}</span>
+        return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${s.className}`}>{locale === "ar" ? s.ar : s.en}</span>
       },
     },
   ]

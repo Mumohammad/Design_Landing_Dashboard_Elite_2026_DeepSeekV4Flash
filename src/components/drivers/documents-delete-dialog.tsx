@@ -1,5 +1,6 @@
 "use client";
 
+import { LocalizedText } from "@/components/localized-text"
 import { useState } from "react";
 
 import { Loader2, Trash2 } from "lucide-react";
@@ -68,24 +69,17 @@ export function DocumentsDeleteDialog({
     >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Delete document</DialogTitle>
-          <DialogDescription>
-            This removes <span className="font-medium text-foreground">{document?.label}</span> from
-            the driver&apos;s profile. The record is kept in the archive (soft delete).
-          </DialogDescription>
+          <DialogTitle><LocalizedText text="Delete document" /></DialogTitle>
+          <DialogDescription><LocalizedText text="This removes" /><span className="font-medium text-foreground">{document?.label}</span><LocalizedText text="from the driver's profile. The record is kept in the archive (soft delete)." /></DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={deleting}>
-            Cancel
-          </Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={deleting}><LocalizedText text="Cancel" /></Button>
           <Button
             variant="destructive"
             onClick={() => void confirmDelete()}
             disabled={deleting || !document}
           >
-            {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
-            Delete
-          </Button>
+            {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}<LocalizedText text="Delete" /></Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

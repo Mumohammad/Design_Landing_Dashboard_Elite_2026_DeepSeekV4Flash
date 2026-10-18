@@ -1,6 +1,10 @@
+"use client"
+
+import { useUiText } from "@/components/localized-text"
 export default function Loading() {
+  const ui = useUiText()
   return (
-    <div className="space-y-6 p-6" aria-busy="true" aria-label="جارٍ التحميل">
+    <div className="space-y-6 p-6" aria-busy="true" aria-label={ui("جارٍ التحميل")}>
       <div className="flex items-center justify-between gap-4">
         <div className="space-y-2">
           <div className="h-7 w-44 animate-pulse rounded-xl bg-muted" />

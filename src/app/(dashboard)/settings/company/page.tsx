@@ -1,5 +1,6 @@
 "use client"
 
+import { LocalizedText } from "@/components/localized-text"
 import { useEffect, useState } from "react"
 import { useActionState } from "react"
 import { useTranslation } from "@/hooks/use-translation"
@@ -266,7 +267,7 @@ export default function CompanySettingsPage() {
                 <Landmark className="h-5 w-5 text-elite-blue-600" />
               </div>
               <div>
-                <CardTitle className="text-base">WPS — {ar ? "نظام حماية الأجور" : "Wage Protection System"}</CardTitle>
+                <CardTitle className="text-base"><LocalizedText text="WPS —" /> {ar ? "نظام حماية الأجور" : "Wage Protection System"}</CardTitle>
                 <CardDescription className="text-xs">
                   {ar
                     ? "البيانات المطلوبة لتوليد ملفات SIF المصرفية"

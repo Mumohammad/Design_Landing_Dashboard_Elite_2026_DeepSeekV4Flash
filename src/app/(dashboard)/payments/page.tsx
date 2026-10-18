@@ -1,5 +1,6 @@
 "use client"
 
+import { LocalizedText } from "@/components/localized-text"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import {
@@ -236,7 +237,7 @@ export default function PaymentsPage() {
       header: isAr ? "المبلغ" : "Amount",
       render: (r) => (
         <span dir="ltr" className="tabular-nums font-semibold">
-          {fmtMoney(r.amount)} <span className="text-xs text-muted-foreground">SAR</span>
+          {fmtMoney(r.amount)} <span className="text-xs text-muted-foreground"><LocalizedText text="SAR" /></span>
         </span>
       ),
     },

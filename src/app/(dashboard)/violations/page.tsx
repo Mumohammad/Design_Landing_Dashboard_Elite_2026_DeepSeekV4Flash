@@ -1,5 +1,6 @@
 "use client"
 
+import { LocalizedText } from "@/components/localized-text"
 import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
@@ -54,7 +55,7 @@ function isExpired(deadline: string | null): boolean {
 }
 
 export default function ViolationsPage() {
-  const { t } = useTranslation()
+  const { t, locale } = useTranslation()
   const [data, setData] = useState<ViolationRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [search, setSearch] = useState("")
@@ -96,17 +97,17 @@ export default function ViolationsPage() {
       key: "severity", header: "Severity",
       render: (r) => {
         const s = SEVERITY_META[r.severity] ?? SEVERITY_META.minor
-        return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${s.className}`}>{s.ar}</span>
+        return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${s.className}`}>{locale === "ar" ? s.ar : s.en}</span>
       },
     },
     {
       key: "status", header: t.common.status,
       render: (r) => {
         const s = STATUS_META[r.status] ?? STATUS_META.open
-        return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${s.className}`}>{s.ar}</span>
+        return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${s.className}`}>{locale === "ar" ? s.ar : s.en}</span>
       },
     },
-    { key: "deduction_amount", header: "Deduction", render: (r) => <span dir="ltr" className="tabular-nums">{r.deduction_amount?.toFixed(2) ?? "0.00"} SAR</span> },
+    { key: "deduction_amount", header: "Deduction", render: (r) => <span dir="ltr" className="tabular-nums">{r.deduction_amount?.toFixed(2) ?? "0.00"} <LocalizedText text="SAR" /></span> },
     {
       key: "dispute_deadline", header: "Dispute Deadline",
       render: (r) => {

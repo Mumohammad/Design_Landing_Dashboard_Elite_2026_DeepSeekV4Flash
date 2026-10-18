@@ -367,4 +367,4 @@ jobs:
         echo "E2E staging URL and credentials are configured"
 
     - name: Run E2E smoke tests
-      run: pnpm exec playwright test e2e/smoke.spec.ts --reporter=github
+      run: pnpm exec playwright test e2e/smoke.spec.ts e2e/locale-session.spec.ts --reporter=github

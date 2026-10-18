@@ -4,6 +4,7 @@
 // validation preview, then the server action reports per-row failures
 // (duplicate natural key / unknown driver) partial-failure style.
 
+import { LocalizedText } from "@/components/localized-text"
 import { useMemo, useState } from "react"
 import { useTranslation } from "@/hooks/use-translation"
 import { Button } from "@/components/ui/button"
@@ -111,8 +112,7 @@ export function ImportDialog({
           {parsed.rows.some((r) => !r.ok) && (
             <div className="max-h-32 overflow-y-auto rounded-xl border border-red-500/30 bg-red-500/5 p-2 text-xs">
               {parsed.rows.filter((r) => !r.ok).slice(0, 20).map((r) => (
-                <p key={r.rowNumber} dir="ltr" className="text-red-500">
-                  row {r.rowNumber}: {r.error}
+                <p key={r.rowNumber} dir="ltr" className="text-red-500"><LocalizedText text="row" />{r.rowNumber}: {r.error}
                 </p>
               ))}
             </div>
@@ -127,7 +127,7 @@ export function ImportDialog({
               {failures.length > 0 && (
                 <div className="mt-2 max-h-32 overflow-y-auto text-xs">
                   {failures.slice(0, 20).map((f, i) => (
-                    <p key={i} dir="ltr" className="text-red-500">row {f.rowNumber}: {f.error}</p>
+                    <p key={i} dir="ltr" className="text-red-500"><LocalizedText text="row" /> {f.rowNumber}: {f.error}</p>
                   ))}
                 </div>
               )}

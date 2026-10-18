@@ -1,5 +1,6 @@
 "use client"
 
+import { LocalizedText } from "@/components/localized-text"
 import * as React from "react"
 import { X } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -23,7 +24,7 @@ export function SidebarNotification() {
           onClick={() => setIsVisible(false)}
         >
           <X className="h-3 w-3" />
-          <span className="sr-only">Close notification</span>
+          <span className="sr-only"><LocalizedText text="Close notification" /></span>
         </Button>
 
         <div className="pr-6">

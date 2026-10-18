@@ -1,3 +1,5 @@
+import { LocalizedText, BilingualText } from "@/components/localized-text"
+import { termsEnglish } from "@/lib/i18n/legal-copy"
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ArrowRight, Scale } from 'lucide-react';
@@ -65,22 +67,22 @@ export default function TermsPage() {
       <div className="mx-auto max-w-3xl px-4 py-16 lg:px-8">
         <Link href="/landing" className="inline-flex items-center gap-1.5 text-sm font-semibold text-muted-foreground transition-colors hover:text-elite-blue-600 dark:hover:text-elite-blue-300">
           <ArrowRight className="h-4 w-4" aria-hidden="true" />
-          العودة إلى الرئيسية
+          <LocalizedText text="Back to home" />
         </Link>
         <div className="mt-8 flex items-center gap-3">
           <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-elite-blue-500 to-elite-orange-500 text-white shadow-lg shadow-elite-blue-500/20">
             <Scale className="h-6 w-6" aria-hidden="true" />
           </span>
           <div>
-            <h1 className="text-3xl font-extrabold tracking-tight">شروط الخدمة</h1>
-            <p className="mt-1 text-sm text-muted-foreground">آخر تحديث: سبتمبر 2026</p>
+            <h1 className="text-3xl font-extrabold tracking-tight"><LocalizedText text="شروط الخدمة" /></h1>
+            <p className="mt-1 text-sm text-muted-foreground"><LocalizedText text="Last updated: September 2026" /></p>
           </div>
         </div>
         <div className="mt-10 space-y-8">
-          {sections.map((section) => (
+          {sections.map((section, index) => (
             <section key={section.title} className="rounded-2xl border border-border/50 bg-card/60 p-6">
-              <h2 className="text-lg font-bold text-foreground">{section.title}</h2>
-              <p className="mt-3 text-sm leading-7 text-muted-foreground">{section.body}</p>
+              <h2 className="text-lg font-bold text-foreground"><BilingualText ar={section.title} en={termsEnglish[index].title} /></h2>
+              <p className="mt-3 text-sm leading-7 text-muted-foreground"><BilingualText ar={section.body} en={termsEnglish[index].body} /></p>
             </section>
           ))}
         </div>

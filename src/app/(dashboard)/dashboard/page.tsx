@@ -1,5 +1,6 @@
 "use client"
 
+import { useUiText } from "@/components/localized-text"
 import * as React from "react"
 import {
   Banknote,
@@ -60,6 +61,7 @@ function SectionHeader({ icon: Icon, title, subtitle }: { icon: React.ElementTyp
 }
 
 export default function DashboardPage() {
+  const ui = useUiText()
   const { t, locale } = useTranslation()
 
   const [filters, setFilters] = React.useState<DashboardFilters>(DEFAULT_FILTERS)
@@ -173,7 +175,7 @@ export default function DashboardPage() {
       ) : (
         <>
           {/* ── Executive KPI row ── */}
-          <section aria-label="Executive KPIs" className="space-y-3">
+          <section aria-label={ui("Executive KPIs")} className="space-y-3">
             <ScrollReveal direction="up" delay={80}>
               <SectionHeader
                 icon={LayoutDashboard}
@@ -192,7 +194,7 @@ export default function DashboardPage() {
           </section>
 
           {/* ── Financial KPI row ── */}
-          <section aria-label="Financial KPIs" className="space-y-3">
+          <section aria-label={ui("Financial KPIs")} className="space-y-3">
             <ScrollReveal direction="up" delay={80}>
               <SectionHeader
                 icon={WalletCards}
@@ -211,7 +213,7 @@ export default function DashboardPage() {
           </section>
 
           {/* ── Accounting KPI row (Prompt I) ── */}
-          <section aria-label="Accounting KPIs" className="space-y-3">
+          <section aria-label={ui("Accounting KPIs")} className="space-y-3">
             <ScrollReveal direction="up" delay={80}>
               <SectionHeader
                 icon={Landmark}
@@ -258,7 +260,7 @@ export default function DashboardPage() {
           </section>
 
           {/* ── Operational Alerts ── */}
-          <section aria-label="Operations" className="space-y-3">
+          <section aria-label={ui("Operations")} className="space-y-3">
             <ScrollReveal direction="up" delay={80}>
               <SectionHeader
                 icon={ShieldAlert}
@@ -277,7 +279,7 @@ export default function DashboardPage() {
           </section>
 
           {/* ── Cross-module operations (fleet / approvals / COD / audit) ── */}
-          <section aria-label="Cross-module operations" className="space-y-3">
+          <section aria-label={ui("Cross-module operations")} className="space-y-3">
             <ScrollReveal direction="up" delay={80}>
               <SectionHeader
                 icon={ShieldAlert}
@@ -295,7 +297,7 @@ export default function DashboardPage() {
           </section>
 
           {/* ── Primary analytics ── */}
-          <section aria-label="Trends" className="grid gap-4 xl:grid-cols-2">
+          <section aria-label={ui("Trends")} className="grid gap-4 xl:grid-cols-2">
             <ScrollReveal direction="up" delay={100}>
               <OrdersTrend data={snapshot.trends.orders} available={snapshot.availability.orders} onRetry={() => void load(filters, true)} />
             </ScrollReveal>
@@ -305,7 +307,7 @@ export default function DashboardPage() {
           </section>
 
           {/* ── Secondary analytics ── */}
-          <section aria-label="Performance" className="grid gap-4 xl:grid-cols-2">
+          <section aria-label={ui("Performance")} className="grid gap-4 xl:grid-cols-2">
             <ScrollReveal direction="left" delay={100}>
               <PlatformPerformance data={snapshot.platforms} available={snapshot.availability.orders} onRetry={() => void load(filters, true)} />
             </ScrollReveal>
@@ -320,7 +322,7 @@ export default function DashboardPage() {
           </ScrollReveal>
 
           {/* ── Compliance + violations ── */}
-          <section aria-label="Compliance" className="grid gap-4 xl:grid-cols-2">
+          <section aria-label={ui("Compliance")} className="grid gap-4 xl:grid-cols-2">
             <ScrollReveal direction="left" delay={100}>
               <ComplianceRadar compliance={snapshot.compliance} available={snapshot.availability.drivers || snapshot.availability.vehicles} onRetry={() => void load(filters, true)} />
             </ScrollReveal>
@@ -330,7 +332,7 @@ export default function DashboardPage() {
           </section>
 
           {/* ── Action center + insights + activity ── */}
-          <section aria-label="Actions and insights" className="grid gap-4 xl:grid-cols-3">
+          <section aria-label={ui("Actions and insights")} className="grid gap-4 xl:grid-cols-3">
             <ScrollReveal direction="up" delay={80}>
               <ActionCenter actions={snapshot.actions} />
             </ScrollReveal>

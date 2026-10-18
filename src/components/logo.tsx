@@ -1,3 +1,6 @@
+"use client"
+
+import { useUiText } from "@/components/localized-text"
 import Image from "next/image"
 
 interface LogoProps {
@@ -11,10 +14,11 @@ interface LogoProps {
  * Used across the sidebar, auth pages, and landing.
  */
 export function Logo({ size = 24, className, priority = false }: LogoProps) {
+  const ui = useUiText()
   return (
     <Image
       src="/logo.png"
-      alt="Elite Development"
+      alt={ui("Elite Development")}
       width={size}
       height={size}
       priority={priority}
@@ -35,6 +39,7 @@ interface LogoMarkProps {
  * Used on auth pages and the landing hero.
  */
 export function LogoMark({ size = 40, showIndicator = false, className }: LogoMarkProps) {
+  const ui = useUiText()
   return (
     <div
       className={`relative flex items-center justify-center rounded-2xl bg-gradient-to-br from-elite-blue-500 via-elite-blue-400 to-elite-orange-500 shadow-lg shadow-elite-blue-500/20 ${className ?? ""}`}
@@ -42,7 +47,7 @@ export function LogoMark({ size = 40, showIndicator = false, className }: LogoMa
     >
       <Image
         src="/logo.png"
-        alt="Elite Development"
+        alt={ui("Elite Development")}
         width={size}
         height={size}
         priority

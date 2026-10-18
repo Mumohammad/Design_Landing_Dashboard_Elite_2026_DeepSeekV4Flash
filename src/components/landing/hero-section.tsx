@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { DotPattern } from "@/components/dot-pattern"
 import { landingContent } from "@/lib/landing-content"
 import { useTranslation } from "@/hooks/use-translation"
-import { REDIRECTS } from "@/lib/redirects"
+import { REDIRECTS, withLocale } from "@/lib/redirects"
 import { Reveal, SectionTag } from "./shared"
 import { DashboardPreview } from "./dashboard-preview"
 
@@ -104,7 +104,7 @@ export function HeroSection() {
                   variant="outline"
                   className="h-13 rounded-2xl border-border/60 px-8 text-sm font-bold backdrop-blur-sm transition-all duration-300 hover:border-elite-blue-500/40 hover:bg-elite-blue-500/5 hover:shadow-lg hover:shadow-elite-blue-500/10"
                 >
-                  <Link href={REDIRECTS.signInUrl}>{c.hero.ctaSecondary}</Link>
+                  <Link href={withLocale(REDIRECTS.signInUrl, locale)}>{c.hero.ctaSecondary}</Link>
                 </Button>
               </div>
             </Reveal>

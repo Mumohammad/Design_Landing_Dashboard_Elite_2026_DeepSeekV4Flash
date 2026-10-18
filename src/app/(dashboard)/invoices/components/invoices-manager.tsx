@@ -5,6 +5,7 @@
 // Bilingual (AR/EN, RTL-aware), reuses EnterpriseModulePage like the other
 // financial managers. Rendered from the /invoices page.
 
+import { LocalizedText } from "@/components/localized-text"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
@@ -785,7 +786,7 @@ export function InvoicesManager() {
                 <span>{ar ? "الكمية" : "Qty"}</span>
                 <span>{ar ? "السعر" : "Price"}</span>
                 <span>{ar ? "الخصم" : "Disc."}</span>
-                <span>VAT %</span>
+                <span><LocalizedText text="VAT %" /></span>
                 <span />
               </div>
               {lines.map((l) => (
@@ -821,7 +822,7 @@ export function InvoicesManager() {
 
             <div className="flex flex-wrap items-center justify-end gap-4 rounded-xl border border-border/50 bg-muted/20 px-4 py-3 text-sm">
               <span className="text-muted-foreground">{ar ? "المجموع الفرعي" : "Subtotal"}: <b dir="ltr" className="tabular-nums">{lineTotals ? fmtMoney(lineTotals.subtotal) : "—"}</b></span>
-              <span className="text-muted-foreground">VAT: <b dir="ltr" className="tabular-nums">{lineTotals ? fmtMoney(lineTotals.vat_amount) : "—"}</b></span>
+              <span className="text-muted-foreground"><LocalizedText text="VAT:" /> <b dir="ltr" className="tabular-nums">{lineTotals ? fmtMoney(lineTotals.vat_amount) : "—"}</b></span>
               <span className="font-medium">{ar ? "الإجمالي" : "Total"}: <b dir="ltr" className="tabular-nums text-emerald-600">{lineTotals ? fmtMoney(lineTotals.total) : "—"}</b></span>
             </div>
 
@@ -887,7 +888,7 @@ export function InvoicesManager() {
                       <th className="px-3 py-2 text-start font-medium">{ar ? "الكمية" : "Qty"}</th>
                       <th className="px-3 py-2 text-start font-medium">{ar ? "السعر" : "Price"}</th>
                       <th className="px-3 py-2 text-start font-medium">{ar ? "المبلغ" : "Amount"}</th>
-                      <th className="px-3 py-2 text-start font-medium">VAT</th>
+                      <th className="px-3 py-2 text-start font-medium"><LocalizedText text="VAT" /></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -907,7 +908,7 @@ export function InvoicesManager() {
 
               <div className="flex items-center justify-end gap-4 text-sm">
                 <span className="text-muted-foreground">{ar ? "المجموع الفرعي" : "Subtotal"}: <b dir="ltr" className="tabular-nums">{fmtMoney(detailTarget?.subtotal)}</b></span>
-                <span className="text-muted-foreground">VAT: <b dir="ltr" className="tabular-nums">{fmtMoney(detailTarget?.vat_amount)}</b></span>
+                <span className="text-muted-foreground"><LocalizedText text="VAT:" /> <b dir="ltr" className="tabular-nums">{fmtMoney(detailTarget?.vat_amount)}</b></span>
                 <span className="font-medium">{ar ? "الإجمالي" : "Total"}: <b dir="ltr" className="tabular-nums text-emerald-600">{fmtMoney(detailTarget?.total)} {detailTarget?.currency}</b></span>
               </div>
 
@@ -1054,9 +1055,7 @@ export function InvoicesManager() {
               </div>
             </div>
             {Number(debitAmount || 0) > 0 && (
-              <p className="text-xs text-muted-foreground" dir="ltr">
-                VAT: {fmtMoney(round2((Number(debitAmount) * Number(formVatRate || 0)) / 100))} · Total: {fmtMoney(round2(Number(debitAmount) + (Number(debitAmount) * Number(formVatRate || 0)) / 100))} SAR
-              </p>
+              <p className="text-xs text-muted-foreground" dir="ltr"><LocalizedText text="VAT:" />{fmtMoney(round2((Number(debitAmount) * Number(formVatRate || 0)) / 100))} <LocalizedText text="· Total:" /> {fmtMoney(round2(Number(debitAmount) + (Number(debitAmount) * Number(formVatRate || 0)) / 100))}<LocalizedText text="SAR" /></p>
             )}
             <Input
               dir="rtl"

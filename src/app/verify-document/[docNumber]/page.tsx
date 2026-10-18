@@ -1,3 +1,4 @@
+import { LocalizedText } from "@/components/localized-text"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { createHash } from "crypto"
 import { LogoMark } from "@/components/logo"
@@ -104,9 +105,7 @@ function ResultCard({ result }: { result: VerifyResult }) {
               <div className="grid grid-cols-2 gap-3">
                 <div className="rounded-xl border border-border/50 bg-muted/30 px-4 py-3">
                   <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    <FileQuestion className="h-3 w-3" />
-                    Type
-                  </p>
+                    <FileQuestion className="h-3 w-3" /><LocalizedText text="Type" /></p>
                   <p className="mt-0.5 truncate text-sm font-semibold text-foreground">
                     {result.template_name ?? "—"}
                   </p>

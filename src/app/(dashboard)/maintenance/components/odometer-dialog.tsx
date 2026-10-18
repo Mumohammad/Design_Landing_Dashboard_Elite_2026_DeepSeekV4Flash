@@ -3,6 +3,7 @@
 // Odometer history dialog (Prompt O Part 1): per-vehicle readings from
 // vehicle_odometer_logs with an inline sparkline + add-reading form.
 
+import { LocalizedText, useUiText } from "@/components/localized-text"
 import { useEffect, useState } from "react"
 import { useTranslation } from "@/hooks/use-translation"
 import { Button } from "@/components/ui/button"
@@ -30,6 +31,7 @@ interface OdometerLog {
 }
 
 function Sparkline({ values }: { values: number[] }) {
+  const ui = useUiText()
   if (values.length < 2) return null
   const min = Math.min(...values)
   const max = Math.max(...values)
@@ -40,7 +42,7 @@ function Sparkline({ values }: { values: number[] }) {
     .map((v, i) => `${(i / (values.length - 1)) * w},${h - ((v - min) / span) * h}`)
     .join(" ")
   return (
-    <svg width={w} height={h} className="overflow-visible" role="img" aria-label="odometer trend">
+    <svg width={w} height={h} className="overflow-visible" role="img" aria-label={ui("odometer trend")}>
       <polyline
         points={points}
         fill="none"
@@ -145,7 +147,7 @@ export function OdometerDialog({
                 <tbody>
                   {logs.map((l) => (
                     <tr key={l.id} className="border-b border-border/20 last:border-0">
-                      <td dir="ltr" className="px-3 py-2 tabular-nums">{l.reading.toLocaleString()} km</td>
+                      <td dir="ltr" className="px-3 py-2 tabular-nums">{l.reading.toLocaleString()} <LocalizedText text="km" /></td>
                       <td dir="ltr" className="px-3 py-2 text-xs text-muted-foreground">
                         {new Date(l.recorded_at).toLocaleDateString(isAr ? "ar-SA" : "en-GB")}
                       </td>

@@ -24,7 +24,8 @@ export const metadata: Metadata = {
 const localeInitScript = `
 (function() {
   try {
-    var locale = localStorage.getItem('elite-locale');
+    var requested = new URLSearchParams(window.location.search).get('lang');
+    var locale = requested === 'en' || requested === 'ar' ? requested : localStorage.getItem('elite-locale');
     if (locale === 'en' || locale === 'ar') {
       document.documentElement.lang = locale;
       document.documentElement.dir = locale === 'ar' ? 'rtl' : 'ltr';

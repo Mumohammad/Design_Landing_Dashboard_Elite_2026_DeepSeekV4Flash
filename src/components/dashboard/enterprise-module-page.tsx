@@ -1,3 +1,4 @@
+import { LocalizedText, useUiText } from "@/components/localized-text"
 import * as React from "react"
 import { Plus, Search, ChevronLeft, ChevronRight, Inbox } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -83,7 +84,7 @@ function KpiCard({ label, value, icon: Icon, color = "#1E5A99" }: KpiCardData) {
       />
       <div className="relative">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-medium text-muted-foreground">{label}</span>
+          <span className="text-xs font-medium text-muted-foreground"><LocalizedText text={label} /></span>
           {Icon && (
             <div
               className="flex h-9 w-9 items-center justify-center rounded-xl transition-transform duration-300 group-hover:scale-110"
@@ -138,7 +139,7 @@ function EmptyState({
           <Inbox className="h-7 w-7 text-muted-foreground/60" />
         </div>
       </div>
-      <p className="mt-5 text-sm font-medium text-muted-foreground">{message}</p>
+      <p className="mt-5 text-sm font-medium text-muted-foreground"><LocalizedText text={message} /></p>
       {action && (
         <Button
           size="sm"
@@ -146,7 +147,7 @@ function EmptyState({
           onClick={action.onClick}
         >
           <Plus className="mr-1.5 h-4 w-4" />
-          {action.label}
+          <LocalizedText text={action.label} />
         </Button>
       )}
     </div>
@@ -177,6 +178,7 @@ export function EnterpriseModulePage<T extends { id?: string }>({
   children,
   className,
 }: EnterpriseModulePageProps<T>) {
+  const ui = useUiText()
   const actionColumnCount = rowActions ? 1 : 0
 
   return (
@@ -190,10 +192,10 @@ export function EnterpriseModulePage<T extends { id?: string }>({
             </div>
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-foreground">
-                {title}
+                <LocalizedText text={title} />
               </h1>
               {subtitle && (
-                <p className="text-sm text-muted-foreground mt-0.5">{subtitle}</p>
+                <p className="text-sm text-muted-foreground mt-0.5"><LocalizedText text={subtitle} /></p>
               )}
             </div>
           </div>
@@ -203,7 +205,7 @@ export function EnterpriseModulePage<T extends { id?: string }>({
               className="bg-gradient-to-r from-elite-blue-500 to-elite-blue-600 hover:from-elite-blue-600 hover:to-elite-blue-700 text-white shadow-lg shadow-elite-blue-500/20 rounded-xl h-10 px-5 font-semibold text-sm transition-all duration-200 hover:shadow-xl hover:shadow-elite-blue-500/25 hover:-translate-y-0.5"
             >
               <CtaIcon className="mr-1.5 h-4 w-4" />
-              {primaryCtaLabel}
+              <LocalizedText text={primaryCtaLabel} />
             </Button>
           )}
         </div>
@@ -227,7 +229,7 @@ export function EnterpriseModulePage<T extends { id?: string }>({
             <div className="relative w-full sm:max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder={searchPlaceholder}
+                placeholder={ui(searchPlaceholder)}
                 value={searchValue}
                 onChange={(e) => onSearchChange?.(e.target.value)}
                 className="pl-10 h-10 bg-muted/20 border-border/50 rounded-xl text-sm focus-visible:ring-1 focus-visible:ring-elite-blue-500/30 focus-visible:border-elite-blue-500/30 transition-all duration-200"
@@ -253,7 +255,7 @@ export function EnterpriseModulePage<T extends { id?: string }>({
                         col.className
                       )}
                     >
-                      {col.header}
+                      <LocalizedText text={col.header} />
                     </th>
                   ))}
                   {rowActions && <th className="px-4 py-3.5 w-10" />}
@@ -320,7 +322,7 @@ export function EnterpriseModulePage<T extends { id?: string }>({
           {pagination && (
             <div className="border-t border-border/30 px-4 py-3.5 flex items-center justify-between bg-muted/10">
               <p className="text-xs text-muted-foreground">
-                {pagination.totalRecords} records · Page {pagination.currentPage} of{" "}
+                {pagination.totalRecords} <LocalizedText text="records · Page" /> {pagination.currentPage} <LocalizedText text="of" />{" "}
                 {pagination.totalPages}
               </p>
               <div className="flex gap-1">

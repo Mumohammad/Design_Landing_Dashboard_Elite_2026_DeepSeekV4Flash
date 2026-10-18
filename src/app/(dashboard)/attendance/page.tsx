@@ -38,7 +38,7 @@ function fmtDate(date: string): string {
 }
 
 export default function AttendancePage() {
-  const { t } = useTranslation()
+  const { t, locale } = useTranslation()
   const [data, setData] = useState<AttendanceRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [search, setSearch] = useState("")
@@ -80,7 +80,7 @@ export default function AttendancePage() {
       key: "status", header: t.common.status,
       render: (r) => {
         const s = STATUS_META[r.status] ?? STATUS_META.present
-        return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${s.className}`}>{s.ar}</span>
+        return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${s.className}`}>{locale === "ar" ? s.ar : s.en}</span>
       },
     },
     { key: "check_in_time", header: "Check In", render: (r) => <span dir="ltr" className="tabular-nums">{fmtTime(r.check_in_time)}</span> },

@@ -1,6 +1,10 @@
+"use client"
+
+import { LocalizedText, useUiText } from "@/components/localized-text"
 import Image from "next/image"
 
 export default function Loading() {
+  const ui = useUiText()
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-8 bg-background">
       <div className="relative">
@@ -8,7 +12,7 @@ export default function Loading() {
         <div className="absolute -inset-10 rounded-full bg-gradient-to-tr from-elite-blue-500/20 via-transparent to-elite-orange-500/20 blur-2xl" />
         <Image
           src="/Splash.png"
-          alt="نخبة التطوير"
+          alt={ui("نخبة التطوير")}
           width={1377}
           height={768}
           priority
@@ -16,9 +20,7 @@ export default function Loading() {
         />
       </div>
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <span className="h-4 w-4 animate-spin rounded-full border-2 border-elite-blue-500 border-t-transparent" />
-        Loading...
-      </div>
+        <span className="h-4 w-4 animate-spin rounded-full border-2 border-elite-blue-500 border-t-transparent" /><LocalizedText text="Loading..." /></div>
     </div>
   )
 }

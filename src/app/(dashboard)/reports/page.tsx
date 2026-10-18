@@ -6,7 +6,7 @@ import { useTranslation } from "@/hooks/use-translation"
 import { EnterpriseModulePage, type KpiCardData, type TableColumn } from "@/components/dashboard/enterprise-module-page"
 import { BarChart3, FileCheck, Clock, AlertCircle, Download, FilePlus2, Loader2 } from "lucide-react"
 import { generateReportAction } from "@/lib/reports/actions"
-import { REPORT_TYPES, REPORT_TYPE_AR, type ReportType } from "@/lib/reports/generator"
+import { REPORT_TYPES, REPORT_TYPE_AR, REPORT_TYPE_EN, type ReportType } from "@/lib/reports/generator"
 
 interface ReportRow {
   id: string
@@ -43,8 +43,9 @@ const MONTH_NAMES_AR = ["يناير", "فبراير", "مارس", "أبريل", 
 const MONTH_NAMES_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
 export default function ReportsPage() {
-  const { t } = useTranslation()
-  const ar = t.common.status === "الحالة"
+  const { t, locale } = useTranslation()
+  const ar = locale === "ar"
+  const reportNames = ar ? REPORT_TYPE_AR : REPORT_TYPE_EN
   const [data, setData] = useState<ReportRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [search, setSearch] = useState("")
@@ -114,7 +115,7 @@ export default function ReportsPage() {
   const columns: TableColumn<ReportRow>[] = [
     {
       key: "report_type", header: "Type",
-      render: (r) => <span className="font-medium">{REPORT_TYPE_AR[r.report_type as ReportType] ?? r.report_type}</span>,
+      render: (r) => <span className="font-medium">{reportNames[r.report_type as ReportType] ?? r.report_type}</span>,
     },
     { key: "output_format", header: "Format", render: (r) => <span dir="ltr" className="text-xs uppercase font-mono">{r.output_format}</span> },
     {
@@ -165,7 +166,7 @@ export default function ReportsPage() {
               className="h-9 rounded-xl border border-border/50 bg-muted/30 px-3 text-sm"
             >
               {REPORT_TYPES.map((rt) => (
-                <option key={rt} value={rt}>{REPORT_TYPE_AR[rt]}</option>
+                <option key={rt} value={rt} disabled={rt === "custom"}>{reportNames[rt]}{rt === "custom" ? (ar ? " — غير متاح بعد" : " — not available yet") : ""}</option>
               ))}
             </select>
             <select

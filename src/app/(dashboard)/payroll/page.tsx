@@ -1,5 +1,6 @@
 "use client"
 
+import { LocalizedText, useUiText } from "@/components/localized-text"
 import { integrationAvailable } from "@/lib/release/integrations"
 import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
@@ -73,6 +74,7 @@ const MONTH_NAMES_AR = ["يناير", "فبراير", "مارس", "أبريل", 
 const MONTH_NAMES_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
 export default function PayrollPage() {
+  const ui = useUiText()
   const { t } = useTranslation()
   const ar = t.common.status === "الحالة"
   const [data, setData] = useState<PayrollRow[]>([])
@@ -336,20 +338,14 @@ export default function PayrollPage() {
         <div className="flex items-center gap-2">
           <span dir="ltr" className="tabular-nums font-bold">{fmtMoney(r.net_payroll)}</span>
           {r.below_minimum_wage && (
-            <span className="inline-flex items-center rounded-full bg-red-500/15 text-red-600 border border-red-500/20 px-1.5 py-0.5 text-[10px] font-medium" title="Below Saudi minimum wage">
-              <AlertTriangle className="h-3 w-3 ml-0.5" />
-              MW
-            </span>
+            <span className="inline-flex items-center rounded-full bg-red-500/15 text-red-600 border border-red-500/20 px-1.5 py-0.5 text-[10px] font-medium" title={ui("Below Saudi minimum wage")}>
+              <AlertTriangle className="h-3 w-3 ml-0.5" /><LocalizedText text="MW" /></span>
           )}
           {r.minimum_floor_applied && (
-            <span className="inline-flex items-center rounded-full bg-amber-500/15 text-amber-600 border border-amber-500/20 px-1.5 py-0.5 text-[10px] font-medium" title="Minimum floor applied">
-              Floor
-            </span>
+            <span className="inline-flex items-center rounded-full bg-amber-500/15 text-amber-600 border border-amber-500/20 px-1.5 py-0.5 text-[10px] font-medium" title={ui("Minimum floor applied")}><LocalizedText text="Floor" /></span>
           )}
           {r.manual_override && (
-            <span className="inline-flex items-center rounded-full bg-purple-500/15 text-purple-600 border border-purple-500/20 px-1.5 py-0.5 text-[10px] font-medium" title="Manual override applied">
-              Override
-            </span>
+            <span className="inline-flex items-center rounded-full bg-purple-500/15 text-purple-600 border border-purple-500/20 px-1.5 py-0.5 text-[10px] font-medium" title={ui("Manual override applied")}><LocalizedText text="Override" /></span>
           )}
         </div>
       ),

@@ -1,5 +1,6 @@
 "use client"
 
+import { useUiText } from "@/components/localized-text"
 import { cn } from "@/lib/utils"
 import { FileDown } from "lucide-react"
 import { landingContent } from "@/lib/landing-content"
@@ -18,6 +19,7 @@ function TrendChart({
   seriesA: number[]
   seriesB: number[]
 }) {
+  const ui = useUiText()
   const w = 600
   const h = 220
   const pad = 30
@@ -44,7 +46,7 @@ function TrendChart({
   }
 
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} className="h-auto w-full" role="img" aria-label="Performance trend">
+    <svg viewBox={`0 0 ${w} ${h}`} className="h-auto w-full" role="img" aria-label={ui("Performance trend")}>
       <defs>
         <linearGradient id="trendA" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={BLUE} stopOpacity="0.35" />

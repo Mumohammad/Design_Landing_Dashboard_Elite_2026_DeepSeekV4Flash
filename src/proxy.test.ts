@@ -45,6 +45,12 @@ vi.mock("@supabase/ssr", () => ({
             },
             error: null,
           }),
+          is: () => ({
+            single: async () => ({
+              data: { id: "public-user-1", tenant_id: "tenant-1", role: state.role, status: "active", must_change_password: false, locked_until: null },
+              error: null,
+            }),
+          }),
         }),
       }),
     }),
