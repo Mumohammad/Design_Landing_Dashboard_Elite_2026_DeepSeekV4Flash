@@ -1,4 +1,8 @@
-import { expect } from "@playwright/test"
+import { expect as baseExpect } from "@playwright/test"
+
+// Match the parent CRUD workflow's allowance for hosted server-action cold
+// starts. The default 5s could expire while the correct detail response arrived.
+const expect = baseExpect.configure({ timeout: 20_000 })
 
 // Called only from the guarded disposable invoice/owner-MFA workflow.
 export async function verifyZatcaDisplay(page, admin, tenantId, appUrl, invoiceId) {
