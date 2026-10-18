@@ -17,7 +17,7 @@ import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
 import { rateLimitReports } from "@/lib/auth/rate-limit"
 import { writeAuditLog } from "@/lib/auth/sessions"
-import { collectReportData, buildCsv, type ReportType } from "./generator"
+import { collectReportData, buildCsv, REPORT_TYPES, type ReportType } from "./generator"
 
 type ActionResult = { success: boolean; error?: string; reportId?: string }
 
@@ -35,6 +35,9 @@ export async function generateReportAction(
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
 
+    if (!REPORT_TYPES.includes(reportType) || reportType === "custom") {
+      return { success: false, error: "This report type is not supported yet. Choose one of the available reports." }
+    }
     const limit = await rateLimitReports(currentUser.id)
     if (!limit.success) {
       return { success: false, error: "Rate limit exceeded (10 reports/hour). Try again later." }
@@ -67,7 +70,7 @@ export async function generateReportAction(
       const output = await collectReportData(admin, currentUser.tenantId, reportType, safeParams)
       const content = buildCsv(output.headers, output.rows)
       const fileName = output.filename
-      const filePath = `${currentUser.tenantId}/${fileName}`
+      const filePath = `${currentUser.tenantId}/${reportId}/${fileName}`
 
       // 3. Upload to the generated-reports bucket
       const { error: upErr } = await admin.storage

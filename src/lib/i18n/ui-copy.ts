@@ -3,6 +3,7 @@ import type { Locale } from "./types"
 // Static interface copy only. Never pass tenant names, notes or other user data
 // through this catalog: original business content must retain its language.
 export const uiCopy = {
+  "Previous page": "الصفحة السابقة", "Next page": "الصفحة التالية",
   "Elite Development": "نخبة التطوير",
   "Enterprise logistics operations platform": "منصة لوجستيات التشغيل المؤسسي",
   "The operating system for logistics.": "نظام التشغيل للعملية اللوجستية.",

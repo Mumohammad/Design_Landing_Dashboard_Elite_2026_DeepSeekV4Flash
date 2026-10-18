@@ -1,8 +1,10 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Car, CheckCircle2, Wrench, UserCheck, Plus, AlertCircle } from "lucide-react"
+import { Car, CheckCircle2, Wrench, UserCheck, Plus } from "lucide-react"
+import { useTablePage } from "@/hooks/use-table-page"
+import { substringFilter } from "@/lib/supabase/search-filter"
 import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
 import {
@@ -11,7 +13,6 @@ import {
   type TableColumn,
 } from "@/components/dashboard/enterprise-module-page"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import type { VehicleStatus, VehicleCondition, FuelType } from "@/types/vehicles"
 import { worstDocsExpiryState, type DocsExpiryState } from "@/lib/vehicles/assignment-utils"
 import Link from "next/link"
@@ -43,42 +44,24 @@ export default function VehiclesPage() {
   const router = useRouter()
   const isArLocale = locale === "ar"
 
-  const [vehicles, setVehicles] = useState<VehicleRow[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [search, setSearch] = useState("")
   const [addOpen, setAddOpen] = useState(false)
-  const [reloadKey, setReloadKey] = useState(0)
-
-  useEffect(() => {
-    let active = true
-    async function loadVehicles() {
-      setIsLoading(true)
-      setError(null)
-      const supabase = createClient()
-      const { data, error: queryError } = await supabase
-        .from("vehicles")
-        .select(
-          "id, vehicle_code, plate_number, make, model, year, color, status, condition_status, fuel_type, odometer_current, insurance_expiry, registration_expiry, inspection_expiry, current_driver_id, current_driver:drivers!vehicles_current_driver_id_fkey(full_name_ar, full_name_en, driver_code)"
-        )
-        .is("deleted_at", null)
-        .order("created_at", { ascending: false })
-        .limit(100)
-
-      if (!active) return
-      if (queryError) {
-        setError(queryError.message)
-        setVehicles([])
-      } else {
-        setVehicles(((data as unknown) as VehicleRow[] | null) ?? [])
-      }
-      setIsLoading(false)
-    }
-    loadVehicles()
-    return () => {
-      active = false
-    }
-  }, [reloadKey])
+  const buildQuery = useCallback((term: string) => {
+    let query = createClient().from("vehicles")
+      .select("id,vehicle_code,plate_number,make,model,year,color,status,condition_status,fuel_type,odometer_current,insurance_expiry,registration_expiry,inspection_expiry,current_driver_id,current_driver:drivers!vehicles_current_driver_id_fkey(full_name_ar,full_name_en,driver_code)", { count: "exact" })
+      .is("deleted_at", null)
+    if (term.trim()) query = query.or(substringFilter(["plate_number", "vehicle_code", "make", "model"], term))
+    return query.order("created_at", { ascending: false }).order("id")
+  }, [])
+  const { rows: vehicles, search, setSearch, loading: isLoading, error, pagination, reload } = useTablePage<VehicleRow>(buildQuery)
+  const [counts, setCounts] = useState<number[] | null>(null)
+  const loadCounts = useCallback(async () => {
+    const results = await Promise.all([null, "available", "assigned", "in_maintenance"].map((status) => {
+      const query = createClient().from("vehicles").select("id", { count: "exact", head: true }).is("deleted_at", null)
+      return status ? query.eq("status", status) : query
+    }))
+    setCounts(results.some((result) => result.error || result.count === null) ? null : results.map((result) => result.count!))
+  }, [])
+  useEffect(() => { const timer = setTimeout(() => void loadCounts(), 0); return () => clearTimeout(timer) }, [loadCounts])
 
   const statusBadgeClass: Record<VehicleStatus, string> = {
     available:
@@ -171,44 +154,34 @@ export default function VehiclesPage() {
     return <span className="text-foreground/80">{label}</span>
   }
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) return vehicles
-    return vehicles.filter((v) =>
-      [v.plate_number, v.vehicle_code, v.make, v.model]
-        .filter((f): f is string => Boolean(f))
-        .some((f) => f.toLowerCase().includes(q))
-    )
-  }, [vehicles, search])
-
   const kpiCards: KpiCardData[] = useMemo(
     () => [
       {
         label: t.vehicles.kpiTotal,
-        value: vehicles.length,
+        value: counts?.[0] ?? "—",
         icon: Car,
         color: "#1E5A99",
       },
       {
         label: t.vehicles.kpiAvailable,
-        value: vehicles.filter((v) => v.status === "available").length,
+        value: counts?.[1] ?? "—",
         icon: CheckCircle2,
         color: "#10B981",
       },
       {
         label: t.vehicles.kpiAssigned,
-        value: vehicles.filter((v) => v.status === "assigned").length,
+        value: counts?.[2] ?? "—",
         icon: UserCheck,
         color: "#3B82F6",
       },
       {
         label: t.vehicles.kpiMaintenance,
-        value: vehicles.filter((v) => v.status === "in_maintenance").length,
+        value: counts?.[3] ?? "—",
         icon: Wrench,
         color: "#F59E0B",
       },
     ],
-    [t, vehicles]
+    [t, counts]
   )
 
   const columns: TableColumn<VehicleRow>[] = [
@@ -340,25 +313,6 @@ export default function VehiclesPage() {
     },
   ]
 
-  if (error) {
-    return (
-      <div className="px-4 lg:px-6">
-        <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm py-16 text-center">
-          <AlertCircle className="h-8 w-8 text-red-500" />
-          <p className="text-sm text-muted-foreground">{t.common.error}</p>
-          <Button
-            variant="outline"
-            size="sm"
-            className="rounded-lg"
-            onClick={() => setReloadKey((k) => k + 1)}
-          >
-            {t.common.retry}
-          </Button>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="px-4 lg:px-6">
       <EnterpriseModulePage
@@ -372,7 +326,11 @@ export default function VehiclesPage() {
         searchValue={search}
         onSearchChange={setSearch}
         columns={columns}
-        data={filtered}
+        data={vehicles}
+        pagination={pagination}
+        loadError={error ? (isArLocale ? "تعذر تحميل المركبات. أعد المحاولة." : "Could not load vehicles. Try again.") : undefined}
+        onRetry={() => { reload(); void loadCounts() }}
+        retryLabel={t.common.retry}
         onRowClick={(row) => router.push(`/vehicles/${row.id}`)}
         emptyStateMessage={t.vehicles.emptyMessage}
         emptyStateAction={{
@@ -381,7 +339,10 @@ export default function VehiclesPage() {
         }}
         isLoading={isLoading}
       >
-        <CreateVehicleDialog open={addOpen} onOpenChange={setAddOpen} />
+        <CreateVehicleDialog open={addOpen} onOpenChange={(open) => {
+          setAddOpen(open)
+          if (!open) { reload(); void loadCounts() }
+        }} />
       </EnterpriseModulePage>
     </div>
   )

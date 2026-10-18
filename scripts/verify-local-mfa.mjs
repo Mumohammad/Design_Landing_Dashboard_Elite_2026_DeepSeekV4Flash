@@ -102,6 +102,12 @@ try {
     const { verifyOperationsCrud } = await import("./verify-local-operations.mjs")
     await verifyOperationsCrud(page, admin, company.data.id, appUrl)
   }
+  if (process.env.VERIFY_OVERVIEWS === "1") {
+    stage = "large overview search, export, pagination, and read recovery"
+    const { verifyOverviews } = await import("./verify-local-overviews.mjs")
+    await verifyOverviews(page, admin, company.data.id, owner.data.user.id, appUrl)
+  }
+
   stage = "sign-out denies dashboard access"
   await page.goto(`${appUrl}/auth/sign-out`)
   await page.waitForURL(/\/landing$/)

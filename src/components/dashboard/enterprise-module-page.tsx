@@ -1,6 +1,6 @@
 import { LocalizedText, useUiText } from "@/components/localized-text"
 import * as React from "react"
-import { Plus, Search, ChevronLeft, ChevronRight, Inbox } from "lucide-react"
+import { Plus, Search, ChevronLeft, ChevronRight, Inbox, AlertCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
@@ -59,6 +59,9 @@ export interface EnterpriseModulePageProps<T> {
 
   // Loading
   isLoading?: boolean
+  loadError?: string
+  onRetry?: () => void
+  retryLabel?: string
 
   // Children (for dialog/form content rendered by parent)
   children?: React.ReactNode
@@ -175,6 +178,9 @@ export function EnterpriseModulePage<T extends { id?: string }>({
   emptyStateAction,
   pagination,
   isLoading = false,
+  loadError,
+  onRetry,
+  retryLabel = "Try again",
   children,
   className,
 }: EnterpriseModulePageProps<T>) {
@@ -229,6 +235,7 @@ export function EnterpriseModulePage<T extends { id?: string }>({
             <div className="relative w-full sm:max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
+                aria-label={ui(searchPlaceholder)}
                 placeholder={ui(searchPlaceholder)}
                 value={searchValue}
                 onChange={(e) => onSearchChange?.(e.target.value)}
@@ -269,6 +276,14 @@ export function EnterpriseModulePage<T extends { id?: string }>({
                       columns={columns.length + actionColumnCount}
                     />
                   ))
+                ) : loadError ? (
+                  <tr><td colSpan={columns.length + actionColumnCount}>
+                    <div role="alert" className="flex flex-col items-center gap-3 px-4 py-12 text-center">
+                      <AlertCircle aria-hidden="true" className="h-6 w-6 text-destructive" />
+                      <p className="text-sm text-foreground">{loadError}</p>
+                      {onRetry && <Button variant="outline" onClick={onRetry}>{retryLabel}</Button>}
+                    </div>
+                  </td></tr>
                 ) : data.length === 0 ? (
                   <tr>
                     <td colSpan={columns.length + actionColumnCount}>
@@ -330,7 +345,8 @@ export function EnterpriseModulePage<T extends { id?: string }>({
                   variant="ghost"
                   size="icon"
                   className="h-8 w-8 rounded-lg"
-                  disabled={pagination.currentPage <= 1}
+                  aria-label={ui("Previous page")}
+                  disabled={isLoading || !!loadError || pagination.currentPage <= 1}
                   onClick={() => pagination.onPageChange(pagination.currentPage - 1)}
                 >
                   <ChevronLeft className="h-4 w-4" />
@@ -339,7 +355,8 @@ export function EnterpriseModulePage<T extends { id?: string }>({
                   variant="ghost"
                   size="icon"
                   className="h-8 w-8 rounded-lg"
-                  disabled={pagination.currentPage >= pagination.totalPages}
+                  aria-label={ui("Next page")}
+                  disabled={isLoading || !!loadError || pagination.currentPage >= pagination.totalPages}
                   onClick={() => pagination.onPageChange(pagination.currentPage + 1)}
                 >
                   <ChevronRight className="h-4 w-4" />

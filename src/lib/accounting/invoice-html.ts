@@ -63,13 +63,13 @@ body { font-family: Tahoma, Arial, sans-serif; font-size: 9pt; line-height: 10.5
 .company { direction: rtl; text-align: right; padding-right: 30pt; line-height: 12.75pt; }
 .company h1 { margin: 0 0 3pt; font-size: 12pt; line-height: 15pt; }
 .logo { width: 112.5pt; height: 112.5pt; object-fit: contain; }
-.meta { display: flex; direction: ltr; justify-content: space-between; gap: 20pt; min-height: 87pt; padding-top: 18pt; padding-bottom: 20pt; }
-.invoice-meta { display: grid; grid-template-columns: 46.5pt 67.5pt; align-content: start; align-items: center; gap: 0 14.25pt; }
+.meta { display: flex; direction: ltr; justify-content: space-between; gap: 20pt; min-height: 87pt; padding-top: 18.75pt; padding-bottom: 19.25pt; }
+.invoice-meta { display: grid; grid-template-columns: 46.2pt 67.5pt; align-content: start; align-items: center; gap: 0 14.7pt; }
 .invoice-meta strong { direction: rtl; text-align: left; line-height: 10.5pt; }
 .invoice-meta span { text-align: right; direction: ltr; }
 .client { display: flex; direction: rtl; gap: 15pt; text-align: right; max-width: 285pt; }
 .client-label { min-width: 28pt; font-weight: bold; }
-.client-detail { direction: rtl; white-space: pre-line; overflow-wrap: anywhere; }
+.client-detail { padding-top: 3.75pt; direction: rtl; white-space: pre-line; overflow-wrap: anywhere; }
 .items { width: 100%; border: .75pt solid black; border-collapse: collapse; table-layout: fixed; direction: rtl; }
 .items th { height: 51.75pt; padding: 4pt 3pt; text-align: center; vertical-align: middle; font-size: 9pt; line-height: 10.5pt; border-top: .75pt solid; border-bottom: .75pt solid; }
 .items th:first-child { border-right: .75pt solid; } .items th:last-child { border-left: .75pt solid; }
@@ -77,10 +77,11 @@ body { font-family: Tahoma, Arial, sans-serif; font-size: 9pt; line-height: 10.5
 .items tbody tr { min-height: 50.25pt; break-inside: avoid; }
 .items thead { display: table-header-group; } .items .description { white-space: pre-line; text-align: right; }
 .items .item { text-align: right; } .number { text-align: center; direction: ltr; }
-.totals { direction: rtl; width: 195pt; margin-right: auto; border-collapse: collapse; break-inside: avoid; }
+.totals { direction: rtl; width: 195pt; margin-right: auto; margin-top: -.75pt; border-collapse: collapse; break-inside: avoid; }
 .totals th { width: 125pt; text-align: right; font-size: 9pt; }
 .totals td { text-align: right; width: 70pt; vertical-align: top; }
 .totals th, .totals td { border-bottom: .5pt solid; padding: 3.75pt 4.5pt; line-height: 10.5pt; }
+.totals td { padding-right: 5.5pt; }
 .totals .grand th, .totals .grand td { font-weight: bold; border-bottom-width: 1pt; }
 .money { white-space: nowrap; direction: ltr; display: inline-block; }
 .riyal { display: inline-block; width: 8pt; height: 9pt; vertical-align: -.5pt; }
@@ -107,7 +108,7 @@ body { font-family: Tahoma, Arial, sans-serif; font-size: 9pt; line-height: 10.5
     <span>${esc(date(d.issueDate))}</span><strong>تاريخ الفاتورة<br>Invoice Date</strong></div>
   <div class="client"><div class="client-label">العميل<br>Client</div><div class="client-detail"><strong>${esc(d.partyNameAr || d.partyNameEn)}</strong>${d.partyTaxNumber ? `<br>الرقم الضريبي <bdi>${esc(d.partyTaxNumber)}</bdi>` : ""}${d.partyAddress ? `<br>${esc(d.partyAddress)}` : ""}</div></div>
 </section>
-<table class="items"><colgroup><col style="width:35.25pt"><col style="width:66.75pt">${'<col style="width:66pt">'.repeat(5)}<col style="width:55.5pt"></colgroup>
+<table class="items"><colgroup><col style="width:35.25pt"><col style="width:66.75pt">${'<col style="width:66pt">'.repeat(5)}<col style="width:54.75pt"></colgroup>
 <thead><tr><th>البند<br>Item</th><th>الوصف<br>Description</th><th>السعر<br>Price</th><th>الكمية<br>Qty</th><th>المجموع قبل الضريبة<br>Total Before Tax</th><th>نسبة الضريبة<br>VAT ${esc(vatLabel)}</th><th>قيمة الضريبة<br>VAT Amount</th><th>المجموع مع الضريبة<br>Total With VAT</th></tr></thead>
 <tbody>${rows}</tbody></table>
 <table class="totals"><tbody>

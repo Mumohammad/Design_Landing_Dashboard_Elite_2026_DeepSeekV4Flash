@@ -34,6 +34,16 @@ try {
  if ((pdf.toString('latin1').match(/\/Type \/Page\b/g)??[]).length!==1) throw Error('Reference invoice must fit one page')
  const bounds=await page.locator('.items').boundingBox()
  if(Math.abs(bounds.width-650)>1) throw Error('Invoice table width differs from reference')
+ const geometry=await page.evaluate(()=>{
+   const doc=document.querySelector('.doc').getBoundingClientRect()
+   const table=document.querySelector('.items').getBoundingClientRect()
+   const left=document.querySelector('.items th:last-child').getBoundingClientRect()
+   const right=document.querySelector('.items th:first-child').getBoundingClientRect()
+   return { top:table.top-doc.top, left:left.left-doc.left, right:right.right-doc.right }
+ })
+ // Measurements from the supplied Letter sample. A full-width RTL colgroup
+ // plus collapsed borders previously painted outside the printable margin.
+ if(Math.abs(geometry.top-322)>1 || geometry.left<-.5 || geometry.right>.5) throw Error('Invoice grid is clipped or displaced from the reference geometry')
  if(await page.locator('.items tbody td:last-child').innerText()!=='83,058.99') throw Error('Gross line total must include VAT')
  // Stress pagination without hiding or truncating lines.
  await page.setContent(exports.buildInvoiceHtml({...data,lines:Array.from({length:60},(_,i)=>({...data.lines[0],line_no:i+1,itemName:String(i+1),description:`خدمة رقم ${i+1}\nLong description for pagination verification`}))}))

@@ -1,6 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
+import { useTablePage } from "@/hooks/use-table-page"
+import { substringFilter } from "@/lib/supabase/search-filter"
 import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
 import { EnterpriseModulePage, type KpiCardData, type TableColumn } from "@/components/dashboard/enterprise-module-page"
@@ -46,9 +48,21 @@ export default function ReportsPage() {
   const { t, locale } = useTranslation()
   const ar = locale === "ar"
   const reportNames = ar ? REPORT_TYPE_AR : REPORT_TYPE_EN
-  const [data, setData] = useState<ReportRow[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [search, setSearch] = useState("")
+  const buildQuery = useCallback((term: string) => {
+    let query = createClient().from("report_generation_log")
+      .select("id,report_type,output_format,status,file_name,file_url,file_size_bytes,expires_at,created_at,error_message", { count: "exact" })
+    if (term.trim()) {
+      // report_type is a Postgres enum: search translated labels, then filter
+      // by allowlisted enum values rather than applying ILIKE to the enum.
+      const text = term.trim().toLowerCase()
+      const matches = REPORT_TYPES.filter((type) => [type, REPORT_TYPE_AR[type], REPORT_TYPE_EN[type]]
+        .some((name) => name.toLowerCase().includes(text)))
+      query = query.or([substringFilter(["file_name"], term), ...matches.map((type) => `report_type.eq.${type}`)].join(","))
+    }
+    return query.order("created_at", { ascending: false }).order("id")
+  }, [])
+  const { rows: data, loading: isLoading, search, setSearch, pagination, reload, error: loadError } = useTablePage<ReportRow>(buildQuery)
+  const [counts, setCounts] = useState<number[] | null>(null)
   const [reportType, setReportType] = useState<ReportType>("payroll_summary")
   const [year, setYear] = useState(new Date().getFullYear())
   const [month, setMonth] = useState(new Date().getMonth() + 1)
@@ -56,21 +70,14 @@ export default function ReportsPage() {
   const [feedback, setFeedback] = useState<{ type: "ok" | "err"; text: string } | null>(null)
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
 
-  async function load() {
-    const supabase = createClient()
-    const { data: result, error } = await supabase
-      .from("report_generation_log")
-      .select("id,report_type,output_format,status,file_name,file_url,file_size_bytes,expires_at,created_at,error_message")
-      .order("created_at", { ascending: false })
-      .limit(100)
-    if (error) { console.error(error); setData([]) }
-    else { setData((result as ReportRow[]) ?? []) }
-    setIsLoading(false)
-  }
-
-  useEffect(() => {
-    load()
+  const loadCounts = useCallback(async () => {
+    const results = await Promise.all([null, "completed", "generating", "failed"].map((status) => {
+      const query = createClient().from("report_generation_log").select("id", { count: "exact", head: true })
+      return status ? query.eq("status", status) : query
+    }))
+    setCounts(results.some((result) => result.error || result.count === null) ? null : results.map((result) => result.count!))
   }, [])
+  useEffect(() => { const timer = setTimeout(() => void loadCounts(), 0); return () => clearTimeout(timer) }, [loadCounts])
 
   async function handleGenerate() {
     setIsGenerating(true)
@@ -82,7 +89,8 @@ export default function ReportsPage() {
     } else {
       setFeedback({ type: "err", text: res.error ?? "Error" })
     }
-    await load()
+    reload()
+    await loadCounts()
   }
 
   async function handleDownload(row: ReportRow) {
@@ -101,15 +109,11 @@ export default function ReportsPage() {
     setDownloadingId(null)
   }
 
-  const filtered = search
-    ? data.filter(r => r.report_type?.includes(search) || r.file_name?.includes(search))
-    : data
-
   const kpiCards: KpiCardData[] = [
-    { label: t.nav.reports, value: data.length, icon: BarChart3, color: "#1E5A99" },
-    { label: t.common.approved, value: data.filter(r => r.status === "completed").length, icon: FileCheck, color: "#10B981" },
-    { label: t.common.pending, value: data.filter(r => r.status === "generating").length, icon: Clock, color: "#F59E0B" },
-    { label: t.common.error, value: data.filter(r => r.status === "failed").length, icon: AlertCircle, color: "#EF4444" },
+    { label: t.nav.reports, value: counts?.[0] ?? "—", icon: BarChart3, color: "#1E5A99" },
+    { label: t.common.approved, value: counts?.[1] ?? "—", icon: FileCheck, color: "#10B981" },
+    { label: t.common.pending, value: counts?.[2] ?? "—", icon: Clock, color: "#F59E0B" },
+    { label: t.common.error, value: counts?.[3] ?? "—", icon: AlertCircle, color: "#EF4444" },
   ]
 
   const columns: TableColumn<ReportRow>[] = [
@@ -161,6 +165,7 @@ export default function ReportsPage() {
         toolbarActions={
           <div className="flex flex-wrap items-center gap-2">
             <select
+              aria-label={ar ? "نوع التقرير" : "Report type"}
               value={reportType}
               onChange={(e) => setReportType(e.target.value as ReportType)}
               className="h-9 rounded-xl border border-border/50 bg-muted/30 px-3 text-sm"
@@ -170,6 +175,7 @@ export default function ReportsPage() {
               ))}
             </select>
             <select
+              aria-label={ar ? "شهر التقرير" : "Report month"}
               value={month}
               onChange={(e) => setMonth(Number(e.target.value))}
               className="h-9 rounded-xl border border-border/50 bg-muted/30 px-3 text-sm"
@@ -179,6 +185,7 @@ export default function ReportsPage() {
               ))}
             </select>
             <select
+              aria-label={ar ? "سنة التقرير" : "Report year"}
               value={year}
               onChange={(e) => setYear(Number(e.target.value))}
               className="h-9 rounded-xl border border-border/50 bg-muted/30 px-3 text-sm"
@@ -203,7 +210,11 @@ export default function ReportsPage() {
           </div>
         }
         columns={columns}
-        data={filtered}
+        data={data}
+        pagination={pagination}
+        loadError={loadError ? (ar ? "تعذر تحميل التقارير. أعد المحاولة." : "Could not load reports. Try again.") : undefined}
+        onRetry={() => { reload(); void loadCounts() }}
+        retryLabel={t.common.retry}
         isLoading={isLoading}
         emptyStateMessage={t.common.noData}
       />
