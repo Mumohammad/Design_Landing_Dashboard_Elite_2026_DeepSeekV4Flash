@@ -1,7 +1,7 @@
 // Run after `pnpm build` and `pnpm start --port 3107` with the isolated local
 // Supabase stack. Creates a disposable owner/workspace; the next local reset
 // removes fixtures. Never writes to a hosted project or records MFA secrets.
-import { chromium } from "@playwright/test"
+import { chromium, expect } from "@playwright/test"
 import { createClient } from "@supabase/supabase-js"
 import { createHmac, randomBytes, randomUUID } from "node:crypto"
 import { setTimeout } from "node:timers/promises"
@@ -70,7 +70,8 @@ try {
 
   stage = "dashboard navigation"
   await page.goto(`${appUrl}/dashboard`)
-  await page.waitForURL(/\/dashboard$/)
+  await page.waitForURL(url => url.pathname === "/dashboard")
+  await expect(page.locator("html")).toHaveAttribute("lang", "en")
   stage = "dashboard landmark and data loading"
   await page.locator("main").waitFor()
   await page.getByRole("region", { name: "Executive KPIs" })
@@ -121,7 +122,8 @@ try {
   stage = "returning owner TOTP verification"
   await challengeCode.fill(totp(secret))
   await challengeCode.press("Enter")
-  await page.waitForURL(/\/dashboard$/)
+  await page.waitForURL(url => url.pathname === "/dashboard")
+  await expect(page.locator("html")).toHaveAttribute("lang", "en")
   await page.locator("main").waitFor()
   await page.getByRole("region", { name: "Executive KPIs" })
     .getByRole("link", { name: /^(Total Drivers|إجمالي السائقين)$/ }).waitFor()
