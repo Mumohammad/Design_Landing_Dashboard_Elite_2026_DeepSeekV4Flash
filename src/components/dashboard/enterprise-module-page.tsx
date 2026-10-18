@@ -235,6 +235,7 @@ export function EnterpriseModulePage<T extends { id?: string }>({
             <div className="relative w-full sm:max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
+                maxLength={200}
                 aria-label={ui(searchPlaceholder)}
                 placeholder={ui(searchPlaceholder)}
                 value={searchValue}

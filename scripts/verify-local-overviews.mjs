@@ -94,6 +94,16 @@ export async function verifyOverviews(page, admin, tenantId, actorId, appUrl) {
       await search.fill(needle)
       await expect(bodyRows.first()).toContainText(needle)
 
+      stage = `${route}: maximum-length search remains usable`
+      await search.fill('x'.repeat(200))
+      await expect(page.locator('tbody .animate-pulse')).toHaveCount(0)
+      await search.press('End')
+      await search.pressSequentially('z')
+      await expect(search).toHaveValue('x'.repeat(200))
+      await expect(page.locator('tbody .animate-pulse')).toHaveCount(0)
+      await search.fill(needle)
+      await expect(bodyRows.first()).toContainText(needle)
+
       stage = `${route}: Arabic mobile rendering`
       await page.setViewportSize({ width: 390, height: 844 })
       await page.goto(`${appUrl}/${route}?lang=ar`)

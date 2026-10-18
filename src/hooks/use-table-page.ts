@@ -19,16 +19,21 @@ export function useTablePage<T>(buildQuery: (search: string) => PageQuery) {
   })
   const pending = useCallback(() => setResult((old) => ({ ...old, rows: [], loading: true, error: false })), [])
   const setSearch = useCallback((value: string) => {
-    setSearchValue(value.slice(0, 200)); setPageValue(1); pending()
-  }, [pending])
+    const next = value.slice(0, 200)
+    if (next === search && page === 1) return
+    setSearchValue(next); setPageValue(1); pending()
+  }, [search, page, pending])
   const setPage = useCallback((value: number) => {
-    setPageValue(Math.max(1, value)); pending()
-  }, [pending])
+    const next = Number.isFinite(value) ? Math.max(1, Math.trunc(value)) : 1
+    if (next === page) return
+    setPageValue(next); pending()
+  }, [page, pending])
   const reload = useCallback(() => { setRevision((value) => value + 1); pending() }, [pending])
 
   useEffect(() => {
     const controller = new AbortController()
     const timer = setTimeout(async () => {
+      pending()
       try {
         const { data, error, count } = await buildQuery(search)
           .range((page - 1) * TABLE_PAGE_SIZE, page * TABLE_PAGE_SIZE - 1)
@@ -43,7 +48,7 @@ export function useTablePage<T>(buildQuery: (search: string) => PageQuery) {
       }
     }, search ? 250 : 0)
     return () => { clearTimeout(timer); controller.abort() }
-  }, [buildQuery, search, page, revision, setPage])
+  }, [buildQuery, search, page, revision, setPage, pending])
 
   return {
     ...result, search, setSearch, reload,
