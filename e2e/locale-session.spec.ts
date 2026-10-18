@@ -82,6 +82,8 @@ test("one sign-in survives landing visits and legacy login entry points", async 
 test("every business module loads in both interface languages", async ({ page }) => {
   test.setTimeout(360_000)
   await signIn(page)
+  const runtimeErrors: string[] = []
+  page.on("pageerror", error => runtimeErrors.push(error.name))
   const failedReads: Array<{ path: string; status: number }> = []
   page.on("response", response => {
     const url = new URL(response.url())
@@ -113,4 +115,5 @@ test("every business module loads in both interface languages", async ({ page })
     }
   }
   expect(failedReads).toEqual([])
+  expect(runtimeErrors).toEqual([])
 })

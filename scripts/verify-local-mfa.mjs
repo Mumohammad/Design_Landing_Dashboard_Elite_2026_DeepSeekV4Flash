@@ -50,7 +50,9 @@ try {
   let pageErrors = 0
   page.on("pageerror", () => { pageErrors++ })
   stage = "sign-in and mandatory MFA routing"
-  await page.goto(`${appUrl}/auth/sign-in`)
+  // Exercise these mutation selectors in English; locale-session.spec.ts
+  // separately verifies every module in both languages.
+  await page.goto(`${appUrl}/auth/sign-in?lang=en`)
   await page.getByLabel(/email|البريد الإلكتروني/i).fill(email)
   await page.getByLabel(/^(password|كلمة المرور)$/i).fill(password)
   await page.getByRole("button", { name: /sign in|تسجيل الدخول/i }).click()
