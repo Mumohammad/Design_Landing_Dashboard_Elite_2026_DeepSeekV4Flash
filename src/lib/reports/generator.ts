@@ -8,6 +8,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { escapeCsvCell } from "@/lib/csv-cell"
+import { monthBounds } from "@/lib/orders/month-boundaries"
 
 export type ReportType =
   | "driver_performance"
@@ -362,12 +363,13 @@ export async function collectReportData(
     }
 
     case "hs_reconciliation": {
+      const { start, end } = monthBounds(year, month)
       const { data } = await admin
         .from("daily_order_entries")
         .select("entry_date,orders_delivered,orders_failed,orders_returned,gross_revenue,platform_reported_revenue,revenue_variance,platform:delivery_platforms(name_ar)")
         .eq("tenant_id", tenantId)
-        .gte("entry_date", `${year}-${String(month).padStart(2, "0")}-01`)
-        .lte("entry_date", `${year}-${String(month).padStart(2, "0")}-31`)
+        .gte("entry_date", start)
+        .lte("entry_date", end)
         .is("deleted_at", null)
         .order("entry_date", { ascending: true })
         .limit(1000)

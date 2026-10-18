@@ -91,7 +91,7 @@ test("one sign-in survives landing visits and legacy login entry points", async 
 })
 
 test("every business module loads in both interface languages", async ({ page }) => {
-  test.setTimeout(360_000)
+  test.setTimeout(420_000)
   await signIn(page)
   const runtimeErrors: string[] = []
   page.on("pageerror", error => runtimeErrors.push(error.name))
@@ -124,6 +124,16 @@ test("every business module loads in both interface languages", async ({ page })
       await expect(page.getByText("Unable to load this module", { exact: true })).toHaveCount(0)
       await expect(page.getByText("تعذّر تحميل هذه الوحدة", { exact: true })).toHaveCount(0)
     }
+  }
+  await page.goto("/orders?lang=en")
+  for (const month of ["2026-02", "2028-02", "2026-04"]) {
+    const loaded = page.waitForResponse(response => {
+      const url = new URL(response.url())
+      return url.pathname === "/rest/v1/daily_order_entries" &&
+        url.searchParams.getAll("entry_date").some(value => value.includes(`${month}-01`))
+    })
+    await page.locator('input[type="month"]').fill(month)
+    expect((await loaded).ok()).toBe(true)
   }
   expect(failedReads).toEqual([])
   expect(runtimeErrors).toEqual([])

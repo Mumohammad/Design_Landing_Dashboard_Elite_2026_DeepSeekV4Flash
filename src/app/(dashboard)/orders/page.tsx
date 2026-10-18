@@ -13,6 +13,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { deleteOrderEntry, exportOrdersCsv } from "@/lib/orders/actions"
+import { monthBounds } from "@/lib/orders/month-boundaries"
 import { CreateOrderEntryDialog } from "./components/create-order-entry-dialog"
 
 interface OrderRow {
@@ -59,8 +60,7 @@ export default function OrdersPage() {
       setIsLoading(true)
       const supabase = createClient()
       const [y, m] = month.split("-")
-      const start = `${y}-${m}-01`
-      const end = `${y}-${m}-31`
+      const { start, end } = monthBounds(Number(y), Number(m))
       const { data, error } = await supabase
         .from("daily_order_entries")
         .select(
