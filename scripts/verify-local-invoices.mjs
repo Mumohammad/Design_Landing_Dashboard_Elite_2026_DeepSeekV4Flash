@@ -1,5 +1,6 @@
 import { expect as baseExpect } from "@playwright/test"
 import { randomInt } from "node:crypto"
+import { verifyZatcaDisplay } from "./verify-local-zatca.mjs"
 
 const expect = baseExpect.configure({ timeout: 20_000 })
 
@@ -76,6 +77,8 @@ export async function verifyInvoiceCrud(page, admin, tenantId, appUrl) {
     await popup.pdf({ path: "supabase/.temp/invoice-browser-print.pdf", preferCSSPageSize: true, printBackground: true })
     await popup.close()
     await expect(dialog).toBeHidden()
+    stage = "ZATCA mock evidence display"
+    await verifyZatcaDisplay(page, admin, tenantId, appUrl, created.data.id)
     stage = "delete draft"
     await row.getByRole("button", { name: /Invoice actions|إجراءات الفاتورة/ }).click()
     await page.getByRole("menuitem", { name: /^(Delete|حذف)$/ }).click()
