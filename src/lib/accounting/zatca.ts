@@ -30,6 +30,7 @@ import { buildZatcaUblInvoice, type ZatcaInvoiceData, type ZatcaLine, type Zatca
 import { transmitToZatca } from "./zatca-transport"
 import { getZatcaCsidCredential } from "./zatca-credentials"
 import { getZatcaNetworkBase } from "./zatca-config"
+import { isMockZatcaResponse } from "./zatca-evidence"
 
 export type ZatcaAdapterSummary = {
   success: boolean
@@ -64,9 +65,9 @@ function fmtDate(s: string | null | undefined): string {
 }
 
 function fmtTime(s: string | null | undefined): string {
-  if (!s) return "00:00:00"
-  const m = /T(\d{2}:\d{2}:\d{2})/.exec(s)
-  return m ? m[1] : "00:00:00"
+  const m = s ? /T(\d{2}:\d{2}:\d{2})/.exec(s) : null
+  if (!m) throw new Error("An authoritative invoice issuance timestamp is required; a date alone cannot establish ZATCA issue time.")
+  return m[1]
 }
 
 type InvoiceRow = {
@@ -328,10 +329,9 @@ async function processEvent(
     .eq("id", tenantId)
     .maybeSingle<TenantRow>()
   if (!tenant) return "failed"
-  // Seller VAT number is mandatory for ZATCA. Fall back to a documented
-  // 15-digit demo placeholder when unset (mirrors invoice-docs.ts) so the
-  // sandbox flow stays exercisable with the seeded demo tenant.
-  const sellerVat = /^\d{15}$/.test(tenant.vat_number ?? "") ? tenant.vat_number! : "310122993400001"
+  // Never replace a customer's missing tax identity with a demo VAT number.
+  if (!/^\d{15}$/.test(tenant.vat_number ?? "")) throw new Error("Configure the seller VAT number before preparing a ZATCA document.")
+  const sellerVat = tenant.vat_number!
 
   const { data: customer } = customerId
     ? await admin
@@ -427,7 +427,7 @@ async function processEvent(
 
 /**
  * Load a single transmission (payload + response) for the UI detail view.
- * Tenant-scoped via RLS on the service-role client.
+ * Explicit tenant scope: the service-role client bypasses RLS.
  */
 export async function getZatcaTransmission(id: string): Promise<{
   success: boolean
@@ -438,7 +438,7 @@ export async function getZatcaTransmission(id: string): Promise<{
     status: string
     zatca_uuid: string | null
     payload_xml: string
-    response: Record<string, unknown> | null
+    mock: boolean
     transmitted_at: string | null
     error_message: string | null
   }
@@ -457,7 +457,10 @@ export async function getZatcaTransmission(id: string): Promise<{
       .maybeSingle()
     if (error) return { success: false, error: mapFinancialError(error.message) }
     if (!data) return { success: false, error: "ZATCA transmission not found." }
-    return { success: true, transmission: data as typeof data }
+    // Gateway bodies can contain sensitive echoed fields. The detail UI needs
+    // only the evidence classification, never an arbitrary raw response.
+    const { response, ...document } = data
+    return { success: true, transmission: { ...document, mock: isMockZatcaResponse(response) } }
   } catch (e) {
     return { success: false, error: errorMessage(e) }
   }

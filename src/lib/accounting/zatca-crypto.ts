@@ -9,8 +9,8 @@
 //     is the mandatory stamp curve).
 //   - Invoice hash:   SHA-256 of the canonicalized (C14N) UBL invoice XML,
 //     Base64-encoded.
-//   - PIH chaining:    every invoice embeds the Base64 SHA-256 hash of the
-//     previous invoice; the genesis PIH is Base64(SHA-256("0")).
+//   - PIH chaining: every invoice references the previous invoice's hash.
+//     The supplied SDK's genesis fixture is Base64 of the hex SHA-256("0").
 //   - Digital signature: ECDSA (secp256k1) over the signing input; the
 //     documented input is the invoice hash + signing time; the result is
 //     injected into the UBL as the `ds:SignatureValue` (XAdES-B-B).
@@ -71,17 +71,20 @@ export function computeInvoiceHash(xml: string): string {
   return createHash(ZATCA_HASH).update(xml, "utf8").digest("base64")
 }
 
-/** Base64 SHA-256 of the ASCII string "0" — the first invoice's PIH. */
+/** Initial PIH matching the supplied ZATCA SDK's Data/PIH/pih.txt fixture. */
 export function genesisPiH(): string {
-  return createHash(ZATCA_HASH).update("0", "utf8").digest("base64")
+  return Buffer.from(createHash(ZATCA_HASH).update("0", "utf8").digest("hex"), "utf8").toString("base64")
 }
 
 /**
  * The Previous Invoice Hash for an invoice that follows `prevInvoiceHash`.
- * The chain input is the previous invoice's Base64 hash string.
+ * Copy the previous canonical invoice digest, never hash that digest again.
  */
 export function computePiH(prevInvoiceHash: string): string {
-  return createHash(ZATCA_HASH).update(prevInvoiceHash, "utf8").digest("base64")
+  if (!/^[A-Za-z0-9+/]{43}=$/.test(prevInvoiceHash) || Buffer.from(prevInvoiceHash, "base64").toString("base64") !== prevInvoiceHash) {
+    throw new Error("Previous invoice hash must be a Base64 SHA-256 digest")
+  }
+  return prevInvoiceHash
 }
 
 // ── Digital signature ───────────────────────────────────────────────────────

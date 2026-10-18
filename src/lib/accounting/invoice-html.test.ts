@@ -7,9 +7,15 @@ const BASE: InvoiceDocData = {
  issueDate:'2026-09-08',dueDate:null,currency:'SAR',
  lines:[{line_no:1,description:'Service',quantity:1,unit_price:100,discount:10,amount:90,vat_rate:15,vat_amount:13.5}],
  subtotal:90,discount:10,vatAmount:13.5,total:103.5,paidAmount:20,
- statusLabelAr:'معتمدة',statusLabelEn:'Finalized',qrDataUrl:'data:image/png;base64,AAAA',verifyUrl:'/verify-document/test',generatedAt:'2026-09-08',
+ statusLabelAr:'معتمدة',statusLabelEn:'Finalized',qrDataUrl:'data:image/png;base64,AAAA',verifyUrl:'/verify-document/test',generatedAt:'2026-09-08',internalQr:true,
 }
 describe('reference invoice print template',()=>{
+ it('keeps the internal QR disclosure in saved PDFs without changing table geometry',()=>{
+  const html=buildInvoiceHtml({...BASE,internalQr:true})
+  expect(html).toContain('Internal QR only. ZATCA electronic invoicing has not been validated.')
+  expect(html).toContain('alt="Internal invoice QR"')
+  expect(html.indexOf('Internal QR only.')).toBeGreaterThan(html.indexOf('class="totals"'))
+ })
  it('uses the reference Letter geometry and bilingual RTL headings',()=>{
   const html=buildInvoiceHtml(BASE)
   expect(html).toContain('<html lang="ar" dir="rtl">')

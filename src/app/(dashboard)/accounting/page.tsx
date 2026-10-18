@@ -38,6 +38,7 @@ import { PartiesManager } from "./components/parties-manager"
 import { StatementsManager } from "./components/statements-manager"
 import { runEventDispatcher } from "@/lib/accounting/dispatcher"
 import { runZatcaAdapter, getZatcaTransmission } from "@/lib/accounting/zatca"
+import { zatcaEvidenceLabel } from "@/lib/accounting/zatca-evidence"
 import {
   listZatcaCsids,
   onboardZatcaCsids,
@@ -232,6 +233,7 @@ interface ZatcaTransmissionRow {
   error_message: string | null
   transmitted_at: string | null
   created_at: string
+  is_mock: string | null
 }
 
 interface ZatcaDetail {
@@ -240,7 +242,7 @@ interface ZatcaDetail {
   status: string
   zatca_uuid: string | null
   payload_xml: string
-  response: Record<string, unknown> | null
+  mock: boolean
   transmitted_at: string | null
   error_message: string | null
 }
@@ -600,7 +602,7 @@ export default function AccountingPage() {
       } else if (tab === "zatca") {
         const { data } = await supabase
           .from("zatca_transmissions")
-          .select("id,doc_ref,doc_type,status,zatca_uuid,error_message,transmitted_at,created_at")
+          .select("id,doc_ref,doc_type,status,zatca_uuid,error_message,transmitted_at,created_at,is_mock:response->>sandbox")
           .order("created_at", { ascending: false })
           .limit(100)
         if (data) setZatcaRows(data as ZatcaTransmissionRow[])
@@ -911,7 +913,7 @@ export default function AccountingPage() {
     const supabase = createClient()
     const { data } = await supabase
       .from("zatca_transmissions")
-      .select("id,doc_ref,doc_type,status,zatca_uuid,error_message,transmitted_at,created_at")
+      .select("id,doc_ref,doc_type,status,zatca_uuid,error_message,transmitted_at,created_at,is_mock:response->>sandbox")
       .order("created_at", { ascending: false })
       .limit(100)
     if (data) setZatcaRows(data as ZatcaTransmissionRow[])
@@ -2096,7 +2098,10 @@ export default function AccountingPage() {
             </TabsContent>
 
             <TabsContent value="zatca" className="mt-4 space-y-4">
-              <p role="status" className="rounded-xl border p-4 text-sm">{ar ? "الإرسال والإعداد غير متاحين حتى اكتمال اختبارات واعتماد التكامل مع الهيئة." : "Submission and onboarding are unavailable until ZATCA integration validation is complete."}</p>
+              <div role="status" className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm space-y-2">
+                <p>{ar ? "ربط ZATCA غير مكتمل. الإعداد والإرسال الإنتاجي معطلان." : "ZATCA integration is incomplete. Onboarding and production submissions are disabled."}</p>
+                <p>{ar ? "رمز الفاتورة الحالي داخلي. يلزم إكمال بيانات المنشأة وتسجيل وحدة إصدار الفواتير والتحقق من XML والتوقيع والرمز باستخدام أدوات الهيئة واختبارات الربط." : "The current invoice QR is internal. Company tax details, EGS onboarding, XML/signature/QR validation with the official tools, and integration tests are still required."}</p>
+              </div>
               <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
                 <CardHeader className="pb-3 flex-row items-center justify-between">
                   <div>
@@ -2201,7 +2206,7 @@ export default function AccountingPage() {
                   </button>
                 </CardHeader>
                 <TableShell headers={[ar ? "المستند" : "Doc", ar ? "النوع" : "Type", ar ? "الحالة" : "Status", "UUID", ar ? "التاريخ" : "Date", ar ? "الخطأ" : "Error", ""]}>
-                  {zatcaRows.length === 0 && <EmptyRow colSpan={7} text={ar ? "لا توجد إرسالات بعد. رحّل فاتورة بيع ثم شغّل المحوّل." : "No transmissions yet. Finalize a sales invoice, then run the adapter."} />}
+                  {zatcaRows.length === 0 && <EmptyRow colSpan={7} text={ar ? "لا توجد سجلات. الإرسال معطل حتى اكتمال التحقق من الربط." : "No records. Submission is disabled until integration validation is complete."} />}
                   {zatcaRows.map((t) => {
                     const s = ZATCA_STATUS[t.status] ?? ZATCA_STATUS.not_transmitted
                     const dt = ZATCA_DOC_TYPE[t.doc_type] ?? { ar: t.doc_type, en: t.doc_type }
@@ -2210,7 +2215,8 @@ export default function AccountingPage() {
                         <td className="px-4 py-3 font-mono text-xs" dir="ltr">{t.doc_ref}</td>
                         <td className="px-4 py-3 text-xs">{ar ? dt.ar : dt.en}</td>
                         <td className="px-4 py-3">
-                          <Badge className={s.className}>{ar ? s.ar : s.en}</Badge>
+                          <Badge variant="outline">{zatcaEvidenceLabel(t.is_mock === "true", ar)}</Badge>
+                          <span className="mt-1 block text-xs text-muted-foreground">{ar ? "الحالة المسجلة: " : "Recorded status: "}{ar ? s.ar : s.en}</span>
                         </td>
                         <td className="px-4 py-3 font-mono text-[11px] text-muted-foreground" dir="ltr">{t.zatca_uuid ?? "—"}</td>
                         <td className="px-4 py-3 text-xs" dir="ltr">{fmtDate(t.transmitted_at ?? t.created_at)}</td>
@@ -2240,7 +2246,7 @@ export default function AccountingPage() {
                     </DialogTitle>
                     <DialogDescription>
                       {zatcaDetail
-                        ? `${ar ? "الحالة" : "Status"}: ${zatcaDetail.status} · UUID: ${zatcaDetail.zatca_uuid ?? "—"}`
+                        ? `${zatcaEvidenceLabel(zatcaDetail.mock, ar)} · ${ar ? "الحالة المسجلة" : "Recorded status"}: ${zatcaDetail.status} · UUID: ${zatcaDetail.zatca_uuid ?? "—"}`
                         : ""}
                     </DialogDescription>
                   </DialogHeader>

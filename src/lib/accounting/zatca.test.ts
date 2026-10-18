@@ -73,7 +73,7 @@ vi.mock("next/cache", () => ({
   revalidatePath: mocks.revalidatePath,
 }))
 
-import { runZatcaAdapter } from "./zatca"
+import { runZatcaAdapter, getZatcaTransmission } from "./zatca"
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -169,6 +169,29 @@ describe("runZatcaAdapter — sandbox flag mirrors the transport's real-POST con
     expect(res.failed).toBe(0)
     expect(res.error).toBeUndefined()
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/accounting")
+  })
+})
+
+describe("transmission detail boundary", () => {
+  beforeEach(() => { vi.clearAllMocks(); mocks.getCurrentUser.mockResolvedValue(CURRENT_USER) })
+
+  it("scopes privileged reads to the tenant and never serializes an echoed gateway secret", async () => {
+    const builder = {select:vi.fn(),eq:vi.fn(),maybeSingle:vi.fn()}
+    builder.select.mockReturnValue(builder); builder.eq.mockReturnValue(builder)
+    builder.maybeSingle.mockResolvedValue({data:{doc_ref:"TEST",doc_type:"invoice",status:"reported",zatca_uuid:"test",payload_xml:"<Invoice/>",transmitted_at:null,error_message:null,response:{sandbox:true,secret:"synthetic-echo-do-not-return"}},error:null})
+    mocks.adminFrom.mockReturnValue(builder)
+    const result=await getZatcaTransmission("document-id")
+    expect(mocks.requirePermission).toHaveBeenCalledWith("accounting","read")
+    expect(builder.eq).toHaveBeenCalledWith("tenant_id",CURRENT_USER.tenantId)
+    expect(result.transmission?.mock).toBe(true)
+    expect(JSON.stringify(result)).not.toContain("synthetic-echo-do-not-return")
+    expect(result.transmission).not.toHaveProperty("response")
+  })
+
+  it("rejects unauthenticated detail reads before privileged database access", async () => {
+    mocks.getCurrentUser.mockResolvedValue(null)
+    expect((await getZatcaTransmission("document-id")).success).toBe(false)
+    expect(mocks.adminFrom).not.toHaveBeenCalled()
   })
 })
 

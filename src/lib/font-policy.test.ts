@@ -22,7 +22,9 @@ function* walk(dir: string): Generator<string> {
 }
 
 describe("font policy (Prompt M2 regression guard)", () => {
-  it("src never references fonts.googleapis.com / fonts.gstatic.com at runtime", () => {
+  // This scans the entire source tree with filesystem I/O. Windows release
+  // verification can exceed the default 5s while other checks are running.
+  it("src never references fonts.googleapis.com / fonts.gstatic.com at runtime", { timeout: 20_000 }, () => {
     const offenders: string[] = []
     for (const file of walk("src")) {
       const content = readFileSync(file, "utf8")

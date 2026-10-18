@@ -175,8 +175,8 @@ const ubl = buildZatcaUblInvoice(INVOICE)
   ok("P1.4 UBL invoice well-formed + QR embedded",
     ubl.includes("urn:oasis:names:specification:ubl:schema:xsd:Invoice-2") &&
     ubl.includes(`<cbc:EmbeddedDocumentBinaryObject mimeCode="text/plain">${qrBase64}`))
-  ok("P1.4b UBL has ds:SignatureValue placeholder (signing seam)",
-    ubl.includes("<ds:SignatureValue></ds:SignatureValue>"))
+  ok("P1.4b UBL has a signature reference, not an invalid bare XML signature",
+    ubl.includes("<cac:Signature>") && !ubl.includes("<ds:SignatureValue>"))
 }
 
 // 1.5 invoice hash + PIH chain (genesis for the first doc)

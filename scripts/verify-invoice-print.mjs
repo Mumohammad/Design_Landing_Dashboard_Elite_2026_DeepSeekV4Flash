@@ -18,6 +18,7 @@ const data = {
  subtotal:72225.21,discount:2670.75,vatAmount:10833.78,total:80388.24,paidAmount:0,statusLabelAr:'صادرة',statusLabelEn:'Issued',
  bankName:'بنك الاختبار',bankBeneficiary:'شركة الاختبار للتجارة',bankIban:'SA00000000000000000000000',
  qrDataUrl:await QRCode.toDataURL('Synthetic invoice layout verification',{margin:0,width:180}),verifyUrl:'/verify-document/test',generatedAt:'2026-09-08T00:00:00Z',
+ internalQr:true,
  logoDataUrl:`data:image/png;base64,${readFileSync('public/logo.png').toString('base64')}`,
 }
 // Optional local reference fields stay outside version control.

@@ -217,6 +217,7 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
       statusLabelAr: status.ar,
       statusLabelEn: status.en,
       qrDataUrl,
+      internalQr: true,
       verifyUrl,
       generatedAt: timestamp,
     }
@@ -249,6 +250,8 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
       total: Number(inv.total),
       currency: inv.currency,
       issue_date: inv.issue_date,
+      qr_kind: "internal_unvalidated",
+      qr_generated_at: timestamp,
       due_date: inv.due_date,
       party: party ?? null,
       company: {

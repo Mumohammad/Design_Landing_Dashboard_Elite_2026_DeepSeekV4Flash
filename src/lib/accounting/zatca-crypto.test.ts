@@ -39,17 +39,15 @@ describe("invoice hash + PIH chain", () => {
     expect(computeInvoiceHash(SAMPLE_XML)).not.toBe(computeInvoiceHash(SAMPLE_XML + " "))
   })
 
-  it("genesis PIH is base64 SHA-256 of the string '0'", () => {
+  it("matches the supplied SDK's exact genesis PIH fixture", () => {
     const g = genesisPiH()
-    expect(Buffer.from(g, "base64").length).toBe(32)
-    expect(genesisPiH()).toBe(genesisPiH())
+    expect(g).toBe("NWZlY2ViNjZmZmM4NmYzOGQ5NTI3ODZjNmQ2OTZjNzljMmRiYzIzOWRkNGU5MWI0NjcyOWQ3M2EyN2ZiNTdlOQ==")
   })
 
-  it("chains PIH: next = hash(previous) and differs from the genesis", () => {
-    const g = genesisPiH()
-    const next = computePiH(g)
-    expect(next).not.toBe(g)
-    expect(computePiH(g)).toBe(next)
+  it("references the previous invoice's digest without double hashing it", () => {
+    const previous = computeInvoiceHash(SAMPLE_XML)
+    expect(computePiH(previous)).toBe(previous)
+    expect(() => computePiH("not a digest")).toThrow("Base64 SHA-256")
   })
 })
 

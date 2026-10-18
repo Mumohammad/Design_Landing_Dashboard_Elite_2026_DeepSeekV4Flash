@@ -16,6 +16,8 @@ export interface InvoiceDocData {
   subtotal: number; discount: number; vatAmount: number; total: number; paidAmount?: number
   notes?: string | null; statusLabelAr: string; statusLabelEn: string
   qrDataUrl: string; verifyUrl: string; generatedAt: string
+  /** Explicit disclosure for the current internal QR, preserved on saved PDFs. */
+  internalQr: boolean
   bankIban?: string | null; bankName?: string | null; bankBeneficiary?: string | null
 }
 function esc(value: string | null | undefined): string {
@@ -93,7 +95,7 @@ body { font-family: Tahoma, Arial, sans-serif; font-size: 9pt; line-height: 10.5
 </style></head><body><main class="doc">
 <header class="header">
   <div class="title">${d.kind === "invoice" ? "فاتورة ضريبية<br>TAX Invoice" : `${esc(d.docTypeAr)}<br>${esc(d.docTypeEn)}`}
-    <img src="${imageSource(d.qrDataUrl)}" class="qr" alt="Invoice QR" />
+    <img src="${imageSource(d.qrDataUrl)}" class="qr" alt="${d.internalQr ? "Internal invoice QR" : "Invoice QR"}" />
     ${exceptionalStatus ? `<div class="status">${esc(d.statusLabelAr)} / ${esc(d.statusLabelEn)}</div>` : ""}
   </div>
   <div class="company"><h1>${esc(d.companyNameAr || d.companyNameEn)}</h1>
@@ -122,5 +124,6 @@ ${adjustment !== 0 ? `<tr><th>${adjustment > 0 ? "خصم من إجمالي ال�
 ${d.bankIban ? `<section class="bank">معلومات الحساب البنكي:<br>اسم البنك : ${esc(d.bankName)}<br>اسم المستفيد : ${esc(d.bankBeneficiary)}<br>رقم الايبان : <bdi dir="ltr">${esc(d.bankIban)}</bdi></section>` : ""}
 ${d.notes ? `<section class="notes">${esc(d.notes)}</section>` : ""}
 ${d.referenceNumber ? `<div class="supplement">مرجع / Ref: ${esc(d.referenceNumber)}</div>` : ""}
+${d.internalQr ? '<div class="supplement" role="note">الرمز داخلي وغير معتمد للفوترة الإلكترونية لدى الهيئة.<br>Internal QR only. ZATCA electronic invoicing has not been validated.</div>' : ""}
 </main></body></html>`
 }

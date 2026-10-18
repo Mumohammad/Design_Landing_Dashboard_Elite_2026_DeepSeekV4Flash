@@ -690,6 +690,9 @@ export function InvoicesManager() {
             <DialogDescription>{ar ? "اختر حساب التحويل إن لزم. للحفظ اختر Save as PDF من نافذة الطباعة، بحجم Letter ومقياس 100% وبدون رؤوس وتذييلات المتصفح." : "Optionally select the receiving bank. Choose Save as PDF in the print dialog, with Letter paper, 100% scale, and browser headers/footers off."}</DialogDescription>
           </DialogHeader>
           <BankAccountPicker key={printTarget?.id} value={printBank} onChange={setPrintBank} ar={ar} disabled={!!printingId} />
+          <p role="note" className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+            {ar ? "الرمز الحالي داخلي. لم يكتمل ربط ZATCA، ولا تعد هذه النسخة دليلاً على اعتماد أو إرسال الفاتورة لدى الهيئة." : "The current QR is internal. ZATCA integration is incomplete; this copy is not evidence of ZATCA clearance or reporting."}
+          </p>
           {printError && <p role="alert" className="text-sm text-destructive">{printError}</p>}
           <Button disabled={!!printingId} onClick={() => printTarget && void handlePrint(printTarget)}>
             {printingId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}

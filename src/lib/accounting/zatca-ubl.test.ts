@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { DOMParser } from "@xmldom/xmldom"
 import {
   buildZatcaUblInvoice,
   escXml,
@@ -66,7 +67,7 @@ describe("buildZatcaUblInvoice", () => {
     expect(xml).toContain("<cbc:ID>INV-2026-000001</cbc:ID>")
     expect(xml).toContain("<cbc:IssueDate>2026-01-15</cbc:IssueDate>")
     expect(xml).toContain("<cbc:IssueTime>10:30:00</cbc:IssueTime>")
-    expect(xml).toContain(`<cbc:InvoiceTypeCode>${INVOICE_TYPE_CODES.invoice}</cbc:InvoiceTypeCode>`)
+    expect(xml).toContain(`<cbc:InvoiceTypeCode name="0100000">${INVOICE_TYPE_CODES.invoice}</cbc:InvoiceTypeCode>`)
     expect(xml).toContain("<cbc:DocumentCurrencyCode>SAR</cbc:DocumentCurrencyCode>")
     expect(xml).toContain("<cbc:ProfileID>reporting:1.0</cbc:ProfileID>")
   })
@@ -76,16 +77,16 @@ describe("buildZatcaUblInvoice", () => {
     expect(INVOICE_TYPE_CODES.credit_note).toBe("381")
     expect(INVOICE_TYPE_CODES.debit_note).toBe("383")
     const credit = buildZatcaUblInvoice({ ...base, docType: "credit_note", invoiceNumber: "CN-2026-000101" })
-    expect(credit).toContain(`<cbc:InvoiceTypeCode>${INVOICE_TYPE_CODES.credit_note}</cbc:InvoiceTypeCode>`)
+    expect(credit).toContain(`<cbc:InvoiceTypeCode name="0100000">${INVOICE_TYPE_CODES.credit_note}</cbc:InvoiceTypeCode>`)
     const debit = buildZatcaUblInvoice({ ...base, docType: "debit_note", invoiceNumber: "DN-2026-000101" })
-    expect(debit).toContain(`<cbc:InvoiceTypeCode>${INVOICE_TYPE_CODES.debit_note}</cbc:InvoiceTypeCode>`)
+    expect(debit).toContain(`<cbc:InvoiceTypeCode name="0100000">${INVOICE_TYPE_CODES.debit_note}</cbc:InvoiceTypeCode>`)
   })
 
   it("renders seller + buyer parties with VAT numbers", () => {
     const xml = buildZatcaUblInvoice(base)
     expect(xml).toContain("<cac:AccountingSupplierParty>")
     expect(xml).toContain('<cbc:CompanyID schemeID="VAT">310122993400001</cbc:CompanyID>')
-    expect(xml).toContain('<cbc:CompanyID schemeID="CRN">1010123456</cbc:CompanyID>')
+    expect(xml).toContain('<cac:PartyIdentification><cbc:ID schemeID="CRN">1010123456</cbc:ID></cac:PartyIdentification>')
     expect(xml).toContain("<cac:AccountingCustomerParty>")
     expect(xml).toContain('<cbc:CompanyID schemeID="VAT">311122993400001</cbc:CompanyID>')
   })
@@ -168,16 +169,40 @@ describe("buildZatcaUblInvoice", () => {
     expect(xml).toContain("&amp; &quot;quoted&quot;")
   })
 
-  it("includes the discount allowance only when discount > 0", () => {
+  it("does not deduct line discounts from the already-net subtotal again", () => {
     const withDiscount = buildZatcaUblInvoice({ ...base, discount: 500, subtotal: 99500, total: 114500 })
-    expect(withDiscount).toContain("<cbc:AllowanceTotalAmount currencyID=\"SAR\">500.00</cbc:AllowanceTotalAmount>")
-    // TaxExclusiveAmount = subtotal − discount (99500 − 500).
-    expect(withDiscount).toContain("<cbc:TaxExclusiveAmount currencyID=\"SAR\">99000.00</cbc:TaxExclusiveAmount>")
+    expect(withDiscount).not.toContain("AllowanceTotalAmount")
+    expect(withDiscount).toContain("<cbc:TaxExclusiveAmount currencyID=\"SAR\">99500.00</cbc:TaxExclusiveAmount>")
     expect(buildZatcaUblInvoice(base)).not.toContain("AllowanceTotalAmount")
   })
 
-  it("honours the clearance profile when requested", () => {
-    const xml = buildZatcaUblInvoice({ ...base, profileId: "clearance:1.0" })
-    expect(xml).toContain("<cbc:ProfileID>clearance:1.0</cbc:ProfileID>")
+  it("keeps invoice lines as root siblings, never nested inside another line", () => {
+    const xml = buildZatcaUblInvoice({...base,lines:[base.lines[0],{...base.lines[0],line_no:2}]})
+    const doc = new DOMParser().parseFromString(xml,"application/xml")
+    const lines = Array.from(doc.getElementsByTagNameNS("urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2","InvoiceLine"))
+    expect(lines).toHaveLength(2)
+    expect(lines.every((line) => line.parentNode === doc.documentElement)).toBe(true)
+    expect(doc.getElementsByTagNameNS("http://www.w3.org/2000/09/xmldsig#","Signature")).toHaveLength(0)
+  })
+
+  it("preserves explicit issuance identity and structured address without fabricating them", () => {
+    const xml=buildZatcaUblInvoice({...base,uuid:"00000000-0000-4000-8000-000000000001",invoiceCounter:7,previousInvoiceHash:"hash",invoiceKind:"simplified",seller:{...base.seller,buildingNumber:"1234",postalCode:"12345",countryCode:"SA"}})
+    expect(xml).toContain('<cbc:InvoiceTypeCode name="0200000">388</cbc:InvoiceTypeCode>')
+    expect(xml).toContain('<cbc:ID>ICV</cbc:ID><cbc:UUID>7</cbc:UUID>')
+    expect(xml).toContain('<cbc:BuildingNumber>1234</cbc:BuildingNumber>')
+    expect(buildZatcaUblInvoice(base)).not.toContain('<cbc:ID>ICV</cbc:ID>')
+  })
+
+  it("does not confuse the clearance route with the invoice ProfileID", () => {
+    expect(()=>buildZatcaUblInvoice({ ...base, profileId: "clearance:1.0" as "reporting:1.0" })).toThrow("transport route")
+  })
+
+  it("preserves line currency and rejects invalid values instead of replacing them with zero", () => {
+    const xml=buildZatcaUblInvoice({...base,currency:"USD",vatAmountSar:56250})
+    expect(xml).toContain('<cbc:PriceAmount currencyID="USD">100000.00</cbc:PriceAmount>')
+    expect(xml).toContain('<cbc:TaxAmount currencyID="SAR">56250.00</cbc:TaxAmount>')
+    expect(()=>buildZatcaUblInvoice({...base,total:NaN})).toThrow("monetary amount")
+    expect(()=>buildZatcaUblInvoice({...base,lines:[{...base.lines[0],quantity:Infinity}]})).toThrow("invoice line")
+    expect(()=>buildZatcaUblInvoice({...base,invoiceCounter:1.5})).toThrow("invoice counter")
   })
 })
