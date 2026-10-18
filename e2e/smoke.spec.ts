@@ -6,6 +6,7 @@
 // dashboard pages.
 
 import { test as base, expect, type Page } from "@playwright/test"
+import { assertStagingTarget } from "./staging-target"
 
 // ── Auth fixture ─────────────────────────────────────────────────────────────
 
@@ -25,6 +26,7 @@ const test = base.extend<{ authed: Page }>({
 })
 
 // ── Public pages ─────────────────────────────────────────────────────────────
+test.beforeAll(async ({ request }) => assertStagingTarget(request))
 
 test.describe("Public Pages", () => {
   test("landing page loads", async ({ page }) => {

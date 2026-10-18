@@ -354,7 +354,7 @@ jobs:
     - name: Verify E2E configuration
       run: |
         missing=0
-        for var in BASE_URL TEST_USER_EMAIL TEST_USER_PASSWORD; do
+        for var in BASE_URL TEST_USER_EMAIL TEST_USER_PASSWORD STAGING_SUPABASE_URL; do
           if [ -z "${!var}" ]; then
             echo "MISSING: $var is required for authenticated staging E2E"
             missing=1

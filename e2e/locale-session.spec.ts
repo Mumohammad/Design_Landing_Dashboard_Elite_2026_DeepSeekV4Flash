@@ -1,5 +1,8 @@
 import { test, expect, type Page } from "@playwright/test"
 import { translations } from "../src/lib/i18n/translations"
+import { assertStagingTarget } from "./staging-target"
+
+test.beforeAll(async ({ request }) => assertStagingTarget(request))
 
 test("landing, company pages and auth share one language without reloading", async ({ page }) => {
   await page.goto("/landing?lang=en")
