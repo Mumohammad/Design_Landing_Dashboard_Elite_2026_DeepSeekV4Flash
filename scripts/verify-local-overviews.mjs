@@ -16,6 +16,8 @@ export async function verifyOverviews(page, admin, tenantId, actorId, appUrl) {
     if (!policy.includes('https://viowrovartosrkqukjxy.supabase.co') || policy.includes('https://wwfnsbilmyxeawgzicmv.supabase.co')) throw Error('Isolated verification target required')
   }
   if (!tenantId || !actorId) throw Error('Disposable identity required')
+  const initialLocale = await page.locator('html').getAttribute('lang') === 'ar' ? 'ar' : 'en'
+  const initialViewport = page.viewportSize()
   const tag = randomUUID().slice(0, 8)
   const needle = `Needle "${tag},50%_`
   const ids = { drivers: [], vehicles: [], report_generation_log: [] }
@@ -112,5 +114,10 @@ export async function verifyOverviews(page, admin, tenantId, actorId, appUrl) {
         if (result.error) throw new Error(`Could not clean up synthetic ${table} fixtures`)
       }
     }
+    // This helper exercises Arabic mobile screens, then returns the caller's
+    // browser state so later authentication checks test their intended locale.
+    if (initialViewport) await page.setViewportSize(initialViewport)
+    await page.goto(`${appUrl}/dashboard?lang=${initialLocale}`)
+    await expect(page.locator('html')).toHaveAttribute('lang', initialLocale)
   }
 }
