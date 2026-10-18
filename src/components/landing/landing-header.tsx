@@ -49,7 +49,7 @@ export function LandingHeader() {
         className={`absolute bottom-0 left-0 right-0 h-px transition-opacity duration-500 ${scrolled ? 'opacity-100' : 'opacity-0'}`}
         style={{ background: 'linear-gradient(90deg, transparent, rgba(30,90,153,0.4) 30%, rgba(232,125,62,0.4) 70%, transparent)' }}
       ></div>
-      <nav className="mx-auto flex h-16 max-w-7xl items-center gap-4 px-4 lg:px-8">
+      <nav className="mx-auto flex h-16 max-w-7xl items-center gap-4 px-4 lg:px-8 min-[1700px]:max-w-[1600px]">
         <Link className="flex shrink-0 items-center gap-3 group" aria-label={ui("نخبة التطوير")} href="/landing">
           <div className="relative">
             <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-elite-blue-500 to-elite-orange-500 opacity-0 blur-md transition-opacity duration-300 group-hover:opacity-40"></div>
@@ -63,7 +63,7 @@ export function LandingHeader() {
           </span>
         </Link>
 
-        <div className="mx-auto hidden items-center gap-0.5 xl:flex">
+        <div className="mx-auto hidden items-center gap-0.5 min-[1700px]:flex">
           {navItems.map(item => (
             <a key={item.href} href={item.href} className="relative rounded-xl px-3 py-2 text-[13px] font-semibold text-muted-foreground transition-all duration-200 hover:bg-elite-blue-500/5 hover:text-foreground hover:shadow-sm">{ui(item.label)}</a>
           ))}
@@ -71,7 +71,7 @@ export function LandingHeader() {
             <ArrowUpRight className="h-3.5 w-3.5 rtl:-scale-x-100" aria-hidden="true" /><LocalizedText text="سجّل كسائق" /></a>
         </div>
 
-        <div className="ms-auto flex items-center gap-2 xl:ms-0">
+        <div className="ms-auto flex items-center gap-2 min-[1700px]:ms-0">
           <LanguageToggle />
           <button onClick={toggleTheme} className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all hover:bg-accent hover:text-accent-foreground size-9 cursor-pointer relative overflow-hidden" aria-label={ui("Toggle theme")}>
             <Moon className="h-[1.2rem] w-[1.2rem] transition-transform duration-300" aria-hidden="true" />
@@ -81,13 +81,13 @@ export function LandingHeader() {
           <Link className="items-center justify-center whitespace-nowrap text-sm font-medium transition-all h-8 gap-1.5 px-3 hidden rounded-xl bg-gradient-to-r from-elite-blue-500 to-elite-blue-600 text-white shadow-lg shadow-elite-blue-500/25 duration-300 hover:from-elite-blue-600 hover:to-elite-blue-700 hover:shadow-xl hover:shadow-elite-blue-500/40 hover:scale-[1.02] active:scale-[0.98] sm:inline-flex" href={withLocale(REDIRECTS.registerUrl, locale)}>
             <Sparkles className="h-3.5 w-3.5" aria-hidden="true" /><LocalizedText text="ابدأ الآن" /><ArrowLeft className="h-3.5 w-3.5 rtl:-scale-x-100" aria-hidden="true" />
           </Link>
-          <button onClick={() => setMenuOpen(o => !o)} className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all hover:bg-accent hover:text-accent-foreground size-9 rounded-xl xl:hidden" aria-label={ui("Menu")} aria-expanded={menuOpen} aria-controls="landing-mobile-menu">
+          <button onClick={() => setMenuOpen(o => !o)} className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all hover:bg-accent hover:text-accent-foreground size-9 rounded-xl min-[1700px]:hidden" aria-label={ui("Menu")} aria-expanded={menuOpen} aria-controls="landing-mobile-menu">
             {menuOpen ? <X className="h-5 w-5" aria-hidden="true" /> : <Menu className="h-5 w-5" aria-hidden="true" />}
           </button>
         </div>
       </nav>
 
-      <div id="landing-mobile-menu" className={`overflow-hidden border-t border-border/40 bg-background/95 backdrop-blur-2xl transition-all duration-300 xl:hidden ${menuOpen ? 'max-h-[560px] opacity-100' : 'max-h-0 opacity-0'}`}>
+      <div id="landing-mobile-menu" className={`overflow-hidden border-t border-border/40 bg-background/95 backdrop-blur-2xl transition-all duration-300 min-[1700px]:hidden ${menuOpen ? 'max-h-[560px] opacity-100' : 'max-h-0 opacity-0'}`}>
         <div className="mx-auto max-w-7xl space-y-1 px-4 py-4">
           {navItems.map(item => (
             <a key={item.href} href={item.href} onClick={() => setMenuOpen(false)} className="block rounded-xl px-4 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-elite-blue-500/5">{ui(item.label)}</a>

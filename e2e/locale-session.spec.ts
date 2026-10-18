@@ -10,6 +10,14 @@ test("landing, company pages and auth share one language without reloading", asy
   await expect(page.getByRole("heading", { name: "Simple plans for every fleet size" })).toBeVisible()
   await expect(page.locator("footer").getByRole("link", { name: "Privacy policy", exact: true })).toBeVisible()
   await expect(page.getByRole("navigation").getByRole("link", { name: "Sign in", exact: true }).first()).toBeVisible()
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 })
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true)
+    await page.getByRole("button", { name: "Menu", exact: true }).click()
+    await expect(page.locator("#landing-mobile-menu").getByRole("link", { name: "Pricing", exact: true })).toBeVisible()
+    await page.getByRole("button", { name: "Menu", exact: true }).click()
+  }
+  await page.setViewportSize({ width: 1280, height: 1000 })
   let navigations = 0
   page.on("framenavigated", frame => { if (frame === page.mainFrame()) navigations++ })
   await page.getByRole("button", { name: "تغيير اللغة إلى العربية", exact: true }).first().click()
