@@ -69,6 +69,19 @@ describe("session continuity across landing and dashboard", () => {
     expect(response.headers.get("location")).toBe("https://app.example/invoices?lang=en")
   })
 
+  it.each([
+    { role: "accountant", changePassword: false, nextLevel: "aal2", path: "/auth/mfa-challenge" },
+    { role: "general_manager", changePassword: false, nextLevel: "aal1", path: "/settings/mfa" },
+    { role: "accountant", changePassword: true, nextLevel: "aal1", path: "/settings/security" },
+  ])("carries an explicit language through the $path gate without browser persistence", async ({ role, changePassword, nextLevel, path }) => {
+    auth.single.mockResolvedValue({ data: { id: "profile", tenant_id: "tenant", role, status: "active", must_change_password: changePassword, locked_until: null } })
+    auth.assurance.mockResolvedValue({ data: { currentLevel: "aal1", nextLevel }, error: null })
+    const response = await proxy(new NextRequest("https://app.example/invoices?lang=en&status=draft"))
+    const destination = new URL(response.headers.get("location")!)
+    expect(destination.pathname).toBe(path)
+    expect(destination.searchParams.get("lang")).toBe("en")
+  })
+
   it("keeps account errors visible and rejects return-to sign-in loops", async () => {
     const failed = await proxy(new NextRequest("https://app.example/auth/sign-in?error=AUTH_ACCOUNT_LOCKED"))
     expect(failed.headers.get("location")).toBeNull()

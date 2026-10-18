@@ -37,6 +37,17 @@ export async function proxy(request: NextRequest) {
   // to MFA and sign-in. Otherwise the next request can reuse a stale session.
   const finish = (next: NextResponse = response) => {
     for (const cookie of response.cookies.getAll()) next.cookies.set(cookie)
+    // URL preference must survive full navigations when browser storage is
+    // unavailable, including MFA enrollment/challenge and password gates.
+    const locale = request.nextUrl.searchParams.get("lang")
+    const location = next.headers.get("location")
+    if ((locale === "en" || locale === "ar") && location) {
+      const destination = new URL(location, request.url)
+      if (destination.origin === request.nextUrl.origin) {
+        destination.searchParams.set("lang", locale)
+        next.headers.set("location", destination.toString())
+      }
+    }
     next.headers.set("X-Request-ID", requestId)
     next.headers.set("Cache-Control", "private, no-store")
     next.headers.set("Pragma", "no-cache")

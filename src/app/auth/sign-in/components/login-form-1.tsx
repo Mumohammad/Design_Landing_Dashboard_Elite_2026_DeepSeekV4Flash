@@ -8,7 +8,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { createClient } from "@/lib/supabase/client"
-import { DASHBOARD_PATH, safeReturnPath } from "@/lib/redirects"
+import { DASHBOARD_PATH, safeReturnPath, withLocale } from "@/lib/redirects"
 import { Eye, EyeOff, Lock, Mail, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -42,7 +42,7 @@ export function LoginForm1({
   className,
   ...props
 }: React.ComponentProps<"div">) {
-  const { t } = useTranslation()
+  const { t, locale } = useTranslation()
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
@@ -73,15 +73,16 @@ export function LoginForm1({
   // half-state — let the user see the message and act).
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get("error")) return
+    let cancelled = false
     const supabase = createClient()
     supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) {
-        router.replace(safeReturnPath(new URLSearchParams(window.location.search).get("returnTo") ?? DASHBOARD_PATH))
+      if (user && !cancelled) {
+        router.replace(withLocale(safeReturnPath(new URLSearchParams(window.location.search).get("returnTo") ?? DASHBOARD_PATH), locale))
         router.refresh()
       }
     })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    return () => { cancelled = true }
+  }, [locale, router])
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginFormSchema),
@@ -124,7 +125,7 @@ export function LoginForm1({
       // the centralized dashboard destination (absolute when this code runs
       // under the two-deployment production topology).
       const returnTo = new URLSearchParams(window.location.search).get("returnTo")
-      const safeReturnTo = safeReturnPath(returnTo ?? DASHBOARD_PATH)
+      const safeReturnTo = withLocale(safeReturnPath(returnTo ?? DASHBOARD_PATH), locale)
       // A full same-origin navigation reads the cookies just set by the API
       // and avoids any unauthenticated prefetched router response.
       window.location.replace(safeReturnTo)

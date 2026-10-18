@@ -75,6 +75,19 @@ async function signIn(page: Page) {
   await page.waitForURL(/\/dashboard/, { timeout: 30_000 })
 }
 
+test("fresh sign-in keeps English when browser persistence is blocked", async ({ page }) => {
+  await page.addInitScript(() => {
+    const original = Storage.prototype.setItem
+    Storage.prototype.setItem = function (key, value) {
+      if (key === "elite-locale") throw new DOMException("Storage is blocked", "SecurityError")
+      return original.call(this, key, value)
+    }
+  })
+  await signIn(page)
+  await expect(page.locator("html")).toHaveAttribute("lang", "en")
+  await expect(page.getByRole("heading", { level: 1 }).first()).toContainText(translations.en.app.dashboardTitle)
+})
+
 test("one sign-in survives landing visits and legacy login entry points", async ({ page }) => {
   let signIns = 0
   page.on("request", request => { if (request.method() === "POST" && new URL(request.url()).pathname === "/api/auth/sign-in") signIns++ })
