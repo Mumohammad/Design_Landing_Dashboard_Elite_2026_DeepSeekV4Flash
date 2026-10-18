@@ -64,12 +64,12 @@ body { font-family: Tahoma, Arial, sans-serif; font-size: 9pt; line-height: 10.5
 .company h1 { margin: 0 0 3pt; font-size: 12pt; line-height: 15pt; }
 .logo { width: 112.5pt; height: 112.5pt; object-fit: contain; }
 .meta { display: flex; direction: ltr; justify-content: space-between; gap: 20pt; min-height: 87pt; padding-top: 18.75pt; padding-bottom: 19.25pt; }
-.invoice-meta { display: grid; grid-template-columns: 46.2pt 67.5pt; align-content: start; align-items: center; gap: 0 14.7pt; }
+.invoice-meta { display: grid; grid-template-columns: 46.2pt 67.5pt; align-content: start; align-items: center; gap: 0 15pt; }
 .invoice-meta strong { direction: rtl; text-align: left; line-height: 10.5pt; }
 .invoice-meta span { text-align: right; direction: ltr; }
 .client { display: flex; direction: rtl; gap: 15pt; text-align: right; max-width: 285pt; }
 .client-label { min-width: 28pt; font-weight: bold; }
-.client-detail { padding-top: 3.75pt; direction: rtl; white-space: pre-line; overflow-wrap: anywhere; }
+.client-detail { padding-top: 5.25pt; direction: rtl; white-space: pre-line; overflow-wrap: anywhere; }
 .items { width: 100%; border: .75pt solid black; border-collapse: collapse; table-layout: fixed; direction: rtl; }
 .items th { height: 51.75pt; padding: 4pt 3pt; text-align: center; vertical-align: middle; font-size: 9pt; line-height: 10.5pt; border-top: .75pt solid; border-bottom: .75pt solid; }
 .items th:first-child { border-right: .75pt solid; } .items th:last-child { border-left: .75pt solid; }
