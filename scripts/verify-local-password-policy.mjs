@@ -23,7 +23,11 @@ export async function verifyNewPasswordFlows(browser,admin,appUrl,anonKey){
     for(const locale of ['en','ar']){
       const hint=locale==='ar'?'استخدم من 10 إلى 128 حرفاً، مع حرف إنجليزي ورقم على الأقل.':'Use 10–128 characters, including at least one English letter and one number.'
       let mutations=0
-      const record=request=>{if(request.method()==='POST'||request.method()==='PUT')mutations++}
+      const record=request=>{
+        const path=new URL(request.url()).pathname
+        if((request.method()==='POST'||request.method()==='PUT')
+          &&(path==='/auth/v1/user'||path==='/api/platform/register'||request.headers()['next-action']))mutations++
+      }
       page.on('request',record)
       stage=`${locale} reset validation`
       await page.goto(appUrl+'/auth/reset-password?lang='+locale)
@@ -33,10 +37,13 @@ export async function verifyNewPasswordFlows(browser,admin,appUrl,anonKey){
       await expect(page.locator('#password-policy')).toHaveText(hint)
       await page.locator('#password').fill('x'.repeat(12))
       await page.locator('#confirm').fill('x'.repeat(12))
+      stage=`${locale} reset weak-input error`
       mutations=0
       await page.locator('button[type="submit"]').click()
-      await expect(page.getByRole('alert')).toHaveText(hint)
+      await expect(page.getByRole('alert').filter({hasText:hint})).toHaveText(hint)
+      stage=`${locale} reset no Auth mutation`
       expect(mutations).toBe(0)
+      stage=`${locale} reset mobile capture`
       await page.screenshot({path:`supabase/.temp/password-reset-${locale}-mobile.png`,fullPage:true})
 
       stage=`${locale} invite validation`
@@ -48,7 +55,7 @@ export async function verifyNewPasswordFlows(browser,admin,appUrl,anonKey){
       await page.locator('#confirm').fill('x'.repeat(12))
       mutations=0
       await page.locator('button[type="submit"]').click()
-      await expect(page.getByRole('alert')).toHaveText(hint)
+      await expect(page.getByRole('alert').filter({hasText:hint})).toHaveText(hint)
       expect(mutations).toBe(0)
 
       stage=`${locale} registration validation`
@@ -61,7 +68,7 @@ export async function verifyNewPasswordFlows(browser,admin,appUrl,anonKey){
       const submit=page.getByRole('button',{name:locale==='ar'?'أنشئ المساحة':'Create workspace',exact:true})
       mutations=0
       await submit.click()
-      await expect(page.getByRole('alert')).toHaveText(hint)
+      await expect(page.getByRole('alert').filter({hasText:hint})).toHaveText(hint)
       expect(mutations).toBe(0)
       if(!(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)))throw Error('Registration viewport overflows')
       await page.screenshot({path:`supabase/.temp/password-registration-${locale}-mobile.png`,fullPage:true})
@@ -96,7 +103,10 @@ export async function verifyNewPasswordFlows(browser,admin,appUrl,anonKey){
     if(!old.error||old.data.session)throw Error('Replaced password still accepted')
     console.log('PASS: English/Arabic mobile password hints; weak reset/invite/registration blocked before requests; localized registration control; real recovery session updates password and rejects old credential')
   }catch(error){
-    console.error(JSON.stringify({check:'new password flows',stage,errorType:error.name}))
+    console.error(JSON.stringify({check:'new password flows',stage,errorType:error.name,
+      failureKind:/strict mode violation/.test(error.message)?'ambiguous-locator':/Timeout/.test(error.name)?'timeout':/expect\(/.test(error.message)?'assertion':'other',
+      submitCount:await page.locator('button[type="submit"]').count().catch(()=>null),alertCount:await page.getByRole('alert').count().catch(()=>null)}))
+    if(stage.includes('reset weak-input'))await page.screenshot({path:'supabase/.temp/password-public-reset-failure.png',fullPage:true}).catch(()=>{})
     throw Error('New password verification failed: '+stage)
   }finally{
     if(recoveryStarted){
