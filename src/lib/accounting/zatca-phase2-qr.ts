@@ -2,15 +2,18 @@
 // acceptance or print-path integration is implied by encoding/decoding bytes.
 // Tag assignments follow ZATCA Security Features v1.2, section 4.1. Encoding
 // profiles are explicit offline experiments: the document says a 32-byte hash
-// but the supplied SDK emits 44-byte Base64 text and a different 7/8/9 mapping.
+// but SDKs emit 44-byte Base64 text; legacy 3.0.8 also differs in tags 7/8/9.
 // Neither experiment is an approved production profile. Never auto-detect.
 import { createPublicKey } from "node:crypto"
 
 export type ZatcaQrKind = "standard" | "simplified"
 export type ZatcaQrEncodingProfile = "binary-digest-signature" | "base64-text-digest-signature"
+export type ZatcaQrTimeProfile = "utc" | "offsetless-plus03"
 
 export interface ZatcaPhase2QrFields {
   kind: ZatcaQrKind
+  /** Explicit interpretation; never infer a timezone from suffix-less text. */
+  timeProfile: ZatcaQrTimeProfile
   sellerName: string
   sellerVatNumber: string
   timestamp: string
@@ -70,9 +73,12 @@ function validateFields(p: ZatcaPhase2QrFields): void {
   const seller = Buffer.from(p.sellerName, "utf8")
   if (!p.sellerName.trim() || /[\u0000-\u001f\u007f]/.test(p.sellerName) || seller.toString("utf8") !== p.sellerName) fail("TEXT")
   if (!/^3\d{13}3$/.test(p.sellerVatNumber)) fail("VAT")
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(p.timestamp)) fail("TIME")
-  const time = Date.parse(p.timestamp)
-  if (!Number.isFinite(time) || new Date(time).toISOString().replace(".000Z", "Z") !== p.timestamp) fail("TIME")
+  if (p.timeProfile !== "utc" && p.timeProfile !== "offsetless-plus03") fail("TIME")
+  const utc = p.timeProfile === "utc"
+  if (!(utc ? /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/ : /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/).test(p.timestamp)) fail("TIME")
+  const time = Date.parse(utc ? p.timestamp : p.timestamp + "+03:00")
+  const normalized = Number.isFinite(time) ? new Date(time + (utc ? 0 : 180 * 60_000)).toISOString().replace(".000Z", utc ? "Z" : "") : ""
+  if (!Number.isFinite(time) || normalized !== p.timestamp) fail("TIME")
   if (![p.total, p.vatAmount].every((amount) => /^(?:0|[1-9]\d{0,12})\.\d{2}$/.test(amount))) fail("AMOUNT")
   if (base64(p.invoiceHashBase64, "HASH").length !== 32) fail("HASH")
   ecdsaDer(base64(p.signatureBase64, "SIGNATURE"), "SIGNATURE")
@@ -119,7 +125,7 @@ export function buildZatcaPhase2QrCandidate(environment: "sandbox" | "simulation
  * malformed UTF-8/DER/Base64 and the legacy SDK demonstration tag mapping.
  * A successful decode is format evidence only, never authority evidence.
  */
-export function decodeZatcaPhase2Qr(encoded: string, kind: ZatcaQrKind, profile: ZatcaQrEncodingProfile): ZatcaPhase2QrFields {
+export function decodeZatcaPhase2Qr(encoded: string, kind: ZatcaQrKind, profile: ZatcaQrEncodingProfile, timeProfile: ZatcaQrTimeProfile): ZatcaPhase2QrFields {
   if (profile !== "binary-digest-signature" && profile !== "base64-text-digest-signature") fail("PROFILE")
   if (encoded.length > 700) fail("LENGTH")
   const bytes = base64(encoded, "ENCODING")
@@ -140,7 +146,7 @@ export function decodeZatcaPhase2Qr(encoded: string, kind: ZatcaQrKind, profile:
     return value
   }
   const result: ZatcaPhase2QrFields = {
-    kind, sellerName: text(0), sellerVatNumber: text(1), timestamp: text(2),
+    kind, timeProfile, sellerName: text(0), sellerVatNumber: text(1), timestamp: text(2),
     total: text(3), vatAmount: text(4),
     invoiceHashBase64: profile === "binary-digest-signature" ? values[5].toString("base64") : text(5),
     signatureBase64: profile === "binary-digest-signature" ? values[6].toString("base64") : text(6),

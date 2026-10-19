@@ -7,7 +7,7 @@ const key = generateKeyPairSync("ec", { namedCurve: "secp256k1" })
 const digest = createHash("sha256").update("synthetic invoice").digest()
 const signature = sign("sha256", digest, key.privateKey)
 const fields: ZatcaPhase2QrFields = {
-  kind: "simplified", sellerName: "شركة تجريبية 🚚", sellerVatNumber: "399999999900003",
+  kind: "simplified", timeProfile: "utc", sellerName: "شركة تجريبية 🚚", sellerVatNumber: "399999999900003",
   timestamp: "2026-10-19T09:30:00Z", total: "115.00", vatAmount: "15.00",
   invoiceHashBase64: digest.toString("base64"), signatureBase64: signature.toString("base64"),
   publicKeySpkiDer: key.publicKey.export({ type: "spki", format: "der" }),
@@ -25,7 +25,7 @@ function split(b: Buffer): Buffer[] {
   return result
 }
 function reject(b: Buffer, error: string | RegExp, kind = fields.kind) {
-  expect(() => decodeZatcaPhase2Qr(b.toString("base64"), kind, "base64-text-digest-signature")).toThrow(error)
+  expect(() => decodeZatcaPhase2Qr(b.toString("base64"), kind, "base64-text-digest-signature", "utc")).toThrow(error)
 }
 
 describe("offline Phase 2 QR tag assignments and explicit encoding profiles", () => {
@@ -37,7 +37,7 @@ describe("offline Phase 2 QR tag assignments and explicit encoding profiles", ()
     expect(parts[6].subarray(2).toString("utf8")).toBe(fields.signatureBase64)
     expect(parts[7].subarray(2)).toEqual(fields.publicKeySpkiDer)
     expect(parts[8].subarray(2)).toEqual(fields.certificateSignatureDer)
-    expect(decodeZatcaPhase2Qr(bytes().toString("base64"), "simplified", "base64-text-digest-signature")).toEqual(fields)
+    expect(decodeZatcaPhase2Qr(bytes().toString("base64"), "simplified", "base64-text-digest-signature", "utc")).toEqual(fields)
   })
 
   it("uses eight tags for standard invoices/notes and nine for simplified documents", () => {
@@ -45,8 +45,8 @@ describe("offline Phase 2 QR tag assignments and explicit encoding profiles", ()
     delete standard.certificateSignatureDer
     const encoded = buildZatcaPhase2QrCandidate("simulation", "base64-text-digest-signature", standard)
     expect(split(Buffer.from(encoded, "base64"))).toHaveLength(8)
-    expect(decodeZatcaPhase2Qr(encoded, "standard", "base64-text-digest-signature")).toEqual(standard)
-    expect(() => decodeZatcaPhase2Qr(encoded, "simplified", "base64-text-digest-signature")).toThrow("TAGS")
+    expect(decodeZatcaPhase2Qr(encoded, "standard", "base64-text-digest-signature", "utc")).toEqual(standard)
+    expect(() => decodeZatcaPhase2Qr(encoded, "simplified", "base64-text-digest-signature", "utc")).toThrow("TAGS")
     expect(() => buildZatcaPhase2QrCandidate("sandbox", "base64-text-digest-signature", { ...fields, kind: "standard" })).toThrow("TAGS")
     expect(() => buildZatcaPhase2QrCandidate("sandbox", "base64-text-digest-signature", { ...fields, certificateSignatureDer: undefined })).toThrow("CERTIFICATE_SIGNATURE")
   })
@@ -62,11 +62,11 @@ describe("offline Phase 2 QR tag assignments and explicit encoding profiles", ()
     expect(parts[5][1]).toBe(32)
     expect(parts[5].subarray(2)).toEqual(digest)
     expect(parts[6].subarray(2)).toEqual(signature)
-    expect(decodeZatcaPhase2Qr(encoded, "simplified", "binary-digest-signature")).toEqual(fields)
-    expect(() => decodeZatcaPhase2Qr(encoded, "simplified", "base64-text-digest-signature")).toThrow()
-    expect(() => decodeZatcaPhase2Qr(bytes().toString("base64"), "simplified", "binary-digest-signature")).toThrow("HASH")
+    expect(decodeZatcaPhase2Qr(encoded, "simplified", "binary-digest-signature", "utc")).toEqual(fields)
+    expect(() => decodeZatcaPhase2Qr(encoded, "simplified", "base64-text-digest-signature", "utc")).toThrow()
+    expect(() => decodeZatcaPhase2Qr(bytes().toString("base64"), "simplified", "binary-digest-signature", "utc")).toThrow("HASH")
     expect(() => buildZatcaPhase2QrCandidate("sandbox", undefined as never, fields)).toThrow("PROFILE")
-    expect(() => decodeZatcaPhase2Qr(encoded, "simplified", undefined as never)).toThrow("PROFILE")
+    expect(() => decodeZatcaPhase2Qr(encoded, "simplified", undefined as never, "utc")).toThrow("PROFILE")
   })
 
   it("accepts the issuer's ECDSA signature independently of the EGS curve", () => {
@@ -74,12 +74,34 @@ describe("offline Phase 2 QR tag assignments and explicit encoding profiles", ()
     const certificateSignatureDer = sign("sha256", Buffer.from("synthetic certificate"), issuer.privateKey)
     const value = { ...fields, certificateSignatureDer }
     const encoded = buildZatcaPhase2QrCandidate("sandbox", "binary-digest-signature", value)
-    expect(decodeZatcaPhase2Qr(encoded, "simplified", "binary-digest-signature").certificateSignatureDer).toEqual(certificateSignatureDer)
+    expect(decodeZatcaPhase2Qr(encoded, "simplified", "binary-digest-signature", "utc").certificateSignatureDer).toEqual(certificateSignatureDer)
+  })
+
+  it("retains an explicitly selected offset-less UTC+03 convention without converting fields", () => {
+    const value = { ...fields, timeProfile: "offsetless-plus03" as const, timestamp: "2026-10-18T12:30:00" }
+    const encoded = buildZatcaPhase2QrCandidate("sandbox", "base64-text-digest-signature", value)
+    expect(split(Buffer.from(encoded, "base64"))[2].subarray(2).toString("utf8")).toBe(value.timestamp)
+    expect(decodeZatcaPhase2Qr(encoded, "simplified", "base64-text-digest-signature", "offsetless-plus03")).toEqual(value)
+  })
+
+  it("rejects missing or mismatched time conventions instead of inferring one", () => {
+    const value = { ...fields, timeProfile: "offsetless-plus03" as const, timestamp: "2026-10-18T12:30:00" }
+    const encoded = buildZatcaPhase2QrCandidate("sandbox", "base64-text-digest-signature", value)
+    expect(() => decodeZatcaPhase2Qr(encoded, "simplified", "base64-text-digest-signature", "utc")).toThrow("TIME")
+    expect(() => decodeZatcaPhase2Qr(bytes().toString("base64"), "simplified", "base64-text-digest-signature", "offsetless-plus03")).toThrow("TIME")
+    expect(() => bytes({ ...fields, timeProfile: undefined as never })).toThrow("TIME")
+    expect(() => decodeZatcaPhase2Qr(encoded, "simplified", "base64-text-digest-signature", undefined as never)).toThrow("TIME")
+  })
+
+  it("rejects invalid calendar dates, overflow and zone suffixes in the offset-less convention", () => {
+    for (const timestamp of ["2026-02-30T12:30:00", "2026-10-18T24:30:00", "2026-10-18T12:30:00Z", "2026-10-18T12:30:00+03:00"]) {
+      expect(() => bytes({ ...fields, timeProfile: "offsetless-plus03", timestamp })).toThrow("TIME")
+    }
   })
 
   it("retains exact engine-provided amount text", () => {
     const value = { ...fields, total: "1000000000000.01", vatAmount: "0.00" }
-    expect(decodeZatcaPhase2Qr(buildZatcaPhase2QrCandidate("sandbox", "base64-text-digest-signature", value), "simplified", "base64-text-digest-signature").total).toBe(value.total)
+    expect(decodeZatcaPhase2Qr(buildZatcaPhase2QrCandidate("sandbox", "base64-text-digest-signature", value), "simplified", "base64-text-digest-signature", "utc").total).toBe(value.total)
   })
 
   it.each(["NaN", "-1.00", "1e2", "1.005", "01.00", "1", "1.0"])("rejects non-canonical monetary text %s", (total) => {
@@ -111,7 +133,7 @@ describe("offline Phase 2 QR tag assignments and explicit encoding profiles", ()
     const parts = split(bytes())
     reject(Buffer.concat([Buffer.from([1, 1, 0xff]), ...parts.slice(1)]), "TEXT")
     for (const encoded of [bytes().toString("base64") + "=", "!!!!", "", "AB=="]) {
-      expect(() => decodeZatcaPhase2Qr(encoded, "simplified", "base64-text-digest-signature")).toThrow()
+      expect(() => decodeZatcaPhase2Qr(encoded, "simplified", "base64-text-digest-signature", "utc")).toThrow()
     }
     expect(() => bytes({ ...fields, invoiceHashBase64: digest.toString("base64") + "\n" })).toThrow("HASH")
     expect(() => bytes({ ...fields, invoiceHashBase64: Buffer.alloc(31).toString("base64") })).toThrow("HASH")
@@ -143,10 +165,10 @@ describe("offline Phase 2 QR tag assignments and explicit encoding profiles", ()
     const parts = split(bytes())
     const legacy = Buffer.concat([...parts.slice(0, 6), Buffer.from([7, fields.publicKeySpkiDer.length]), fields.publicKeySpkiDer,
       Buffer.from([8, 32]), Buffer.alloc(32, 1), Buffer.from([9, 32]), Buffer.alloc(32, 2)])
-    expect(() => decodeZatcaPhase2Qr(legacy.toString("base64"), "simplified", "base64-text-digest-signature")).toThrow()
+    expect(() => decodeZatcaPhase2Qr(legacy.toString("base64"), "simplified", "base64-text-digest-signature", "utc")).toThrow()
   })
 
   it("never echoes a malformed payload in error messages", () => {
-    expect(() => decodeZatcaPhase2Qr("PRIVATE-DATA-DO-NOT-ECHO", "standard", "base64-text-digest-signature")).toThrow("Unsupported ZATCA Phase 2 QR format: ENCODING")
+    expect(() => decodeZatcaPhase2Qr("PRIVATE-DATA-DO-NOT-ECHO", "standard", "base64-text-digest-signature", "utc")).toThrow("Unsupported ZATCA Phase 2 QR format: ENCODING")
   })
 })
