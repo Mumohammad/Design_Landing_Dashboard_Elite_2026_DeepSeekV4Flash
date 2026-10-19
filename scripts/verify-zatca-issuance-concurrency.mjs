@@ -39,9 +39,10 @@ export async function verifyIssuanceLedger(sql) {
       (gen_random_uuid(),'${otherActor}','${otherTenant}','${otherActor}@example.test','general_manager','active',false);
     INSERT INTO public.customers(id,tenant_id,name_ar) VALUES ('${customer}','${tenant}','Synthetic customer');
     ${invoices.map((id,i)=>`INSERT INTO public.invoices(id,tenant_id,invoice_number,invoice_type,customer_id,issue_date,due_date,status,subtotal,vat_amount,total)
-      VALUES ('${id}','${tenant}','SYNTHETIC-INV-${i}','sales','${customer}',CURRENT_DATE,CURRENT_DATE,'finalized',100,15,115);
+      VALUES ('${id}','${tenant}','SYNTHETIC-INV-${i}','sales','${customer}',CURRENT_DATE,CURRENT_DATE,'draft',100,15,115);
       INSERT INTO public.invoice_lines(tenant_id,invoice_id,line_no,description,quantity,unit_price,discount,amount,vat_rate,vat_amount)
-      VALUES ('${tenant}','${id}',1,${literal(lines[0].description)},1,100,0,100,15,15);`).join("\n")}
+      VALUES ('${tenant}','${id}',1,${literal(lines[0].description)},1,100,0,100,15,15);
+      UPDATE public.invoices SET status='finalized' WHERE id='${id}';`).join("\n")}
     ${[["credit_notes","credit_note_number",credits],["debit_notes","debit_note_number",debits]].flatMap(([table,column,ids])=>ids.map((id,i)=>`
       INSERT INTO public.${table}(id,tenant_id,${column},reference_invoice_id,customer_id,issue_date,currency,status,subtotal,vat_amount,total,reason,lines)
       VALUES ('${id}','${tenant}','SYNTHETIC-${column}-${i}','${invoices[0]}','${customer}',CURRENT_DATE,'SAR','finalized',100,15,115,'Synthetic adjustment',${literal(JSON.stringify(lines))});`)).join("\n")}
@@ -130,5 +131,9 @@ if(process.argv[1] && import.meta.url===pathToFileURL(path.resolve(process.argv[
     let out="",error="";child.stdout.on("data",d=>{out+=d});child.stderr.on("data",d=>{error+=d});child.on("error",reject)
     child.on("close",code=>code===0?resolve(out.trim()):reject(new Error(error)));child.stdin.end(statement)
   })
-  try { await verifyIssuanceLedger(sql) } catch(error) { console.error(`FAIL: disposable ZATCA issuance database verification at ${error.verificationStage??"startup"}`); process.exitCode=1 }
+  try { await verifyIssuanceLedger(sql) } catch(error) {
+    const safeCode=error.message?.match(/\b(?:INV\d{3}|AUTH\d{3}|ZTC_[A-Z]+):/)?.[0]??"database-or-assertion"
+    console.error(`FAIL: disposable ZATCA issuance verification at ${error.verificationStage??"startup"} (${safeCode})`)
+    process.exitCode=1
+  }
 }
