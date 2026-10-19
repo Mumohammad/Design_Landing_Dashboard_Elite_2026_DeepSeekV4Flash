@@ -42,8 +42,8 @@ old cap, exact KPIs, pagination, document/driver/unassigned search, independent
 failure/retry paths, create refresh and Arabic mobile. Current-commit CI/hosted
 results are recorded in PR 76 after execution.
 
-The existing expense-create action still has separate record/audit writes and
-does not yet have the durable request identity added to manual receivables.
-That remaining mutation failure/retry case must be resolved before claiming
-complete expense lifecycle readiness. Company tax setup, genuine approval and
-finance-owner acceptance also remain required.
+The [pending-expense retry continuation](expense-create-retries-2026-10-19.md)
+replaces separate creation/audit writes with a durable authorized transaction.
+It is applied to staging; exact-head CI/hosted verification and the separate
+approval-action audit/uncertain-response handling remain release conditions.
+Company tax setup and finance-owner acceptance also remain required.

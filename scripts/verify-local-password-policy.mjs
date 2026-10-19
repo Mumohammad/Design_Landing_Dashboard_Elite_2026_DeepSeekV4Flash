@@ -44,7 +44,8 @@ export async function verifyNewPasswordFlows(browser,admin,appUrl,anonKey){
       stage=`${locale} reset no Auth mutation`
       expect(mutations).toBe(0)
       stage=`${locale} reset mobile capture`
-      await page.screenshot({path:`supabase/.temp/password-reset-${locale}-mobile.png`,fullPage:true})
+      await page.evaluate(()=>window.scrollTo({top:0,behavior:'instant'}))
+      await page.screenshot({path:`supabase/.temp/password-reset-${locale}-mobile.png`,fullPage:true,animations:'disabled'})
 
       stage=`${locale} invite validation`
       // Nonexistent identifiers expose only the public form. Weak passwords
@@ -71,7 +72,8 @@ export async function verifyNewPasswordFlows(browser,admin,appUrl,anonKey){
       await expect(page.getByRole('alert').filter({hasText:hint})).toHaveText(hint)
       expect(mutations).toBe(0)
       if(!(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)))throw Error('Registration viewport overflows')
-      await page.screenshot({path:`supabase/.temp/password-registration-${locale}-mobile.png`,fullPage:true})
+      await page.evaluate(()=>window.scrollTo({top:0,behavior:'instant'}))
+      await page.screenshot({path:`supabase/.temp/password-registration-${locale}-mobile.png`,fullPage:true,animations:'disabled'})
       page.off('request',record)
     }
 

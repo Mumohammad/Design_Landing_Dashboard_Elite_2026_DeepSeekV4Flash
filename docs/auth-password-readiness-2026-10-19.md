@@ -16,6 +16,13 @@ production build passed. Exact-commit browser/CI results are recorded on PR 76
 after execution.
 The browser release harness now checks both languages on mobile, rejection
 before network mutations and a real disposable-user recovery/password change.
+Hosted verification passed on exact preview head `e4294df`: English/Arabic
+mobile hints and validation, zero weak-input mutation requests, localized
+registration control, a real recovery session and strong-password update,
+successful replacement-password sign-in and rejected old credential. Sessions
+were revoked and the synthetic recovery user retired. Scoped alert locators
+exclude Next.js's separate route announcer; its initial ambiguous-locator
+failure was corrected. The new mobile captures were visually inspected.
 
 ## Hosted configuration
 

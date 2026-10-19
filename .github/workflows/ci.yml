@@ -290,6 +290,9 @@ jobs:
     - name: Verify manual receivable retries in disposable database
       run: node scripts/verify-manual-receivable-concurrency.mjs --local-disposable
 
+    - name: Verify expense creation retries in disposable database
+      run: node scripts/verify-expense-creation-concurrency.mjs --local-disposable
+
     - name: Verify ZATCA preparation ledger in disposable database
       run: node scripts/verify-zatca-issuance-concurrency.mjs --local-disposable
 

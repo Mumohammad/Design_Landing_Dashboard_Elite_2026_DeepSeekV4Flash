@@ -70,6 +70,7 @@ export default function ExpensesPage() {
   const [isApproving, setIsApproving] = useState(false)
 
   const [createOpen, setCreateOpen] = useState(false)
+  const [createRequestId, setCreateRequestId] = useState("")
   const [formType, setFormType] = useState<ExpenseType>("fuel")
   const [formCategory, setFormCategory] = useState("")
   const [formAmount, setFormAmount] = useState("")
@@ -155,6 +156,8 @@ export default function ExpensesPage() {
   ]
 
   const openCreate = () => {
+    if (isSaving) return
+    setCreateRequestId(crypto.randomUUID())
     setFormType("fuel")
     setFormCategory("")
     setFormAmount("")
@@ -167,25 +170,30 @@ export default function ExpensesPage() {
   }
 
   async function handleCreate() {
+    if (isSaving) return
     setIsSaving(true)
     setFormError(null)
-    const res = await createExpense({
-      expense_type: formType,
-      category: formCategory || undefined,
-      amount: Number(formAmount || 0),
-      expense_date: formDate,
-      vendor: formVendor || null,
-      description: formDescription || null,
-      vat_rate: Number(formVatRate || 0),
-    })
-    setIsSaving(false)
-    if (res.success) {
-      flash("ok", "تم إنشاء المصروف (قيد الاعتماد). / Expense created (pending).")
-      setCreateOpen(false)
-      await load()
-    } else {
-      setFormError(res.error ?? "Failed")
-    }
+    try {
+      const res = await createExpense({
+        request_id: createRequestId,
+        expense_type: formType,
+        category: formCategory || undefined,
+        amount: Number(formAmount || 0),
+        expense_date: formDate,
+        vendor: formVendor || null,
+        description: formDescription || null,
+        vat_rate: Number(formVatRate || 0),
+      })
+      if (res.success) {
+        flash("ok", "تم إنشاء المصروف (قيد الاعتماد). / Expense created (pending).")
+        setCreateOpen(false)
+        await load()
+      } else {
+        setFormError((locale === "ar" ? res.errorAr ?? res.error : res.error) ?? (locale === "ar" ? "تعذر الحفظ." : "Save failed."))
+      }
+    } catch {
+      setFormError(locale === "ar" ? "تعذر تأكيد حفظ المصروف. أعد المحاولة بالتفاصيل نفسها." : "Unable to confirm this expense. Retry with unchanged details.")
+    } finally { setIsSaving(false) }
   }
 
   async function handleApprove() {
@@ -256,7 +264,7 @@ export default function ExpensesPage() {
       />
 
       {/* ── New expense dialog ────────────────────────────────────────── */}
-      <Dialog open={createOpen} onOpenChange={(o) => { if (!o) setCreateOpen(false) }}>
+      <Dialog open={createOpen} onOpenChange={(o) => { if (!isSaving && !o) setCreateOpen(false) }}>
         <DialogContent className="max-w-lg rounded-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle><LocalizedText text="New expense" /></DialogTitle>
@@ -264,7 +272,7 @@ export default function ExpensesPage() {
               <LocalizedText text="Created pending with an automatic code; approval captures VAT" />
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          <fieldset disabled={isSaving} className="min-w-0 space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="exp-type"><LocalizedText text="Type" /></Label>
@@ -281,14 +289,14 @@ export default function ExpensesPage() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="exp-category"><LocalizedText text="Category" /></Label>
-                <Input id="exp-category" value={formCategory} onChange={(e) => setFormCategory(e.target.value)} className="h-9" />
+                <Input id="exp-category" maxLength={200} value={formCategory} onChange={(e) => setFormCategory(e.target.value)} className="h-9" />
               </div>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="space-y-1.5">
                 <Label htmlFor="exp-amount"><LocalizedText text="Net amount" /></Label>
-                <Input id="exp-amount" type="number" dir="ltr" min="0" step="0.01" value={formAmount} onChange={(e) => setFormAmount(e.target.value)} className="h-9 text-end tabular-nums" />
+                <Input id="exp-amount" type="number" dir="ltr" min="0.01" max="99999999.99" step="0.01" value={formAmount} onChange={(e) => setFormAmount(e.target.value)} className="h-9 text-end tabular-nums" />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="exp-date"><LocalizedText text="Date" /></Label>
@@ -303,11 +311,11 @@ export default function ExpensesPage() {
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="exp-vendor"><LocalizedText text="Vendor" /></Label>
-                <Input id="exp-vendor" value={formVendor} onChange={(e) => setFormVendor(e.target.value)} className="h-9" />
+                <Input id="exp-vendor" maxLength={200} value={formVendor} onChange={(e) => setFormVendor(e.target.value)} className="h-9" />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="exp-desc"><LocalizedText text="Description" /></Label>
-                <Input id="exp-desc" value={formDescription} onChange={(e) => setFormDescription(e.target.value)} className="h-9" />
+                <Input id="exp-desc" maxLength={2000} value={formDescription} onChange={(e) => setFormDescription(e.target.value)} className="h-9" />
               </div>
             </div>
 
@@ -319,7 +327,7 @@ export default function ExpensesPage() {
               </p>
             )}
 
-            {formError && <p className="text-xs text-red-500">{ui(formError)}</p>}
+            {formError && <p role="alert" className="text-xs text-red-500">{ui(formError)}</p>}
 
             <div className="flex items-center gap-3">
               <Button
@@ -331,7 +339,7 @@ export default function ExpensesPage() {
               <Button variant="ghost" onClick={() => setCreateOpen(false)}>
                 <X className="h-4 w-4" /><LocalizedText text="Cancel" /></Button>
             </div>
-          </div>
+          </fieldset>
         </DialogContent>
       </Dialog>
 

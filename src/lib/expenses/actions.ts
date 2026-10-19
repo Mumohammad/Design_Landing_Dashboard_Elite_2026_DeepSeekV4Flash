@@ -24,12 +24,14 @@
 
 import { revalidatePath } from "next/cache"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { createClient } from "@/lib/supabase/server"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
 import { writeAuditLog } from "@/lib/auth/sessions"
 import { mapFinancialError } from "@/lib/accounting/csv-utils"
 import { runEventDispatcher } from "@/lib/accounting/dispatcher"
 import { rateLimitExpenses } from "@/lib/auth/rate-limit"
 import { emit } from "@/lib/webhooks/events"
+import { round2 } from "@/lib/accounting/invoice-math"
 
 type ActionResult = { success: boolean; error?: string }
 
@@ -137,6 +139,7 @@ export async function approveExpense(input: {
  * Permission: expenses:create. The DB assigns the EXP-YYYY-000xxx code.
  */
 export async function createExpense(input: {
+  request_id: string
   expense_type: ExpenseType
   category?: string
   amount: number
@@ -144,63 +147,68 @@ export async function createExpense(input: {
   vendor?: string | null
   description?: string | null
   vat_rate?: number
-}): Promise<ActionResult & { id?: string }> {
+}): Promise<ActionResult & { errorAr?: string; id?: string; replayed?: boolean }> {
   try {
     await requirePermission("expenses", "create")
     const currentUser = await getCurrentUser()
-    if (!currentUser) return { success: false, error: "Not authenticated." }
+    if (!currentUser) return { success: false, error: "Not authenticated.", errorAr: "يلزم تسجيل الدخول." }
     const rl = await rateLimitExpenses(currentUser.id)
-    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
+    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later.", errorAr: "تجاوزت عدد المحاولات المسموح. حاول لاحقاً." }
 
-    const amount = Number(input.amount)
-    const vatRate = Number(input.vat_rate ?? 15)
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!uuid.test(input.request_id ?? "")) return { success: false, error: "Reopen the form to start a new expense.", errorAr: "أعد فتح النموذج لبدء مصروف جديد." }
+    const amount = input.amount
+    const vatRate = input.vat_rate ?? 15
     const type = input.expense_type
     if (!EXPENSE_TYPES.includes(type)) {
-      return { success: false, error: mapFinancialError("EXP006: invalid expense type") }
+      return { success: false, error: "Select a valid expense type.", errorAr: "اختر نوع مصروف صحيحاً." }
     }
-    if (!Number.isFinite(amount) || amount <= 0) {
-      return { success: false, error: mapFinancialError("EXP006: amount must be positive") }
+    if (typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0 || amount > 99_999_999.99 || round2(amount) <= 0) {
+      return { success: false, error: "Enter an amount from 0.01 to 99,999,999.99 SAR.", errorAr: "أدخل مبلغاً من 0.01 إلى 99,999,999.99 ر.س." }
     }
-    if (!input.expense_date || !/^\d{4}-\d{2}-\d{2}$/.test(input.expense_date)) {
-      return { success: false, error: mapFinancialError("EXP006: expense date required") }
+    const date = new Date(input.expense_date)
+    if (typeof input.expense_date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(input.expense_date)
+      || input.expense_date < "0001-01-01" || !Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== input.expense_date) {
+      return { success: false, error: "Enter a valid expense date.", errorAr: "أدخل تاريخ مصروف صحيحاً." }
     }
-    if (!Number.isFinite(vatRate) || vatRate < 0 || vatRate > 100) {
-      return { success: false, error: mapFinancialError("EXP003: invalid VAT rate") }
+    if (typeof vatRate !== "number" || !Number.isFinite(vatRate) || vatRate < 0 || vatRate > 100) {
+      return { success: false, error: "Enter a VAT rate from 0 to 100.", errorAr: "أدخل نسبة ضريبة من 0 إلى 100." }
     }
 
-    const admin = createAdminClient()
-    const { data: row, error } = await admin
-      .from("expenses")
-      .insert({
-        tenant_id: currentUser.tenantId,
+    for (const [value, max] of [[input.category, 200], [input.vendor, 200], [input.description, 2000]] as const) {
+      if (value != null && (typeof value !== "string" || value.trim().length > max)) return {
+        success: false, error: "Check the category, vendor and description lengths.", errorAr: "تحقق من طول الفئة والمورد والوصف.",
+      }
+    }
+    // Preserve JWT/MFA context. The database owns tenant/actor derivation,
+    // request arbitration and the single expense/audit commit.
+    const supabase = await createClient()
+    const { data: row, error } = await supabase.rpc("create_expense_atomic", {
+      p_request_id: input.request_id,
+      p_expense: {
         expense_type: type,
         category: input.category?.trim() || null,
-        amount,
-        currency: "SAR",
+        amount: round2(amount),
         expense_date: input.expense_date,
         description: input.description?.trim() || null,
         vendor: input.vendor?.trim() || null,
-        vat_rate: vatRate,
-        is_approved: false,
-        created_by: currentUser.authUserId,
-      })
-      .select("id,expense_code")
-      .single()
-    if (error) return { success: false, error: mapFinancialError(error.message) }
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "expenses",
-      action: "expense_created",
-      entityType: "expenses",
-      entityId: row.id,
-      newValues: { expense_code: row.expense_code, expense_type: type, amount, expense_date: input.expense_date },
+        vat_rate: round2(vatRate),
+      },
     })
+    if (error?.message?.startsWith("EXP_RETRY_UNAVAILABLE:")) return { success: false,
+      error: "The original expense changed or was removed. Reload and review it before creating another.",
+      errorAr: "تغير المصروف الأصلي أو حُذف. أعد تحميله وراجعه قبل إنشاء مصروف آخر." }
+    if (error?.message?.startsWith("EXP_RETRY:")) return { success: false,
+      error: "This request already saved different details. Reload and review the original expense before starting a new one.",
+      errorAr: "حُفظ هذا الطلب بتفاصيل مختلفة. أعد تحميل المصروف الأصلي وراجعه قبل بدء طلب جديد." }
+    if (error || !row || !uuid.test(row.id ?? "") || typeof row.replayed !== "boolean") return { success: false,
+      error: "Unable to confirm this expense. Retry with unchanged details.",
+      errorAr: "تعذر تأكيد حفظ المصروف. أعد المحاولة بالتفاصيل نفسها." }
 
     revalidatePath("/expenses")
-    return { success: true, id: row.id }
+    return { success: true, id: row.id, replayed: row.replayed }
   } catch (e) {
-    return { success: false, error: errorMessage(e) }
+    void e
+    return { success: false, error: "Unable to confirm this expense. Retry with unchanged details.", errorAr: "تعذر تأكيد حفظ المصروف. أعد المحاولة بالتفاصيل نفسها." }
   }
 }

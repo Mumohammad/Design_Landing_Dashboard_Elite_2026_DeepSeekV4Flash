@@ -17,6 +17,18 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
   const needle = `Needle "${tag},50%_`, createdVendor = 'Created-expense-' + tag
   const ids = Array.from({length:106},()=>randomUUID()), drivers = [randomUUID(),randomUUID()]
   const pattern = '**/rest/v1/expenses?**'
+  const actionPattern='**/expenses*'
+  let responseLost=false
+  const loseResponse=async route=>{
+    const request=route.request()
+    if(!responseLost&&request.method()==='POST'&&new URL(request.url()).pathname==='/expenses'
+      &&request.headers()['next-action']&&request.postData()?.includes(createdVendor)){
+      responseLost=true
+      const response=await route.fetch()
+      if(!response.ok())throw Error('Expense action failed before response-loss injection')
+      await route.abort('failed')
+    }else await route.continue()
+  }
   let stage = 'fixtures'
   try {
     const driverRows = drivers.map((id,i)=>({id,tenant_id:tenantId,full_name_ar:i===0?`Normal ${tag}`:`Driver ${needle}`,full_name_en:i===0?`Normal ${tag}`:`Driver ${needle}`,primary_mobile:'+966500000000',category:'freelancer',status:'active'}))
@@ -77,11 +89,19 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
     await page.unroute(dependencyPattern,failDependency)
     await page.getByRole('button',{name:/^(Retry|Try again)$/}).click()
     await expect(rows).toHaveCount(25)
-    stage = 'create refreshes global totals and current search'
+    stage = 'expense commit with lost successful response'
     await page.getByRole('button',{name:'New expense',exact:true}).click()
     const dialog = page.getByRole('dialog')
     await dialog.locator('#exp-amount').fill('1.23')
     await dialog.locator('#exp-vendor').fill(createdVendor)
+    await page.route(actionPattern,loseResponse)
+    await dialog.getByRole('button',{name:'Save expense',exact:true}).click()
+    await expect(dialog.getByRole('alert')).toContainText('Retry with unchanged details')
+    await page.unroute(actionPattern,loseResponse)
+    if(!responseLost)throw Error('Expense response loss was not exercised')
+    const first=await admin.from('expenses').select('id,amount,request_id').eq('tenant_id',tenantId).eq('vendor',createdVendor).single()
+    if(first.error||!first.data?.request_id||Number(first.data.amount)!==1.23)throw Error('Expense did not commit before transport fault')
+    stage = 'same-form retry refreshes once'
     await dialog.getByRole('button',{name:'Save expense',exact:true}).click()
     await expect(dialog).toBeHidden()
     await expect(metrics.nth(0)).toHaveText('107')
@@ -89,7 +109,15 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
     await search.fill(createdVendor)
     await expect(rows).toHaveCount(1)
     const created = await admin.from('expenses').select('id,is_approved,amount').eq('tenant_id',tenantId).eq('vendor',createdVendor).single()
-    if (created.error || created.data.is_approved || Number(created.data.amount)!==1.23) throw Error('Created expense persistence differs')
+    if (created.error || created.data.id!==first.data.id || created.data.is_approved || Number(created.data.amount)!==1.23) throw Error('Created expense persistence differs')
+    const audit=await admin.from('audit_log').select('id').eq('tenant_id',tenantId).eq('entity_id',created.data.id).eq('action','expense_created')
+    if(audit.error||audit.data?.length!==1)throw Error('Expense retry duplicated or omitted audit')
+    await page.getByRole('button',{name:'New expense',exact:true}).click()
+    await expect(dialog.locator('#exp-amount')).toHaveValue('')
+    await expect(dialog.locator('#exp-vendor')).toHaveValue('')
+    await expect(dialog.getByRole('alert')).toHaveCount(0)
+    await expect(dialog.locator('fieldset')).toBeEnabled()
+    await page.keyboard.press('Escape')
     stage = 'desktop and Arabic mobile rendering'
     await page.screenshot({path:'supabase/.temp/expenses-overview-desktop.png',fullPage:true})
     await page.setViewportSize({width:390,height:844})
@@ -113,7 +141,7 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
     await revealed(heading)
     if (!(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth))) throw Error('Expense viewport overflows')
     await page.screenshot({path:'supabase/.temp/expenses-overview-mobile-ar.png',fullPage:true})
-    console.log('PASS: expenses beyond 100 rows; exact full summary, literal document/driver/unassigned search, pagination, table/summary/mapping failure recovery, create refresh and Arabic mobile')
+    console.log('PASS: expenses beyond 100 rows; exact full summary, literal document/driver/unassigned search, pagination, read failure recovery, lost-response retry with one record/audit, fresh form and Arabic mobile')
   } catch (error) {
     console.error(JSON.stringify({check:'expenses overview',stage,errorType:error.name}))
     await page.screenshot({path:'supabase/.temp/expenses-overview-failure.png',fullPage:true}).catch(()=>{})
