@@ -22,10 +22,10 @@ import { writeAuditLog } from "@/lib/auth/sessions"
 // Sync helpers live in a plain module (a "use server" file can only export
 // async functions, which would force awaits at every call site).
 import { mapFinancialError, parseCsv, toCsv } from "@/lib/accounting/csv-utils"
-// Canonical 2dp integer-minor rounding (invoice-math.ts) — every money value
-// passes through the SAME EPSILON-guarded function so no float artifact can
-// slip in through a differently-rounded copy (TEST-STRATEGY §4).
+// Round decimal values before persistence; VAT multiplication must also use
+// decimal arithmetic rather than rounding an already-imprecise float product.
 import { round2 } from "@/lib/accounting/invoice-math"
+import { calculateVat, sumMoney } from "@/lib/accounting/decimal"
 import { rateLimitAccounting, rateLimitAccountingImport } from "@/lib/auth/rate-limit"
 import { moduleLogger, logPerformance } from "@/lib/logger"
 import { emit } from "@/lib/webhooks/events"
@@ -979,19 +979,26 @@ export async function createReceivable(input: {
 
     const amount = Number(input.amount)
     const vatRate = Number(input.vat_rate)
-    if (!input.invoice_ref.trim() || amount <= 0 || vatRate < 0 || vatRate > 100) {
+    if (!input.invoice_ref.trim() || !Number.isFinite(amount) || amount <= 0 || amount > 9_999_999_999.99
+      || !Number.isFinite(vatRate) || vatRate < 0 || vatRate > 100) {
       return { success: false, error: "Invoice reference, positive amount, and a valid VAT rate are required." }
     }
-    if (new Date(input.due_date) < new Date(input.invoice_date)) {
+    if ([input.invoice_date, input.due_date].some(value => {
+      const date = new Date(value)
+      return !/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== value
+    })) {
+      return { success: false, error: "Valid invoice and due dates are required." }
+    }
+    if (input.due_date < input.invoice_date) {
       return { success: false, error: "Due date cannot be before the invoice date." }
     }
 
-    // TEST-STRATEGY §4: the old `Math.round(amount * vatRate) / 100` float
-    // pattern was flagged for replacement — the canonical EPSILON-guarded
-    // round2 on the divided value matches expenses/invoices exactly.
     const amountR = round2(amount)
-    const vatAmount = round2((amountR * vatRate) / 100)
-    const total = round2(amountR + vatAmount)
+    const vatAmount = calculateVat(amountR, vatRate)
+    const total = sumMoney(amountR, vatAmount)
+    if (amountR <= 0 || total > 9_999_999_999.99) {
+      return { success: false, error: "Receivable amounts must fit the supported monetary range." }
+    }
 
     const admin = createAdminClient()
     const { data: row, error } = await admin

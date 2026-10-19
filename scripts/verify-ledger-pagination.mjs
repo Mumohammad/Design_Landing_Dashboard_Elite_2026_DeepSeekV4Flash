@@ -102,19 +102,25 @@ export async function verifyLedgerPagination(page, admin, tenantId, appUrl, acco
       await page.setViewportSize({ width: 1440, height: 1000 })
     }
 
-    stage = 'manual receivable creation refreshes the searched ledger'
+    stage = 'manual receivable: open list'
     await page.goto(`${appUrl}/accounting?lang=en`)
+    await expect(page.getByRole('tabpanel', { name: 'Journal', exact: true })).toBeVisible()
     await page.getByRole('tab', { name: 'Receivables', exact: true }).click()
+    await expect(page.getByRole('tabpanel', { name: 'Receivables', exact: true })).toBeVisible()
+    stage = 'manual receivable: open form'
     await page.getByRole('button', { name: 'New receivable', exact: true }).click()
     const dialog = page.getByRole('dialog')
     const reference = createdReference
     await dialog.locator('#rcvRef').fill(reference)
     await dialog.locator('#rcvAmount').fill('4.10')
     await dialog.locator('#rcvVat').fill('15')
+    stage = 'manual receivable: exact preview'
     await expect(dialog.getByTestId('receivable-preview')).toContainText('0.62')
     await expect(dialog.getByTestId('receivable-preview')).toContainText('4.72')
+    stage = 'manual receivable: save'
     await dialog.getByRole('button', { name: /Save|حفظ/ }).click()
     await expect(dialog).toBeHidden()
+    stage = 'manual receivable: persisted VAT and refreshed list'
     const persisted = await admin.from('receivables').select('id,total_amount').eq('tenant_id', tenantId).eq('invoice_ref', reference).single()
     if (persisted.error || Number(persisted.data.total_amount) !== 4.72) throw Error('Receivable creation did not persist exact VAT')
     ids.receivables.push(persisted.data.id)
@@ -124,6 +130,7 @@ export async function verifyLedgerPagination(page, admin, tenantId, appUrl, acco
     console.log('PASS: journal/AR/AP database pages beyond old caps, literal Arabic/English search, malformed-page recovery, Arabic mobile controls and persisted manual receivable/VAT refresh')
   } catch (error) {
     console.error(JSON.stringify({ check: 'ledger pagination', stage, errorType: error.name }))
+    await page.screenshot({ path: 'supabase/.temp/ledger-pagination-failure.png' })
     throw Error(`Ledger pagination verification failed: ${stage}`)
   } finally {
     await page.unrouteAll({ behavior: 'ignoreErrors' })
