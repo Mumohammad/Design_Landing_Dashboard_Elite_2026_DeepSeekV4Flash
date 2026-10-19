@@ -2,7 +2,7 @@
 
 import { LocalizedText } from "@/components/localized-text"
 import { integrationAvailable } from "@/lib/release/integrations"
-import { Fragment, useEffect, useState } from "react"
+import { Fragment, useCallback, useEffect, useState } from "react"
 import { useActionState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
@@ -12,6 +12,10 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { BankAccountPicker } from "@/components/accounting/bank-account-picker"
+import { LedgerToolbar } from "@/components/accounting/ledger-toolbar"
+import { ledgerQuery, isLedgerKind } from "@/lib/accounting/ledger-queries"
+import { useTablePage } from "@/hooks/use-table-page"
+import { calculateVat, decimalRound, sumMoney } from "@/lib/accounting/decimal"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { LoadingSpinner } from "@/components/ui/loading-spinner"
@@ -326,6 +330,16 @@ function requireAccountingRows(signal: AbortSignal, ...values: unknown[]) {
   if (signal.aborted || values.some(value => !Array.isArray(value))) throw new Error("Could not load accounting data")
 }
 
+function manualReceivablePreview(amount: string, rate: string) {
+  try {
+    if (!amount || !Number.isFinite(Number(rate)) || Number(rate) < 0 || Number(rate) > 100) return null
+    const net = decimalRound(amount)
+    if (net <= 0) return null
+    const vat = calculateVat(net, rate || "0")
+    return { vat, total: sumMoney(net, vat) }
+  } catch { return null }
+}
+
 function fmtDate(d: string | null): string {
   if (!d) return "—"
   try {
@@ -384,15 +398,21 @@ export default function AccountingPage() {
   const [loadError, setLoadError] = useState(false)
   const [loadRevision, setLoadRevision] = useState(0)
 
-  const [journals, setJournals] = useState<JournalRow[]>([])
+  const ledgerTab = isLedgerKind(tab)
+  const buildLedgerQuery = useCallback((term: string) => {
+    if (!isLedgerKind(tab)) throw new Error("Unsupported ledger")
+    return ledgerQuery(createClient(), tab, term)
+  }, [tab])
+  const ledger = useTablePage<JournalRow | ArApRow>(ledgerTab ? buildLedgerQuery : null)
+  const journals = ledger.rows as JournalRow[]
   const [expandedEntryId, setExpandedEntryId] = useState<string | null>(null)
   const [lineCache, setLineCache] = useState<Record<string, JournalLineRow[]>>({})
   const [linesBusy, setLinesBusy] = useState(false)
   const [linesError, setLinesError] = useState<string | null>(null)
   const [accounts, setAccounts] = useState<AccountRow[]>([])
   const [trial, setTrial] = useState<TrialRow[]>([])
-  const [receivables, setReceivables] = useState<ArApRow[]>([])
-  const [payables, setPayables] = useState<ArApRow[]>([])
+  const receivables = ledger.rows as ArApRow[]
+  const payables = ledger.rows as ArApRow[]
   const [vatOutput, setVatOutput] = useState<VatLedgerRow[]>([])
   const [vatInput, setVatInput] = useState<VatLedgerRow[]>([])
   const [vatAdjustments, setVatAdjustments] = useState<VatAdjustmentRow[]>([])
@@ -451,41 +471,10 @@ export default function AccountingPage() {
         setAccounts(data as AccountRow[])
       }
 
-      if (tab === "journal") {
-        const { data } = await supabase
-          .from("journal_entries")
-          .select("id,entry_ref,entry_date,entry_type,status,description_ar,description_en,posted_at,updated_at,journal_approvals(status)")
-          .is("deleted_at", null)
-          .order("entry_date", { ascending: false })
-          .order("created_at", { ascending: false })
-          .limit(100)
-          .abortSignal(controller.signal).throwOnError()
-        requireAccountingRows(controller.signal, data)
-        setJournals(data as unknown as JournalRow[])
-      } else if (tab === "trial") {
+      if (tab === "trial") {
         const { data } = await supabase.from("trial_balance").select("*").abortSignal(controller.signal).throwOnError()
         requireAccountingRows(controller.signal, data)
         setTrial(data as TrialRow[])
-      } else if (tab === "receivables") {
-        const { data } = await supabase
-          .from("receivables")
-          .select("id,invoice_ref,invoice_date,due_date,amount,vat_amount,total_amount,paid_amount,status")
-          .is("deleted_at", null)
-          .order("due_date", { ascending: true })
-          .limit(200)
-          .abortSignal(controller.signal).throwOnError()
-        requireAccountingRows(controller.signal, data)
-        setReceivables(data as ArApRow[])
-      } else if (tab === "payables") {
-        const { data } = await supabase
-          .from("payables")
-          .select("id,invoice_ref,invoice_date,due_date,amount,vat_amount,total_amount,paid_amount,status")
-          .is("deleted_at", null)
-          .order("due_date", { ascending: true })
-          .limit(200)
-          .abortSignal(controller.signal).throwOnError()
-        requireAccountingRows(controller.signal, data)
-        setPayables(data as ArApRow[])
       } else if (tab === "vat") {
         const [outRes, inRes, adjRes, perRes, reconRes, reviewRes] = await Promise.all([
           supabase
@@ -688,6 +677,7 @@ export default function AccountingPage() {
   async function reloadJournal() {
     setIsLoading(true)
     setLoadError(false)
+    ledger.reload()
     setLoadRevision(value => value + 1)
   }
 
@@ -1236,6 +1226,7 @@ export default function AccountingPage() {
   const [rcvDue, setRcvDue] = useState(() => new Date().toISOString().slice(0, 10))
   const [rcvAmount, setRcvAmount] = useState("")
   const [rcvVat, setRcvVat] = useState("15")
+  const rcvPreview = manualReceivablePreview(rcvAmount, rcvVat)
   const [rcvState, rcvAction, isSavingRcv] = useActionState(
     async (_prev: { success: boolean; error?: string } | null, _form: FormData) => {
       const res = await createReceivable({
@@ -1245,7 +1236,7 @@ export default function AccountingPage() {
         amount: Number(rcvAmount || 0),
         vat_rate: Number(rcvVat || 0),
       })
-      if (res.success) closeDialog("receivable")
+      if (res.success) { closeDialog("receivable"); ledger.reload() }
       return res
     },
     null
@@ -1437,7 +1428,9 @@ export default function AccountingPage() {
         </DialogContent>
       </Dialog>
 
-      <Tabs value={tab} onValueChange={setTab}>
+      <Tabs value={tab} onValueChange={value => {
+        setIsLoading(true); setLoadError(false); setTab(value); ledger.setSearch(""); ledger.reload()
+      }}>
         <TabsList className="flex-wrap h-auto">
           <TabsTrigger value="journal" className="gap-2"><BookOpenText className="h-4 w-4" />{ar ? "قيود اليومية" : "Journal"}</TabsTrigger>
           <TabsTrigger value="accounts" className="gap-2"><ListTree className="h-4 w-4" />{ar ? "دليل الحسابات" : "Accounts"}</TabsTrigger>
@@ -1454,22 +1447,26 @@ export default function AccountingPage() {
           <TabsTrigger value="zatca" className="gap-2"><FileCheck2 className="h-4 w-4" />{ar ? "إشعارات ZATCA" : "ZATCA"}</TabsTrigger>
         </TabsList>
 
-        {isLoading ? (
+        {ledgerTab && <LedgerToolbar journal={tab === "journal"} search={ledger.search} onSearchChange={ledger.setSearch} pagination={ledger.pagination}
+          loading={isLoading || ledger.loading} error={loadError || ledger.error}
+          onRefresh={() => { ledger.reload(); setLoadRevision(value => value + 1) }} />}
+
+        {isLoading || (ledgerTab && ledger.loading) ? (
           <div className="flex items-center justify-center py-24">
             <LoadingSpinner className="h-6 w-6 text-elite-blue-600" />
           </div>
-        ) : loadError ? (
+        ) : loadError || (ledgerTab && ledger.error) ? (
           <div role="alert" data-testid="accounting-load-error" className="flex flex-col items-center gap-3 rounded-xl border border-border px-4 py-12 text-center">
             <AlertTriangle aria-hidden="true" className="h-6 w-6 text-destructive" />
             <p className="text-sm">{ar ? "تعذر تحميل البيانات المحاسبية. أعد المحاولة قبل الاعتماد على الأرصدة أو السجلات." : "Could not load accounting data. Retry before relying on balances or records."}</p>
-            <Button variant="outline" onClick={() => setLoadRevision(value => value + 1)}>{ar ? "أعد المحاولة" : "Try again"}</Button>
+            <Button variant="outline" onClick={() => { ledger.reload(); setLoadRevision(value => value + 1) }}>{ar ? "أعد المحاولة" : "Try again"}</Button>
           </div>
         ) : (
           <>
             <TabsContent value="journal" className="mt-4">
               <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
                 <TableShell headers={["", "Ref", ar ? "التاريخ" : "Date", ar ? "الوصف" : "Description", ar ? "النوع" : "Type", ar ? "الحالة" : "Status", ar ? "إجراء" : "Action"]}>
-                  {journals.length === 0 && <EmptyRow colSpan={7} text={ar ? "لا توجد قيود بعد. أنشئ قيداً جديداً." : "No journal entries yet. Create one."} />}
+                  {journals.length === 0 && <EmptyRow colSpan={7} text={ledger.search.trim() ? (ar ? "لا توجد قيود تطابق البحث." : "No journal entries match this search.") : (ar ? "لا توجد قيود بعد. أنشئ قيداً جديداً." : "No journal entries yet. Create one.")} />}
                   {journals.map((j) => {
                     const s = JOURNAL_STATUS[j.status] ?? JOURNAL_STATUS.draft
                     const approval = j.journal_approvals?.status
@@ -1646,13 +1643,13 @@ export default function AccountingPage() {
                     <Dialog open={openDialogs["receivable"]} onOpenChange={(o) => setOpenDialogs((p) => ({ ...p, receivable: o }))}>
                       <DialogTrigger asChild>
                         <button className={dialogBtn} onClick={() => openDialog("receivable")}>
-                          <Plus className="h-3.5 w-3.5" />{ar ? "فاتورة جديدة" : "New invoice"}
+                          <Plus className="h-3.5 w-3.5" />{ar ? "ذمة مدينة جديدة" : "New receivable"}
                         </button>
                       </DialogTrigger>
                       <DialogContent className="max-w-md rounded-2xl">
                         <DialogHeader>
                           <DialogTitle>{ar ? "إنشاء ذمم مدينة" : "Create receivable"}</DialogTitle>
-                          <DialogDescription>{ar ? "فاتورة عميل مع ضريبة القيمة المضافة" : "Customer invoice with VAT"}</DialogDescription>
+                          <DialogDescription>{ar ? "تسجيل ذمة مدينة يدوية. تُنشأ الفواتير الضريبية من قسم الفواتير." : "Record a manual receivable. Create tax invoices in Invoices."}</DialogDescription>
                         </DialogHeader>
                         <form action={rcvAction} className="space-y-3">
                           <div className="space-y-1.5">
@@ -1679,8 +1676,8 @@ export default function AccountingPage() {
                               <Input id="rcvVat" type="number" dir="ltr" min="0" max="100" step="0.01" value={rcvVat} onChange={(e) => setRcvVat(e.target.value)} className="h-9 text-end tabular-nums" />
                             </div>
                           </div>
-                          {Number(rcvAmount || 0) > 0 && (
-                            <p className="text-xs text-muted-foreground" dir="ltr"><LocalizedText text="VAT:" />{fmtMoney((Number(rcvAmount) * Number(rcvVat || 0)) / 100)} <LocalizedText text="· Total:" /> {fmtMoney(Number(rcvAmount) + (Number(rcvAmount) * Number(rcvVat || 0)) / 100)}<LocalizedText text="SAR" /></p>
+                          {rcvPreview && (
+                            <p data-testid="receivable-preview" className="text-xs text-muted-foreground" dir="ltr"><LocalizedText text="VAT:" />{fmtMoney(rcvPreview.vat)} <LocalizedText text="· Total:" /> {fmtMoney(rcvPreview.total)}<LocalizedText text="SAR" /></p>
                           )}
                           <div className="flex items-center gap-3">
                             <Button type="submit" disabled={isSavingRcv} className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800">
@@ -1694,7 +1691,7 @@ export default function AccountingPage() {
                     </Dialog>
                   </CardHeader>
                   <TableShell headers={[ar ? "الفاتورة" : "Invoice", ar ? "التاريخ" : "Date", ar ? "الاستحقاق" : "Due", ar ? "المبلغ" : "Amount", "VAT", ar ? "الإجمالي" : "Total", ar ? "المدفوع" : "Paid", ar ? "الحالة" : "Status"]}>
-                    {receivables.length === 0 && <EmptyRow colSpan={8} text={ar ? "لا توجد ذمم مدينة." : "No receivables."} />}
+                    {receivables.length === 0 && <EmptyRow colSpan={8} text={ledger.search.trim() ? (ar ? "لا توجد ذمم مدينة تطابق البحث." : "No receivables match this search.") : (ar ? "لا توجد ذمم مدينة." : "No receivables.")} />}
                     {receivables.map((r) => {
                       const s = ARAP_STATUS[r.status] ?? ARAP_STATUS.open
                       const overdue = r.status !== "paid" && new Date(r.due_date) < new Date()
@@ -1719,7 +1716,7 @@ export default function AccountingPage() {
             <TabsContent value="payables" className="mt-4">
               <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
                 <TableShell headers={[ar ? "الفاتورة" : "Invoice", ar ? "التاريخ" : "Date", ar ? "الاستحقاق" : "Due", ar ? "المبلغ" : "Amount", "VAT", ar ? "الإجمالي" : "Total", ar ? "المدفوع" : "Paid", ar ? "الحالة" : "Status"]}>
-                  {payables.length === 0 && <EmptyRow colSpan={8} text={ar ? "لا توجد ذمم دائنة." : "No payables."} />}
+                  {payables.length === 0 && <EmptyRow colSpan={8} text={ledger.search.trim() ? (ar ? "لا توجد ذمم دائنة تطابق البحث." : "No payables match this search.") : (ar ? "لا توجد ذمم دائنة." : "No payables.")} />}
                   {payables.map((r) => {
                     const s = ARAP_STATUS[r.status] ?? ARAP_STATUS.open
                     const overdue = r.status !== "paid" && new Date(r.due_date) < new Date()
