@@ -1,10 +1,14 @@
 import { expect as baseExpect } from "@playwright/test"
+import { verifyAccountingReads } from "./verify-accounting-reads.mjs"
 const expect = baseExpect.configure({ timeout: 20_000 })
 
 // Only invoked by the loopback-only MFA harness, using disposable tenant data.
 export async function verifyJournalCrud(page, admin, tenantId, appUrl) {
   let stage = "journal accounts"
   try {
+    stage = "accounting read failure and recovery"
+    await verifyAccountingReads(page, appUrl)
+    stage = "journal accounts"
     const fixture = await admin.from("chart_of_accounts").insert([
       { tenant_id: tenantId, account_code: "8301", name_ar: "Test cash", name_en: "Test cash", account_type: "asset", normal_balance: "debit" },
       { tenant_id: tenantId, account_code: "8302", name_ar: "Test income", name_en: "Test income", account_type: "income", normal_balance: "credit" },

@@ -168,22 +168,27 @@ async function verifyOperationalOverviews(page, admin, tenantId, appUrl, driverI
         tenant_id: tenantId, driver_id, incident_date: today, incident_description: `Overview ${tag} violation ${i}`,
         status: 'open', severity: 'minor', deduction_amount: 0,
         created_at: i === 105 ? '2020-01-01T00:00:00Z' : new Date().toISOString(),
-      })), { tenant_id: tenantId, incident_date: today, incident_description: unassignedNeedle, status: 'open', severity: 'minor', deduction_amount: 0 }],
+      })), { tenant_id: tenantId, driver_id: null, incident_date: today, incident_description: unassignedNeedle, status: 'open', severity: 'minor', deduction_amount: 0, created_at: new Date().toISOString() }],
     }
     for (const [table, rows] of Object.entries(fixtures)) {
+      stage = `create ${table} fixtures`
       const inserted = await admin.from(table).insert(rows).select('id')
-      if (inserted.error || inserted.data?.length !== rows.length) throw Error(`Could not create ${table} fixtures`)
+      if (inserted.error || inserted.data?.length !== rows.length) {
+        console.error(JSON.stringify({ check: 'overview fixture creation', table, code: inserted.error?.code ?? 'row-count' }))
+        throw Error(`Could not create ${table} fixtures`)
+      }
       ids[table] = inserted.data.map(row => row.id)
     }
 
     for (const [route, table, total] of [['attendance', 'driver_attendance', 106], ['hr', 'performance_reviews', 106], ['violations', 'violations', 107]]) {
+      console.log(`Checking ${route} database pagination and read recovery`)
       stage = `${route}: pages, full counts and driver search beyond the old cap`
       await page.goto(`${appUrl}/${route}?lang=en`)
       const rows = page.locator('tbody tr')
-      const search = page.locator('main input[type="text"]').first()
+      const search = page.getByRole('textbox').first()
       await expect(rows).toHaveCount(25)
       await expect(page.getByText(`${total} records · Page 1 of 5`, { exact: true })).toBeVisible()
-      await expect(page.locator('main .text-2xl.font-bold').first()).toHaveText(String(total))
+      await expect(page.locator('main div.text-2xl.font-bold').first()).toHaveText(String(total))
       await page.getByRole('button', { name: 'Next page', exact: true }).click()
       await expect(page.getByText(/records · Page.*2/)).toBeVisible()
       await search.fill(needle)
@@ -191,7 +196,7 @@ async function verifyOperationalOverviews(page, admin, tenantId, appUrl, driverI
       await expect(rows.first()).toContainText(needle)
       await expect(rows.first().getByRole('link', { name: needle, exact: true })).toHaveAttribute('href', `/drivers/${driverIds[105]}`)
       // KPI cards describe the full module/date, never the current search page.
-      await expect(page.locator('main .text-2xl.font-bold').first()).toHaveText(String(total))
+      await expect(page.locator('main div.text-2xl.font-bold').first()).toHaveText(String(total))
 
       if (route === 'hr') {
         stage = 'review document-only search retains the displayed driver'
@@ -238,11 +243,12 @@ async function verifyOperationalOverviews(page, admin, tenantId, appUrl, driverI
       await page.route(pattern, failSummary)
       await page.reload()
       await expect(page.getByRole('alert').filter({ hasText: /Could not load/ })).toBeVisible()
-      await expect(page.locator('main .text-2xl.font-bold').first()).toHaveText('—')
+      await expect(page.locator('main div.text-2xl.font-bold').first()).toHaveText('—')
       await page.unroute(pattern, failSummary)
       await page.getByRole('button', { name: /Retry|Try again/, exact: true }).click()
-      await expect(page.locator('main .text-2xl.font-bold').first()).toHaveText(String(total))
+      await expect(page.locator('main div.text-2xl.font-bold').first()).toHaveText(String(total))
       await expect(rows).toHaveCount(25)
+      await page.screenshot({ path: `supabase/.temp/${route}-overview-desktop.png`, fullPage: true })
 
       if (route === 'attendance') {
         stage = 'attendance date changes reset the page and replace summary counts'
@@ -250,11 +256,11 @@ async function verifyOperationalOverviews(page, admin, tenantId, appUrl, driverI
         await expect(page.getByText(/records · Page.*2/)).toBeVisible()
         await page.getByLabel('Attendance date', { exact: true }).fill('2020-02-29')
         await expect(page.getByTestId('module-empty-state')).toBeVisible()
-        await expect(page.locator('main .text-2xl.font-bold').first()).toHaveText('0')
+        await expect(page.locator('main div.text-2xl.font-bold').first()).toHaveText('0')
         await expect(page.getByText('0 records · Page 1 of 1', { exact: true })).toBeVisible()
         await page.getByLabel('Attendance date', { exact: true }).fill(today)
         await expect(rows).toHaveCount(25)
-        await expect(page.locator('main .text-2xl.font-bold').first()).toHaveText('106')
+        await expect(page.locator('main div.text-2xl.font-bold').first()).toHaveText('106')
       }
 
       stage = `${route}: Arabic mobile pagination, error/retry and viewport`
@@ -264,7 +270,7 @@ async function verifyOperationalOverviews(page, admin, tenantId, appUrl, driverI
       await expect(page.getByRole('button', { name: 'الصفحة التالية', exact: true })).toBeEnabled()
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
       await page.route(pattern, fail)
-      await page.locator('main input[type="text"]').first().fill(`unavailable-${tag}`)
+      await page.getByRole('textbox').first().fill(`unavailable-${tag}`)
       const alert = page.getByRole('alert').filter({ hasText: 'تعذر تحميل' })
       await expect(alert).toBeVisible()
       const bounds = await alert.boundingBox()
@@ -273,6 +279,9 @@ async function verifyOperationalOverviews(page, admin, tenantId, appUrl, driverI
       await page.unroute(pattern, fail)
       await alert.getByRole('button').click()
       await expect(alert).toHaveCount(0)
+      await page.getByRole('textbox').first().fill(needle)
+      await expect(rows).toHaveCount(1)
+      await page.screenshot({ path: `supabase/.temp/${route}-overview-mobile-ar.png`, fullPage: true })
       await page.setViewportSize({ width: 1440, height: 1000 })
     }
   } catch (error) {

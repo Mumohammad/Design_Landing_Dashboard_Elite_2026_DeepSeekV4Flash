@@ -322,6 +322,10 @@ const ARAP_STATUS: Record<string, { ar: string; en: string; className: string }>
   written_off: { ar: "مشطوبة", en: "Written off", className: "bg-gray-500/15 text-gray-600 border-gray-500/20" },
 }
 
+function requireAccountingRows(signal: AbortSignal, ...values: unknown[]) {
+  if (signal.aborted || values.some(value => !Array.isArray(value))) throw new Error("Could not load accounting data")
+}
+
 function fmtDate(d: string | null): string {
   if (!d) return "—"
   try {
@@ -377,6 +381,8 @@ export default function AccountingPage() {
 
   const [tab, setTab] = useState("journal")
   const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
+  const [loadRevision, setLoadRevision] = useState(0)
 
   const [journals, setJournals] = useState<JournalRow[]>([])
   const [expandedEntryId, setExpandedEntryId] = useState<string | null>(null)
@@ -428,17 +434,21 @@ export default function AccountingPage() {
   const [periods, setPeriods] = useState<PeriodRow[]>([])
 
   useEffect(() => {
+    const controller = new AbortController()
     void (async () => {
       setIsLoading(true)
+      setLoadError(false)
       const supabase = createClient()
-
+      try {
       if (tab === "journal" || tab === "payments") {
         const { data } = await supabase
           .from("chart_of_accounts")
           .select("id,account_code,name_ar,name_en,account_type,normal_balance")
           .eq("is_active", true).is("deleted_at", null)
           .order("account_code", { ascending: true })
-        if (data) setAccounts(data as AccountRow[])
+          .abortSignal(controller.signal).throwOnError()
+        requireAccountingRows(controller.signal, data)
+        setAccounts(data as AccountRow[])
       }
 
       if (tab === "journal") {
@@ -449,10 +459,13 @@ export default function AccountingPage() {
           .order("entry_date", { ascending: false })
           .order("created_at", { ascending: false })
           .limit(100)
-        if (data) setJournals(data as unknown as JournalRow[])
+          .abortSignal(controller.signal).throwOnError()
+        requireAccountingRows(controller.signal, data)
+        setJournals(data as unknown as JournalRow[])
       } else if (tab === "trial") {
-        const { data } = await supabase.from("trial_balance").select("*")
-        if (data) setTrial(data as TrialRow[])
+        const { data } = await supabase.from("trial_balance").select("*").abortSignal(controller.signal).throwOnError()
+        requireAccountingRows(controller.signal, data)
+        setTrial(data as TrialRow[])
       } else if (tab === "receivables") {
         const { data } = await supabase
           .from("receivables")
@@ -460,7 +473,9 @@ export default function AccountingPage() {
           .is("deleted_at", null)
           .order("due_date", { ascending: true })
           .limit(200)
-        if (data) setReceivables(data as ArApRow[])
+          .abortSignal(controller.signal).throwOnError()
+        requireAccountingRows(controller.signal, data)
+        setReceivables(data as ArApRow[])
       } else if (tab === "payables") {
         const { data } = await supabase
           .from("payables")
@@ -468,45 +483,48 @@ export default function AccountingPage() {
           .is("deleted_at", null)
           .order("due_date", { ascending: true })
           .limit(200)
-        if (data) setPayables(data as ArApRow[])
+          .abortSignal(controller.signal).throwOnError()
+        requireAccountingRows(controller.signal, data)
+        setPayables(data as ArApRow[])
       } else if (tab === "vat") {
         const [outRes, inRes, adjRes, perRes, reconRes, reviewRes] = await Promise.all([
           supabase
             .from("vat_output_ledger")
             .select("id,period_year,period_month,invoice_ref,invoice_date,vat_base_amount,vat_rate,vat_amount")
             .order("invoice_date", { ascending: false })
-            .limit(200),
+            .limit(200).abortSignal(controller.signal).throwOnError(),
           supabase
             .from("vat_input_ledger")
             .select("id,period_year,period_month,invoice_ref,invoice_date,vat_base_amount,vat_rate,vat_amount,vat_recoverability")
             .order("invoice_date", { ascending: false })
-            .limit(200),
+            .limit(200).abortSignal(controller.signal).throwOnError(),
           supabase
             .from("vat_adjustments")
             .select("id,period_year,period_month,adjustment_type,direction,base_amount,vat_amount,reason,status")
             .is("deleted_at", null)
             .order("period_year", { ascending: false })
             .order("period_month", { ascending: false })
-            .limit(100),
+            .limit(100).abortSignal(controller.signal).throwOnError(),
           supabase
             .from("vat_periods")
             .select("id,period_year,period_month,status")
             .is("deleted_at", null)
             .order("period_year", { ascending: false })
             .order("period_month", { ascending: false })
-            .limit(24),
+            .limit(24).abortSignal(controller.signal).throwOnError(),
           supabase
             .from("vat_reconciliation")
             .select("*")
             .order("period_year", { ascending: false })
-            .order("period_month", { ascending: false }),
+            .order("period_month", { ascending: false }).abortSignal(controller.signal).throwOnError(),
           supabase
             .from("vat_input_ledger")
             .select("id,invoice_ref,invoice_date,vat_base_amount,vat_rate,vat_amount,supplier_id")
             .eq("vat_recoverability", "pending_review")
             .order("invoice_date", { ascending: true })
-            .limit(200),
+            .limit(200).abortSignal(controller.signal).throwOnError(),
         ])
+        requireAccountingRows(controller.signal, outRes.data, inRes.data, adjRes.data, perRes.data, reconRes.data, reviewRes.data)
         if (outRes.data) setVatOutput(outRes.data as VatLedgerRow[])
         if (inRes.data) setVatInput(inRes.data as VatLedgerRow[])
         if (adjRes.data) setVatAdjustments(adjRes.data as VatAdjustmentRow[])
@@ -520,40 +538,42 @@ export default function AccountingPage() {
             .select("id,payment_ref,direction,payment_date,amount,method,reference,status,payment_allocations(id),bank_accounts(bank_name),customers(name_ar,name_en),suppliers(name_ar,name_en)")
             .is("deleted_at", null)
             .order("payment_date", { ascending: false })
-            .limit(200),
+            .limit(200).abortSignal(controller.signal).throwOnError(),
           supabase
             .from("bank_accounts")
             .select("id,bank_name,account_name,iban,account_number,currency,opening_balance,is_active,coa_account_code,updated_at", { count: "exact" })
             .is("deleted_at", null)
             .order("bank_name", { ascending: true }).order("id", { ascending: true })
-            .range(bankPage * 50, bankPage * 50 + 49),
+            .range(bankPage * 50, bankPage * 50 + 49).abortSignal(controller.signal).throwOnError(),
           supabase
             .from("receivables")
             .select("id,invoice_ref,invoice_date,due_date,amount,vat_amount,total_amount,paid_amount,status,customer_id,customers(name_ar,name_en)")
             .is("deleted_at", null)
             .in("status", ["open", "partially_paid", "overdue"])
             .order("due_date", { ascending: true })
-            .limit(100),
+            .limit(100).abortSignal(controller.signal).throwOnError(),
           supabase
             .from("payables")
             .select("id,invoice_ref,invoice_date,due_date,amount,vat_amount,total_amount,paid_amount,status,supplier_id,suppliers(name_ar,name_en)")
             .is("deleted_at", null)
             .in("status", ["open", "partially_paid", "overdue"])
             .order("due_date", { ascending: true })
-            .limit(100),
+            .limit(100).abortSignal(controller.signal).throwOnError(),
           supabase
             .from("customers")
             .select("id,name_ar,name_en")
             .is("deleted_at", null)
             .order("name_ar", { ascending: true })
-            .limit(200),
+            .limit(200).abortSignal(controller.signal).throwOnError(),
           supabase
             .from("suppliers")
             .select("id,name_ar,name_en")
             .is("deleted_at", null)
             .order("name_ar", { ascending: true })
-            .limit(200),
+            .limit(200).abortSignal(controller.signal).throwOnError(),
         ])
+        requireAccountingRows(controller.signal, payRes.data, bankRes.data, arRes.data, apRes.data, custRes.data, suppRes.data)
+        if (bankRes.count === null) throw new Error("Could not load accounting data")
         if (payRes.data) setPayments(payRes.data as unknown as PaymentRow[])
         setBankLoadError(!!bankRes.error)
         if (bankRes.data) {
@@ -591,28 +611,41 @@ export default function AccountingPage() {
           .order("period_year", { ascending: false })
           .order("period_month", { ascending: false })
           .limit(60)
-        if (data) setPeriods(data as PeriodRow[])
+          .abortSignal(controller.signal).throwOnError()
+        requireAccountingRows(controller.signal, data)
+        setPeriods(data as PeriodRow[])
       } else if (tab === "events") {
         const { data } = await supabase
           .from("financial_events")
           .select("id,idempotency_key,source_type,event_type,processing_status,event_date,created_at,processed_at,error_message")
           .order("created_at", { ascending: false })
           .limit(100)
-        if (data) setEvents(data as EventRow[])
+          .abortSignal(controller.signal).throwOnError()
+        requireAccountingRows(controller.signal, data)
+        setEvents(data as EventRow[])
       } else if (tab === "zatca") {
         const { data } = await supabase
           .from("zatca_transmissions")
           .select("id,doc_ref,doc_type,status,zatca_uuid,error_message,transmitted_at,created_at,is_mock:response->>sandbox")
           .order("created_at", { ascending: false })
           .limit(100)
-        if (data) setZatcaRows(data as ZatcaTransmissionRow[])
+          .abortSignal(controller.signal).throwOnError()
+        requireAccountingRows(controller.signal, data)
+        setZatcaRows(data as ZatcaTransmissionRow[])
         const csids = await listZatcaCsids()
-        if (csids.success && csids.csids) setZatcaCsids(csids.csids)
+        if (controller.signal.aborted) return
+        if (!csids.success || !csids.csids) throw new Error("Could not load accounting data")
+        requireAccountingRows(controller.signal, csids.csids)
+        setZatcaCsids(csids.csids)
       }
-
-      setIsLoading(false)
+      } catch {
+        if (!controller.signal.aborted) setLoadError(true)
+      } finally {
+        if (!controller.signal.aborted) setIsLoading(false)
+      }
     })()
-  }, [tab, payRefresh, vatRefresh, bankPage])
+    return () => controller.abort()
+  }, [tab, payRefresh, vatRefresh, bankPage, loadRevision])
 
   // ── VAT return (Phase 12) — auto-select the latest period once the
   // reconciliation list is loaded, then fetch its return summary. Mirror the
@@ -653,15 +686,9 @@ export default function AccountingPage() {
     { key: 2, account_id: "", description: "", debit: "", credit: "" },
   ])
   async function reloadJournal() {
-    const supabase = createClient()
-    const { data } = await supabase
-      .from("journal_entries")
-      .select("id,entry_ref,entry_date,entry_type,status,description_ar,description_en,posted_at,updated_at,journal_approvals(status)")
-      .is("deleted_at", null)
-      .order("entry_date", { ascending: false })
-      .order("created_at", { ascending: false })
-      .limit(100)
-    if (data) setJournals(data as unknown as JournalRow[])
+    setIsLoading(true)
+    setLoadError(false)
+    setLoadRevision(value => value + 1)
   }
 
   const [asDraft, setAsDraft] = useState(true)
@@ -1430,6 +1457,12 @@ export default function AccountingPage() {
         {isLoading ? (
           <div className="flex items-center justify-center py-24">
             <LoadingSpinner className="h-6 w-6 text-elite-blue-600" />
+          </div>
+        ) : loadError ? (
+          <div role="alert" data-testid="accounting-load-error" className="flex flex-col items-center gap-3 rounded-xl border border-border px-4 py-12 text-center">
+            <AlertTriangle aria-hidden="true" className="h-6 w-6 text-destructive" />
+            <p className="text-sm">{ar ? "تعذر تحميل البيانات المحاسبية. أعد المحاولة قبل الاعتماد على الأرصدة أو السجلات." : "Could not load accounting data. Retry before relying on balances or records."}</p>
+            <Button variant="outline" onClick={() => setLoadRevision(value => value + 1)}>{ar ? "أعد المحاولة" : "Try again"}</Button>
           </div>
         ) : (
           <>
