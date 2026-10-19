@@ -1,0 +1,16 @@
+BEGIN;
+SELECT no_plan();
+SELECT has_table('public','zatca_issuance_streams','EGS stream table exists');
+SELECT has_table('public','zatca_document_issuances','immutable preparation ledger exists');
+SELECT ok((SELECT relrowsecurity FROM pg_class WHERE oid='public.zatca_issuance_streams'::regclass),'stream RLS enabled');
+SELECT ok((SELECT relrowsecurity FROM pg_class WHERE oid='public.zatca_document_issuances'::regclass),'document RLS enabled');
+SELECT ok(NOT has_table_privilege('anon','public.zatca_document_issuances','SELECT'),'anonymous cannot read XML');
+SELECT ok(NOT has_table_privilege('authenticated','public.zatca_document_issuances','INSERT'),'browser cannot insert evidence');
+SELECT ok(NOT has_table_privilege('authenticated','public.zatca_document_issuances','UPDATE'),'browser cannot rewrite evidence');
+SELECT ok(NOT has_table_privilege('service_role','public.zatca_document_issuances','DELETE'),'service cannot delete evidence');
+SELECT ok(NOT has_table_privilege('service_role','public.zatca_document_issuances','TRUNCATE'),'service cannot truncate evidence');
+SELECT ok(NOT has_function_privilege('authenticated','public.record_zatca_issuance(uuid,uuid,text,uuid,uuid,timestamptz,bigint,text,text,text,text,uuid)','EXECUTE'),'recording is not a client RPC');
+SELECT ok(has_function_privilege('service_role','public.record_zatca_issuance(uuid,uuid,text,uuid,uuid,timestamptz,bigint,text,text,text,text,uuid)','EXECUTE'),'trusted server can record');
+SELECT ok(NOT (SELECT prosecdef FROM pg_proc WHERE oid='public.record_zatca_issuance(uuid,uuid,text,uuid,uuid,timestamptz,bigint,text,text,text,text,uuid)'::regprocedure),'recording does not elevate invoker privileges');
+SELECT * FROM finish();
+ROLLBACK;

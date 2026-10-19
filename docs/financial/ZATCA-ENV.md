@@ -20,7 +20,7 @@ Stored CSIDs are scoped to tenant, environment and kind. Their table has RLS ena
 
 ## Invoice QR
 
-The current print path creates an **internal, unvalidated five-field QR**. It now encodes TLV bytes as Base64 text before QR rendering, as the official specification requires. This fixes encoding, not Phase 2 integration. Its timestamp is document-generation time; the schema does not yet preserve the required authoritative invoice issuance timestamp. Reprinting must not be treated as a new valid tax issuance.
+The current print path creates an **internal, unvalidated five-field QR**. It now encodes TLV bytes as Base64 text before QR rendering, as the official specification requires. This fixes encoding, not Phase 2 integration. Its timestamp is document-generation time. Financial finalization time already exists, but the print/official issuance workflow does not yet establish the required legal issuance timestamp. Reprinting must not be treated as a new valid tax issuance.
 
 The app and generated print/PDF disclose the internal status. The QR does not prove authority acceptance. Standard tax invoices require the clearance flow; simplified tax invoices use reporting and the EGS's certificate-bound cryptographic stamp. A sample SDK signature is not a tenant signature. An ordinary browser PDF is not PDF/A-3 with embedded XML; the required XML delivery/retention path remains outstanding.
 
@@ -45,7 +45,7 @@ The supplied SDK demonstration signature verifies with SHA256/ECDSA over the raw
 ## Remaining implementation and release evidence
 
 1. Persist genuine structured taxpayer/branch addresses and EGS identities; verify VAT registration with the business owner. Never fill production data with SDK sample values.
-2. Persist issuance time, immutable UUID, per-EGS counter, previous canonical invoice hash and original XML atomically. Preserve rejected attempts and concurrent sequence integrity; credit/debit notes need independent identities.
+2. Integrate the [non-production preparation ledger](ZATCA-ISSUANCE.md) into the genuine legal issuance workflow. The new ledger stores preparation UUID/time/counter/PIH/XML/source snapshots atomically, with independent note identities and tested concurrency. It does not establish historical legal issue times or yet retain signed/cleared artifacts and authority-attempt evidence.
 3. Expand the bounded application hash coverage as tax cases are added; implement the complete certificate-bound XAdES stamp and resolve the SDK/signature-standard discrepancy above. Validate application-produced signatures/QR with the current official SDK, including all supported tax and adjustment cases.
 4. Implement and validate the official JSON request/response contract before replacing the blocked transport. Preserve explicit authority status, validation results and cleared XML/QR, and reject ambiguous success.
 5. Complete real EGS compliance/simulation onboarding and all required invoice/note checks with genuine authorized credentials. Test retry/idempotency, rejection, certificate expiry/revocation and evidence retention.

@@ -72,9 +72,14 @@ function compareHash(label, file) {
   return generated.passed && Boolean(expected) && computeInvoiceHash(fs.readFileSync(file,"utf8"))===expected
 }
 const evidence={sdkVersion:version,certificate:"public expired SDK demonstration certificate",signer:"SDK demonstration signer, not application signer",hashing:"application restricted canonicalization compared with SDK hash generation",productionValidated:false,cases:[]}
-for(const invoiceKind of ["standard","simplified"]) for(const docType of ["invoice","credit_note","debit_note"]) {
-  const label=`${invoiceKind}-${docType}`
-  const data={...base,invoiceKind,docType,...(docType!=="invoice"?{referenceInvoiceNumber:"SDK-ORIGINAL-000001",noteReason:"Synthetic test adjustment"}:{})}
+const cases=["standard","simplified"].flatMap(invoiceKind=>["invoice","credit_note","debit_note"].map(docType=>({
+  label:`${invoiceKind}-${docType}`,data:{...base,invoiceKind,docType,...(docType!=="invoice"?{referenceInvoiceNumber:"SDK-ORIGINAL-000001",noteReason:"Synthetic test adjustment"}:{})},
+})))
+for(const invoiceKind of ["standard","simplified"]) cases.push({label:`${invoiceKind}-discounted-invoice`,data:{...base,invoiceKind,docType:"invoice",
+  lines:[{...base.lines[0],discount:10,amount:90,vat_amount:13.5}],subtotal:90,discount:10,vatAmount:13.5,total:103.5,
+  qr:{...base.qr,total:103.5,vatAmount:13.5}}})
+for(const {label,data} of cases) {
+  const {invoiceKind}=data
   const input=path.join(output,label+".xml"), signed=path.join(output,label+"-sdk-signed.xml")
   fs.writeFileSync(input,buildZatcaUblInvoice(data))
   const unsignedHash=compareHash(label+"-unsigned",input)

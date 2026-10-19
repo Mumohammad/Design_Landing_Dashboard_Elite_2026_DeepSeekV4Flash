@@ -284,6 +284,9 @@ jobs:
     - name: Verify payment races in disposable database
       run: node scripts/verify-payment-concurrency.mjs --local-disposable
 
+    - name: Verify ZATCA preparation ledger in disposable database
+      run: node scripts/verify-zatca-issuance-concurrency.mjs --local-disposable
+
     - name: Configure disposable browser verification
       run: |
         node --input-type=module <<'NODE'

@@ -40,6 +40,8 @@ export interface ZatcaLine {
   description: string
   quantity: number
   unit_price: number
+  /** Line allowance already computed by the financial engine. */
+  discount?: number
   /** Net amount of the line (already computed by the invoice engine). */
   amount: number
   vat_rate: number
@@ -149,11 +151,13 @@ function partyXml(kind: "seller" | "buyer", p: ZatcaParty): string {
 
 function lineXml(l: ZatcaLine, currency: string): string {
   const category = vatCategory(l.vat_rate)
+  const discount = money(l.discount ?? 0)
   return [
     `      <cac:InvoiceLine>`,
     `        <cbc:ID>${l.line_no}</cbc:ID>`,
     `        <cbc:InvoicedQuantity unitCode="EA">${l.quantity}</cbc:InvoicedQuantity>`,
     `        <cbc:LineExtensionAmount currencyID="${currency}">${money(l.amount)}</cbc:LineExtensionAmount>`,
+    Number(discount) > 0 ? `        <cac:AllowanceCharge><cbc:ChargeIndicator>false</cbc:ChargeIndicator><cbc:AllowanceChargeReason>Line discount</cbc:AllowanceChargeReason><cbc:Amount currencyID="${currency}">${discount}</cbc:Amount></cac:AllowanceCharge>` : "",
     `        <cac:TaxTotal><cbc:TaxAmount currencyID="${currency}">${money(l.vat_amount)}</cbc:TaxAmount><cbc:RoundingAmount currencyID="${currency}">${money(l.amount + l.vat_amount)}</cbc:RoundingAmount></cac:TaxTotal>`,
     `        <cac:Item>`,
     `          <cbc:Name>${escXml(l.description)}</cbc:Name>`,

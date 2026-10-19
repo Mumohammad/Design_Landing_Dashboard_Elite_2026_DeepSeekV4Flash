@@ -176,6 +176,21 @@ describe("buildZatcaUblInvoice", () => {
     expect(buildZatcaUblInvoice(base)).not.toContain("AllowanceTotalAmount")
   })
 
+  it("preserves an explicit line discount as a line allowance before tax, without another header deduction", () => {
+    const xml=buildZatcaUblInvoice({...base,lines:[{...base.lines[0],unit_price:100,discount:10,amount:90,vat_amount:13.5}],subtotal:90,discount:10,vatAmount:13.5,total:103.5})
+    const doc=new DOMParser().parseFromString(xml,"application/xml")
+    const line=doc.getElementsByTagNameNS("urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2","InvoiceLine").item(0)!
+    const children=Array.from(line.childNodes).filter(node=>node.nodeType===1).map(node=>node.nodeName)
+    expect(children.indexOf("cac:AllowanceCharge")).toBeLessThan(children.indexOf("cac:TaxTotal"))
+    expect(xml).toContain('<cbc:Amount currencyID="SAR">10.00</cbc:Amount>')
+    expect(xml).toContain('<cbc:TaxExclusiveAmount currencyID="SAR">90.00</cbc:TaxExclusiveAmount>')
+    expect(xml).not.toContain("AllowanceTotalAmount")
+  })
+
+  it.each([-1,Number.NaN,Number.POSITIVE_INFINITY])("rejects invalid explicit line discount %s", discount=>{
+    expect(()=>buildZatcaUblInvoice({...base,lines:[{...base.lines[0],discount}]})).toThrow("monetary amount")
+  })
+
   it("keeps invoice lines as root siblings, never nested inside another line", () => {
     const xml = buildZatcaUblInvoice({...base,lines:[base.lines[0],{...base.lines[0],line_no:2}]})
     const doc = new DOMParser().parseFromString(xml,"application/xml")

@@ -242,7 +242,7 @@ async function processEvent(
 
     const { data: lineRows, error: linesErr } = await admin
       .from("invoice_lines")
-      .select("line_no,description,quantity,unit_price,amount,vat_rate,vat_amount")
+      .select("line_no,description,quantity,unit_price,discount,amount,vat_rate,vat_amount")
       .eq("invoice_id", inv.id)
       .order("line_no", { ascending: true })
     if (linesErr) return "failed"
@@ -260,6 +260,7 @@ async function processEvent(
       description: l.description,
       quantity: Number(l.quantity),
       unit_price: Number(l.unit_price),
+      discount: Number(l.discount),
       amount: Number(l.amount),
       vat_rate: Number(l.vat_rate),
       vat_amount: Number(l.vat_amount),
@@ -302,6 +303,7 @@ async function processEvent(
         description: String(row.description ?? ""),
         quantity: Number(row.quantity ?? 1),
         unit_price: Number(row.unit_price ?? 0),
+        discount: Number(row.discount ?? 0),
         amount: Number(row.amount ?? 0),
         vat_rate: Number(row.vat_rate ?? 15),
         vat_amount: Number(row.vat_amount ?? 0),
