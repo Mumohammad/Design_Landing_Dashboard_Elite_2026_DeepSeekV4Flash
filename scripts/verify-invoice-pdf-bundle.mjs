@@ -6,7 +6,15 @@ const traceFile = resolve('.next/server/app/api/invoices/[id]/pdf/route.js.nft.j
 const trace = JSON.parse(readFileSync(traceFile, 'utf8'))
 const files = new Set(trace.files.map(file => resolve(dirname(traceFile), file)))
 const physicalFiles = new Set([...files].map(file => realpathSync(file)))
-const required = [resolve('public/logo.png'), resolve('src/assets/fonts/cairo.woff2')]
+const required = [resolve('public/logo.png'), resolve('src/assets/fonts/cairo.woff2'), resolve('node_modules/playwright-core/browsers.json')]
+function packageFiles(folder) {
+  for (const entry of readdirSync(folder, { withFileTypes: true })) {
+    const file = resolve(folder, entry.name)
+    if (entry.isDirectory()) packageFiles(file)
+    else if (entry.isFile()) required.push(file)
+  }
+}
+packageFiles(resolve('node_modules/playwright-core'))
 for (const name of readdirSync('node_modules/@sparticuz/chromium/bin').filter(name => name.endsWith('.br'))) {
   required.push(resolve('node_modules/@sparticuz/chromium/bin', name))
 }
@@ -23,4 +31,4 @@ if (createHash('sha256').update(readFileSync('src/assets/fonts/cairo.woff2')).di
 // deduplicate; keep below the standard bundle ceiling without beta overrides.
 const bytes = [...files].reduce((sum, file) => sum + statSync(file).size, 0)
 if (bytes > 250 * 1024 * 1024) throw Error('Invoice PDF runtime exceeds the standard function bundle budget')
-console.log(`PASS: invoice PDF trace includes packaged Chromium, logo and verified Arabic font; no root environment files; conservative size ${Math.ceil(bytes / 1024 / 1024)} MiB`)
+console.log(`PASS: invoice PDF trace includes Chromium, complete Playwright runtime resources, logo and verified Arabic font; no root environment files; conservative size ${Math.ceil(bytes / 1024 / 1024)} MiB`)

@@ -32,7 +32,12 @@ const LANDING_HOST = LANDING_URL.slice(LANDING_URL.indexOf("://") + 3).split("/"
 const nextConfig: NextConfig = {
   serverExternalPackages: ["@sparticuz/chromium", "playwright-core"],
   outputFileTracingIncludes: {
-    "/api/invoices/*/pdf": ["./node_modules/@sparticuz/chromium/bin/*.br"],
+    "/api/invoices/*/pdf": [
+      "./node_modules/@sparticuz/chromium/bin/*.br",
+      // Playwright loads metadata/injected resources dynamically; tracing its
+      // JS entry alone omits browsers.json in the deployed function.
+      "./node_modules/playwright-core/**/*",
+    ],
     "/*": ["./src/assets/fonts/cairo.woff2"],
   },
   experimental: {

@@ -41,6 +41,13 @@ logo and QR are embedded; rendering does not download a browser or external
 assets at request time. The function has a 60-second limit. Deployment tracing
 explicitly includes the packaged browser binaries and invoice font.
 
+The first hosted attempt exposed an additional packaging requirement:
+Playwright's dynamically loaded `browsers.json` was omitted even though the
+function compiled and its browser binaries were present. The trace now includes
+the complete Playwright package resources, and the CI bundle gate verifies every
+shipped Playwright file as well as Chromium/font/logo assets. A failed hosted
+attempt is not release approval.
+
 On Windows/macOS local development, set the non-secret
 `INVOICE_CHROMIUM_EXECUTABLE_PATH` to an installed compatible Chromium. For a
 local Playwright installation its path is available from
