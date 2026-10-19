@@ -124,7 +124,9 @@ export async function verifyOverviews(page, admin, tenantId, actorId, appUrl) {
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
       await page.setViewportSize({ width: 1440, height: 1000 })
     }
-    console.log('PASS: drivers, vehicles, and reports beyond 100 rows; paginated reads, literal wildcard/quote search, complete driver CSV, failed-read retry, and Arabic mobile controls')
+    stage = 'operational overview verification'
+    await verifyOperationalOverviews(page, admin, tenantId, appUrl, ids.drivers, needle, tag)
+    console.log('PASS: six overviews beyond 100 rows; paginated reads, literal wildcard/quote search, complete driver CSV, failed-read retry, date/count summaries, driver management links, and Arabic mobile controls')
   } catch (error) {
     console.error(JSON.stringify({ check: 'overviews', stage, errorType: error.name }))
     throw new Error(`Overview verification failed: ${stage}`)
@@ -141,5 +143,147 @@ export async function verifyOverviews(page, admin, tenantId, actorId, appUrl) {
     if (initialViewport) await page.setViewportSize(initialViewport)
     await page.goto(`${appUrl}/dashboard?lang=${initialLocale}`)
     await expect(page.locator('html')).toHaveAttribute('lang', initialLocale)
+  }
+}
+
+// Called only after the isolated-target/identity guard above. These child rows
+// belong exclusively to this run's synthetic drivers and are removed first.
+async function verifyOperationalOverviews(page, admin, tenantId, appUrl, driverIds, needle, tag) {
+  const today = new Date().toISOString().slice(0, 10)
+  const rootNeedle = `PeriodOnly "${tag},50%_`
+  const unassignedNeedle = `Unassigned "${tag},50%_`
+  const ids = { driver_attendance: [], performance_reviews: [], violations: [] }
+  let stage = 'operational fixtures'
+  try {
+    const fixtures = {
+      driver_attendance: driverIds.map((driver_id, i) => ({
+        tenant_id: tenantId, driver_id, attendance_date: today, status: i === 105 ? 'late' : 'present',
+        created_at: i === 105 ? '2020-01-01T00:00:00Z' : new Date().toISOString(),
+      })),
+      performance_reviews: driverIds.map((driver_id, i) => ({
+        tenant_id: tenantId, driver_id, review_period: i === 0 ? rootNeedle : `Overview ${tag} ${i}`,
+        review_date: i === 105 ? '2020-01-01' : today, status: 'pending', overall_score: i === 105 ? 90 : 60,
+      })),
+      violations: [...driverIds.map((driver_id, i) => ({
+        tenant_id: tenantId, driver_id, incident_date: today, incident_description: `Overview ${tag} violation ${i}`,
+        status: 'open', severity: 'minor', deduction_amount: 0,
+        created_at: i === 105 ? '2020-01-01T00:00:00Z' : new Date().toISOString(),
+      })), { tenant_id: tenantId, incident_date: today, incident_description: unassignedNeedle, status: 'open', severity: 'minor', deduction_amount: 0 }],
+    }
+    for (const [table, rows] of Object.entries(fixtures)) {
+      const inserted = await admin.from(table).insert(rows).select('id')
+      if (inserted.error || inserted.data?.length !== rows.length) throw Error(`Could not create ${table} fixtures`)
+      ids[table] = inserted.data.map(row => row.id)
+    }
+
+    for (const [route, table, total] of [['attendance', 'driver_attendance', 106], ['hr', 'performance_reviews', 106], ['violations', 'violations', 107]]) {
+      stage = `${route}: pages, full counts and driver search beyond the old cap`
+      await page.goto(`${appUrl}/${route}?lang=en`)
+      const rows = page.locator('tbody tr')
+      const search = page.locator('main input[type="text"]').first()
+      await expect(rows).toHaveCount(25)
+      await expect(page.getByText(`${total} records · Page 1 of 5`, { exact: true })).toBeVisible()
+      await expect(page.locator('main .text-2xl.font-bold').first()).toHaveText(String(total))
+      await page.getByRole('button', { name: 'Next page', exact: true }).click()
+      await expect(page.getByText(/records · Page.*2/)).toBeVisible()
+      await search.fill(needle)
+      await expect(rows).toHaveCount(1)
+      await expect(rows.first()).toContainText(needle)
+      await expect(rows.first().getByRole('link', { name: needle, exact: true })).toHaveAttribute('href', `/drivers/${driverIds[105]}`)
+      // KPI cards describe the full module/date, never the current search page.
+      await expect(page.locator('main .text-2xl.font-bold').first()).toHaveText(String(total))
+
+      if (route === 'hr') {
+        stage = 'review document-only search retains the displayed driver'
+        await search.fill(rootNeedle)
+        await expect(rows).toHaveCount(1)
+        await expect(rows.first()).toContainText(rootNeedle)
+        await expect(rows.first().getByRole('link')).toHaveAttribute('href', `/drivers/${driverIds[0]}`)
+      }
+      if (route === 'violations') {
+        stage = 'unassigned violation can be found by document text'
+        await search.fill(unassignedNeedle)
+        await expect(rows).toHaveCount(1)
+        await expect(rows.first().getByRole('link')).toHaveCount(0)
+        const persisted = await admin.from('violations').select('violation_ref').eq('id', ids.violations[0]).single()
+        if (persisted.error) throw Error('Could not read synthetic violation reference')
+        await search.fill(persisted.data.violation_ref)
+        await expect(rows).toHaveCount(1)
+        await expect(rows.first().getByRole('link')).toHaveAttribute('href', `/drivers/${driverIds[0]}`)
+      }
+
+      stage = `${route}: failed table read, recovery and stale search cancellation`
+      const pattern = `**/rest/v1/${table}?**`
+      const fail = async intercepted => {
+        if (intercepted.request().method() === 'GET') await intercepted.fulfill({ status: 503, contentType: 'application/json', body: '{"message":"Synthetic unavailable read"}' })
+        else await intercepted.continue()
+      }
+      await page.route(pattern, fail)
+      await search.fill(`unavailable-${tag}`)
+      await expect(page.getByRole('alert').filter({ hasText: /Could not load/ })).toBeVisible()
+      await expect(page.getByTestId('module-empty-state')).toHaveCount(0)
+      await page.unroute(pattern, fail)
+      await page.getByRole('button', { name: /Retry|Try again/, exact: true }).click()
+      await expect(page.getByRole('alert').filter({ hasText: /Could not load/ })).toHaveCount(0)
+      await search.fill('stale query')
+      await search.fill(needle)
+      await expect(rows).toHaveCount(1)
+      await expect(rows.first()).toContainText(needle)
+
+      stage = `${route}: failed summary is unknown and offers retry`
+      const failSummary = async intercepted => {
+        if (intercepted.request().method() === 'HEAD') await intercepted.fulfill({ status: 503, body: '' })
+        else await intercepted.continue()
+      }
+      await page.route(pattern, failSummary)
+      await page.reload()
+      await expect(page.getByRole('alert').filter({ hasText: /Could not load/ })).toBeVisible()
+      await expect(page.locator('main .text-2xl.font-bold').first()).toHaveText('—')
+      await page.unroute(pattern, failSummary)
+      await page.getByRole('button', { name: /Retry|Try again/, exact: true }).click()
+      await expect(page.locator('main .text-2xl.font-bold').first()).toHaveText(String(total))
+      await expect(rows).toHaveCount(25)
+
+      if (route === 'attendance') {
+        stage = 'attendance date changes reset the page and replace summary counts'
+        await page.getByRole('button', { name: 'Next page', exact: true }).click()
+        await expect(page.getByText(/records · Page.*2/)).toBeVisible()
+        await page.getByLabel('Attendance date', { exact: true }).fill('2020-02-29')
+        await expect(page.getByTestId('module-empty-state')).toBeVisible()
+        await expect(page.locator('main .text-2xl.font-bold').first()).toHaveText('0')
+        await expect(page.getByText('0 records · Page 1 of 1', { exact: true })).toBeVisible()
+        await page.getByLabel('Attendance date', { exact: true }).fill(today)
+        await expect(rows).toHaveCount(25)
+        await expect(page.locator('main .text-2xl.font-bold').first()).toHaveText('106')
+      }
+
+      stage = `${route}: Arabic mobile pagination, error/retry and viewport`
+      await page.setViewportSize({ width: 390, height: 844 })
+      await page.goto(`${appUrl}/${route}?lang=ar`)
+      await expect(page.locator('html')).toHaveAttribute('lang', 'ar')
+      await expect(page.getByRole('button', { name: 'الصفحة التالية', exact: true })).toBeEnabled()
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      await page.route(pattern, fail)
+      await page.locator('main input[type="text"]').first().fill(`unavailable-${tag}`)
+      const alert = page.getByRole('alert').filter({ hasText: 'تعذر تحميل' })
+      await expect(alert).toBeVisible()
+      const bounds = await alert.boundingBox()
+      expect(bounds.x).toBeGreaterThanOrEqual(0)
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(391)
+      await page.unroute(pattern, fail)
+      await alert.getByRole('button').click()
+      await expect(alert).toHaveCount(0)
+      await page.setViewportSize({ width: 1440, height: 1000 })
+    }
+  } catch (error) {
+    console.error(JSON.stringify({ check: 'operational overviews', stage, errorType: error.name }))
+    throw Error(`Operational overview verification failed: ${stage}`)
+  } finally {
+    await page.unrouteAll({ behavior: 'ignoreErrors' })
+    for (const [table, created] of Object.entries(ids)) {
+      if (!created.length) continue
+      const result = await admin.from(table).delete().eq('tenant_id', tenantId).in('id', created)
+      if (result.error) throw Error(`Could not clean up synthetic ${table} fixtures`)
+    }
   }
 }

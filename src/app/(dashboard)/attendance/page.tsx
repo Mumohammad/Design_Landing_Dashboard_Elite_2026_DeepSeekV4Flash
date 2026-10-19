@@ -1,21 +1,14 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useState } from "react"
+import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
+import { attendanceQuery, attendanceSummary, type AttendanceRow } from "@/lib/operations/overview-queries"
+import { useTablePage } from "@/hooks/use-table-page"
+import { useReadSummary } from "@/hooks/use-read-summary"
 import { useTranslation } from "@/hooks/use-translation"
 import { EnterpriseModulePage, type KpiCardData, type TableColumn } from "@/components/dashboard/enterprise-module-page"
 import { CalendarDays, CheckCircle2, Clock, UserX } from "lucide-react"
-
-interface AttendanceRow {
-  id: string
-  attendance_date: string
-  status: string
-  check_in_time: string | null
-  check_out_time: string | null
-  late_minutes: number
-  working_day_value: number
-  driver: { full_name_ar: string; driver_code: string } | null
-}
 
 const STATUS_META: Record<string, { ar: string; en: string; className: string }> = {
   present: { ar: "حاضر", en: "Present", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/20" },
@@ -39,42 +32,22 @@ function fmtDate(date: string): string {
 
 export default function AttendancePage() {
   const { t, locale } = useTranslation()
-  const [data, setData] = useState<AttendanceRow[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [search, setSearch] = useState("")
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0])
-
-  useEffect(() => {
-    async function load() {
-      setIsLoading(true)
-      const supabase = createClient()
-      const { data: result, error } = await supabase
-        .from("driver_attendance")
-        .select("id,attendance_date,status,check_in_time,check_out_time,late_minutes,working_day_value,driver:drivers(full_name_ar,driver_code)")
-        .eq("attendance_date", selectedDate)
-        .is("deleted_at", null)
-        .order("created_at", { ascending: false })
-        .limit(100)
-      if (error) { console.error(error); setData([]) }
-      else { setData((result as unknown as AttendanceRow[]) ?? []) }
-      setIsLoading(false)
-    }
-    load()
-  }, [selectedDate])
-
-  const filtered = search
-    ? data.filter(r => r.driver?.full_name_ar?.includes(search) || r.driver?.driver_code?.includes(search))
-    : data
+  const buildQuery = useCallback((term: string) => attendanceQuery(createClient(), term, selectedDate), [selectedDate])
+  const { rows, loading, error, search, setSearch, pagination, reload } = useTablePage<AttendanceRow>(buildQuery)
+  const readSummary = useCallback((signal: AbortSignal) => attendanceSummary(createClient(), selectedDate, signal), [selectedDate])
+  const summary = useReadSummary(readSummary)
+  const counts = summary.value
 
   const kpiCards: KpiCardData[] = [
-    { label: t.dashboard.totalDrivers, value: data.length, icon: CalendarDays, color: "#1E5A99" },
-    { label: t.dashboard.activeToday, value: data.filter(r => r.status === "present").length, icon: CheckCircle2, color: "#10B981" },
-    { label: t.common.pending, value: data.filter(r => r.status === "late").length, icon: Clock, color: "#F59E0B" },
-    { label: t.common.inactive, value: data.filter(r => r.status === "absent_unexcused").length, icon: UserX, color: "#EF4444" },
+    { label: locale === "ar" ? "سجلات الحضور" : "Attendance records", value: counts?.[0] ?? "—", icon: CalendarDays, color: "#1E5A99" },
+    { label: locale === "ar" ? "حاضر" : "Present", value: counts?.[1] ?? "—", icon: CheckCircle2, color: "#10B981" },
+    { label: locale === "ar" ? "متأخر" : "Late", value: counts?.[2] ?? "—", icon: Clock, color: "#F59E0B" },
+    { label: locale === "ar" ? "غائب دون عذر" : "Absent without excuse", value: counts?.[3] ?? "—", icon: UserX, color: "#EF4444" },
   ]
 
   const columns: TableColumn<AttendanceRow>[] = [
-    { key: "driver", header: t.nav.drivers, render: (r) => <span className="font-medium">{r.driver?.full_name_ar ?? "—"}</span> },
+    { key: "driver", header: t.nav.drivers, render: (r) => r.driver ? <Link className="font-medium underline underline-offset-4" href={`/drivers/${r.driver_id}`}>{r.driver.full_name_ar}</Link> : "—" },
     { key: "code", header: "Code", render: (r) => <span dir="ltr" className="font-mono text-xs">{r.driver?.driver_code ?? "—"}</span> },
     {
       key: "status", header: t.common.status,
@@ -93,7 +66,7 @@ export default function AttendancePage() {
     <div className="px-4 lg:px-6 py-4">
       <EnterpriseModulePage
         title={t.nav.attendance}
-        subtitle={fmtDate(selectedDate)}
+        subtitle={`${fmtDate(selectedDate)} · ${locale === "ar" ? "إدارة الحضور من ملف السائق. الملخص لجميع سجلات التاريخ المحدد." : "Manage attendance from the driver profile. Summary covers the selected date."}`}
         kpiCards={kpiCards}
         searchPlaceholder={t.common.searchPlaceholder}
         searchValue={search}
@@ -101,14 +74,18 @@ export default function AttendancePage() {
         toolbarActions={
           <input
             type="date"
+            aria-label={locale === "ar" ? "تاريخ الحضور" : "Attendance date"}
             value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
+            onChange={(e) => { if (e.target.value) { setSelectedDate(e.target.value); pagination.onPageChange(1); summary.reload(); reload() } }}
             className="h-9 rounded-xl border border-border/50 bg-muted/30 px-3 text-sm"
           />
         }
         columns={columns}
-        data={filtered}
-        isLoading={isLoading}
+        data={rows}
+        isLoading={loading}
+        pagination={pagination}
+        loadError={error || summary.error ? (locale === "ar" ? "تعذر تحميل الحضور أو الملخص. أعد المحاولة." : "Could not load attendance or its summary. Try again.") : undefined}
+        onRetry={() => { reload(); summary.reload() }}
         emptyStateMessage={t.common.noData}
       />
     </div>
