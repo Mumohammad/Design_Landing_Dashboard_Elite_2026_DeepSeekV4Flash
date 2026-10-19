@@ -28,6 +28,12 @@ describe("complete report collection", () => {
     expect(await collectRows(source(0).build)).toEqual([])
   })
 
+  it.each([-1, 1.5, Number.NaN, Infinity, "1"])("rejects malformed count %s", async count => {
+    const q = source(1)
+    q.range.mockResolvedValue({ data: [{ id:"one" }], error:null, count } as never)
+    await expect(collectRows(q.build)).rejects.toThrow("Could not read report data")
+  })
+
   it("rejects database errors without exposing their contents", async () => {
     const q = source(1)
     q.range.mockResolvedValueOnce({ data: [], count: 0, error: { message: "private database detail" } } as never)

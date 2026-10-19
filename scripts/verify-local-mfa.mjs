@@ -82,6 +82,11 @@ try {
   if (profile.error || profile.data.two_factor_enabled !== true || pageErrors !== 0) {
     throw new Error("Persisted MFA state or browser runtime check failed")
   }
+  if (process.env.VERIFY_EXPENSES === "1") {
+    stage = "expense overview browser verification"
+    const { verifyExpensesOverview } = await import("./verify-local-expenses.mjs")
+    await verifyExpensesOverview(page, admin, company.data.id, appUrl)
+  }
   if (process.env.VERIFY_RECEIVABLE_CRUD === "1") {
     stage = "manual receivable retry browser verification"
     const { verifyReceivableCrud } = await import("./verify-local-receivables.mjs")

@@ -8,6 +8,10 @@ This review covers the repository's shipped business routes, language selection 
 
 ## Language and authentication changes
 
+The [Expenses continuation](expenses-readiness-2026-10-19.md) removes the old
+100-row overview/search/summary cutoff and adds explicit table, summary and
+mapping failure recovery. Expense mutation retry hardening is tracked separately.
+
 19 October continuations: the [modern PDF](invoice-pdf-2026-10-19.md) replaces
 the old strict sample layout. Hosted PDF download, retry and private-byte
 retention passed on `5ec5749`. [Manual receivable transaction and retry
@@ -36,7 +40,7 @@ The older checkpoints below describe their own state, not production deployment.
 | Orders | Core implemented | Authorized order/settlement workflows exist. External platform reconciliation requires provider-specific acceptance. |
 | Platforms | Core CRUD tested | Prior isolated hosted tests covered create, edit-field initialization and deactivate. No claim of automatic third-party synchronization. |
 | Payroll | Internal workflow implemented | Database integrity and authorization have regression coverage. Bank-specific WPS acceptance and live banking submission are not certified. |
-| Expenses | Core implemented | Authorized expense workflows and accounting controls exist; company tax configuration and finance-owner acceptance are required. |
+| Expenses | Overview hardened; mutation acceptance open | Database pagination/full search, complete bounded decimal summaries and mapping/read recovery replace first-100 behavior. Expense-create record/audit writes still need atomic retry hardening. Genuine tax configuration and finance-owner acceptance remain required. |
 | Invoices | Conditional production use | Isolated hosted create/edit/delete, audit, mobile, print/PDF and pagination checks passed in the preceding release. All seven invoicing production tenants lacked valid VAT configuration at that review. Genuine company details must be entered before tax printing; values must not be invented. ZATCA production submission is unvalidated. |
 | Accounting | Core draft workflows tested | Isolated hosted journal draft CRUD, bank lifecycle and payment-bank pagination passed. The candidate adds primary/dependency read-failure recovery, malformed-response rejection, stale-tab cancellation and database pagination/search for journal/receivable/payable management. Remaining VAT/payment/selection caps are separate. Posted entries use controlled reversal rather than unrestricted edit/delete. Accountant sign-off on opening balances, mappings and reporting is still required. |
 | Payments | Core transactional workflow tested | Database payment-race checks, recording/reversal and SAR safeguards passed in the preceding release. External payment-provider acceptance is separate. |
@@ -73,7 +77,7 @@ No production business records, production secrets, or database schema are chang
 3. Enable and verify Supabase leaked-password protection through the project's approved configuration process.
 4. Decide whether the read-only role catalog, overview-only HR/attendance/violations entry points and disabled custom reports match the advertised product scope. Build missing workflows before promising them.
 5. Run representative capacity, restore/incident response and operational delivery acceptance for the intended launch volume. Earlier backup/restore evidence is useful but is not an ongoing operations guarantee.
-6. Complete server-side pagination and full-dataset search for capped overview lists. Drivers, vehicles, report history, attendance, HR reviews, violations and journal/receivable/payable management are addressed by the current candidate. Remaining examples include expenses (100 rows), orders/applications (200), accounting VAT/payment lists and summaries, and AR/AP allocation/party option lists (100–200). The platform-payments overview is also capped at 100. These screens must not be interpreted as exhaustive totals or full-ledger searches. The paginated invoice manager and payment-bank picker do not resolve every other module's limits.
+6. Complete server-side pagination and full-dataset search for capped overview lists. Drivers, vehicles, report history, attendance, HR reviews, violations, expenses and journal/receivable/payable management are addressed by the current candidate. Remaining examples include orders/applications (200), accounting VAT/payment lists and summaries, and AR/AP allocation/party option lists (100–200). The platform-payments overview is also capped at 100. These screens must not be interpreted as exhaustive totals or full-ledger searches. The paginated invoice manager and payment-bank picker do not resolve every other module's limits.
 7. Continue hardening the remaining overview loading errors: the named report collectors and drivers/vehicles/report-history/attendance/HR-review/violation reads are addressed by the current candidate, but other existing callers still discard query errors and can show an empty result instead of an explicit failure. The bilingual route sweep checks failed HTTP reads, but it cannot prove every server-side export/query failure is surfaced correctly. Financial/report completeness needs additional acceptance before unrestricted launch.
 
 CSV mitigation follows the spreadsheet-viewing trade-off described by [OWASP](https://community.owasp.org/attacks/CSV_Injection): dangerous text receives a tab inside a quoted field. This changes that exported cell's underlying text; downstream machine importers should use a defined data interchange format rather than treating a human-facing spreadsheet export as lossless input.

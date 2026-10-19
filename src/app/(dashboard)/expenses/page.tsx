@@ -3,6 +3,9 @@
 import { LocalizedText, useUiText } from "@/components/localized-text"
 import { useCallback, useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
+import { expensesQuery, expensesSummary, expenseDependencies, type ExpenseRow } from "@/lib/expenses/overview-queries"
+import { useTablePage } from "@/hooks/use-table-page"
+import { useReadSummary } from "@/hooks/use-read-summary"
 import { useTranslation } from "@/hooks/use-translation"
 import { EnterpriseModulePage, type KpiCardData, type TableColumn } from "@/components/dashboard/enterprise-module-page"
 import {
@@ -21,24 +24,6 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-
-interface ExpenseRow {
-  id: string
-  expense_code: string | null
-  expense_type: string
-  category: string | null
-  amount: number
-  currency: string
-  expense_date: string
-  description: string | null
-  is_approved: boolean
-  vendor: string | null
-  vat_rate: number
-  vat_amount: number
-  vat_recoverability: string
-  coa_account_code: string | null
-  driver: { full_name_ar: string; driver_code: string } | null
-}
 
 const TYPE_META: Record<string, { ar: string; en: string; className: string }> = {
   fuel: { ar: "وقود", en: "Fuel", className: "bg-amber-500/15 text-amber-600 border-amber-500/20" },
@@ -63,14 +48,16 @@ function fmtMoney(n: number | null | undefined): string {
   return (n ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-const EXPENSE_SELECT = "id,expense_code,expense_type,category,amount,currency,expense_date,description,is_approved,vendor,vat_rate,vat_amount,vat_recoverability,coa_account_code,driver:drivers(full_name_ar,driver_code)"
-
 export default function ExpensesPage() {
   const { t, locale } = useTranslation()
   const ui = useUiText()
-  const [data, setData] = useState<ExpenseRow[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [search, setSearch] = useState("")
+  const buildQuery = useCallback((term: string) => expensesQuery(createClient(), term), [])
+  const { rows, loading, error, search, setSearch, pagination, reload } = useTablePage<ExpenseRow>(buildQuery)
+  const readSummary = useCallback((signal: AbortSignal) => expensesSummary(createClient(), signal), [])
+  const summary = useReadSummary(readSummary)
+  const reloadSummary = summary.reload
+  const [dependencyState, setDependencyState] = useState({ loading: true, error: false })
+  const [dependencyRevision, setDependencyRevision] = useState(0)
   const [feedback, setFeedback] = useState<{ type: "ok" | "err"; text: string } | null>(null)
 
   // Category → CoA mapping preview (expense_type → account_code → name)
@@ -93,58 +80,40 @@ export default function ExpensesPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    const supabase = createClient()
-    const [expRes, mapRes, coaRes] = await Promise.all([
-      supabase
-        .from("expenses")
-        .select(EXPENSE_SELECT)
-        .is("deleted_at", null)
-        .order("expense_date", { ascending: false })
-        .limit(100),
-      supabase.from("expense_category_mappings").select("expense_type,coa_account_code"),
-      supabase
-        .from("chart_of_accounts")
-        .select("account_code,name_ar")
-        .is("deleted_at", null)
-        .limit(100),
-    ])
-    if (expRes.error) { console.error(expRes.error); setData([]) }
-    else { setData((expRes.data as unknown as ExpenseRow[]) ?? []) }
-    if (mapRes.data) {
-      const m: Record<string, string> = {}
-      for (const r of mapRes.data as { expense_type: string; coa_account_code: string }[]) m[r.expense_type] = r.coa_account_code
-      setMappingByType(m)
-    }
-    if (coaRes.data) {
-      const n: Record<string, string> = {}
-      for (const r of coaRes.data as { account_code: string; name_ar: string }[]) n[r.account_code] = r.name_ar
-      setCoaNames(n)
-    }
-    setIsLoading(false)
-  }, [])
-
   useEffect(() => {
-    void (async () => { await load() })()
-  }, [load])
+    const controller = new AbortController()
+    void (async () => {
+      try {
+        const result = await expenseDependencies(createClient(), controller.signal)
+        if (controller.signal.aborted) return
+        setMappingByType(result.byType); setCoaNames(result.names)
+        setDependencyState({ loading: false, error: false })
+      } catch {
+        if (!controller.signal.aborted) {
+          setMappingByType({}); setCoaNames({})
+          setDependencyState({ loading: false, error: true })
+        }
+      }
+    })()
+    return () => controller.abort()
+  }, [dependencyRevision])
+
+  const load = useCallback(async () => {
+    reload(); reloadSummary()
+    setDependencyState({ loading: true, error: false })
+    setDependencyRevision(value => value + 1)
+  }, [reload, reloadSummary])
 
   const flash = (type: "ok" | "err", text: string) => {
     setFeedback({ type, text })
     window.setTimeout(() => setFeedback(null), 6000)
   }
 
-  const filtered = search
-    ? data.filter(r => r.expense_code?.includes(search) || r.driver?.full_name_ar?.includes(search) || r.vendor?.includes(search) || r.expense_type?.includes(search))
-    : data
-
-  const totalAmount = data.reduce((s, r) => s + (r.amount ?? 0), 0)
-  const totalVat = data.reduce((s, r) => s + (r.vat_amount ?? 0), 0)
-
   const kpiCards: KpiCardData[] = [
-    { label: t.nav.expenses, value: data.length, icon: Wallet, color: "#1E5A99" },
-    { label: t.common.pending, value: data.filter(r => !r.is_approved).length, icon: Clock, color: "#F59E0B" },
-    { label: "Total (SAR)", value: fmtMoney(totalAmount), icon: DollarSign, color: "#EF4444" },
-    { label: "Input VAT", value: fmtMoney(totalVat), icon: ReceiptText, color: "#10B981" },
+    { label: t.nav.expenses, value: summary.value?.count ?? "—", icon: Wallet, color: "#1E5A99" },
+    { label: t.common.pending, value: summary.value?.pending ?? "—", icon: Clock, color: "#F59E0B" },
+    { label: locale === "ar" ? "صافي المصروفات (ر.س)" : "Net expenses (SAR)", value: summary.value ? fmtMoney(summary.value.net) : "—", icon: DollarSign, color: "#EF4444" },
+    { label: locale === "ar" ? "الضريبة المسجلة (ر.س)" : "Recorded VAT (SAR)", value: summary.value ? fmtMoney(summary.value.vat) : "—", icon: ReceiptText, color: "#10B981" },
   ]
 
   const columns: TableColumn<ExpenseRow>[] = [
@@ -156,7 +125,7 @@ export default function ExpensesPage() {
         return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${m.className}`}>{locale === "ar" ? m.ar : m.en}</span>
       },
     },
-    { key: "amount", header: "Net", render: (r) => <span dir="ltr" className="tabular-nums font-medium">{fmtMoney(r.amount)} <LocalizedText text="SAR" /></span> },
+    { key: "amount", header: "Net", render: (r) => <span dir="ltr" className="tabular-nums font-medium">{fmtMoney(r.amount)} {r.currency === "SAR" ? <LocalizedText text="SAR" /> : r.currency}</span> },
     {
       key: "vat_amount", header: "VAT",
       render: (r) => (
@@ -256,7 +225,7 @@ export default function ExpensesPage() {
 
       <EnterpriseModulePage
         title={t.nav.expenses}
-        subtitle="تسجيل واعتماد المصاريف مع التقاط ضريبة المدخلات وربطها بدليل الحسابات / Record and approve expenses with input VAT capture + CoA mapping"
+        subtitle={locale === "ar" ? "تسجيل واعتماد المصروفات. الملخص لجميع المصروفات ولا يتغير مع البحث." : "Record and approve expenses. Summary covers all expenses, independently of search."}
         kpiCards={kpiCards}
         searchPlaceholder={t.common.searchPlaceholder}
         searchValue={search}
@@ -265,8 +234,11 @@ export default function ExpensesPage() {
         onPrimaryCta={openCreate}
         primaryCtaIcon={Plus}
         columns={columns}
-        data={filtered}
-        isLoading={isLoading}
+        data={rows}
+        isLoading={loading || dependencyState.loading}
+        pagination={pagination}
+        loadError={error || summary.error || dependencyState.error ? (locale === "ar" ? "تعذر تحميل المصروفات أو ملخصها أو حساباتها. أعد المحاولة." : "Could not load expenses, their totals or account mappings. Try again.") : undefined}
+        onRetry={() => { void load() }}
         emptyStateMessage={t.common.noData}
         rowActions={(r) =>
           r.is_approved ? null : (

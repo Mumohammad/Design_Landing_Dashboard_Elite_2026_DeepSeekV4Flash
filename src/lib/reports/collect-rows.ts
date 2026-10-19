@@ -21,7 +21,7 @@ export async function collectRows(buildQuery: () => ReportQuery): Promise<Report
   let expectedCount: number | undefined
   do {
     const { data, error, count } = await buildQuery().range(rows.length, rows.length + BATCH_SIZE - 1)
-    if (error || !data || count === null) {
+    if (error || !Array.isArray(data) || count === null || !Number.isSafeInteger(count) || count < 0) {
       throw new Error("Could not read report data. Retry the report; no partial file was generated.")
     }
     if (count > MAX_ROWS) {
