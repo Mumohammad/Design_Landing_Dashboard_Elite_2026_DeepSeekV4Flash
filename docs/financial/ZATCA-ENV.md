@@ -42,6 +42,8 @@ The suite builds standard/simplified invoices, credit notes and debit notes with
 
 The supplied SDK demonstration signature verifies with SHA256/ECDSA over the raw 32-byte invoice digest, not the former invented digest/time concatenation. That observation alone does not resolve the published XMLDSig requirement to bind canonical `SignedInfo`, including `SignedProperties`. The primitive helper is explicitly labeled SDK-observed, and cannot transmit an invoice. Complete certificate-bound XAdES/QR construction and this SDK/specification discrepancy remain unresolved before any official submission.
 
+An independent [Phase 2 QR investigation](ZATCA-QR.md) additionally found that the supplied SDK's simplified demonstration QR puts SPKI in tag 7 and the invoice signature's `r`/`s` in tags 8/9, conflicting with the published field assignments. The runner now records that mismatch separately from its passing SDK regression. An offline candidate encoder/strict decoder tests explicit encoding experiments and malformed inputs; neither is connected to printing or authorized for production. Passing the SDK's own generated-QR check does not establish compatibility.
+
 ## Remaining implementation and release evidence
 
 1. Persist genuine structured taxpayer/branch addresses and EGS identities; verify VAT registration with the business owner. Never fill production data with SDK sample values.
@@ -56,7 +58,7 @@ The older `verify-zatca-phase18-*` scripts are development seam probes, not laun
 
 ## Primary references
 
-- [ZATCA Security Features Implementation Standards](https://www.zatca.gov.sa/ar/E-Invoicing/SystemsDevelopers/Documents/20220624_ZATCA_Electronic_Invoice_Security_Features_Implementation_Standards.pdf), signature transforms, PIH and QR sections.
+- [ZATCA Security Features Implementation Standards v1.2](https://zatca.gov.sa/ar/E-Invoicing/SystemsDevelopers/Documents/20230519_ZATCA_Electronic_Invoice_Security_Features_Implementation_Standards_vF.pdf), signature transforms, PIH and QR sections.
 - [W3C Canonical XML 1.1](https://www.w3.org/TR/xml-c14n11/), XML 1.0 applicability and XML-attribute inheritance/base handling.
 - [ZATCA XML specifications](https://zatca.gov.sa/en/E-Invoicing/SystemsDevelopers/Pages/E-Invoice-specifications.aspx).
 - [Official SDK page](https://www.zatca.gov.sa/en/E-Invoicing/SystemsDevelopers/ComplianceEnablementToolbox/Pages/DownloadSDK.aspx), including the distinction between SDK validation and authority approval.

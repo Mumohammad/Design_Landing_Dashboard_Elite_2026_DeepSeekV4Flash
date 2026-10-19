@@ -52,6 +52,7 @@ function loadModule(file) {
 }
 const {buildZatcaUblInvoice} = loadModule("src/lib/accounting/zatca-ubl.ts")
 const {computeInvoiceHash,buildSigningInput,verifyZatcaPayload} = loadModule("src/lib/accounting/zatca-crypto.ts")
+const {decodeZatcaPhase2Qr} = loadModule("src/lib/accounting/zatca-phase2-qr.ts")
 const genesis = Buffer.from(createHash("sha256").update("0").digest("hex"),"utf8").toString("base64")
 if(fs.readFileSync(defaults.pihPath,"utf8").trim()!==genesis) throw new Error("SDK PIH sample differs from the reviewed genesis fixture")
 const party={name:"Synthetic SDK test company",vatNumber:"399999999900003",crNumber:"1010010000",address:"Synthetic Street",buildingNumber:"1234",additionalNumber:"1234",district:"Synthetic District",city:"Riyadh",region:"Riyadh",postalCode:"12345",countryCode:"SA"}
@@ -112,6 +113,42 @@ for(const [label,xml] of Object.entries(variants)) {
 }
 const signedSample=fs.readFileSync(path.join(output,"simplified-invoice-sdk-signed.xml"),"utf8")
 const signature=signedSample.match(/<ds:SignatureValue>([^<]+)<\/ds:SignatureValue>/)?.[1]
+// Independent QR audit: SDK validation is not evidence that its own generated
+// tag assignments match the published standard. The supplied 3.0.8 sample puts
+// SPKI in tag 7 and signature r/s in tags 8/9. Preserve this finding rather than
+// teaching the production decoder to accept a conflicting mapping.
+const qr=signedSample.match(/<cbc:ID>QR<\/cbc:ID>[\s\S]*?<cbc:EmbeddedDocumentBinaryObject[^>]*>([^<]+)/)?.[1]
+if(!qr || !signature) throw new Error("SDK QR audit fixture is incomplete")
+const qrBytes=Buffer.from(qr,"base64"), qrFields=[]
+for(let offset=0;offset<qrBytes.length;) {
+  if(offset+2>qrBytes.length) throw new Error("SDK QR audit found a truncated field")
+  const tag=qrBytes[offset++],length=qrBytes[offset++]
+  if(!length || offset+length>qrBytes.length) throw new Error("SDK QR audit found an invalid field length")
+  qrFields.push({tag,value:qrBytes.subarray(offset,offset+length)}); offset+=length
+}
+const signatureDer=Buffer.from(signature,"base64")
+const rLength=signatureDer[3],sOffset=4+rLength,sLength=signatureDer[sOffset+1]
+const expectedLegacy=[
+  Buffer.from(computeInvoiceHash(signedSample),"utf8"),
+  certificate.publicKey.export({type:"spki",format:"der"}),
+  // The SDK copies the DER INTEGER content, including a possible sign-padding
+  // zero. Do not normalize to 32 bytes: randomized ECDSA exposes that mismatch.
+  signatureDer.subarray(4,4+rLength), signatureDer.subarray(sOffset+2,sOffset+2+sLength),
+]
+const profileAudit=["binary-digest-signature","base64-text-digest-signature"].map((profile)=>{
+  try { decodeZatcaPhase2Qr(qr,"simplified",profile); return {profile,formatMatches:true} }
+  catch(error) { return {profile,formatMatches:false,code:error.code??"UNKNOWN"} }
+})
+evidence.qrLayoutAudit={
+  tags:qrFields.map(({tag,value})=>({tag,bytes:value.length})),
+  suppliedSdkLegacyMapping:qrFields.length===9 && qrFields.every(({tag},index)=>tag===index+1) && expectedLegacy.every((value,index)=>value.equals(qrFields[index+5]?.value??Buffer.alloc(0))),
+  profiles:profileAudit,
+  productionCompatible:false,
+}
+if(version==="3.0.8" && (!evidence.qrLayoutAudit.suppliedSdkLegacyMapping || profileAudit.some((profile)=>profile.formatMatches))) {
+  throw new Error("The reviewed SDK QR behavior changed; inspect the public fixture before accepting new evidence")
+}
+console.log("BLOCKED: SDK QR layout is not independently validated for production; see qrLayoutAudit in evidence.json")
 // This checks only the SDK's observed primitive input. It does NOT validate
 // complete SignedInfo/SignedProperties binding or assert XMLDSig compliance.
 evidence.sdkDigestSignature=Boolean(signature) && verifyZatcaPayload(buildSigningInput(computeInvoiceHash(signedSample)),signature,certificate.publicKey.export({type:"spki",format:"pem"}))
