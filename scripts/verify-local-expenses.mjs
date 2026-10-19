@@ -82,7 +82,7 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
     const dialog = page.getByRole('dialog')
     await dialog.locator('#exp-amount').fill('1.23')
     await dialog.locator('#exp-vendor').fill(createdVendor)
-    await dialog.getByRole('button',{name:/^(Save|حفظ)$/}).click()
+    await dialog.getByRole('button',{name:'Save expense',exact:true}).click()
     await expect(dialog).toBeHidden()
     await expect(metrics.nth(0)).toHaveText('107')
     await expect(metrics.nth(2)).toHaveText('11.93')
