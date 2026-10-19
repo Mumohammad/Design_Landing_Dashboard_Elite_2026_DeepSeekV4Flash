@@ -8,6 +8,12 @@ This review covers the repository's shipped business routes, language selection 
 
 ## Language and authentication changes
 
+The [new-password continuation](auth-password-readiness-2026-10-19.md) aligns
+registration, invitation and recovery rules. Free hosted policy controls passed
+staging verification; production configuration is still held for release.
+Leaked-password protection requires a paid plan, which the user declined.
+The separate forced-password-change administration flow remains under review.
+
 The [Expenses continuation](expenses-readiness-2026-10-19.md) removes the old
 100-row overview/search/summary cutoff and adds explicit table, summary and
 mapping failure recovery. Expense mutation retry hardening is tracked separately.

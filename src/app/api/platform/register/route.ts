@@ -8,6 +8,7 @@ import {
   RateLimitUnavailableError,
 } from '@/lib/auth/rate-limit';
 import { ERROR_CODES } from '@/lib/errors/error-codes';
+import { isValidNewPassword, newPasswordHint } from '@/lib/auth/password-policy';
 
 // FX-08: public registration password policy — min 10 chars, at least one
 // letter and one digit (password "a" was previously accepted).
@@ -15,12 +16,7 @@ const registerSchema = z.object({
   company_name: z.string().min(2).max(200),
   domain: z.string().min(3).max(253),
   email: z.string().email().max(320),
-  password: z
-    .string()
-    .min(10)
-    .max(128)
-    .regex(/[A-Za-z]/, 'password must contain a letter')
-    .regex(/[0-9]/, 'password must contain a number'),
+  password: z.string().refine(isValidNewPassword, newPasswordHint('en')),
   logo_url: z.string().url().max(512).optional(),
   brand_colors: z.string().max(32).optional(),
 });

@@ -45,6 +45,11 @@ try {
   if (company.error) throw new Error("Company fixture failed")
 
   browser = await chromium.launch({ headless: true })
+  if (process.env.VERIFY_PASSWORD_FLOWS === "1") {
+    stage = "new-password and recovery browser verification"
+    const { verifyNewPasswordFlows } = await import("./verify-local-password-policy.mjs")
+    await verifyNewPasswordFlows(browser, admin, appUrl, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
+  }
   const page = await browser.newPage()
   page.setDefaultTimeout(20_000)
   let pageErrors = 0

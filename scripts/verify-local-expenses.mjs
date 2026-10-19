@@ -95,7 +95,22 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
     await page.setViewportSize({width:390,height:844})
     await page.goto(appUrl + '/expenses?lang=ar')
     await expect(page.locator('html')).toHaveAttribute('lang','ar')
+    await expect(rows).toHaveCount(25)
+    await expect(metrics.nth(0)).toHaveText('107')
     await expect(page.getByRole('button',{name:'الصفحة التالية',exact:true})).toBeVisible()
+    // Playwright visibility includes opacity:0. Wait for the reveal ancestors,
+    // including the table below the mobile fold, before accepting a capture.
+    const revealed = locator => expect.poll(() => locator.evaluate(element => {
+      for (let node=element;node;node=node.parentElement) {
+        if (Number(getComputedStyle(node).opacity)<0.99) return false
+      }
+      return true
+    })).toBe(true)
+    await rows.first().scrollIntoViewIfNeeded()
+    await revealed(rows.first())
+    const heading = page.getByRole('heading',{name:'المصروفات',exact:true})
+    await heading.scrollIntoViewIfNeeded()
+    await revealed(heading)
     if (!(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth))) throw Error('Expense viewport overflows')
     await page.screenshot({path:'supabase/.temp/expenses-overview-mobile-ar.png',fullPage:true})
     console.log('PASS: expenses beyond 100 rows; exact full summary, literal document/driver/unassigned search, pagination, table/summary/mapping failure recovery, create refresh and Arabic mobile')
