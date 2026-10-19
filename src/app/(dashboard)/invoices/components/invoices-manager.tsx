@@ -27,7 +27,7 @@ import {
   type InvoiceType,
 } from "@/lib/accounting/invoices"
 import { computeInvoiceTotals, round2 } from "@/lib/accounting/invoice-math"
-import { generateInvoiceDocument } from "@/lib/accounting/invoice-docs"
+import { requestInvoicePdf } from "@/lib/invoice-pdf-download"
 import {
   MoreHorizontal, Pencil, Trash2, FileText, Plus, Send, Check, Ban, RotateCcw, Download, Save, X, Printer,
   Loader2, CheckCircle2, AlertTriangle, ReceiptText, BadgeDollarSign, CircleDollarSign,
@@ -38,7 +38,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { BankAccountPicker } from "@/components/accounting/bank-account-picker"
-import { printDocument } from "@/lib/print-document"
 
 // ── Row shapes ────────────────────────────────────────────────────────────
 
@@ -491,23 +490,40 @@ export function InvoicesManager() {
   const [printTarget, setPrintTarget] = useState<InvoiceRow | null>(null)
   const [printBank, setPrintBank] = useState("")
   const [printError, setPrintError] = useState("")
-  async function handlePrint(r: InvoiceRow) {
-    const win = window.open("", "_blank")
-    if (!win) {
+  async function handlePrint(r: InvoiceRow, mode: "preview" | "download" = "preview") {
+    const win = mode === "preview" ? window.open("", "_blank") : null
+    if (mode === "preview" && !win) {
       setPrintError(ar ? "اسمح بالنوافذ المنبثقة للطباعة وحفظ PDF." : "Allow pop-ups to print or save a PDF.")
       return
     }
-    win.opener = null
-    win.document.body.textContent = ar ? "جارٍ تجهيز الفاتورة…" : "Preparing invoice…"
+    if (win) {
+      win.opener = null
+      win.document.body.textContent = ar ? "جارٍ تجهيز PDF الفاتورة…" : "Preparing invoice PDF…"
+    }
     setPrintingId(r.id)
     setPrintError("")
     try {
-      const res = await generateInvoiceDocument(r.id, printBank || undefined)
-      if (!res.success || !res.html) throw new Error(res.error ?? "Print failed")
-      await printDocument(win, res.html)
+      const { blob, filename } = await requestInvoicePdf(r.id, printBank || undefined, ar ? "ar" : "en")
+      if (win?.closed) throw Error(ar ? "أُغلقت نافذة المعاينة. حاول مجدداً." : "The PDF preview was closed. Please try again.")
+      const url = URL.createObjectURL(blob)
+      if (win) {
+        win.location.replace(url)
+        // Keep the PDF available for the viewer's print/download controls.
+        const cleanup = window.setInterval(() => {
+          if (win.closed) { URL.revokeObjectURL(url); window.clearInterval(cleanup) }
+        }, 30_000)
+      } else {
+        const link = document.createElement("a")
+        link.href = url
+        link.download = filename
+        document.body.append(link)
+        link.click()
+        link.remove()
+        window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+      }
       setPrintTarget(null)
     } catch (error) {
-      win.close()
+      win?.close()
       setPrintError(error instanceof Error ? error.message : "Print failed")
     } finally { setPrintingId(null) }
   }
@@ -687,17 +703,23 @@ export function InvoicesManager() {
       <Dialog open={!!printTarget} onOpenChange={(open) => { if (!open && !printingId) setPrintTarget(null) }}>
         <DialogContent className="max-h-[90dvh] overflow-y-auto rounded-2xl">
           <DialogHeader><DialogTitle>{ar ? "طباعة / حفظ PDF" : "Print / Save PDF"}</DialogTitle>
-            <DialogDescription>{ar ? "اختر حساب التحويل إن لزم. للحفظ اختر Save as PDF من نافذة الطباعة، بحجم Letter ومقياس 100% وبدون رؤوس وتذييلات المتصفح." : "Optionally select the receiving bank. Choose Save as PDF in the print dialog, with Letter paper, 100% scale, and browser headers/footers off."}</DialogDescription>
+            <DialogDescription>{ar ? "نزّل ملف PDF جاهزاً أو افتحه ثم اطبعه من عارض PDF. لا يحتوي الملف على تاريخ المتصفح أو روابطه أو رؤوسه وتذييلاته. حساب التحويل اختياري." : "Download the finished PDF or open it and print from your PDF viewer. The file has no browser date, links, headers or footers. A receiving bank is optional."}</DialogDescription>
           </DialogHeader>
           <BankAccountPicker key={printTarget?.id} value={printBank} onChange={setPrintBank} ar={ar} disabled={!!printingId} />
           <p role="note" className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
             {ar ? "الرمز الحالي داخلي. لم يكتمل ربط ZATCA، ولا تعد هذه النسخة دليلاً على اعتماد أو إرسال الفاتورة لدى الهيئة." : "The current QR is internal. ZATCA integration is incomplete; this copy is not evidence of ZATCA clearance or reporting."}
           </p>
           {printError && <p role="alert" className="text-sm text-destructive">{printError}</p>}
-          <Button disabled={!!printingId} onClick={() => printTarget && void handlePrint(printTarget)}>
+          <div className="flex flex-wrap gap-2">
+          <Button disabled={!!printingId} onClick={() => printTarget && void handlePrint(printTarget, "download")}>
+            {printingId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            {ar ? "تنزيل PDF" : "Download PDF"}
+          </Button>
+          <Button variant="outline" disabled={!!printingId} onClick={() => printTarget && void handlePrint(printTarget)}>
             {printingId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
             {ar ? "فتح الفاتورة للطباعة" : "Open invoice for printing"}
           </Button>
+          </div>
         </DialogContent>
       </Dialog>
       <Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => { if (!open && !isDeleting) setDeleteTarget(null) }}>

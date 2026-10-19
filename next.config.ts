@@ -30,6 +30,11 @@ const LANDING_HOST = LANDING_URL.slice(LANDING_URL.indexOf("://") + 3).split("/"
 
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: ["@sparticuz/chromium", "playwright-core"],
+  outputFileTracingIncludes: {
+    "/api/invoices/*/pdf": ["./node_modules/@sparticuz/chromium/bin/*.br"],
+    "/*": ["./src/assets/fonts/cairo.woff2"],
+  },
   experimental: {
     optimizePackageImports: ["lucide-react", "@radix-ui/react-icons"],
   },

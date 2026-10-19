@@ -76,6 +76,9 @@ jobs:
         SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
         SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
 
+    - name: Invoice PDF runtime assets
+      run: node scripts/verify-invoice-pdf-bundle.mjs
+
     # ── Security gates ────────────────────────────────────────────────────
 
     - name: Dependency audit

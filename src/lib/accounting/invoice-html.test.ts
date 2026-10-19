@@ -9,22 +9,22 @@ const BASE: InvoiceDocData = {
  subtotal:90,discount:10,vatAmount:13.5,total:103.5,paidAmount:20,
  statusLabelAr:'معتمدة',statusLabelEn:'Finalized',qrDataUrl:'data:image/png;base64,AAAA',verifyUrl:'/verify-document/test',generatedAt:'2026-09-08',internalQr:true,
 }
-describe('reference invoice print template',()=>{
- it('keeps the internal QR disclosure in saved PDFs without changing table geometry',()=>{
+describe('modern invoice print template',()=>{
+ it('keeps a concise internal QR label without printing application metadata or instructions',()=>{
   const html=buildInvoiceHtml({...BASE,internalQr:true})
-  expect(html).toContain('Internal QR only. ZATCA electronic invoicing has not been validated.')
+  expect(html).toContain('Internal QR · unvalidated')
   expect(html).toContain('alt="Internal invoice QR"')
-  expect(html.indexOf('Internal QR only.')).toBeGreaterThan(html.indexOf('class="totals"'))
+  expect(html).not.toContain(BASE.verifyUrl)
+  expect(html).not.toContain('ZATCA electronic invoicing has not been validated.')
  })
- it('uses the reference Letter geometry and bilingual RTL headings',()=>{
+ it('uses A4 and concise bilingual RTL headings',()=>{
   const html=buildInvoiceHtml(BASE)
   expect(html).toContain('<html lang="ar" dir="rtl">')
-  expect(html).toContain('@page { size: Letter;')
-  expect(html).toContain('font-family: Tahoma')
-  expect(html).toContain('TAX Invoice')
+  expect(html).toContain('@page { size: A4;')
+  expect(html).toContain('Tax Invoice')
   expect(html).toContain('08/09/2026')
-  expect(html).toContain('Total Before Tax')
-  expect(html).toContain('Total With VAT')
+  expect(html).toContain('Net amount')
+  expect(html).toContain('Total with VAT')
  })
  it('prints gross line totals and the actual paid/outstanding balances',()=>{
   const html=buildInvoiceHtml(BASE)
@@ -34,19 +34,19 @@ describe('reference invoice print template',()=>{
  })
  it('does not subtract an already included line discount twice',()=>{
   const html=buildInvoiceHtml(BASE)
-  expect(html).toContain('Line discount (included)')
-  expect(html).not.toContain('خصم من إجمالي الفاتورة')
+  expect(html).toContain('Line discount included')
+  expect(html).not.toContain('Total adjustment')
   expect(html).toContain('aria-label="SAR 103.50"')
  })
  it('labels an imported post-tax adjustment separately',()=>{
   const html=buildInvoiceHtml({...BASE,total:100,discount:3.5})
-  expect(html).toContain('خصم من إجمالي الفاتورة')
+  expect(html).toContain('Total adjustment')
   expect(html).toContain('aria-label="SAR -3.50"')
  })
  it('does not mislabel mixed VAT rates as a single rate',()=>{
   const html=buildInvoiceHtml({...BASE,lines:[BASE.lines[0],{...BASE.lines[0],vat_rate:0}]})
   expect(html).not.toContain('<br>VAT 15%')
-  expect(html).toContain('<td class="number">0%</td>')
+  expect(html).toContain('<small>0%</small>')
  })
  it('preserves non-SAR currency and imported price precision',()=>{
   const html=buildInvoiceHtml({...BASE,currency:'USD',lines:[{...BASE.lines[0],unit_price:72.2082}]})
@@ -73,6 +73,20 @@ describe('reference invoice print template',()=>{
   expect(html).toContain('مسودة / Draft')
  })
  it('keeps credit-note identity instead of calling every document a tax invoice',()=>{
-  expect(buildInvoiceHtml({...BASE,kind:'credit_note',docTypeAr:'إشعار دائن',docTypeEn:'Credit note'})).toContain('إشعار دائن<br>Credit note')
+  const html=buildInvoiceHtml({...BASE,kind:'credit_note',docTypeAr:'إشعار دائن',docTypeEn:'Credit note'})
+  expect(html).toContain('إشعار دائن')
+  expect(html).toContain('Credit note')
+  expect(html).not.toContain('Tax Invoice')
+ })
+ it('embeds only the supplied font data and rejects external CSS font URLs',()=>{
+  expect(buildInvoiceHtml({...BASE,fontDataUrl:'data:font/woff2;base64,AAAA'})).toContain('@font-face')
+  expect(buildInvoiceHtml({...BASE,fontDataUrl:'https://untrusted.test/font.woff2'})).not.toContain('untrusted.test')
+  expect(buildInvoiceHtml({...BASE,fontDataUrl:'data:font/woff2;base64,AAAA");color:red'})).not.toContain('@font-face')
+ })
+ it('omits redundant zero payments and absent bank/notes fields',()=>{
+  const html=buildInvoiceHtml({...BASE,paidAmount:0})
+  expect(html).not.toContain('Balance due')
+  expect(html).not.toContain('<section class="bank">')
+  expect(html).not.toContain('<section class="notes">')
  })
 })

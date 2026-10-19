@@ -1,5 +1,7 @@
 import { expect as baseExpect } from "@playwright/test"
-import { randomInt } from "node:crypto"
+import { randomInt, createHash } from "node:crypto"
+import { readFile } from "node:fs/promises"
+import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs"
 import { verifyZatcaDisplay } from "./verify-local-zatca.mjs"
 
 const expect = baseExpect.configure({ timeout: 20_000 })
@@ -25,7 +27,7 @@ export async function verifyInvoiceCrud(page, admin, tenantId, appUrl) {
     await dialog.getByRole("button", { name: /Save draft|حفظ المسودة/ }).click()
     await expect(dialog).toBeHidden()
     await page.screenshot({ path: "supabase/.temp/invoice-desktop.png", fullPage: true })
-    const readInvoice = () => admin.from("invoices").select("id,total,status,updated_at,deleted_at")
+    const readInvoice = () => admin.from("invoices").select("id,invoice_number,total,status,updated_at,deleted_at")
       .eq("tenant_id", tenantId).eq("customer_id", customer.data.id).single()
     stage = "verify persisted create"
     const created = await readInvoice()
@@ -61,21 +63,33 @@ export async function verifyInvoiceCrud(page, admin, tenantId, appUrl) {
     const fixtureVat = `3${randomInt(1_000_000_000_000, 10_000_000_000_000)}3`
     const vat = await admin.from("tenants").update({ vat_number: fixtureVat }).eq("id", tenantId)
     if (vat.error) throw new Error("Print tenant fixture failed")
-    await page.context().addInitScript(() => { window.print = () => { window.__invoicePrinted = true } })
     await row.getByRole("button", { name: /Invoice actions|إجراءات الفاتورة/ }).click()
     await page.getByRole("menuitem", { name: /Print \/ Save PDF|طباعة \/ حفظ PDF/ }).click()
     await expect(dialog.getByRole("note")).toContainText(/current QR is internal|الرمز الحالي داخلي/)
-    const popupPromise = page.waitForEvent("popup")
-    await dialog.getByRole("button", { name: /Open invoice for printing|فتح الفاتورة للطباعة/ }).click()
-    const popup = await popupPromise
-    await expect(popup.locator(".items tbody tr")).toHaveCount(1)
-    await expect(popup.locator(".items tbody td:last-child")).toHaveText("11.50")
-    await expect(popup.locator(".status")).toContainText("Draft")
-    await expect(popup.getByRole("note")).toContainText("Internal QR only.")
-    await expect.poll(() => popup.evaluate(() => window.__invoicePrinted === true)).toBe(true)
-    if (!await popup.locator(".logo").evaluate((img) => img.complete && img.naturalWidth > 0)) throw new Error("Invoice logo did not load")
-    await popup.pdf({ path: "supabase/.temp/invoice-browser-print.pdf", preferCSSPageSize: true, printBackground: true })
-    await popup.close()
+    const endpoint = `**/api/invoices/${created.data.id}/pdf`
+    const unavailable = route => route.fulfill({status:503,contentType:'application/json',body:'{"error":"Synthetic PDF unavailable"}'})
+    await page.route(endpoint, unavailable)
+    await dialog.getByRole('button',{name:/^Download PDF$|^تنزيل PDF$/}).click()
+    await expect(dialog.getByRole('alert')).toContainText('Synthetic PDF unavailable')
+    await page.unroute(endpoint, unavailable)
+    const downloading = page.waitForEvent('download')
+    await dialog.getByRole('button',{name:/^Download PDF$|^تنزيل PDF$/}).click()
+    const download = await downloading
+    if(!download.suggestedFilename().includes(created.data.invoice_number)) throw Error('Invoice filename not preserved')
+    await download.saveAs('supabase/.temp/invoice-browser-print.pdf')
+    const bytes=await readFile('supabase/.temp/invoice-browser-print.pdf')
+    const task=getDocument({data:Uint8Array.from(bytes),isEvalSupported:false})
+    const pdf=await task.promise
+    if(pdf.numPages!==1) throw Error('Standard invoice PDF must fit one page')
+    const documentPage=await pdf.getPage(1)
+    const content=(await documentPage.getTextContent()).items.map(item=>item.str??'').join(' ')
+    if(!content.includes('11.50')||!content.includes('Draft')||!content.includes('Internal QR')||/about:blank|https?:\/\//.test(content)) throw Error('PDF amount/status/disclosure or clean-output verification failed')
+    await task.destroy()
+    const generated=await admin.from('generated_documents').select('generated_data,file_url').eq('tenant_id',tenantId).eq('invoice_id',created.data.id).is('deleted_at',null).single()
+    const hash=createHash('sha256').update(bytes).digest('hex')
+    if(generated.error||generated.data.generated_data.file_format!=='pdf'||generated.data.generated_data.pdf_sha256!==hash||!generated.data.file_url) throw Error('Stored PDF evidence mismatch')
+    const retained=await fetch(generated.data.file_url)
+    if(!retained.ok||!retained.headers.get('content-type')?.includes('application/pdf')||createHash('sha256').update(Buffer.from(await retained.arrayBuffer())).digest('hex')!==hash) throw Error('Retained PDF differs from downloaded PDF')
     await expect(dialog).toBeHidden()
     stage = "ZATCA mock evidence display"
     await verifyZatcaDisplay(page, admin, tenantId, appUrl, created.data.id)
@@ -93,7 +107,7 @@ export async function verifyInvoiceCrud(page, admin, tenantId, appUrl) {
       .eq("tenant_id", tenantId).eq("entity_id", created.data.id)
     if (audit.error || !["invoice_draft_created", "invoice_draft_updated", "invoice_draft_deleted"]
       .every((action) => audit.data.some((entry) => entry.action === action))) throw new Error("Invoice audit lifecycle incomplete")
-    console.log("PASS: invoice browser create → exact VAT → edit → mobile → print/PDF with loaded logo and gross VAT → soft delete → reload → audit")
+    console.log("PASS: invoice browser create → exact VAT → edit → mobile → PDF failure/retry → clean PDF download with preserved amounts/status/internal QR and identical private stored hash → soft delete → reload → audit")
   } catch (error) {
     console.error(JSON.stringify({ invoiceStage: stage }))
     await page.screenshot({ path: "supabase/.temp/invoice-crud-failure.png", fullPage: true })
