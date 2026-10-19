@@ -1,10 +1,15 @@
-import { readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
-import { dirname, resolve, basename } from 'node:path'
+import { readFileSync, readdirSync, realpathSync, statSync, lstatSync } from 'node:fs'
+import { dirname, resolve, basename, sep } from 'node:path'
 import { createHash } from 'node:crypto'
 
 const traceFile = resolve('.next/server/app/api/invoices/[id]/pdf/route.js.nft.json')
 const trace = JSON.parse(readFileSync(traceFile, 'utf8'))
 const files = new Set(trace.files.map(file => resolve(dirname(traceFile), file)))
+for (const file of files) {
+  if (lstatSync(file).isSymbolicLink() && [...files].some(child => child.startsWith(file + sep))) {
+    throw Error(`Invoice PDF trace includes children beneath a symlink: ${basename(file)}`)
+  }
+}
 const physicalFiles = new Set([...files].map(file => realpathSync(file)))
 const required = [resolve('public/logo.png'), resolve('src/assets/fonts/cairo.woff2'), resolve('node_modules/playwright-core/browsers.json')]
 function packageFiles(folder) {

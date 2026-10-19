@@ -56,6 +56,12 @@ override and uses the bundled Linux binary. No production secret is required.
 
 ## Verification
 
+The first hosted run exposed missing Playwright metadata. Including package
+resources through pnpm's symlink aliases then produced an invalid Vercel
+function package. Runtime includes now resolve the physical package paths;
+the bundle guard rejects symlink/child collisions as well as missing assets.
+The rebuilt local trace is 84 MiB. Hosted verification remains a separate gate.
+
 Tests cover origin/session/permission/rate guards, rejected arbitrary HTML and
 options, safe filenames and private response headers; renderer cleanup,
 concurrency, asset waiting and network denial; tenant-scoped financial reads,
