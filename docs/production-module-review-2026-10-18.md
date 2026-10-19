@@ -8,6 +8,13 @@ This review covers the repository's shipped business routes, language selection 
 
 ## Language and authentication changes
 
+19 October continuations: the [modern PDF](invoice-pdf-2026-10-19.md) replaces
+the old strict sample layout. Hosted PDF download, retry and private-byte
+retention passed on `5ec5749`. [Manual receivable transaction and retry
+hardening](manual-receivable-retries-2026-10-19.md) is now implemented and applied
+to staging; current-commit CI and hosted evidence remain separate release gates.
+The older checkpoints below describe their own state, not production deployment.
+
 - One locale context now controls marketing, company registration, authentication and dashboard interface copy. Switching updates `lang` and `dir`, persists without a forced reload and synchronizes existing tabs. Blocked browser storage does not prevent the current switch. A non-sensitive `lang` parameter carries preference between configured deployment hosts.
 - Static labels, forms, status badges, table headings, loading/error states, help and legal text use the selected interface language. Names, notes, document contents and other customer-entered business data retain their original content. The reference invoice intentionally remains the requested bilingual document.
 - Authenticated users arriving at the sign-in entry point reuse a server-verified session. Refreshed cookies reach both Server Components and the final response, including redirects. Successful sign-in performs a fresh navigation so stale unauthenticated router data cannot prompt a second login.

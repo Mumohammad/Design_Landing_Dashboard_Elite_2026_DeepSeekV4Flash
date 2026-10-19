@@ -1226,18 +1226,30 @@ export default function AccountingPage() {
   const [rcvDue, setRcvDue] = useState(() => new Date().toISOString().slice(0, 10))
   const [rcvAmount, setRcvAmount] = useState("")
   const [rcvVat, setRcvVat] = useState("15")
+  const [rcvRequest, setRcvRequest] = useState("")
+  function newReceivable() {
+    setRcvRequest(crypto.randomUUID())
+    setRcvRef(""); setRcvAmount(""); setRcvVat("15")
+    const today = new Date().toISOString().slice(0, 10)
+    setRcvDate(today); setRcvDue(today)
+    openDialog("receivable")
+  }
   const rcvPreview = manualReceivablePreview(rcvAmount, rcvVat)
   const [rcvState, rcvAction, isSavingRcv] = useActionState(
-    async (_prev: { success: boolean; error?: string } | null, _form: FormData) => {
-      const res = await createReceivable({
+    async (_prev: { success: boolean; error?: string; errorAr?: string; requestId: string } | null, _form: FormData) => {
+      let res: { success: boolean; error?: string; errorAr?: string }
+      try { res = await createReceivable({
+        request_id: rcvRequest,
         invoice_ref: rcvRef,
         invoice_date: rcvDate,
         due_date: rcvDue,
         amount: Number(rcvAmount || 0),
         vat_rate: Number(rcvVat || 0),
-      })
+      }) } catch {
+        res = { success: false, error: "Unable to confirm this receivable. Retry with unchanged details.", errorAr: "تعذر تأكيد حفظ الذمة. أعد المحاولة بالتفاصيل نفسها." }
+      }
       if (res.success) { closeDialog("receivable"); ledger.reload() }
-      return res
+      return { ...res, requestId: rcvRequest }
     },
     null
   )
@@ -1640,9 +1652,9 @@ export default function AccountingPage() {
                 <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
                   <CardHeader className="pb-3 flex-row items-center justify-between">
                     <CardTitle className="text-base">{ar ? "الذمم المدينة" : "Receivables"}</CardTitle>
-                    <Dialog open={openDialogs["receivable"]} onOpenChange={(o) => setOpenDialogs((p) => ({ ...p, receivable: o }))}>
+                    <Dialog open={openDialogs["receivable"]} onOpenChange={(o) => { if (!isSavingRcv) setOpenDialogs((p) => ({ ...p, receivable: o })) }}>
                       <DialogTrigger asChild>
-                        <button className={dialogBtn} onClick={() => openDialog("receivable")}>
+                        <button className={dialogBtn} onClick={newReceivable}>
                           <Plus className="h-3.5 w-3.5" />{ar ? "ذمة مدينة جديدة" : "New receivable"}
                         </button>
                       </DialogTrigger>
@@ -1652,24 +1664,25 @@ export default function AccountingPage() {
                           <DialogDescription>{ar ? "تسجيل ذمة مدينة يدوية. تُنشأ الفواتير الضريبية من قسم الفواتير." : "Record a manual receivable. Create tax invoices in Invoices."}</DialogDescription>
                         </DialogHeader>
                         <form action={rcvAction} className="space-y-3">
+                          <fieldset disabled={isSavingRcv} className="space-y-3">
                           <div className="space-y-1.5">
                             <Label htmlFor="rcvRef">{ar ? "رقم الفاتورة" : "Invoice ref"}</Label>
-                            <Input id="rcvRef" dir="ltr" value={rcvRef} onChange={(e) => setRcvRef(e.target.value)} className="h-9" />
+                            <Input id="rcvRef" required maxLength={200} dir="ltr" value={rcvRef} onChange={(e) => setRcvRef(e.target.value)} className="h-9" />
                           </div>
                           <div className="grid gap-3 sm:grid-cols-2">
                             <div className="space-y-1.5">
                               <Label htmlFor="rcvDate">{ar ? "تاريخ الفاتورة" : "Invoice date"}</Label>
-                              <Input id="rcvDate" type="date" dir="ltr" value={rcvDate} onChange={(e) => setRcvDate(e.target.value)} className="h-9" />
+                              <Input id="rcvDate" required type="date" dir="ltr" value={rcvDate} onChange={(e) => setRcvDate(e.target.value)} className="h-9" />
                             </div>
                             <div className="space-y-1.5">
                               <Label htmlFor="rcvDue">{ar ? "تاريخ الاستحقاق" : "Due date"}</Label>
-                              <Input id="rcvDue" type="date" dir="ltr" value={rcvDue} onChange={(e) => setRcvDue(e.target.value)} className="h-9" />
+                              <Input id="rcvDue" required min={rcvDate} type="date" dir="ltr" value={rcvDue} onChange={(e) => setRcvDue(e.target.value)} className="h-9" />
                             </div>
                           </div>
                           <div className="grid gap-3 sm:grid-cols-2">
                             <div className="space-y-1.5">
                               <Label htmlFor="rcvAmount">{ar ? "المبلغ (قبل الضريبة)" : "Amount (excl. VAT)"}</Label>
-                              <Input id="rcvAmount" type="number" dir="ltr" min="0" step="0.01" value={rcvAmount} onChange={(e) => setRcvAmount(e.target.value)} className="h-9 text-end tabular-nums" />
+                              <Input id="rcvAmount" required type="number" dir="ltr" min="0.01" max="9999999999.99" step="0.01" value={rcvAmount} onChange={(e) => setRcvAmount(e.target.value)} className="h-9 text-end tabular-nums" />
                             </div>
                             <div className="space-y-1.5">
                               <Label htmlFor="rcvVat">{ar ? "نسبة الضريبة %" : "VAT rate %"}</Label>
@@ -1684,8 +1697,9 @@ export default function AccountingPage() {
                               {isSavingRcv ? <LoadingSpinner className="h-4 w-4" /> : <Save className="h-4 w-4" />}
                               {t.common.save}
                             </Button>
-                            {rcvState?.error && <span className="text-xs text-red-500">{rcvState.error}</span>}
+                            {rcvState?.requestId === rcvRequest && rcvState?.error && <span role="alert" className="text-xs text-red-500">{ar ? rcvState.errorAr ?? rcvState.error : rcvState.error}</span>}
                           </div>
+                          </fieldset>
                         </form>
                       </DialogContent>
                     </Dialog>
