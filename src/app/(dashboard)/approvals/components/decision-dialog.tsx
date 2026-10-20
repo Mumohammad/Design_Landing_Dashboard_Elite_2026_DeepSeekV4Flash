@@ -49,6 +49,7 @@ export function DecisionDialog({
   const isAr = locale === "ar"
   const [reason, setReason] = useState("")
   const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [lastClosed, setLastClosed] = useState(true)
 
   // Reset the reason field when the dialog transitions from closed → open
@@ -56,6 +57,7 @@ export function DecisionDialog({
   if (lastClosed && target !== null) {
     setLastClosed(false)
     setReason("")
+    setError(null)
   } else if (!lastClosed && target === null) {
     setLastClosed(true)
   }
@@ -69,10 +71,11 @@ export function DecisionDialog({
   async function submit() {
     if (submitting) return
     if (reason.trim().length < 5) {
-      toast.error(isAr ? "السبب مطلوب (٥ أحرف على الأقل)" : "A reason (min 5 characters) is required")
+      setError(isAr ? "السبب مطلوب (٥ أحرف على الأقل)" : "A reason (min 5 characters) is required")
       return
     }
     setSubmitting(true)
+    setError(null)
     try {
       // One server action per decision type; dynamic import keeps the inbox
       // bundle free of the write path until a dialog actually opens.
@@ -106,10 +109,10 @@ export function DecisionDialog({
         onOpenChange(false)
         onDone()
       } else {
-        toast.error((isAr ? res.errorAr : res.error) ?? decisionErrorText(res.error ?? "", isAr))
+        setError((isAr ? res.errorAr : res.error) ?? decisionErrorText(res.error ?? "", isAr))
       }
     } catch {
-      toast.error(isAr ? "تعذر تأكيد القرار. أعد تحميل القائمة وراجعها قبل المحاولة مجدداً." : "Unable to confirm the decision. Reload and review before retrying.")
+      setError(isAr ? "تعذر تأكيد القرار. أعد تحميل القائمة وراجعها قبل المحاولة مجدداً." : "Unable to confirm the decision. Reload and review before retrying.")
     } finally { setSubmitting(false) }
   }
 
@@ -165,6 +168,8 @@ export function DecisionDialog({
             }
           />
         </div>
+
+        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
 
         <DialogFooter className="gap-2">
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={submitting}>

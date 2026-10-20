@@ -45,6 +45,17 @@ conflicts, private execution, no financial effects, response loss/retry and an
 approval submitted from a stale tab after another decision. The record and
 reason must remain visible in English desktop and Arabic mobile views.
 
+The first exact-preview and CI browser runs exposed a missing global notification
+renderer: dashboard actions called Sonner but no Toaster was mounted. The root
+now mounts it inside the existing theme/locale providers, with the app's own
+theme context, translated notification landmark and matching direction/position.
+Decision failures also remain in an inline alert in the dialog until retry or
+close, preserving the reason after a lost response. Browser acceptance checks
+the alert, the retry notification and both notification directions. The first
+rejection candidate passed all 2,673 database assertions (27 new rejection
+assertions) and concurrency guards; it failed browser acceptance and was not
+released. Final corrected-head evidence is recorded on PR 76.
+
 This is not a complete Approvals module claim. Queue pagination/search and read
 failure handling still need work; leave/application decisions retain their
 separate transition/audit paths. Past audit-only rejections need an explicit

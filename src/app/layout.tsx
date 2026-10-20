@@ -4,6 +4,7 @@ import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
 import { SidebarConfigProvider } from "@/contexts/sidebar-context"
 import { LocaleProvider } from "@/contexts/locale-context"
+import { Toaster } from "@/components/ui/sonner"
 import { cairo, inter } from "@/lib/fonts"
 
 export const metadata: Metadata = {
@@ -54,6 +55,7 @@ export default function RootLayout({
         <ThemeProvider defaultTheme="system" storageKey="elite-ui-theme">
           <LocaleProvider>
             <SidebarConfigProvider>{children}</SidebarConfigProvider>
+            <Toaster />
           </LocaleProvider>
         </ThemeProvider>
       </body>
