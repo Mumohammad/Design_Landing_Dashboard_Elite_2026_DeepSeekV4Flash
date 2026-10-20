@@ -16,7 +16,7 @@ export async function verifyApprovalsInbox(page,admin,tenantId,appUrl){
   const appId=randomUUID(),driverId=randomUUID(),leaveId=randomUUID()
   const hiddenName=`HiddenApplicant${tag} SecretSurname`,literal=`Literal %_أحمد ${tag}`
   const appReference=`DRV-Q-${tag}`,phone='0501112233',identity=`private-${tag}`
-  let leaveTypeId,createdLeaveType=false,stage='fixtures',releaseStale
+  let leaveTypeId,createdLeaveType=false,stage='fixtures',releaseStale,releaseFresh
   const patterns=[]
   let wireViolation=false
   const checks=[]
@@ -55,6 +55,24 @@ export async function verifyApprovalsInbox(page,admin,tenantId,appUrl){
       pageIds.push(...await rows.locator('td:nth-child(2)').allTextContents())
     }
     if(new Set(pageIds).size!==107)throw Error('Browser pages duplicated or missed references')
+    stage='source and Saudi date filters'
+    const typePicker=page.getByRole('combobox',{name:'Decision type',exact:true})
+    await typePicker.click()
+    await page.getByRole('option',{name:'Application',exact:true}).click()
+    await expect(rows).toHaveCount(1)
+    await expect(rows).toContainText(appReference)
+    await expect(metrics.nth(0)).toHaveText('1')
+    await typePicker.click()
+    await page.getByRole('option',{name:'All types',exact:true}).click()
+    await page.getByLabel('From date',{exact:true}).fill('2026-01-01')
+    await expect(rows).toHaveCount(2)
+    await expect(metrics.nth(0)).toHaveText('2')
+    await page.getByLabel('From date',{exact:true}).fill('')
+    await page.getByLabel('To date',{exact:true}).fill('2020-01-01')
+    await expect(rows).toHaveCount(50)
+    await expect(metrics.nth(0)).toHaveText('105')
+    await page.getByLabel('To date',{exact:true}).fill('')
+    await expect(metrics.nth(0)).toHaveText('107')
     stage='literal and hidden-field search; filtered KPIs'
     await search.fill(literal)
     await expect(rows).toHaveCount(1)
@@ -88,23 +106,32 @@ export async function verifyApprovalsInbox(page,admin,tenantId,appUrl){
     await alert.getByRole('button',{name:'Retry',exact:true}).click()
     await expect(rows).toHaveCount(1)
     stage='old successful response cannot replace a newer search'
-    let held=false
+    let held=false,freshHeld=false
     const stale=async route=>{
-      if(route.request().method()!=='POST'||!route.request().postData()?.includes(literal))return route.continue()
+      const request=route.request(),body=request.postData()??''
+      if(request.method()!=='POST'||(!body.includes(literal)&&!body.includes(appReference)))return route.continue()
       const response=await route.fetch()
-      held=true
-      await new Promise(resolve=>{releaseStale=resolve})
+      if(body.includes(literal)){
+        held=true
+        await new Promise(resolve=>{releaseStale=resolve})
+      }else{
+        freshHeld=true
+        await new Promise(resolve=>{releaseFresh=resolve})
+      }
       await route.fulfill({response})
     }
     await page.route('**/approvals*',stale);patterns.push(stale)
     await search.fill(literal)
     await expect.poll(()=>held).toBe(true)
     await search.fill(appReference)
+    // Next.js dispatches Server Actions sequentially. Release the obsolete
+    // result so the newer action starts, then hold that result independently.
+    releaseStale()
+    await expect.poll(()=>freshHeld).toBe(true)
+    await expect(metrics.nth(0)).toHaveText('—')
+    await expect(rows.filter({hasText:literal})).toHaveCount(0)
+    releaseFresh()
     await expect(rows).toHaveCount(1)
-    await expect(rows).toContainText(appReference)
-    const oldResponse=page.waitForResponse(response=>response.request().method()==='POST'&&response.request().postData()?.includes(literal))
-    releaseStale();await oldResponse
-    await page.waitForTimeout(300)
     await expect(rows).toContainText(appReference)
     await page.unroute('**/approvals*',stale)
     stage='desktop and Arabic mobile'
@@ -117,18 +144,36 @@ export async function verifyApprovalsInbox(page,admin,tenantId,appUrl){
     await expect(rows).toHaveCount(1)
     await expect(page.getByRole('button',{name:'موافقة',exact:true})).toBeVisible()
     if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('Approvals mobile viewport overflow')
+    const arDownload=page.waitForEvent('download')
+    await page.getByRole('button',{name:'تصدير هذه الصفحة',exact:true}).click()
+    const arStream=await (await arDownload).createReadStream(),arChunks=[]
+    for await(const chunk of arStream)arChunks.push(chunk)
+    if(!Buffer.concat(arChunks).toString('utf8').includes('عرض الاسم'))throw Error('Arabic export headers missing')
+    await rows.first().scrollIntoViewIfNeeded()
+    await expect.poll(()=>rows.first().evaluate(row=>{
+      for(let element=row;element;element=element.parentElement)if(Number(getComputedStyle(element).opacity)<0.99)return false
+      return true
+    })).toBe(true)
     await page.screenshot({path:'supabase/.temp/approvals-inbox-mobile-ar.png',fullPage:true})
     await Promise.all(checks)
     if(wireViolation)throw Error('Application identity leaked in server-action response')
     console.log('PASS: approvals all-source pages beyond 100; exact filtered totals/literal search; applicant initials in wire/UI/CSV; read failure/retry; stale response ignored; Arabic mobile')
-  }catch(error){throw Error(`Approvals verification failed at ${stage}`,{cause:error})}
+  }catch(error){
+    console.error(JSON.stringify({check:'approvals boundary failure',stage,errorType:error.name,
+      assertion:['toHaveCount','toBeVisible','toHaveText','toContainText','toBeDisabled','toBe'].find(kind=>error.message?.includes(kind)),
+      callSite:error.stack?.split('\n').find(line=>line.includes('verify-local-approvals.mjs:'))?.trim()}))
+    if(new URL(page.url()).pathname==='/approvals')await page.screenshot({path:'supabase/.temp/approvals-inbox-failure.png',fullPage:true}).catch(()=>{})
+    const failure=Error(`Approvals verification failed at ${stage}`,{cause:error})
+    failure.verificationStage=stage
+    throw failure
+  }
   finally{
-    releaseStale?.()
+    releaseStale?.();releaseFresh?.()
     for(const handler of patterns)await page.unroute('**/approvals*',handler).catch(()=>{})
     page.off('response',inspect)
     for(const [table,key,values] of [['expenses','id',ids],['driver_leave_requests','id',[leaveId]],['driver_applications','id',[appId]],['drivers','id',[driverId]]]){
       const removed=await admin.from(table).delete().eq('tenant_id',tenantId).in(key,values)
-      if(removed.error)throw Error('Owned approval fixture cleanup failed')
+      if(removed.error){console.error(JSON.stringify({check:'approvals synthetic cleanup',table,code:removed.error.code}));throw Error('Owned approval fixture cleanup failed')}
     }
     if(createdLeaveType&&leaveTypeId){if((await admin.from('leave_types').delete().eq('tenant_id',tenantId).eq('id',leaveTypeId)).error)throw Error('Owned leave type cleanup failed')}
     await page.setViewportSize(initialViewport)

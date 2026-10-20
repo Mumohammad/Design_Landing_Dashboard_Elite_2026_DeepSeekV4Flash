@@ -186,7 +186,7 @@ jobs:
     - name: Start Supabase local stack
       run: |
         set -o pipefail
-        supabase start > /tmp/supabase-start.log 2>&1 || { echo "Local Supabase startup failed"; exit 1; }
+        supabase start > /tmp/supabase-start.log 2>&1 || { node scripts/report-supabase-start-failure.mjs /tmp/supabase-start.log; exit 1; }
         echo "Supabase started successfully"
 
     - name: Wait for database

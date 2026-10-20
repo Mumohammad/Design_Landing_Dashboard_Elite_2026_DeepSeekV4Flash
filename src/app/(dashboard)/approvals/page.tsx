@@ -124,15 +124,16 @@ function ApprovalsInner() {
   const exportCsv = () => {
     if (isLoading || loadFailed || rows.length === 0) return
     const csv = approvalsToCsv(
-      ["Type", "Subject", "Requester", "Requested at", "Age (days)", "Deep link", "Name visibility"],
+      isAr ? ["النوع", "الموضوع", "مقدّم الطلب", "تاريخ الطلب", "العمر (أيام)", "رابط الوحدة", "عرض الاسم"]
+        : ["Type", "Subject", "Requester", "Requested at", "Age (days)", "Deep link", "Name visibility"],
       rows.map((r) => [
-        r.item_type,
+        isAr ? APPROVAL_TYPE_META[r.item_type].ar : APPROVAL_TYPE_META[r.item_type].en,
         subjectLine(r, false),
         requesterOf(r),
         r.requested_at,
         pendingAgeDays(r.requested_at),
         itemDeepLink(r),
-        consentOf(r) ? "module access" : "initials only",
+        consentOf(r) ? (isAr ? "حسب صلاحية الوحدة" : "module access") : (isAr ? "الأحرف الأولى فقط" : "initials only"),
       ])
     )
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" })
@@ -180,10 +181,10 @@ function ApprovalsInner() {
       render: (r) => {
         const masked = r.item_type === "application" && !consentOf(r)
         return (
-          <span className={cn("text-xs", masked ? "text-muted-foreground italic" : "text-foreground")}>
+          <span className={cn("text-sm", masked ? "text-muted-foreground italic" : "text-foreground")}>
             {requesterOf(r)}
             {masked && (
-              <span className="ms-1 text-[10px] text-muted-foreground">
+              <span className="ms-1 text-sm text-muted-foreground">
                 {isAr ? "(الأحرف الأولى فقط)" : "(initials only)"}
               </span>
             )}
@@ -232,34 +233,43 @@ function ApprovalsInner() {
     <div className="px-4 py-4 lg:px-6">
       {/* Server filters apply to the complete permitted pending queue. */}
       <div className="mb-4 space-y-3 rounded-2xl border border-border/50 bg-card/60 px-4 py-3 backdrop-blur-sm">
-        <div className="flex flex-wrap items-center gap-2">
-          <Select value={filters.type} onValueChange={(v) => setFilter("type", v as ApprovalItemType | "all")}>
-            <SelectTrigger aria-label={isAr ? "نوع القرار" : "Decision type"} className="h-9 w-40 rounded-xl bg-muted/30 text-xs">
-              <SelectValue placeholder={isAr ? "النوع" : "Type"} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{isAr ? "كل الأنواع" : "All types"}</SelectItem>
-              {APPROVAL_ITEM_TYPES.map((tp) => (
-                <SelectItem key={tp} value={tp}>
-                  {isAr ? APPROVAL_TYPE_META[tp].ar : APPROVAL_TYPE_META[tp].en}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Input
-            type="date"
-            aria-label={isAr ? "من تاريخ" : "From date"}
-            value={filters.from}
-            onChange={(e) => setFilter("from", e.target.value)}
-            className="h-9 w-40 rounded-xl bg-muted/30 text-xs"
-          />
-          <Input
-            type="date"
-            aria-label={isAr ? "إلى تاريخ" : "To date"}
-            value={filters.to}
-            onChange={(e) => setFilter("to", e.target.value)}
-            className="h-9 w-40 rounded-xl bg-muted/30 text-xs"
-          />
+        <div className="grid grid-cols-2 items-end gap-3 sm:flex sm:flex-wrap">
+          <div className="col-span-2 grid gap-1.5 sm:w-40">
+            <span className="text-sm text-muted-foreground">{isAr ? "نوع القرار" : "Decision type"}</span>
+            <Select value={filters.type} onValueChange={(v) => setFilter("type", v as ApprovalItemType | "all")}>
+              <SelectTrigger aria-label={isAr ? "نوع القرار" : "Decision type"} className="h-10 w-full rounded-xl bg-muted/30 text-base sm:text-sm">
+                <SelectValue placeholder={isAr ? "النوع" : "Type"} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{isAr ? "كل الأنواع" : "All types"}</SelectItem>
+                {APPROVAL_ITEM_TYPES.map((tp) => (
+                  <SelectItem key={tp} value={tp}>
+                    {isAr ? APPROVAL_TYPE_META[tp].ar : APPROVAL_TYPE_META[tp].en}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <label className="grid min-w-0 gap-1.5 sm:w-40">
+            <span className="text-sm text-muted-foreground">{isAr ? "من تاريخ" : "From date"}</span>
+            <Input
+              type="date"
+              aria-label={isAr ? "من تاريخ" : "From date"}
+              value={filters.from}
+              onChange={(e) => setFilter("from", e.target.value)}
+              className="h-10 min-w-0 w-full rounded-xl bg-muted/30 text-base sm:text-sm"
+            />
+          </label>
+          <label className="grid min-w-0 gap-1.5 sm:w-40">
+            <span className="text-sm text-muted-foreground">{isAr ? "إلى تاريخ" : "To date"}</span>
+            <Input
+              type="date"
+              aria-label={isAr ? "إلى تاريخ" : "To date"}
+              value={filters.to}
+              onChange={(e) => setFilter("to", e.target.value)}
+              className="h-10 min-w-0 w-full rounded-xl bg-muted/30 text-base sm:text-sm"
+            />
+          </label>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-xs tabular-nums text-muted-foreground">
@@ -267,7 +277,7 @@ function ApprovalsInner() {
               ? data ? `${rows.length} من ${data.kpis.total} قرار مطابق` : "—"
               : data ? `${rows.length} of ${data.kpis.total} matching decisions` : "—"}
           </span>
-          <div className="ms-auto flex items-center gap-2">
+          <div className="ms-auto flex max-w-full flex-wrap items-center justify-end gap-2">
             {isFiltersActive(filters) && (
               <Button
                 variant="ghost"
@@ -302,11 +312,12 @@ function ApprovalsInner() {
       </div>
 
       <EnterpriseModulePage<ApprovalQueueRow>
+        primaryCtaIcon={ClipboardCheck}
         title={isAr ? "صندوق القرارات" : "Approvals Inbox"}
         subtitle={
           isAr
-            ? "كل القرارات المعلقة في مكان واحد — موافقة أو رفض مع سبب إلزامي وسجل تدقيق"
-            : "Every pending decision in one queue — approve or reject with a mandatory reason and full audit trail"
+            ? "راجع المصروفات وطلبات الإجازة والتوظيف المعلقة"
+            : "Review pending expenses, leave requests and applications"
         }
         kpiCards={kpiCards}
         searchPlaceholder={isAr ? "بحث في المراجع والبيانات الظاهرة..." : "Search references and visible details..."}
@@ -338,7 +349,7 @@ function ApprovalsInner() {
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-8 gap-1 rounded-lg text-xs text-destructive hover:text-destructive"
+                className="h-8 gap-1 rounded-lg text-xs text-red-700 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
                 onClick={() => openDecision(r, "rejected")}
               >
                 <XCircle className="h-3.5 w-3.5" />

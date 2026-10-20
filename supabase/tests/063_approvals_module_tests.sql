@@ -334,9 +334,9 @@ SELECT is(
 RESET ROLE;
 SET LOCAL ROLE postgres;
 SELECT ok(
-  (SELECT pg_get_functiondef('public.fetch_pending_approvals(uuid, text, timestamptz, timestamptz, integer)'::regprocedure)
-   LIKE '%LEAST(GREATEST(COALESCE(p_limit, 50), 1), 100)%'),
-  'fetch_pending_approvals clamps p_limit in SQL (hard cap 100)'
+  (SELECT count(*) FROM public.fetch_pending_approvals('11111111-1111-1111-1111-111111111111',NULL,NULL,NULL,100000)) <= 100
+  AND (SELECT count(*) FROM public.fetch_pending_approvals('11111111-1111-1111-1111-111111111111',NULL,NULL,NULL,1)) = 1,
+  'legacy queue enforces requested row bounds (large-queue cap covered by 092)'
 );
 
 -- ─── 4. RLS tenant isolation + anon-zero on the sources (3) ─────────────────

@@ -28,7 +28,8 @@ The candidate replaces that read path with `fetch_pending_approvals_page`:
 - Failed reads show unavailable metrics and a translated Retry action; stale rows,
   exports and decisions are cleared. A late response cannot overwrite newer
   filters. Row actions remain visible on touch devices. CSV explicitly exports
-  the current page, retains masking and neutralizes spreadsheet formulas.
+  the current page with translated headers, retains masking and neutralizes spreadsheet formulas.
+  Visible date labels and wrapping action controls keep mobile filters usable.
 
 Staging migration `20261020160955_approvals_private_paging` changes read-function
 definitions only. It does not update production, business records, source-table
@@ -39,19 +40,31 @@ caller/tenant/account/permission gates are intentional and tested. This is not
 reported as an unchanged security-advisor result. See the [Supabase advisor
 rule](https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable).
 
-Local verification passed 1,045 unit tests, including failed/malformed read
+Local verification passed 1,049 unit tests, including failed/malformed read
 responses, no roster access, masking/serialization, literal filters, result counts,
 date bounds and CSV safety. Focused native PostgreSQL verified 106 rows over
 three pages, complete unique traversal, stable ties, exact counts, Unicode masking,
 hidden-name denial, literal search, page bounds and private execution. Its helper
-scaffold is not a substitute for genuine RLS integration. The new 39-case pgTAP
+scaffold is not a substitute for genuine RLS integration. The new 41-case pgTAP
 suite tests the actual schema and source/account/permission boundaries in CI.
 
 The browser verifier creates 105 expenses, one application and one leave request
 in a fresh isolated workspace; it checks three-page traversal, totals, hidden-field
 search, masked server-action/UI/CSV output, injected read failure/retry, late
-responses and Arabic mobile. Final CI, hosted deployment and visual results are
-recorded on PR 76 after execution. No production release is claimed here.
+responses and Arabic mobile. A focused check against exact application head `377f1c3` passed these flows
+without browser runtime errors. The first stale-response test incorrectly
+expected parallel client Server Actions; the corrected test respects Next.js's
+sequential dispatch and checks that an obsolete result stays hidden while the
+new result is held. The first database attempt failed at Supabase startup; its
+retry applied migrations and reached tests, exposing a reserved alias in the new
+test and a whitespace-dependent legacy assertion. The alias is corrected and
+real legacy row-limit cases replace the formatting assertion. These failed
+runs are not release approval. CI startup diagnostics now emit only known
+migration filenames, SQL states and fixed failure categories, with tests proving
+that raw statements, provider diagnostics and credentials are omitted.
+
+Final CI, hosted deployment and the desktop/Arabic-mobile confirmation results
+for the refined controls are recorded on PR 76 after execution. No production release is claimed here.
 
 Leave/application transition audit atomicity and pending-expense edit/archive
 remain separate open issues. This change does not certify those write workflows,

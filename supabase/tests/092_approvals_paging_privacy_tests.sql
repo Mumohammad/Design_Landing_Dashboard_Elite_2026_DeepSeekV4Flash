@@ -1,5 +1,5 @@
 BEGIN;
-SELECT plan(39);
+SELECT plan(41);
 INSERT INTO auth.users(id,email,encrypted_password,raw_app_meta_data)
 VALUES('92000000-0000-4000-8000-000000000001','queue-092@example.test','synthetic','{"_invite_provisioned":true}');
 CREATE TEMP TABLE approval_company AS SELECT (public.provision_company_atomic('92000000-0000-4000-8000-000000000001',
@@ -28,20 +28,20 @@ SELECT ok(NOT has_function_privilege('authenticated','public.pending_approval_ro
 SELECT ok(NOT has_function_privilege('service_role','public.pending_approval_rows(uuid,text,timestamptz,timestamptz)','execute'),'service API cannot call private source');
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claims','{"role":"authenticated","sub":"92000000-0000-4000-8000-000000000001","aal":"aal2"}',true);
-CREATE TEMP TABLE queue_pages AS SELECT public.fetch_pending_approvals_page(id) first,
- public.fetch_pending_approvals_page(id,NULL,NULL,NULL,'',2) second,
- public.fetch_pending_approvals_page(id,NULL,NULL,NULL,'',999) last FROM approval_company;
-SELECT is((SELECT (first->'kpis'->>'total')::int FROM queue_pages),107,'exact total includes all three sources beyond 100');
-SELECT is((SELECT (first->'kpis'->>'expenses')::int FROM queue_pages),105,'expense KPI covers whole filtered queue');
-SELECT is((SELECT (first->'kpis'->>'leaves')::int FROM queue_pages),1,'leave KPI included');
-SELECT is((SELECT (first->'kpis'->>'applications')::int FROM queue_pages),1,'application KPI included');
-SELECT is((SELECT (first->'kpis'->>'stale')::int FROM queue_pages),105,'stale count spans all pages');
-SELECT is((SELECT jsonb_array_length(first->'rows') FROM queue_pages),50,'first page bounded');
-SELECT is((SELECT jsonb_array_length(second->'rows') FROM queue_pages),50,'second page bounded');
-SELECT is((SELECT jsonb_array_length(last->'rows') FROM queue_pages),7,'last page has remaining rows');
-SELECT is((SELECT (last->>'page')::int FROM queue_pages),3,'out-of-range page clamps to current last page');
-SELECT is((SELECT count(DISTINCT r->>'item_id')::int FROM queue_pages p CROSS JOIN LATERAL jsonb_array_elements((p.first->'rows')||(p.second->'rows')||(p.last->'rows')) r),107,'stable tie-breaking pages contain every row exactly once');
-SELECT is((SELECT public.fetch_pending_approvals_page(id)->'rows' FROM approval_company),(SELECT first->'rows' FROM queue_pages),'same timestamp ordering is repeatable');
+CREATE TEMP TABLE queue_pages AS SELECT public.fetch_pending_approvals_page(id) page_one,
+ public.fetch_pending_approvals_page(id,NULL,NULL,NULL,'',2) page_two,
+ public.fetch_pending_approvals_page(id,NULL,NULL,NULL,'',999) page_last FROM approval_company;
+SELECT is((SELECT (page_one->'kpis'->>'total')::int FROM queue_pages),107,'exact total includes all three sources beyond 100');
+SELECT is((SELECT (page_one->'kpis'->>'expenses')::int FROM queue_pages),105,'expense KPI covers whole filtered queue');
+SELECT is((SELECT (page_one->'kpis'->>'leaves')::int FROM queue_pages),1,'leave KPI included');
+SELECT is((SELECT (page_one->'kpis'->>'applications')::int FROM queue_pages),1,'application KPI included');
+SELECT is((SELECT (page_one->'kpis'->>'stale')::int FROM queue_pages),105,'stale count spans all pages');
+SELECT is((SELECT jsonb_array_length(page_one->'rows') FROM queue_pages),50,'first page bounded');
+SELECT is((SELECT jsonb_array_length(page_two->'rows') FROM queue_pages),50,'second page bounded');
+SELECT is((SELECT jsonb_array_length(page_last->'rows') FROM queue_pages),7,'last page has remaining rows');
+SELECT is((SELECT (page_last->>'page')::int FROM queue_pages),3,'out-of-range page clamps to current last page');
+SELECT is((SELECT count(DISTINCT r->>'item_id')::int FROM queue_pages p CROSS JOIN LATERAL jsonb_array_elements((p.page_one->'rows')||(p.page_two->'rows')||(p.page_last->'rows')) r),107,'stable tie-breaking pages contain every row exactly once');
+SELECT is((SELECT public.fetch_pending_approvals_page(id)->'rows' FROM approval_company),(SELECT page_one->'rows' FROM queue_pages),'same timestamp ordering is repeatable');
 SELECT is((SELECT (public.fetch_pending_approvals_page(id,NULL,NULL,NULL,'Literal %_أحمد')->'kpis'->>'total')::int FROM approval_company),1,'percent and underscore search are literal');
 SELECT is((SELECT (public.fetch_pending_approvals_page(id,NULL,NULL,NULL,'سعيد')->'kpis'->>'total')::int FROM approval_company),0,'hidden applicant name cannot be inferred by search counts');
 SELECT is((SELECT (public.fetch_pending_approvals_page(id,NULL,NULL,NULL,'0501112222')->'kpis'->>'total')::int FROM approval_company),0,'mobile is not searchable');
@@ -51,6 +51,8 @@ SELECT is((SELECT subject_meta->>'full_name' FROM public.fetch_pending_approvals
 SELECT is((SELECT (public.fetch_pending_approvals_page(id,'expense')->'kpis'->>'total')::int FROM approval_company),105,'type filter counts full queue');
 SELECT is((SELECT (public.fetch_pending_approvals_page(id,NULL,'2026-01-01',NULL)->'kpis'->>'total')::int FROM approval_company),2,'date filter excludes old expenses');
 SELECT is((SELECT (public.fetch_pending_approvals_page(id,NULL,NULL,'2020-01-01T00:00:00Z')->'kpis'->>'total')::int FROM approval_company),105,'inclusive upper date boundary');
+SELECT is((SELECT count(*)::int FROM public.fetch_pending_approvals((SELECT id FROM approval_company),NULL,NULL,NULL,100000)),100,'legacy hard cap enforced against a genuine queue larger than 100');
+SELECT is((SELECT count(*)::int FROM public.fetch_pending_approvals((SELECT id FROM approval_company),NULL,NULL,NULL,0)),1,'legacy nonpositive cap safely returns one row');
 SELECT is((SELECT (public.fetch_pending_approvals_page(id,NULL,NULL,NULL,'',1,999)->>'pageSize')::int FROM approval_company),100,'page size capped at 100');
 SELECT is((SELECT (public.fetch_pending_approvals_page(id,NULL,NULL,NULL,'',-1,0)->>'pageSize')::int FROM approval_company),1,'nonpositive page size clamps safely');
 SELECT is((public.fetch_pending_approvals_page('92000000-0000-4000-8000-000000000002')->'kpis'->>'total')::int,0,'tenant argument cannot cross caller tenant');
