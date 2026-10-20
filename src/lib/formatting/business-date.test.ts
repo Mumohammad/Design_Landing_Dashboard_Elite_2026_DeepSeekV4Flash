@@ -34,7 +34,7 @@ describe("Saudi dashboard calendar and hydration", () => {
     vi.useFakeTimers()
     const dates = ["2020-01-01", "2026-10-21", "2027-01-01"].map(day => {
       vi.setSystemTime(new Date(`${day}T00:00:00Z`))
-      const html = renderToString(createElement(LocaleProvider, { children: createElement(DashboardHeader, { snapshot: null, onRefresh: () => {}, refreshing: false }) }))
+      const html = renderToString(createElement(LocaleProvider, null, createElement(DashboardHeader, { snapshot: null, onRefresh: () => {}, refreshing: false })))
       return /<time\b[^>]*>[\s\S]*?<\/time>/.exec(html)?.[0]
     })
     expect(dates.every(value => value?.includes("dashboard-business-date") && value.includes("—") && !value.includes("dateTime="))).toBe(true)
