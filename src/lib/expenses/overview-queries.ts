@@ -14,6 +14,8 @@ export interface ExpenseRow {
   expense_date: string
   description: string | null
   is_approved: boolean
+  rejected_at: string | null
+  rejection_reason: string | null
   vendor: string | null
   vat_rate: number
   vat_amount: number
@@ -22,7 +24,7 @@ export interface ExpenseRow {
   driver: { full_name_ar: string; driver_code: string } | null
 }
 
-const FIELDS = "id,expense_code,expense_type,category,amount,currency,expense_date,description,is_approved,vendor,vat_rate,vat_amount,vat_recoverability,coa_account_code,driver:drivers(full_name_ar,driver_code),driver_search:drivers()"
+const FIELDS = "id,expense_code,expense_type,category,amount,currency,expense_date,description,is_approved,rejected_at,rejection_reason,vendor,vat_rate,vat_amount,vat_recoverability,coa_account_code,driver:drivers(full_name_ar,driver_code),driver_search:drivers()"
 
 export function expensesQuery(client: SupabaseClient, search: string) {
   let query = client.from("expenses").select(FIELDS, { count: "exact" }).is("deleted_at", null)
@@ -36,19 +38,21 @@ export function expensesQuery(client: SupabaseClient, search: string) {
  * Uses the shared checked 100,000-row budget; never returns partial money totals. */
 export async function expensesSummary(client: SupabaseClient, signal: AbortSignal) {
   const rows = await collectRows(() => client.from("expenses")
-    .select("id,amount,vat_amount,currency,is_approved", { count: "exact" })
+    .select("id,amount,vat_amount,currency,is_approved,rejected_at", { count: "exact" })
     .is("deleted_at", null).order("id").abortSignal(signal))
   let net = 0, vat = 0, pending = 0
   for (const row of rows) {
     // Do not add currencies together or silently turn missing financial data into zero.
     if (row.currency !== "SAR" || typeof row.is_approved !== "boolean"
+      || !(row.rejected_at === null || (typeof row.rejected_at === "string" && Number.isFinite(Date.parse(row.rejected_at))))
+      || (row.is_approved && row.rejected_at !== null)
       || ![row.amount, row.vat_amount].every(value =>
         (typeof value === "number" || typeof value === "string") && /^\d+(\.\d{1,2})?$/.test(String(value)))) {
       throw new Error("Could not load expense totals")
     }
     net = sumMoney(net, row.amount as number | string)
     vat = sumMoney(vat, row.vat_amount as number | string)
-    if (!row.is_approved) pending++
+    if (!row.is_approved && row.rejected_at === null) pending++
   }
   return { count: rows.length, pending, net, vat }
 }

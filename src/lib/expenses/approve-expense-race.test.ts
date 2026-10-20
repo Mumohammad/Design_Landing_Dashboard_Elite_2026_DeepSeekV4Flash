@@ -182,6 +182,14 @@ describe("FX-06 approveExpense race", () => {
     expect(res.error).toBe("This expense is already approved.")
     expect(res.alreadyApproved).toBe(true)
   })
+  it('does not mislabel a rejected expense as approved on a stale retry',async()=>{
+    rpcMock.mockImplementationOnce(async()=>({data:null,error:{message:'EXP_REJECTED: expense already rejected'}}))
+    const result=await approveExpense({id:'exp-rejected'})
+    expect(result).toMatchObject({success:false,alreadyDecided:true})
+    expect(result.alreadyApproved).toBeUndefined()
+    expect(result.error).toContain('rejected')
+    expect(dispatcherState.runEventDispatcher).not.toHaveBeenCalled()
+  })
 
   // Review round 2 — mapping determinism: the RPC raises EXP005 when the
   // INTO STRICT read of expense_category_mappings finds no row for the

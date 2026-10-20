@@ -20,7 +20,7 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
   const pattern = '**/rest/v1/expenses?**'
   const actionPattern='**/expenses*'
   let responseLost=false,approvalResponseLost=false
-  const approvedSeeds=[]
+  const retainedSeeds=[]
   const loseResponse=async route=>{
     const request=route.request()
     if(!responseLost&&request.method()==='POST'&&new URL(request.url()).pathname==='/expenses'
@@ -78,7 +78,7 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
     await page.getByRole('button',{name:/^(Retry|Try again)$/}).click()
     await expect(page.getByTestId('module-empty-state')).toBeVisible()
     stage = 'failed summary stays unknown and recovers'
-    const failSummary = route => new URL(route.request().url()).searchParams.get('select') === 'id,amount,vat_amount,currency,is_approved'
+    const failSummary = route => new URL(route.request().url()).searchParams.get('select') === 'id,amount,vat_amount,currency,is_approved,rejected_at'
       ? route.fulfill({status:503,contentType:'application/json',body:'{"message":"Synthetic summary unavailable"}'}) : route.continue()
     await page.route(pattern,failSummary)
     await page.reload()
@@ -191,10 +191,11 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
     await dialog.locator('#decision-reason').fill('Receipts checked')
     // Retain this synthetic financial source even if the assertion after the
     // click fails; hard deletion must not orphan its accounting evidence.
-    approvedSeeds.push(ids[0])
+    retainedSeeds.push(ids[0])
     await dialog.getByRole('button',{name:'Confirm approval',exact:true}).click()
     await expect(dialog).toBeHidden()
     await expect(inboxRow).toHaveCount(0)
+    await expect(page.locator('tbody tr')).toHaveCount(50)
     await verifyPosting(ids[0],0.1,0.02,0.12,'approvals_inbox','Receipts checked')
     await page.goto(appUrl+'/expenses?lang=en')
     await expect(metrics.nth(0)).toHaveText('107')
@@ -224,8 +225,66 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
       if(persisted.error)throw Error('VAT expense persistence unavailable')
       await verifyPosting(persisted.data.id,100,test.vat,test.total,'expenses',null,test.classification)
     }
+    stage='rejection commit with lost response and safe retry'
+    const rejection=await admin.from('expenses').update({created_at:'2000-01-01T00:00:01Z'}).eq('tenant_id',tenantId).eq('id',ids[1]).select('expense_code').single()
+    if(rejection.error)throw Error('Rejection fixture unavailable')
+    await page.goto(appUrl+'/approvals?lang=en')
+    const rejectRow=page.locator('tbody tr').filter({hasText:rejection.data.expense_code})
+    await rejectRow.getByRole('button',{name:'Reject',exact:true}).click()
+    await dialog.locator('#decision-reason').fill('Duplicate receipt')
+    retainedSeeds.push(ids[1])
+    let rejectionResponseLost=false
+    const rejectionPattern='**/approvals*'
+    const loseRejection=async route=>{
+      const request=route.request()
+      if(!rejectionResponseLost&&request.method()==='POST'&&new URL(request.url()).pathname==='/approvals'
+        &&request.headers()['next-action']&&request.postData()?.includes(ids[1])){
+        rejectionResponseLost=true;const response=await route.fetch()
+        if(!response.ok())throw Error('Rejection failed before response-loss injection')
+        await route.abort('failed')
+      }else await route.continue()
+    }
+    await page.route(rejectionPattern,loseRejection)
+    await dialog.getByRole('button',{name:'Confirm rejection',exact:true}).click()
+    await expect(page.getByText('Unable to confirm the decision. Reload and review before retrying.',{exact:true})).toBeVisible()
+    await page.unroute(rejectionPattern,loseRejection)
+    if(!rejectionResponseLost)throw Error('Rejection response loss was not exercised')
+    await dialog.getByRole('button',{name:'Confirm rejection',exact:true}).click()
+    await expect(dialog).toBeHidden();await expect(rejectRow).toHaveCount(0)
+    await expect(page.locator('tbody tr')).toHaveCount(50)
+    const decision=await admin.from('expenses').select('is_approved,rejected_at,rejected_by,rejection_reason').eq('tenant_id',tenantId).eq('id',ids[1]).single()
+    const rejectAudit=await admin.from('audit_log').select('actor_id,new_values').eq('tenant_id',tenantId).eq('entity_id',ids[1]).eq('action','expense_rejected')
+    if(decision.error||decision.data.is_approved||!decision.data.rejected_at||!decision.data.rejected_by||decision.data.rejection_reason!=='Duplicate receipt'
+      ||rejectAudit.error||rejectAudit.data?.length!==1||rejectAudit.data[0].actor_id!==decision.data.rejected_by||rejectAudit.data[0].new_values.reason!=='Duplicate receipt')throw Error('Rejected decision/audit differs')
+    const noFinancialEffects=async id=>{
+      const ap=await admin.from('payables').select('id').eq('tenant_id',tenantId).eq('source_entity_type','expense').eq('source_entity_id',id)
+      const events=await admin.from('financial_events').select('id').eq('tenant_id',tenantId).eq('source_type','expense').eq('source_id',id)
+      const entries=await admin.from('journal_entries').select('id').eq('tenant_id',tenantId).eq('source_entity_type','expense').eq('source_entity_id',id)
+      if([ap,events,entries].some(result=>result.error||result.data?.length!==0))throw Error('Rejection generated financial effects')
+    }
+    await noFinancialEffects(ids[1])
+    await page.goto(appUrl+'/expenses?lang=en');await search.fill(rejection.data.expense_code)
+    await expect(rows).toHaveCount(1)
+    await expect(rows.getByText('Rejected',{exact:true})).toBeVisible()
+    await rows.locator('summary').click()
+    await expect(rows.getByText('Duplicate receipt',{exact:true})).toBeVisible()
+    await expect(rows.getByRole('button',{name:'Approve expense',exact:true})).toHaveCount(0)
+    await page.screenshot({path:'supabase/.temp/expense-rejection-desktop.png',fullPage:true})
+    stage='stale approval cannot overwrite a newer rejection'
+    const stale=await admin.from('expenses').select('expense_code').eq('tenant_id',tenantId).eq('id',ids[2]).single()
+    if(stale.error)throw Error('Stale approval fixture unavailable')
+    await search.fill(stale.data.expense_code);await expect(rows).toHaveCount(1)
+    await rows.getByRole('button',{name:'Approve expense',exact:true}).click()
+    retainedSeeds.push(ids[2])
+    const otherDecision=await admin.rpc('reject_expense_atomic',{p_tenant_id:tenantId,p_expense_id:ids[2],p_reason:'Reviewed elsewhere before approval',p_actor:decision.data.rejected_by})
+    if(otherDecision.error)throw Error('Competing rejection failed')
+    await dialog.getByRole('button',{name:'Approve',exact:true}).click()
+    await expect(dialog).toBeHidden()
+    await expect(page.getByText('This expense was already rejected. Review the refreshed decision.',{exact:true})).toBeVisible()
+    await expect(rows.getByText('Rejected',{exact:true})).toBeVisible()
+    await noFinancialEffects(ids[2])
     await expect(metrics.nth(0)).toHaveText('110')
-    await expect(metrics.nth(1)).toHaveText('105')
+    await expect(metrics.nth(1)).toHaveText('103')
     await expect(metrics.nth(2)).toHaveText('311.93')
     await expect(metrics.nth(3)).toHaveText('30.20')
     await search.fill(createdVendor)
@@ -253,7 +312,13 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
     await revealed(heading)
     if (!(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth))) throw Error('Expense viewport overflows')
     await page.screenshot({path:'supabase/.temp/expenses-overview-mobile-ar.png',fullPage:true})
-    console.log('PASS: expenses beyond 100 rows; exact summary/search/pagination/read recovery; creation and approval lost-response retries; one payable/event/audit/journal/VAT record; inbox reason; zero/nonrecoverable/review VAT classifications and balanced postings; Arabic mobile')
+    await search.fill(rejection.data.expense_code);await expect(rows).toHaveCount(1)
+    await rows.getByText('مرفوض',{exact:true}).scrollIntoViewIfNeeded()
+    await rows.locator('summary').click()
+    await expect(rows.getByText('Duplicate receipt',{exact:true})).toBeVisible()
+    if(!(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)))throw Error('Rejected expense viewport overflows')
+    await page.screenshot({path:'supabase/.temp/expense-rejection-mobile-ar.png',fullPage:true})
+    console.log('PASS: expenses beyond 100 rows; exact summary/search/pagination/read recovery; creation/approval/rejection lost-response retries; one decision/audit and matching financial effects; rejected queue exit and stale approval protection; VAT classifications/balanced postings; Arabic mobile')
   } catch (error) {
     const operation=/expect\(locator\)\.[A-Za-z]+/.exec(error.message)?.[0]
       ??(/strict mode violation/.test(error.message)?'ambiguous-locator':undefined)
@@ -263,8 +328,8 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
   } finally {
     await page.unrouteAll({behavior:'ignoreErrors'})
     const retired = await admin.from('expenses').update({deleted_at:new Date().toISOString()}).eq('tenant_id',tenantId).in('vendor',managedVendors)
-    const retiredSeeds = approvedSeeds.length ? await admin.from('expenses').update({deleted_at:new Date().toISOString()}).eq('tenant_id',tenantId).in('id',approvedSeeds) : {error:null}
-    const removed = await admin.from('expenses').delete().eq('tenant_id',tenantId).in('id',ids.filter(id=>!approvedSeeds.includes(id)))
+    const retiredSeeds = retainedSeeds.length ? await admin.from('expenses').update({deleted_at:new Date().toISOString()}).eq('tenant_id',tenantId).in('id',retainedSeeds) : {error:null}
+    const removed = await admin.from('expenses').delete().eq('tenant_id',tenantId).in('id',ids.filter(id=>!retainedSeeds.includes(id)))
     const removedDrivers = await admin.from('drivers').delete().eq('tenant_id',tenantId).in('id',drivers)
     if (retired.error || retiredSeeds.error || removed.error || removedDrivers.error) throw Error('Synthetic expense cleanup failed')
     if (viewport) await page.setViewportSize(viewport)

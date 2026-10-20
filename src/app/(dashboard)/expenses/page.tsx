@@ -117,7 +117,7 @@ export default function ExpensesPage() {
   const kpiCards: KpiCardData[] = [
     { label: t.nav.expenses, value: summary.value?.count ?? "—", icon: Wallet, color: "#1E5A99" },
     { label: t.common.pending, value: summary.value?.pending ?? "—", icon: Clock, color: "#F59E0B" },
-    { label: locale === "ar" ? "صافي المصروفات (ر.س)" : "Net expenses (SAR)", value: summary.value ? fmtMoney(summary.value.net) : "—", icon: DollarSign, color: "#EF4444" },
+    { label: locale === "ar" ? "صافي المبالغ المسجلة (ر.س)" : "Recorded net (SAR)", value: summary.value ? fmtMoney(summary.value.net) : "—", icon: DollarSign, color: "#EF4444" },
     { label: locale === "ar" ? "الضريبة المسجلة (ر.س)" : "Recorded VAT (SAR)", value: summary.value ? fmtMoney(summary.value.vat) : "—", icon: ReceiptText, color: "#10B981" },
   ]
 
@@ -155,7 +155,15 @@ export default function ExpensesPage() {
       key: "is_approved", header: t.common.status,
       render: (r) => r.is_approved
         ? <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-600"><BadgeCheck className="h-3 w-3" />{t.common.approved}</span>
-        : <span className="inline-flex items-center rounded-full border border-amber-500/20 bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-600">{t.common.pending}</span>,
+        : r.rejected_at
+          ? <div className="space-y-1">
+              <span className="inline-flex items-center rounded-full border border-destructive/20 bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">{locale === "ar" ? "مرفوض" : "Rejected"}</span>
+              <details className="max-w-52 text-xs">
+                <summary className="cursor-pointer font-medium text-foreground/80 underline underline-offset-2">{locale === "ar" ? "سبب الرفض" : "Rejection reason"}</summary>
+                <p className="mt-1 whitespace-pre-wrap break-words text-muted-foreground">{r.rejection_reason ?? (locale === "ar" ? "تعذر تحميل سبب الرفض." : "Rejection reason unavailable.")}</p>
+              </details>
+            </div>
+          : <span className="inline-flex items-center rounded-full border border-amber-500/20 bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-600">{t.common.pending}</span>,
     },
   ]
 
@@ -189,7 +197,9 @@ export default function ExpensesPage() {
         vat_rate: Number(formVatRate || 0),
       })
       if (res.success) {
-        flash("ok", "تم إنشاء المصروف (قيد الاعتماد). / Expense created (pending).")
+        flash(res.replayed ? "info" : "ok", res.replayed
+          ? locale === "ar" ? "حُفظ هذا المصروف مسبقاً. راجع حالته الحالية." : "This expense was already saved. Review its current status."
+          : locale === "ar" ? "تم إنشاء المصروف (قيد الاعتماد)." : "Expense created (pending).")
         setCreateOpen(false)
         await load()
       } else {
@@ -210,8 +220,9 @@ export default function ExpensesPage() {
         vat_rate: Number(approveVatRate),
         vat_recoverability: approveRecoverability,
       })
-      if (res.success || res.alreadyApproved) {
-        if (res.alreadyApproved) flash("info", locale === "ar" ? "تم اعتماد المصروف مسبقاً. راجع بياناته بعد تحديث القائمة." : "This expense is already approved. Review the refreshed record.")
+      if (res.success || res.alreadyApproved || res.alreadyDecided) {
+        if (res.alreadyDecided) flash("info", locale === "ar" ? "رُفض المصروف مسبقاً. راجع القرار بعد تحديث القائمة." : "This expense was already rejected. Review the refreshed decision.")
+        else if (res.alreadyApproved) flash("info", locale === "ar" ? "تم اعتماد المصروف مسبقاً. راجع بياناته بعد تحديث القائمة." : "This expense is already approved. Review the refreshed record.")
         else if (res.postingPending) flash("info", locale === "ar" ? "تم اعتماد المصروف وإنشاء الذمة الدائنة. الترحيل المحاسبي قيد المراجعة؛ راجع أحداث المحاسبة." : "Expense approved; payable created. Accounting posting needs review in Accounting events.")
         else flash("ok", locale === "ar" ? "تم اعتماد المصروف وإنشاء الذمة الدائنة ومعالجة الحدث المحاسبي." : "Expense approved; payable created and accounting event processed.")
         setApproveTarget(null)
@@ -259,7 +270,7 @@ export default function ExpensesPage() {
         onRetry={() => { void load() }}
         emptyStateMessage={t.common.noData}
         rowActions={(r) =>
-          r.is_approved ? null : (
+          r.is_approved || r.rejected_at ? null : (
             <div className="flex items-center gap-1">
               <button
                 onClick={() => { setApproveTarget(r); setApproveError(null); setApproveVatRate(String(r.vat_rate)); setApproveRecoverability(mappingRecoverability[r.expense_type] ?? "pending_review") }}

@@ -48,7 +48,7 @@ export async function approveExpense(input: {
   vat_recoverability?: ExpenseVatRecoverability
   approvalReason?: string
   surface?: "expenses" | "approvals_inbox"
-}): Promise<ActionResult & { alreadyApproved?: boolean; postingPending?: boolean }> {
+}): Promise<ActionResult & { alreadyApproved?: boolean; alreadyDecided?: boolean; postingPending?: boolean }> {
   try {
     await requirePermission("expenses", "approve")
     const currentUser = await getCurrentUser()
@@ -86,6 +86,10 @@ export async function approveExpense(input: {
       p_surface: surface,
     })
     if (rpcErr) {
+      if (rpcErr.message.startsWith("EXP_REJECTED:")) return {
+        success: false, alreadyDecided: true, error: "This expense was rejected. Review the refreshed decision.",
+        errorAr: "رُفض هذا المصروف مسبقاً. راجع القرار بعد تحديث القائمة.",
+      }
       if (rpcErr.message.startsWith("EXP002:")) return {
         success: false, alreadyApproved: true, error: mapFinancialError(rpcErr.message),
         errorAr: "تم اعتماد المصروف مسبقاً. راجع بياناته بعد تحديث القائمة.",

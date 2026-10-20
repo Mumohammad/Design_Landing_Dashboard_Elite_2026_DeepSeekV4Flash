@@ -52,9 +52,10 @@ found that new companies lacked expense mappings. The [accounting initialization
 continuation](company-accounting-defaults-2026-10-20.md) addresses that setup defect;
 the failed candidate was not merged/promoted.
 
-This fixes positive expense approval, not the entire Approvals module. Expense
-rejection still uses a separate update/audit path and lacks a durable rejected
-state. The inbox's capped queue, inactive search and swallowed read errors need
+This fixes positive expense approval, not the entire Approvals module. The
+[rejection continuation](expense-rejection-2026-10-20.md) addresses the separate
+update/audit path and missing durable rejected state. The inbox's capped queue,
+inactive search and swallowed read errors need
 further work. The [VAT posting continuation](expense-vat-posting-2026-10-20.md)
 addresses the reproduced zero-line failure for zero/non-recoverable VAT; its final
 acceptance is recorded separately. Genuine finance configuration,

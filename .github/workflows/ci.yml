@@ -299,6 +299,9 @@ jobs:
     - name: Verify accounting default initialization in disposable database
       run: node scripts/verify-accounting-defaults-concurrency.mjs --local-disposable
 
+    - name: Verify expense decision races in disposable database
+      run: node scripts/verify-expense-rejection-concurrency.mjs --local-disposable
+
     - name: Verify ZATCA preparation ledger in disposable database
       run: node scripts/verify-zatca-issuance-concurrency.mjs --local-disposable
 

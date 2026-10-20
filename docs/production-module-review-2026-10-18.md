@@ -32,6 +32,9 @@ default continuation](company-accounting-defaults-2026-10-20.md) fixes that with
 backfilling existing production tenants. Final commit evidence remains a gate.
 The [VAT posting continuation](expense-vat-posting-2026-10-20.md) also addresses
 zero/non-recoverable VAT journal failures and category-default selection.
+The [rejection continuation](expense-rejection-2026-10-20.md) adds a durable,
+atomic decision and protects stale approval retries; final verification is held
+separately from the earlier passing VAT candidate.
 
 - One locale context now controls marketing, company registration, authentication and dashboard interface copy. Switching updates `lang` and `dir`, persists without a forced reload and synchronizes existing tabs. Blocked browser storage does not prevent the current switch. A non-sensitive `lang` parameter carries preference between configured deployment hosts.
 - Static labels, forms, status badges, table headings, loading/error states, help and legal text use the selected interface language. Names, notes, document contents and other customer-entered business data retain their original content. The reference invoice intentionally remains the requested bilingual document.
@@ -65,7 +68,7 @@ zero/non-recoverable VAT journal failures and category-default selection.
 | Reports | Partially complete | Named collectors now fetch all pages with deterministic ordering and exact counts, reject database failures, premature empty pages, duplicate IDs, changing counts and exports over 100,000 rows. The obsolete driver phone column is corrected. Custom reports are rejected server-side and disabled in the UI. History has database pagination, bilingual type/file search, global counts and retry states. Do not advertise arbitrary custom reports. |
 | Users | Core implemented | Tenant user management and role assignment exist; invitations/reset mail require verified delivery configuration. |
 | Roles | Read-only catalog | Displays system/custom roles. No full role/permission editor is provided. Standard assignment/permissions are enforced elsewhere. |
-| Approvals | Positive expense decision hardened; other gaps open | Positive expense decisions share the atomic expense approval path. Rejection needs a durable terminal state/atomic audit, and capped queue/search/read-failure behavior remains unfinished. Actual company approval policy needs business-owner acceptance. |
+| Approvals | Expense decisions hardened; queue/other decisions open | Expense approval and rejection use atomic decision/audit paths. Capped queue/search/read-failure behavior and other decision types remain unfinished. Actual company approval policy needs business-owner acceptance. |
 | Audit log | Read-only by design | Audit records are intended for viewing, not editable CRUD. Verify retention/export requirements for each customer. |
 | Security | Core controls implemented; setup outstanding | MFA, account restrictions, RLS and authorization are covered by regression tests. Supabase leaked-password protection was disabled at the preceding review. |
 | Settings | Core implemented; tenant setup outstanding | Company/security/user configuration exists. Genuine VAT, legal/company identity and finance settings must be completed before related workflows are enabled. |
