@@ -24,8 +24,12 @@ SELECT is(public.has_required_assurance(),false,'required change blocks business
 SELECT is(public.get_my_tenant_id(),NULL::uuid,'required change blocks tenant business scope');
 SELECT is(public.user_has_permission('expenses','create'),false,'required change blocks business permission');
 SELECT is((SELECT count(*)::int FROM public.users WHERE auth_user_id='91000000-0000-4000-8000-000000000001'),1,'own profile remains readable for password and MFA bootstrap');
-WITH changed AS(UPDATE public.users SET must_change_password=false WHERE auth_user_id='91000000-0000-4000-8000-000000000001' RETURNING id)
-SELECT is((SELECT count(*)::int FROM changed),0,'browser cannot clear requirement directly');
+SELECT lives_ok($test$DO $body$BEGIN
+  BEGIN UPDATE public.users SET must_change_password=false WHERE auth_user_id='91000000-0000-4000-8000-000000000001';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;END;
+  IF EXISTS(SELECT 1 FROM public.users WHERE auth_user_id='91000000-0000-4000-8000-000000000001' AND NOT must_change_password)
+    THEN RAISE EXCEPTION 'browser cleared required-password flag';END IF;
+END;$body$;$test$,'browser cannot clear requirement directly, whether denied by grants or RLS');
 SELECT throws_ok($$SELECT public.complete_user_password_change('91000000-0000-4000-8000-000000000001',1,1)$$,'42501',NULL,'browser cannot call trusted completion');
 SELECT ok(NOT has_function_privilege('authenticated','public.observe_auth_password_change()','execute') AND NOT has_function_privilege('anon','public.observe_auth_password_change()','execute'),'credential observer is not a public callable endpoint');
 RESET ROLE;
