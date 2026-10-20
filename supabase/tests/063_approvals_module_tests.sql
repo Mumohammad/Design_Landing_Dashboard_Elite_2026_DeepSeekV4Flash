@@ -102,11 +102,11 @@ BEGIN
           '{"_invite_provisioned": true}')
   ON CONFLICT (id) DO NOTHING;
 
-  INSERT INTO public.users (id, auth_user_id, tenant_id, email, role, status)
-  VALUES (v_users, v_auth, v_tenant, 'approvals-fixture@test.local', 'general_manager', 'active')
+  INSERT INTO public.users (id, auth_user_id, tenant_id, email, role, status, must_change_password)
+  VALUES (v_users, v_auth, v_tenant, 'approvals-fixture@test.local', 'general_manager', 'active', false)
   -- 062's fixtures own the SAME id with role='supervisor'; after one of its
   -- failed runs leaks, DO NOTHING would leave this reviewer a supervisor.
-  ON CONFLICT (id) DO UPDATE SET role = 'general_manager', status = 'active';
+  ON CONFLICT (id) DO UPDATE SET role = 'general_manager', status = 'active', must_change_password = false;
 
   -- Driver (tenant A) — receives the leave request. hire_date is REQUIRED:
   -- validate_leave_request() (enforced by the trg_enforce_leave_policy

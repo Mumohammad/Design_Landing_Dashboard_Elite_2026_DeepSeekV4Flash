@@ -76,9 +76,9 @@ BEGIN
           '{"_invite_provisioned": true}')
   ON CONFLICT (id) DO NOTHING;
 
-  INSERT INTO public.users (id, auth_user_id, tenant_id, email, role, status)
-  VALUES (v_users, v_auth, v_tenant, 'wiring-fixture@test.local', 'general_manager', 'active')
-  ON CONFLICT (id) DO UPDATE SET role = 'general_manager', status = 'active';
+  INSERT INTO public.users (id, auth_user_id, tenant_id, email, role, status, must_change_password)
+  VALUES (v_users, v_auth, v_tenant, 'wiring-fixture@test.local', 'general_manager', 'active', false)
+  ON CONFLICT (id) DO UPDATE SET role = 'general_manager', status = 'active', must_change_password = false;
 
   -- Driver (tenant A): employable (active) so the assign-path fixtures hold.
   INSERT INTO public.drivers (id, tenant_id, full_name_ar, primary_mobile, category, status, hire_date)
@@ -363,13 +363,13 @@ VALUES ('00000000-0000-0000-0000-000000000000',
         '{"_invite_provisioned": true}')
 ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO public.users (id, auth_user_id, tenant_id, email, role, status)
+INSERT INTO public.users (id, auth_user_id, tenant_id, email, role, status, must_change_password)
 VALUES ('12999999-9999-9999-9999-999999999999',
         '12888888-8888-8888-8888-888888888888',
         '12222222-2222-2222-2222-222222222222',
-        'wiring-fixture-b@test.local', 'general_manager', 'active')
+        'wiring-fixture-b@test.local', 'general_manager', 'active', false)
 ON CONFLICT (id) DO UPDATE SET tenant_id = '12222222-2222-2222-2222-222222222222',
-                               role = 'general_manager', status = 'active';
+                               role = 'general_manager', status = 'active', must_change_password = false;
 
 RESET ROLE;
 SET LOCAL ROLE authenticated;

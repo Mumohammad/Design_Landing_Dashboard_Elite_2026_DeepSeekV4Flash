@@ -33,7 +33,7 @@ let stage = "fixture creation"
 try {
   const id = randomUUID()
   const email = `release-${id}@example.test`
-  const password = `${randomBytes(20).toString("base64url")}1a`
+  let password = `${randomBytes(20).toString("base64url")}1a`
   const owner = await admin.auth.admin.createUser({
     email, password, email_confirm: true, app_metadata: { _invite_provisioned: true },
   })
@@ -43,6 +43,7 @@ try {
     p_company: { name: "Disposable browser verification", domain: `${id}.test`, slug: id },
   })
   if (company.error) throw new Error("Company fixture failed")
+  if ((await admin.from("users").update({must_change_password:true}).eq("auth_user_id",owner.data.user.id)).error) throw new Error("Required-password fixture failed")
 
   browser = await chromium.launch({ headless: true })
   if (process.env.VERIFY_PASSWORD_FLOWS === "1") {
@@ -61,6 +62,9 @@ try {
   await page.getByLabel(/email|البريد الإلكتروني/i).fill(email)
   await page.getByLabel(/^(password|كلمة المرور)$/i).fill(password)
   await page.getByRole("button", { name: /sign in|تسجيل الدخول/i }).click()
+  stage = "required password before privileged MFA enrollment"
+  const { verifyRequiredPasswordChange } = await import("./verify-local-password-policy.mjs")
+  password = await verifyRequiredPasswordChange(page,admin,owner.data.user.id,appUrl,{responseLoss:true,nextPath:"/settings/mfa"})
   await page.waitForURL(/\/settings\/mfa/)
 
   stage = "MFA enrollment"
@@ -131,6 +135,7 @@ try {
   await page.waitForURL(/\/landing$/)
   await page.goto(`${appUrl}/dashboard`)
   await page.waitForURL(/\/auth\/sign-in/)
+  if ((await admin.from("users").update({must_change_password:true}).eq("auth_user_id",owner.data.user.id)).error) throw new Error("Returning password requirement fixture failed")
 
   stage = "returning owner requires MFA challenge"
   await page.getByLabel(/email|البريد الإلكتروني/i).fill(email)
@@ -146,6 +151,8 @@ try {
   stage = "returning owner TOTP verification"
   await challengeCode.fill(totp(secret))
   await challengeCode.press("Enter")
+  stage = "verified returning owner required password change"
+  password = await verifyRequiredPasswordChange(page,admin,owner.data.user.id,appUrl,{locale:"ar",nextPath:"/dashboard"})
   await page.waitForURL(url => url.pathname === "/dashboard")
   await expect(page.locator("html")).toHaveAttribute("lang", "en")
   stage = "returning owner dashboard landmarks settle"

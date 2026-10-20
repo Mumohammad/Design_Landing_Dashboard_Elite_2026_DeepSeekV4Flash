@@ -14,7 +14,7 @@ type UserProfile = {
   id: string
   tenant_id: string
   role: string
-  status: "active" | "inactive" | "locked"
+  status: string
   must_change_password: boolean
   locked_until: string | null
 }
@@ -158,32 +158,39 @@ export async function proxy(request: NextRequest) {
   }
 
   // 4. Account status checks.
-  if (profile.status === "inactive") {
+  if (profile.status !== "active") {
     await supabase.auth.signOut()
     const url = new URL("/auth/sign-in", request.url)
-    url.searchParams.set("error", "AUTH_ACCOUNT_INACTIVE")
+    url.searchParams.set("error", profile.status === "locked" ? "AUTH_ACCOUNT_LOCKED" : "AUTH_ACCOUNT_INACTIVE")
     return finish(NextResponse.redirect(url))
   }
 
   if (
-    profile.status === "locked" &&
     profile.locked_until &&
     new Date(profile.locked_until).getTime() > Date.now()
   ) {
+    await supabase.auth.signOut()
     const url = new URL("/auth/sign-in", request.url)
     url.searchParams.set("error", "AUTH_ACCOUNT_LOCKED")
     return finish(NextResponse.redirect(url))
   }
 
-  // Path of the current request — shared by the gates below (declared once).
-  // 5. Must-change-password gate.
+  // Password replacement precedes enrollment for users without a factor.
+  // An existing verified factor must still be challenged before replacement.
   if (profile.must_change_password) {
-    const allowed = "/settings/security"
-    if (!pathname.startsWith(allowed)) {
-      const url = new URL(allowed, request.url)
-      url.searchParams.set("require", "change_password")
+    const { data: aal, error: aalError } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+    if (aalError || !aal) {
+      const url = new URL("/auth/errors/internal-server-error", request.url)
+      url.searchParams.set("error", "MFA_ASSURANCE_UNAVAILABLE")
       return finish(NextResponse.redirect(url))
     }
+    if (aal.nextLevel === "aal2" && aal.currentLevel !== "aal2") {
+      const url = new URL("/auth/mfa-challenge", request.url)
+      url.searchParams.set("returnTo", "/auth/change-password")
+      return finish(NextResponse.redirect(url))
+    }
+    if (pathname !== "/auth/change-password") return finish(NextResponse.redirect(new URL("/auth/change-password", request.url)))
+    return finish()
   }
 
   // 5.5. MFA gate (AAL2) — enforces the TOTP layer at the routing boundary.
@@ -246,6 +253,7 @@ export const config = {
   // Static assets, other /auth pages, /api and marketing pages are excluded.
   matcher: [
     "/auth/sign-in",
+    "/auth/change-password",
     "/dashboard/:path*",
     "/drivers/:path*",
     "/vehicles/:path*",

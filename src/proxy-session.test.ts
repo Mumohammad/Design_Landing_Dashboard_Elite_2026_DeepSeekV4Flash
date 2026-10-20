@@ -72,7 +72,7 @@ describe("session continuity across landing and dashboard", () => {
   it.each([
     { role: "accountant", changePassword: false, nextLevel: "aal2", path: "/auth/mfa-challenge" },
     { role: "general_manager", changePassword: false, nextLevel: "aal1", path: "/settings/mfa" },
-    { role: "accountant", changePassword: true, nextLevel: "aal1", path: "/settings/security" },
+    { role: "accountant", changePassword: true, nextLevel: "aal1", path: "/auth/change-password" },
   ])("carries an explicit language through the $path gate without browser persistence", async ({ role, changePassword, nextLevel, path }) => {
     auth.single.mockResolvedValue({ data: { id: "profile", tenant_id: "tenant", role, status: "active", must_change_password: changePassword, locked_until: null } })
     auth.assurance.mockResolvedValue({ data: { currentLevel: "aal1", nextLevel }, error: null })

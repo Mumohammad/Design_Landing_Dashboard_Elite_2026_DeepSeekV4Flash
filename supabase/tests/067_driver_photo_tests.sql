@@ -64,9 +64,9 @@ BEGIN
           '{"_invite_provisioned": true}')
   ON CONFLICT (id) DO NOTHING;
 
-  INSERT INTO public.users (id, auth_user_id, tenant_id, email, role, status)
-  VALUES (v_u, v_aid, v_t, 'photo-fixture@test.local', 'general_manager', 'active')
-  ON CONFLICT (id) DO UPDATE SET role = 'general_manager', status = 'active';
+  INSERT INTO public.users (id, auth_user_id, tenant_id, email, role, status, must_change_password)
+  VALUES (v_u, v_aid, v_t, 'photo-fixture@test.local', 'general_manager', 'active', false)
+  ON CONFLICT (id) DO UPDATE SET role = 'general_manager', status = 'active', must_change_password = false;
 
   -- NOTE: no leak-purge for audit_log here — it is immutable (ADR-007), so a
   -- half-committed prior run can leave extra photo rows. The read-back

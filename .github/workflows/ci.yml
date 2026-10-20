@@ -302,6 +302,9 @@ jobs:
     - name: Verify expense decision races in disposable database
       run: node scripts/verify-expense-rejection-concurrency.mjs --local-disposable
 
+    - name: Verify password completion and administrator reset guards
+      run: node scripts/verify-password-completion.mjs --local-disposable
+
     - name: Verify ZATCA preparation ledger in disposable database
       run: node scripts/verify-zatca-issuance-concurrency.mjs --local-disposable
 

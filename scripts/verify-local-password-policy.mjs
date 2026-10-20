@@ -4,6 +4,73 @@ import { randomBytes, randomUUID } from 'node:crypto'
 
 const expect=baseExpect.configure({timeout:25000})
 
+export async function verifyRequiredPasswordChange(page,admin,actorId,appUrl,{responseLoss=false,locale='en',nextPath='/dashboard'}={}){
+  const db=new URL(admin.supabaseUrl),app=new URL(appUrl)
+  const local=['localhost','127.0.0.1'].includes(db.hostname)&&db.port==='58321'&&['http://localhost:3107','http://localhost:3108'].includes(app.origin)
+  if(!local){
+    if(db.origin!=='https://viowrovartosrkqukjxy.supabase.co'||app.hostname==='elite-dashboard-blush.vercel.app')throw Error('Isolated staging required')
+    const policy=(await fetch(appUrl+'/landing')).headers.get('content-security-policy')??''
+    if(!policy.includes(db.origin)||policy.includes('wwfnsbilmyxeawgzicmv'))throw Error('Isolated app/database required')
+  }
+  if(!['en','ar'].includes(locale)||!['/dashboard','/settings/mfa'].includes(nextPath))throw Error('Bounded password verification options required')
+  const viewport=page.viewportSize(),replacement=randomBytes(20).toString('base64url')+'a1'
+  const pattern='**/auth/change-password*'
+  let stage='required password routing',lost=false
+  try{
+    await page.waitForURL(url=>url.pathname==='/auth/change-password')
+    if(locale==='ar')await page.setViewportSize({width:390,height:844})
+    await page.goto(appUrl+'/auth/change-password?lang='+locale)
+    await expect(page.locator('html')).toHaveAttribute('lang',locale)
+    await expect(page.getByRole('heading',{name:locale==='ar'?'تغيير كلمة المرور':'Change Password',exact:true})).toBeVisible()
+    const before=await admin.from('users').select('id,must_change_password,credential_revision,password_requirement_version').eq('auth_user_id',actorId).single()
+    if(before.error||!before.data.must_change_password)throw Error('Explicit disposable requirement needed')
+    const count=async action=>{
+      const result=await admin.from('audit_log').select('id',{count:'exact',head:true}).eq('entity_id',before.data.id).eq('action',action)
+      if(result.error||result.count===null)throw Error('Password audit count unavailable')
+      return result.count
+    }
+    const observations=await count('auth_password_changed'),completions=await count('required_password_change_completed')
+    if(!(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)))throw Error('Password viewport overflows')
+    // Capture only the untouched form, never entered passwords or factor codes.
+    await page.screenshot({path:`supabase/.temp/password-required-${locale}-${locale==='ar'?'mobile':'desktop'}.png`,fullPage:true})
+    stage='required password authenticated update'
+    await page.locator('#password').fill(replacement);await page.locator('#confirm').fill(replacement)
+    if(responseLoss)await page.route(pattern,async route=>{
+      const request=route.request()
+      if(!lost&&request.method()==='POST'&&request.headers()['next-action']&&request.postData()?.includes(replacement)){
+        lost=true;const response=await route.fetch()
+        if(!response.ok())throw Error('Password action failed before response-loss injection')
+        await route.abort('failed')
+      }else await route.continue()
+    })
+    await page.locator('button[type="submit"]').click()
+    if(responseLoss){
+      await expect(page.getByRole('alert')).toContainText('Unable to confirm the change')
+      await page.unroute(pattern)
+      if(!lost)throw Error('Password response loss was not exercised')
+    }else{
+      await expect(page.getByRole('status').filter({hasText:/Password updated|تم تحديث كلمة المرور/})).toBeVisible()
+      await expect(page.locator('#password')).toHaveCount(0)
+    }
+    stage='password completion and audit evidence'
+    const after=await admin.from('users').select('must_change_password,credential_revision,credential_requirement_version,password_requirement_version').eq('auth_user_id',actorId).single()
+    if(after.error||after.data.must_change_password||after.data.credential_revision!==before.data.credential_revision+1
+      ||after.data.password_requirement_version!==before.data.password_requirement_version||after.data.credential_requirement_version!==before.data.password_requirement_version
+      ||await count('auth_password_changed')!==observations+1||await count('required_password_change_completed')!==completions+1)throw Error('Password completion evidence differs')
+    stage='same-session continuation without another sign-in'
+    if(responseLoss)await page.getByRole('link',{name:'Check account access',exact:true}).click()
+    else await page.getByRole('button',{name:locale==='ar'?'متابعة إلى حسابي':'Continue to my account',exact:true}).click()
+    await page.waitForURL(url=>url.pathname===nextPath)
+    if(viewport)await page.setViewportSize(viewport)
+    if(locale!=='en')await page.goto(appUrl+nextPath+'?lang=en')
+    console.log('PASS: required password → trusted completion/audits → same-session continuation; '+(responseLoss?'committed-response loss recovery':'Arabic mobile and existing MFA retained'))
+    return replacement
+  }catch(error){
+    console.error(JSON.stringify({check:'required password',stage,errorType:error.name}))
+    throw Error('Required password verification failed: '+stage)
+  }finally{await page.unroute(pattern).catch(()=>{});if(viewport)await page.setViewportSize(viewport)}
+}
+
 // Uses public forms and disposable Auth users only. Recovery tokens and
 // passwords stay in memory; never capture them in logs or failure screenshots.
 export async function verifyNewPasswordFlows(browser,admin,appUrl,anonKey){
@@ -84,6 +151,9 @@ export async function verifyNewPasswordFlows(browser,admin,appUrl,anonKey){
     const fixture=await admin.auth.admin.createUser({email,password:initial,email_confirm:true,app_metadata:{_invite_provisioned:true}})
     if(fixture.error||!fixture.data.user)throw Error('Recovery fixture failed')
     fixtureId=fixture.data.user.id
+    const company=await admin.rpc('provision_company_atomic',{p_auth_user_id:fixtureId,p_company:{name:'Recovery fixture',slug:fixtureId,domain:fixtureId+'.test'}})
+    if(company.error)throw Error('Recovery application fixture failed')
+    if((await admin.from('users').update({must_change_password:true}).eq('auth_user_id',fixtureId)).error)throw Error('Recovery requirement fixture failed')
     const link=await admin.auth.admin.generateLink({type:'recovery',email})
     const tokenHash=link.data.properties?.hashed_token
     if(link.error||!tokenHash)throw Error('Recovery link generation failed')
@@ -93,10 +163,15 @@ export async function verifyNewPasswordFlows(browser,admin,appUrl,anonKey){
     await page.waitForURL(url=>url.pathname==='/auth/reset-password')
     await page.locator('#password').fill(replacement)
     await page.locator('#confirm').fill(replacement)
-    const updated=page.waitForResponse(response=>new URL(response.url()).pathname==='/auth/v1/user'&&response.request().method()==='PUT')
+    const updated=page.waitForResponse(response=>new URL(response.url()).pathname==='/auth/reset-password'&&response.request().method()==='POST'&&Boolean(response.request().headers()['next-action']))
     await page.locator('button[type="submit"]').click()
     expect((await updated).status()).toBe(200)
-    await expect(page.locator('button[type="submit"]')).toBeDisabled()
+    await expect(page.getByRole('status').filter({hasText:/password.*updated|تحديث كلمة المرور/i})).toBeVisible()
+    await expect(page.locator('button[type="submit"]')).toHaveCount(0)
+    const completed=await admin.from('users').select('must_change_password,credential_revision,credential_requirement_version,password_requirement_version').eq('auth_user_id',fixtureId).single()
+    if(completed.error||completed.data.must_change_password||completed.data.credential_revision!==1||completed.data.credential_requirement_version!==completed.data.password_requirement_version)throw Error('Recovery completion was not recorded')
+    await page.getByRole('button',{name:/Continue to my account|متابعة إلى حسابي/}).click()
+    await page.waitForURL(url=>url.pathname==='/settings/mfa')
     const signed=await user.auth.signInWithPassword({email,password:replacement})
     if(signed.error||signed.data.user?.id!==fixtureId)throw Error('Updated password sign-in failed')
     if((await user.auth.signOut({scope:'global'})).error)throw Error('Recovery fixture sign-out failed')
@@ -124,6 +199,9 @@ export async function verifyNewPasswordFlows(browser,admin,appUrl,anonKey){
     }
     await context.close()
     if(recoveryStarted&&!revoked)throw Error('Recovery session cleanup failed')
-    if(fixtureId&&(await admin.auth.admin.deleteUser(fixtureId,true)).error)throw Error('Recovery fixture retirement failed')
+    if(fixtureId){
+      if((await admin.from('users').update({status:'inactive'}).eq('auth_user_id',fixtureId)).error)throw Error('Recovery fixture app access retirement failed')
+      if((await admin.auth.admin.deleteUser(fixtureId,true)).error)throw Error('Recovery fixture retirement failed')
+    }
   }
 }
