@@ -13,7 +13,7 @@ export async function verifyVatPosition(page, admin, tenantId, appUrl) {
   let stage = 'synthetic VAT fixture'
   try {
     for (const table of ['vat_output_ledger', 'vat_input_ledger']) {
-      const rows = Array.from({ length: 205 }, (_, i) => ({ id: randomUUID(), tenant_id: tenantId, period_year: 2026, period_month: 9, invoice_ref: `VAT-VERIFY-${i}`, invoice_date: '2026-09-01', vat_base_amount: 1, vat_amount: table === 'vat_output_ledger' ? 0.30 : 0.10, ...(table === 'vat_input_ledger' ? { vat_recoverability: 'recoverable' } : {}) }))
+      const rows = Array.from({ length: 205 }, (_, i) => ({ id: randomUUID(), tenant_id: tenantId, period_year: 2026, period_month: 9, invoice_ref: `VAT-VERIFY-${i}`, invoice_date: '2026-09-01', vat_base_amount: table === 'vat_output_ledger' ? 2 : 0.67, vat_amount: table === 'vat_output_ledger' ? 0.30 : 0.10, ...(table === 'vat_input_ledger' ? { vat_recoverability: 'recoverable' } : {}) }))
       ids[table] = rows.map(row => row.id)
       if ((await admin.from(table).insert(rows)).error) throw Error('VAT fixture failed')
     }
@@ -32,6 +32,8 @@ export async function verifyVatPosition(page, admin, tenantId, appUrl) {
     expect(Number(result.adjustments_input)).toBe(1.10)
     expect(Number(result.net_position)).toBe(50.40)
     const summary = page.getByTestId('vat-position')
+    await expect(page.locator('html')).toHaveAttribute('lang', 'en')
+    await expect(summary).toHaveCSS('direction', 'ltr')
     for (const value of ['61.50', '20.50', '9.40', '50.40']) await expect(summary.getByText(value, { exact: true })).toBeVisible()
     await expect(summary).toContainText('all recorded periods')
     await expect(summary).toContainText('Detail lists below are limited')
@@ -53,6 +55,10 @@ export async function verifyVatPosition(page, admin, tenantId, appUrl) {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto(`${origin}/accounting?lang=ar`)
     await page.getByRole('tab', { name: 'الضريبة (VAT)', exact: true }).click()
+    await expect(page.locator('html')).toHaveAttribute('lang', 'ar')
+    await expect(page.locator('html')).toHaveAttribute('dir', 'rtl')
+    await expect(summary).toHaveCSS('direction', 'rtl')
+    await expect(page.getByRole('tabpanel')).toHaveCSS('direction', 'rtl')
     await expect(summary).toContainText('جميع الفترات المسجلة')
     await expect(summary.getByText('50.40', { exact: true })).toBeVisible()
     const box = await summary.boundingBox()

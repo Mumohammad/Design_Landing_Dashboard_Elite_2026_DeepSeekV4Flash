@@ -506,7 +506,7 @@ export default function AccountingPage() {
             .from("vat_reconciliation")
             .select("*")
             .order("period_year", { ascending: false })
-            .order("period_month", { ascending: false }).abortSignal(controller.signal).throwOnError(),
+            .order("period_month", { ascending: false }).limit(1000).abortSignal(controller.signal).throwOnError(),
           supabase
             .from("vat_input_ledger")
             .select("id,invoice_ref,invoice_date,vat_base_amount,vat_rate,vat_amount,supplier_id")
@@ -1443,7 +1443,7 @@ export default function AccountingPage() {
         </DialogContent>
       </Dialog>
 
-      <Tabs value={tab} onValueChange={value => {
+      <Tabs dir={ar ? "rtl" : "ltr"} value={tab} onValueChange={value => {
         setIsLoading(true); setLoadError(false); setTab(value); ledger.setSearch(""); ledger.reload()
       }}>
         <TabsList className="flex-wrap h-auto">
@@ -1779,15 +1779,15 @@ export default function AccountingPage() {
                 return (
                   <section aria-label={ar ? "المركز الضريبي لجميع الفترات المسجلة" : "VAT position across all recorded periods"} data-testid="vat-position" className="space-y-3">
                     <p className="text-sm text-muted-foreground">{ar ? "إجماليات جميع الفترات المسجلة بالريال السعودي؛ تشمل التسويات المعتمدة فقط." : "Totals across all recorded periods in SAR; finalized adjustments only."}</p>
-                  <div className="grid gap-3 sm:grid-cols-4">
-                    {items.map((it) => (
-                      <div key={it.label} className="rounded-2xl border border-border/50 bg-card/80 px-4 py-3 shadow-sm">
-                        <p className="text-[11px] font-medium text-muted-foreground">{it.label}</p>
-                        <p dir="ltr" className={`mt-0.5 break-all text-lg font-bold tabular-nums ${it.cls}`}>{it.value}</p>
-                      </div>
-                    ))}
-                  </div>
-                    <p className="text-xs text-muted-foreground">{ar ? "قوائم التفاصيل أدناه محدودة: أحدث 200 قيد لكل سجل، و100 تسوية، و24 فترة، وأقدم 200 بند للمراجعة. الإجماليات أعلاه مستقلة عن هذه الحدود." : "Detail lists below are limited: latest 200 entries per ledger, 100 adjustments, 24 periods, and oldest 200 review items. Totals above are independent of these limits."}</p>
+                    <div className="grid gap-3 sm:grid-cols-4">
+                      {items.map((it) => (
+                        <div key={it.label} className="rounded-2xl border border-border/50 bg-card/80 px-4 py-3 shadow-sm">
+                          <p className="text-[11px] font-medium text-muted-foreground">{it.label}</p>
+                          <p dir="ltr" className={`mt-0.5 break-all text-lg font-bold tabular-nums ${ar ? "text-right" : "text-left"} ${it.cls}`}>{it.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-xs text-muted-foreground">{ar ? "قوائم التفاصيل أدناه محدودة: أحدث 200 قيد لكل سجل، و100 تسوية، و24 فترة، و1000 فترة تسوية ضريبية، وأقدم 200 بند للمراجعة. الإجماليات أعلاه مستقلة عن هذه الحدود." : "Detail lists below are limited: latest 200 entries per ledger, 100 adjustments, 24 periods, 1,000 reconciliation periods, and oldest 200 review items. Totals above are independent of these limits."}</p>
                   </section>
                 )
               })()}
