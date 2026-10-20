@@ -11,6 +11,9 @@ import { DASHBOARD_PATH, withLocale } from "@/lib/redirects"
 import { changeOwnPassword, requestPasswordReauthentication } from "@/lib/auth/change-password"
 import { isValidNewPassword, newPasswordHint, MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH } from "@/lib/auth/password-policy"
 
+type FormError = { en: string; ar: string }
+const genericError: FormError = { en: "Unable to complete this request. Try again.", ar: "تعذر إكمال الطلب. حاول مجدداً." }
+
 export function PasswordForm({ mode = "recovery" }: { mode?: "recovery" | "required" | "account" }) {
   const { t, locale } = useTranslation()
   const router = useRouter()
@@ -19,7 +22,7 @@ export function PasswordForm({ mode = "recovery" }: { mode?: "recovery" | "requi
   const [showPassword, setShowPassword] = useState(false)
   const [mismatch, setMismatch] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<FormError | null>(null)
   const [done, setDone] = useState(false)
   const [requiresMfa, setRequiresMfa] = useState(false)
   const [requiresReauthentication, setRequiresReauthentication] = useState(false)
@@ -31,12 +34,14 @@ export function PasswordForm({ mode = "recovery" }: { mode?: "recovery" | "requi
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (loading || done) return
+    setReviewAccess(false)
     if (password !== confirm) {
       setMismatch(true)
+      setError({ en: "Passwords do not match.", ar: "كلمتا المرور غير متطابقتين." })
       return
     }
     setMismatch(false)
-    if (!isValidNewPassword(password)) { setError(newPasswordHint(locale)); return }
+    if (!isValidNewPassword(password)) { setError({ en: newPasswordHint("en"), ar: newPasswordHint("ar") }); return }
     setError(null)
     setReviewAccess(false)
     setLoading(true)
@@ -48,14 +53,14 @@ export function PasswordForm({ mode = "recovery" }: { mode?: "recovery" | "requi
       const code = new URLSearchParams(window.location.search).get("code")
       if (mode === "recovery" && code) {
         const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code)
-        if (exchangeError) { setError(isAr ? "تعذر استخدام رابط الاستعادة. اطلب رابطاً جديداً." : "Recovery link is unavailable. Request a new link."); return }
+        if (exchangeError) { setError({ en: "Recovery link is unavailable. Request a new link.", ar: "تعذر استخدام رابط الاستعادة. اطلب رابطاً جديداً." }); return }
         const url = new URL(window.location.href)
         url.searchParams.delete("code")
         window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash)
       }
       const result = await changeOwnPassword({ password, ...(nonce ? { nonce } : {}) })
       if (!result.success) {
-        setError((isAr ? result.errorAr : result.error) ?? t.auth.genericError)
+        setError({ en: result.error ?? genericError.en, ar: result.errorAr ?? genericError.ar })
         setRequiresMfa(result.requiresMfa === true)
         setReviewAccess(result.reviewAccess === true)
         setRequiresReauthentication(result.requiresReauthentication === true)
@@ -65,7 +70,7 @@ export function PasswordForm({ mode = "recovery" }: { mode?: "recovery" | "requi
       setPassword(""); setConfirm(""); setNonce("")
     } catch {
       setReviewAccess(true)
-      setError(isAr ? "تعذر تأكيد التغيير. راجع الوصول إلى حسابك. إذا طُلب تغيير آخر، اختر كلمة جديدة مختلفة." : "Unable to confirm the change. Check account access. If another change is required, choose a different new password.")
+      setError({ en: "Unable to confirm the change. Check account access. If another change is required, choose a different new password.", ar: "تعذر تأكيد التغيير. راجع الوصول إلى حسابك. إذا طُلب تغيير آخر، اختر كلمة جديدة مختلفة." })
     } finally {
       setLoading(false)
     }
@@ -77,8 +82,8 @@ export function PasswordForm({ mode = "recovery" }: { mode?: "recovery" | "requi
     try {
       const result = await requestPasswordReauthentication()
       if (result.success) setCodeSent(true)
-      else { setError((isAr ? result.errorAr : result.error) ?? t.auth.genericError); setRequiresMfa(result.requiresMfa === true) }
-    } catch { setError(t.auth.genericError) }
+      else { setError({ en: result.error ?? genericError.en, ar: result.errorAr ?? genericError.ar }); setRequiresMfa(result.requiresMfa === true) }
+    } catch { setError(genericError) }
     finally { setLoading(false) }
   }
 
@@ -98,9 +103,9 @@ export function PasswordForm({ mode = "recovery" }: { mode?: "recovery" | "requi
 
         <form onSubmit={onSubmit} className="stagger-3 grid gap-4">
           {error && (
-            <div role="alert" className="flex items-center gap-2 rounded-lg border border-red-700/30 bg-red-700/10 px-3 py-2 text-sm text-red-700 dark:text-red-400">
+            <div id="password-form-error" role="alert" className="flex items-center gap-2 rounded-lg border border-red-700/30 bg-red-700/10 px-3 py-2 text-sm text-red-700 dark:text-red-400">
               <AlertCircle className="size-4 shrink-0" />
-              <span>{error}</span>
+              <span>{isAr ? error.ar : error.en}</span>
             </div>
           )}
           {done && (
@@ -155,9 +160,12 @@ export function PasswordForm({ mode = "recovery" }: { mode?: "recovery" | "requi
                 maxLength={MAX_PASSWORD_LENGTH}
                 disabled={loading || done}
                 autoComplete="new-password"
+                aria-invalid={mismatch || undefined}
+                aria-describedby={mismatch ? "password-form-error" : undefined}
                 value={confirm}
                 onChange={(e) => {
                   setConfirm(e.target.value)
+                  if (mismatch) setError(null)
                   setMismatch(false)
                 }}
                 placeholder={t.auth.passwordPlaceholder}

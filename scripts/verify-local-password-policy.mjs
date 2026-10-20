@@ -45,7 +45,7 @@ export async function verifyRequiredPasswordChange(page,admin,actorId,appUrl,{re
     })
     await page.locator('button[type="submit"]').click()
     if(responseLoss){
-      await expect(page.getByRole('alert')).toContainText('Unable to confirm the change')
+      await expect(page.locator('form').getByRole('alert')).toContainText('Unable to confirm the change')
       await page.unroute(pattern)
       if(!lost)throw Error('Password response loss was not exercised')
     }else{
@@ -66,7 +66,13 @@ export async function verifyRequiredPasswordChange(page,admin,actorId,appUrl,{re
     console.log('PASS: required password → trusted completion/audits → same-session continuation; '+(responseLoss?'committed-response loss recovery':'Arabic mobile and existing MFA retained'))
     return replacement
   }catch(error){
-    console.error(JSON.stringify({check:'required password',stage,errorType:error.name}))
+    const alerts=await page.getByRole('alert').allTextContents().catch(()=>[])
+    const patterns=[['transport-uncertainty',/Unable to confirm the change/],['server-uncertainty',/password change could not be confirmed/],['same-password',/different from your current password/],['verification-unavailable',/Password verification is unavailable/],['session-required',/Sign in again/],['factor-required',/Verify your authenticator/],['rate-limited',/Too many attempts/],['reauthentication-required',/Request a verification code/]]
+    console.error(JSON.stringify({check:'required password',stage,errorType:error.name,lost,
+      operation:/expect\(locator\)\.[A-Za-z]+/.exec(error.message)?.[0],
+      alertKinds:alerts.map(text=>patterns.find(([,pattern])=>pattern.test(text))?.[0]??'other'),
+      submitCount:await page.locator('button[type="submit"]').count().catch(()=>null),
+      reviewLinkCount:await page.getByRole('link',{name:'Check account access',exact:true}).count().catch(()=>null)}))
     throw Error('Required password verification failed: '+stage)
   }finally{await page.unroute(pattern).catch(()=>{});if(viewport)await page.setViewportSize(viewport)}
 }
@@ -113,6 +119,22 @@ export async function verifyNewPasswordFlows(browser,admin,appUrl,anonKey){
       stage=`${locale} reset mobile capture`
       await page.evaluate(()=>window.scrollTo({top:0,behavior:'instant'}))
       await page.screenshot({path:`supabase/.temp/password-reset-${locale}-mobile.png`,fullPage:true,animations:'disabled'})
+      stage=`${locale} validation follows live language switch`
+      const other=locale==='en'?'ar':'en'
+      await page.getByRole('button',{name:locale==='ar'?'Switch language to English':'تغيير اللغة إلى العربية',exact:true}).click()
+      await expect(page.locator('html')).toHaveAttribute('lang',other)
+      await expect(page.locator('form').getByRole('alert')).toHaveText(other==='ar'?'استخدم من 10 إلى 128 حرفاً، مع حرف إنجليزي ورقم على الأقل.':'Use 10–128 characters, including at least one English letter and one number.')
+      await page.getByRole('button',{name:other==='ar'?'Switch language to English':'تغيير اللغة إلى العربية',exact:true}).click()
+      await expect(page.locator('html')).toHaveAttribute('lang',locale)
+      stage=`${locale} confirmation mismatch stays local and accessible`
+      await page.locator('#password').fill('ExampleMismatch123')
+      await page.locator('#confirm').fill('DifferentMismatch123')
+      await page.locator('button[type="submit"]').click()
+      await expect(page.locator('form').getByRole('alert')).toHaveText(locale==='ar'?'كلمتا المرور غير متطابقتين.':'Passwords do not match.')
+      await expect(page.locator('#confirm')).toHaveAttribute('aria-invalid','true')
+      await expect(page.locator('#confirm')).toHaveAttribute('aria-describedby','password-form-error')
+      expect(mutations).toBe(0)
+      if(!(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)))throw Error('Password validation viewport overflows')
 
       stage=`${locale} invite validation`
       // Nonexistent identifiers expose only the public form. Weak passwords

@@ -11,6 +11,8 @@ existing verified factor must complete MFA before replacement. An unenrolled
 administrator replaces the required password first, then enrolls MFA. A confirmed
 change continues using the existing session and language. Inactive, terminated,
 pending and locked app profiles cannot enter the protected change flow.
+Visible validation/provider errors follow a live language switch. Confirmation
+mismatches have explicit translated feedback and an accessible field association.
 
 The server authenticates the app identity, checks assurance, applies the shared
 password policy and fail-closed rate limit, and changes the password using the
