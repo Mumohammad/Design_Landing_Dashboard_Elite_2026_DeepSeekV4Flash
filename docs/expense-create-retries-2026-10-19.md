@@ -47,8 +47,12 @@ notice is recorded; anonymous/service RPC execution is denied.
   notice is the intentional authenticated RPC execution; no anonymous exposure
   or other new notice was introduced.
 
-Production has not received this migration. This does not certify the complete
-expense lifecycle: the approval action still dispatches and writes its separate
-approval audit after the database approval transaction. Its uncertain-response
-and audit-failure handling needs further work. Genuine finance/tax configuration,
-accounting acceptance and the other module-review conditions remain open.
+On exact commit `1856906`, all three CI jobs passed. The full hosted staging
+journey also passed, including the lost successful creation response followed
+by an unchanged-form retry with one expense and creation audit.
+
+Production has not received this migration. The subsequent [approval
+continuation](expense-approval-readiness-2026-10-20.md) addresses the separate
+approval audit and uncertain-response handling; its final evidence is recorded
+independently. Genuine finance/tax configuration, accounting acceptance and the
+other module-review conditions remain open.

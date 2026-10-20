@@ -1,36 +1,24 @@
 "use server"
 
-// Server Actions for the Approvals module (Prompt E) — the unified decision
-// inbox's write paths. One server action per decision type, each:
-//   * requirePermission() gated (GM bypasses; ops/admin roles hold the
-//     module:approve grants from 013_seed_defaults — expenses.approve /
-//     attendance.approve / hr.approve),
-//   * zod-validated (mandatory reason on reject, server + client parity),
-//   * tenant-scoped via getCurrentUser(),
-//   * idempotency-guarded: the atomic RPCs claim the row with a conditional
-//     UPDATE (0 rows ⇒ already decided → surfaced gracefully, not a 500),
-//   * transactional: the status write happens INSIDE the same RPC that
-//     enforces the transition guard (063_expense_approval_race parity),
-//   * audit-logged: every decision writes an audit_log row via
-//     writeAuditLog() (the audit-trail module #51 contract).
-//
-// Expense approvals REUSE the existing FX-06 atomic RPC
-// (approve_expense_atomic, 063) — the inbox adds the mandatory rejection
-// reason + audit row around the existing transition, it does not replace it.
+// Permission-gated, tenant-scoped decisions with validated reasons.
+// Positive expense decisions share the Expenses action: approval, payable,
+// accounting event and approval audit commit in one database transaction.
+// Other decision types below retain their existing transition/audit paths.
 
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
 import { writeAuditLog } from "@/lib/auth/sessions"
-import { rateLimitExpenses } from "@/lib/auth/rate-limit"
-import { emit } from "@/lib/webhooks/events"
+import { approveExpense } from "@/lib/expenses/actions"
 
 export type DecisionActionResult = {
   success: boolean
   error?: string
   /** True when the item was already decided (stale queue state). */
   alreadyDecided?: boolean
+  errorAr?: string
+  postingPending?: boolean
 }
 
 function errorMessage(e: unknown): string {
@@ -53,9 +41,8 @@ const expenseDecisionSchema = z.object({
 /**
  * Decide an expense from the inbox.
  *
- * approve → the pre-existing FX-06 atomic RPC (claims the row, creates the
- * payable, enqueues ExpenseApprovedEvent — one transaction). The reason is
- * recorded on the audit row.
+ * approve → the shared expense action atomically retains the decision,
+ * payable, event and audit reason, then reports verified posting status.
  *
  * reject → a guarded conditional UPDATE flips nothing: `is_approved` stays
  * false and the rejection reason is audited; the expense is then archived
@@ -72,57 +59,16 @@ export async function decideExpense(input: unknown): Promise<DecisionActionResul
     const parsed = expenseDecisionSchema.parse(input)
     const { expenseId, decision, reason } = parsed
 
-    const admin = createAdminClient()
-
     if (decision === "approved") {
-      const rl = await rateLimitExpenses(currentUser.id)
-      if (!rl.success) {
-        return { success: false, error: "Rate limit exceeded. Try again later." }
-      }
-
-      // FX-06: one atomic RPC — claim, payable, event. EXP002 = already approved.
-      const { data: rpcData, error: rpcErr } = await admin.rpc("approve_expense_atomic", {
-        p_tenant_id: currentUser.tenantId,
-        p_expense_id: expenseId,
-        p_vat_rate: parsed.vat_rate ?? 15,
-        p_vat_recoverability: null,
-        p_actor: currentUser.authUserId,
+      const result = await approveExpense({
+        id: expenseId, vat_rate: parsed.vat_rate, approvalReason: reason, surface: "approvals_inbox",
       })
-      if (rpcErr) {
-        if (rpcErr.message.includes("EXP002")) {
-          return { success: false, alreadyDecided: true, error: "Expense already approved." }
-        }
-        return { success: false, error: rpcErr.message }
-      }
-      const rpc = rpcData as { expense_ref?: string; total?: number } | null
-
-      await writeAuditLog({
-        tenantId: currentUser.tenantId,
-        actorId: currentUser.authUserId,
-        module: "expenses",
-        action: "expense_approved",
-        entityType: "expense",
-        entityId: expenseId,
-        newValues: {
-          from: "pending",
-          to: "approved",
-          reason,
-          expense_ref: rpc?.expense_ref ?? null,
-          total: rpc?.total ?? null,
-          surface: "approvals_inbox",
-        },
-      })
-
-      emit("expense.approved", currentUser.tenantId, {
-        id: expenseId,
-        amount: rpc?.total ?? 0,
-        approvedBy: currentUser.id,
-      })
-
-      revalidatePath("/expenses")
-      revalidatePath("/approvals")
-      return { success: true }
+      try { revalidatePath("/approvals") } catch { /* The caller refreshes the confirmed decision. */ }
+      return { success: result.success, error: result.error, errorAr: result.errorAr,
+        alreadyDecided: result.alreadyApproved, postingPending: result.postingPending }
     }
+
+    const admin = createAdminClient()
 
     // ── Reject: claim the pending row with a guarded conditional UPDATE ──
     // expenses has no rejected terminal state (is_approved is boolean), so

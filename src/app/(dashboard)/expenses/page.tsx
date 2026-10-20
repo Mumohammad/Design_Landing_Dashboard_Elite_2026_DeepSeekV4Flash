@@ -7,6 +7,8 @@ import { expensesQuery, expensesSummary, expenseDependencies, type ExpenseRow } 
 import { useTablePage } from "@/hooks/use-table-page"
 import { useReadSummary } from "@/hooks/use-read-summary"
 import { useTranslation } from "@/hooks/use-translation"
+import { round2 } from "@/lib/accounting/invoice-math"
+import { calculateVat, sumMoney } from "@/lib/accounting/decimal"
 import { EnterpriseModulePage, type KpiCardData, type TableColumn } from "@/components/dashboard/enterprise-module-page"
 import {
   approveExpense,
@@ -58,7 +60,7 @@ export default function ExpensesPage() {
   const reloadSummary = summary.reload
   const [dependencyState, setDependencyState] = useState({ loading: true, error: false })
   const [dependencyRevision, setDependencyRevision] = useState(0)
-  const [feedback, setFeedback] = useState<{ type: "ok" | "err"; text: string } | null>(null)
+  const [feedback, setFeedback] = useState<{ type: "ok" | "err" | "info"; text: string } | null>(null)
 
   // Category → CoA mapping preview (expense_type → account_code → name)
   const [coaNames, setCoaNames] = useState<Record<string, string>>({})
@@ -68,6 +70,7 @@ export default function ExpensesPage() {
   const [approveVatRate, setApproveVatRate] = useState("15")
   const [approveRecoverability, setApproveRecoverability] = useState<ExpenseVatRecoverability>("recoverable")
   const [isApproving, setIsApproving] = useState(false)
+  const [approveError, setApproveError] = useState<string | null>(null)
 
   const [createOpen, setCreateOpen] = useState(false)
   const [createRequestId, setCreateRequestId] = useState("")
@@ -105,7 +108,7 @@ export default function ExpensesPage() {
     setDependencyRevision(value => value + 1)
   }, [reload, reloadSummary])
 
-  const flash = (type: "ok" | "err", text: string) => {
+  const flash = (type: "ok" | "err" | "info", text: string) => {
     setFeedback({ type, text })
     window.setTimeout(() => setFeedback(null), 6000)
   }
@@ -197,26 +200,32 @@ export default function ExpensesPage() {
   }
 
   async function handleApprove() {
-    if (!approveTarget) return
+    if (!approveTarget || isApproving) return
     setIsApproving(true)
-    const res = await approveExpense({
-      id: approveTarget.id,
-      vat_rate: Number(approveVatRate || 0),
-      vat_recoverability: approveRecoverability,
-    })
-    setIsApproving(false)
-    if (res.success) {
-      flash("ok", "تم اعتماد المصروف وإنشاء ذمم دائنة. / Expense approved; payable created.")
-      setApproveTarget(null)
-      setApproveVatRate("15")
-      setApproveRecoverability("recoverable")
-      await load()
-    } else {
-      flash("err", res.error ?? "Approval failed")
-    }
+    setApproveError(null)
+    try {
+      const res = await approveExpense({
+        id: approveTarget.id,
+        vat_rate: Number(approveVatRate),
+        vat_recoverability: approveRecoverability,
+      })
+      if (res.success || res.alreadyApproved) {
+        if (res.alreadyApproved) flash("info", locale === "ar" ? "تم اعتماد المصروف مسبقاً. راجع بياناته بعد تحديث القائمة." : "This expense is already approved. Review the refreshed record.")
+        else if (res.postingPending) flash("info", locale === "ar" ? "تم اعتماد المصروف وإنشاء الذمة الدائنة. الترحيل المحاسبي قيد المراجعة؛ راجع أحداث المحاسبة." : "Expense approved; payable created. Accounting posting needs review in Accounting events.")
+        else flash("ok", locale === "ar" ? "تم اعتماد المصروف وإنشاء الذمة الدائنة ومعالجة الحدث المحاسبي." : "Expense approved; payable created and accounting event processed.")
+        setApproveTarget(null)
+        await load()
+      } else setApproveError((locale === "ar" ? res.errorAr ?? res.error : res.error) ?? t.auth.genericError)
+    } catch {
+      setApproveError(locale === "ar" ? "تعذر تأكيد اعتماد المصروف. أعد تحميله وراجعه قبل المحاولة مجدداً." : "Unable to confirm expense approval. Reload and review before retrying.")
+    } finally { setIsApproving(false) }
   }
 
   const previewCode = approveTarget ? mappingByType[approveTarget.expense_type] : null
+  const approvalRate = Number(approveVatRate)
+  const validApprovalRate = approveVatRate.trim() !== "" && Number.isFinite(approvalRate) && approvalRate >= 0 && approvalRate <= 100
+  const approvalVat = approveTarget && validApprovalRate ? calculateVat(Number(approveTarget.amount), round2(approvalRate)) : null
+  const approvalTotal = approveTarget && approvalVat !== null ? sumMoney(Number(approveTarget.amount), approvalVat) : null
 
   return (
     <div className="px-4 lg:px-6 py-4">
@@ -224,7 +233,7 @@ export default function ExpensesPage() {
         <div className={`mb-4 flex items-center gap-2 rounded-xl border px-3 py-2 text-sm ${
           feedback.type === "ok"
             ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-600"
-            : "border-red-500/20 bg-red-500/10 text-red-500"
+            : feedback.type === "info" ? "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-400" : "border-red-500/20 bg-red-500/10 text-red-500"
         }`}>
           {feedback.type === "ok" ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
           {ui(feedback.text)}
@@ -252,11 +261,11 @@ export default function ExpensesPage() {
           r.is_approved ? null : (
             <div className="flex items-center gap-1">
               <button
-                onClick={() => { setApproveTarget(r); setApproveVatRate("15"); setApproveRecoverability("recoverable") }}
+                onClick={() => { setApproveTarget(r); setApproveError(null); setApproveVatRate(String(r.vat_rate)); setApproveRecoverability("recoverable") }}
                 className="inline-flex h-7 items-center gap-1 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-2 text-xs font-medium text-emerald-600 transition-colors hover:bg-emerald-500/20"
               >
                 <BadgeCheck className="h-3 w-3" />
-                {t.common.approved}
+                {locale === "ar" ? "اعتماد المصروف" : "Approve expense"}
               </button>
             </div>
           )
@@ -344,7 +353,7 @@ export default function ExpensesPage() {
       </Dialog>
 
       {/* ── Approve dialog ────────────────────────────────────────────── */}
-      <Dialog open={!!approveTarget} onOpenChange={(o) => { if (!o) setApproveTarget(null) }}>
+      <Dialog open={!!approveTarget} onOpenChange={(o) => { if (!isApproving && !o) setApproveTarget(null) }}>
         <DialogContent className="max-w-md rounded-2xl">
           <DialogHeader>
             <DialogTitle><LocalizedText text="Approve expense" /></DialogTitle>
@@ -354,7 +363,7 @@ export default function ExpensesPage() {
               )}
               {" — "}<LocalizedText text="Computes VAT, creates a payable and emits the approval event" /></DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          <fieldset disabled={isApproving} className="min-w-0 space-y-4">
             {previewCode && (
               <p className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-400"><LocalizedText text="سيُرحّل إلى حساب" /><b dir="ltr">{previewCode}</b> — {coaNames[previewCode] ?? ""}
               </p>
@@ -379,20 +388,22 @@ export default function ExpensesPage() {
               </div>
             </div>
 
-            {approveTarget && Number(approveVatRate || 0) >= 0 && (
-              <p className="rounded-xl border border-border/50 bg-muted/20 px-3 py-2 text-xs text-muted-foreground" dir="ltr"><LocalizedText text="Net:" />{fmtMoney(approveTarget.amount)} <LocalizedText text="· VAT:" /> {fmtMoney((Number(approveTarget.amount) * Number(approveVatRate || 0)) / 100)} <LocalizedText text="· Total:" /> {fmtMoney(Number(approveTarget.amount) + (Number(approveTarget.amount) * Number(approveVatRate || 0)) / 100)}<LocalizedText text="SAR" /></p>
+            {approveTarget && approvalVat !== null && approvalTotal !== null && (
+              <p data-testid="expense-approval-preview" className="rounded-xl border border-border/50 bg-muted/20 px-3 py-2 text-xs text-muted-foreground" dir="ltr"><LocalizedText text="Net:" />{fmtMoney(approveTarget.amount)} <LocalizedText text="· VAT:" /> {fmtMoney(approvalVat)} <LocalizedText text="· Total:" /> {fmtMoney(approvalTotal)}<LocalizedText text="SAR" /></p>
             )}
+            <p className="text-xs text-muted-foreground">{locale === "ar" ? "تُحفظ نسبة الضريبة بمنزلتين عشريتين." : "The VAT rate is saved with two decimal places."}</p>
+            {approveError && <p role="alert" className="text-sm text-destructive">{approveError}</p>}
 
             <div className="flex items-center gap-3">
               <Button
                 onClick={() => void handleApprove()}
-                disabled={isApproving || Number(approveVatRate) < 0 || Number(approveVatRate) > 100}
+                disabled={isApproving || !validApprovalRate}
                 className="bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800"
               >
                 {isApproving ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />}<LocalizedText text="Approve" /></Button>
               <Button variant="ghost" onClick={() => setApproveTarget(null)}><LocalizedText text="Cancel" /></Button>
             </div>
-          </div>
+          </fieldset>
         </DialogContent>
       </Dialog>
     </div>

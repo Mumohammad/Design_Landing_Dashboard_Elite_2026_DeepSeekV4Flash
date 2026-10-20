@@ -26,22 +26,17 @@ import { revalidatePath } from "next/cache"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { createClient } from "@/lib/supabase/server"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
-import { writeAuditLog } from "@/lib/auth/sessions"
 import { mapFinancialError } from "@/lib/accounting/csv-utils"
 import { runEventDispatcher } from "@/lib/accounting/dispatcher"
 import { rateLimitExpenses } from "@/lib/auth/rate-limit"
 import { emit } from "@/lib/webhooks/events"
 import { round2 } from "@/lib/accounting/invoice-math"
 
-type ActionResult = { success: boolean; error?: string }
+type ActionResult = { success: boolean; error?: string; errorAr?: string }
 
 // Domain constants live in @/lib/expenses/constants (a regular module) so
 // client components can import them without hitting the server-action proxy.
 import { EXPENSE_TYPES, RECOVERABILITY, type ExpenseVatRecoverability, type ExpenseType } from "@/lib/expenses/constants"
-
-function errorMessage(e: unknown): string {
-  return e instanceof Error ? e.message : "Unknown error"
-}
 
 /**
  * Approve a pending expense → payable + ExpenseApprovedEvent.
@@ -51,40 +46,55 @@ export async function approveExpense(input: {
   id: string
   vat_rate?: number
   vat_recoverability?: ExpenseVatRecoverability
-}): Promise<ActionResult> {
+  approvalReason?: string
+  surface?: "expenses" | "approvals_inbox"
+}): Promise<ActionResult & { alreadyApproved?: boolean; postingPending?: boolean }> {
   try {
     await requirePermission("expenses", "approve")
     const currentUser = await getCurrentUser()
-    if (!currentUser) return { success: false, error: "Not authenticated." }
+    if (!currentUser) return { success: false, error: "Not authenticated.", errorAr: "يلزم تسجيل الدخول." }
     const rl = await rateLimitExpenses(currentUser.id)
-    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
+    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later.", errorAr: "تجاوزت عدد المحاولات المسموح. حاول لاحقاً." }
 
-    const vatRate = Number(input.vat_rate ?? 15)
-    if (!Number.isFinite(vatRate) || vatRate < 0 || vatRate > 100) {
-      return { success: false, error: mapFinancialError("EXP003: invalid VAT rate") }
+    const surface = input.surface ?? "expenses"
+    // The inbox has no VAT editor. Preserve the locked expense's stored rate
+    // in the transaction instead of silently replacing exempt/reduced VAT by 15%.
+    const vatRate = input.vat_rate ?? (surface === "approvals_inbox" ? null : 15)
+    if (vatRate !== null && (typeof vatRate !== "number" || !Number.isFinite(vatRate) || vatRate < 0 || vatRate > 100)) {
+      return { success: false, error: mapFinancialError("EXP003: invalid VAT rate"), errorAr: "أدخل نسبة ضريبة من 0 إلى 100 وتصنيفاً صحيحاً للاسترداد." }
     }
     const recoverability = input.vat_recoverability ?? "recoverable"
     if (!RECOVERABILITY.includes(recoverability)) {
-      return { success: false, error: mapFinancialError("EXP003: invalid recoverability") }
+      return { success: false, error: mapFinancialError("EXP003: invalid recoverability"), errorAr: "اختر تصنيف استرداد ضريبة صحيحاً." }
+    }
+    const reason = input.approvalReason?.trim() || null
+    if (!["expenses", "approvals_inbox"].includes(surface) || (reason && reason.length > 500)
+      || (surface === "approvals_inbox" && (!reason || reason.length < 5))) return {
+      success: false, error: "Enter an approval reason between 5 and 500 characters.", errorAr: "أدخل سبب اعتماد من 5 إلى 500 حرف.",
     }
 
-    // FX-06: the whole approval is ONE atomic RPC (migration 063).
-    // The DB arbitrates the race: a conditional UPDATE claims the expense
-    // (0 rows ⇒ EXP002), the payable insert uses ON CONFLICT DO NOTHING and
-    // asserts exactly one live row (FX06), and the ExpenseApprovedEvent is
-    // enqueued in the same transaction.
+    // Lock the current expense, claim it once and commit the matching
+    // payable, accounting event and approval audit in one transaction.
     const admin = createAdminClient()
-    const { data: rpcData, error: rpcErr } = await admin.rpc("approve_expense_atomic", {
+    const { data: rpcData, error: rpcErr } = await admin.rpc("approve_expense_with_context_atomic", {
       p_tenant_id: currentUser.tenantId,
       p_expense_id: input.id,
-      p_vat_rate: vatRate,
+      p_vat_rate: vatRate === null ? null : round2(vatRate),
       p_vat_recoverability: input.vat_recoverability ?? null,
       p_actor: currentUser.authUserId,
+      p_reason: reason,
+      p_surface: surface,
     })
     if (rpcErr) {
-      // EXP002 has a dedicated 409 message in the taxonomy; FX06 (the
-      // exactly-one-assert) passes through verbatim.
-      return { success: false, error: mapFinancialError(rpcErr.message) }
+      if (rpcErr.message.startsWith("EXP002:")) return {
+        success: false, alreadyApproved: true, error: mapFinancialError(rpcErr.message),
+        errorAr: "تم اعتماد المصروف مسبقاً. راجع بياناته بعد تحديث القائمة.",
+      }
+      const known = /^(EXP001|EXP003|EXP004|EXP005):/.exec(rpcErr.message)?.[1]
+      if (known) return { success: false, error: mapFinancialError(known + ":"), errorAr: known === "EXP005"
+        ? "لا يوجد ربط بحساب محاسبي لهذه الفئة." : known === "EXP001" ? "المصروف غير موجود. أعد تحميل القائمة." : "تحقق من نسبة الضريبة وتصنيف الاسترداد وبيانات الاعتماد." }
+      return { success: false, error: rpcErr.message.startsWith("FX06:") ? "FX06: Expense payable requires review." : "Expense approval requires review. Reload the expense and Accounting events.",
+        errorAr: "يلزم مراجعة الاعتماد. أعد تحميل المصروف وأحداث المحاسبة." }
     }
 
     const rpc = rpcData as {
@@ -97,40 +107,36 @@ export async function approveExpense(input: {
       vat_recoverability: ExpenseVatRecoverability
       event_id: string
     } | null
-    if (!rpc) return { success: false, error: mapFinancialError("EXP001: expense not found") }
+    if (!rpc || rpc.expense_id !== input.id || typeof rpc.event_id !== "string") return {
+      success: false, error: "Unable to confirm expense approval. Reload and review before retrying.",
+      errorAr: "تعذر تأكيد اعتماد المصروف. أعد تحميله وراجعه قبل المحاولة مجدداً.",
+    }
 
     // Phase 9 — dispatch now: Dr Expense (+ Dr VAT In when recoverable) /
     // Cr AP journal + classified input-VAT ledger row.
-    await runEventDispatcher()
+    // Approval and its audit are already committed. A posting/cache/network
+    // failure cannot honestly be reported as a failed approval. Check this
+    // specific event rather than interpreting an unrelated batch's totals.
+    let postingPending = true
+    try {
+      await runEventDispatcher()
+      const posting = await admin.from("financial_events").select("processing_status")
+        .eq("tenant_id", currentUser.tenantId).eq("event_id", rpc.event_id)
+        .eq("source_type", "expense").eq("source_id", input.id).maybeSingle()
+      postingPending = !!posting.error || !["processed", "skipped_duplicate"].includes(posting.data?.processing_status ?? "")
+    } catch { /* Retain the confirmed approval and disclose unverified posting. */ }
 
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "expenses",
-      action: "expense_approved",
-      entityType: "expenses",
-      entityId: rpc.expense_id,
-      newValues: {
-        expense_ref: rpc.expense_ref,
-        amount: rpc.amount,
-        vat_amount: rpc.vat_amount,
-        total: rpc.total,
-        coa_account_code: rpc.coa_account_code,
-        vat_recoverability: rpc.vat_recoverability,
-      },
-    })
-
-    emit("expense.approved", currentUser.tenantId, {
+    try { emit("expense.approved", currentUser.tenantId, {
       id: rpc.expense_id,
       amount: rpc.total,
       approvedBy: currentUser.id,
-    })
+    }) } catch { /* The retained accounting event is independent of webhook delivery. */ }
 
-    revalidatePath("/expenses")
-    revalidatePath("/accounting")
-    return { success: true }
+    try { revalidatePath("/expenses"); revalidatePath("/accounting") } catch { /* Client refresh still reads committed data. */ }
+    return { success: true, postingPending }
   } catch (e) {
-    return { success: false, error: errorMessage(e) }
+    void e
+    return { success: false, error: "Unable to confirm expense approval. Reload and review before retrying.", errorAr: "تعذر تأكيد اعتماد المصروف. أعد تحميله وراجعه قبل المحاولة مجدداً." }
   }
 }
 

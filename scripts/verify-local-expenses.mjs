@@ -18,7 +18,8 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
   const ids = Array.from({length:106},()=>randomUUID()), drivers = [randomUUID(),randomUUID()]
   const pattern = '**/rest/v1/expenses?**'
   const actionPattern='**/expenses*'
-  let responseLost=false
+  let responseLost=false,approvalResponseLost=false
+  const approvedSeeds=[]
   const loseResponse=async route=>{
     const request=route.request()
     if(!responseLost&&request.method()==='POST'&&new URL(request.url()).pathname==='/expenses'
@@ -118,6 +119,72 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
     await expect(dialog.getByRole('alert')).toHaveCount(0)
     await expect(dialog.locator('fieldset')).toBeEnabled()
     await page.keyboard.press('Escape')
+    stage = 'approval commit with lost response and safe retry'
+    await rows.getByRole('button',{name:'Approve expense',exact:true}).click()
+    await expect(dialog.getByTestId('expense-approval-preview')).toContainText('0.18')
+    await expect(dialog.getByTestId('expense-approval-preview')).toContainText('1.41')
+    const loseApproval=async route=>{
+      const request=route.request()
+      if(!approvalResponseLost&&request.method()==='POST'&&new URL(request.url()).pathname==='/expenses'
+        &&request.headers()['next-action']&&request.postData()?.includes(created.data.id)){
+        approvalResponseLost=true
+        const response=await route.fetch()
+        if(!response.ok())throw Error('Approval failed before response-loss injection')
+        await route.abort('failed')
+      }else await route.continue()
+    }
+    await page.route(actionPattern,loseApproval)
+    await dialog.getByRole('button',{name:'Approve',exact:true}).click()
+    await expect(dialog.getByRole('alert')).toContainText('Unable to confirm')
+    await page.unroute(actionPattern,loseApproval)
+    if(!approvalResponseLost)throw Error('Approval response loss was not exercised')
+    await dialog.getByRole('button',{name:'Approve',exact:true}).click()
+    await expect(dialog).toBeHidden()
+    await expect(rows.getByRole('button',{name:'Approve expense',exact:true})).toHaveCount(0)
+    const verifyPosting=async(id,net,vat,total,surface,reason)=>{
+      const expense=await admin.from('expenses').select('is_approved,amount,vat_rate,vat_amount').eq('tenant_id',tenantId).eq('id',id).single()
+      const ap=await admin.from('payables').select('amount,vat_amount,total_amount').eq('tenant_id',tenantId).eq('source_entity_type','expense').eq('source_entity_id',id).is('deleted_at',null)
+      const events=await admin.from('financial_events').select('event_id,processing_status').eq('tenant_id',tenantId).eq('source_type','expense').eq('source_id',id)
+      const audit=await admin.from('audit_log').select('new_values').eq('tenant_id',tenantId).eq('entity_id',id).eq('action','expense_approved')
+      const entries=await admin.from('journal_entries').select('id,status').eq('tenant_id',tenantId).eq('source_entity_type','expense').eq('source_entity_id',id)
+      const ledger=await admin.from('vat_input_ledger').select('vat_base_amount,vat_rate,vat_amount').eq('tenant_id',tenantId).eq('source_entity_type','expense').eq('source_entity_id',id)
+      if([expense,ap,events,audit,entries,ledger].some(r=>r.error)||!expense.data?.is_approved
+        ||Number(expense.data.amount)!==net||Number(expense.data.vat_amount)!==vat
+        ||ap.data?.length!==1||Number(ap.data[0].amount)!==net||Number(ap.data[0].vat_amount)!==vat||Number(ap.data[0].total_amount)!==total
+        ||events.data?.length!==1||events.data[0].processing_status!=='processed'
+        ||audit.data?.length!==1||audit.data[0].new_values.surface!==surface||audit.data[0].new_values.reason!==reason
+        ||entries.data?.length!==1||entries.data[0].status!=='posted'
+        ||ledger.data?.length!==1||Number(ledger.data[0].vat_base_amount)!==net||Number(ledger.data[0].vat_amount)!==vat)
+        throw Error('Approval accounting evidence differs')
+      const lines=await admin.from('journal_entry_lines').select('debit_amount,credit_amount').eq('tenant_id',tenantId).eq('journal_entry_id',entries.data[0].id)
+      if(lines.error||lines.data?.length!==3)throw Error('Approval journal lines missing')
+      const debit=lines.data.reduce((sum,line)=>sum+Math.round(Number(line.debit_amount)*100),0)
+      const credit=lines.data.reduce((sum,line)=>sum+Math.round(Number(line.credit_amount)*100),0)
+      if(debit!==Math.round(total*100)||credit!==debit)throw Error('Approval journal does not balance')
+    }
+    await verifyPosting(created.data.id,1.23,0.18,1.41,'expenses',null)
+    stage = 'approvals inbox shares atomic reason and verified posting'
+    // The current inbox is oldest-first and capped. Put this owned synthetic
+    // row first; this test does not claim the inbox's unfinished search works.
+    const inbox=await admin.from('expenses').update({created_at:'2000-01-01T00:00:00Z'}).eq('tenant_id',tenantId).eq('id',ids[0]).select('expense_code').single()
+    if(inbox.error||!inbox.data?.expense_code)throw Error('Inbox fixture unavailable')
+    await page.goto(appUrl+'/approvals?lang=en')
+    const inboxRow=page.locator('tbody tr').filter({hasText:inbox.data.expense_code})
+    await inboxRow.getByRole('button',{name:'Approve',exact:true}).click()
+    await dialog.locator('#decision-reason').fill('Receipts checked')
+    // Retain this synthetic financial source even if the assertion after the
+    // click fails; hard deletion must not orphan its accounting evidence.
+    approvedSeeds.push(ids[0])
+    await dialog.getByRole('button',{name:'Confirm approval',exact:true}).click()
+    await expect(dialog).toBeHidden()
+    await expect(inboxRow).toHaveCount(0)
+    await verifyPosting(ids[0],0.1,0.02,0.12,'approvals_inbox','Receipts checked')
+    await page.goto(appUrl+'/expenses?lang=en')
+    await expect(metrics.nth(0)).toHaveText('107')
+    await expect(metrics.nth(1)).toHaveText('105')
+    await expect(metrics.nth(3)).toHaveText('0.20')
+    await search.fill(createdVendor)
+    await expect(rows).toHaveCount(1)
     stage = 'desktop and Arabic mobile rendering'
     await page.screenshot({path:'supabase/.temp/expenses-overview-desktop.png',fullPage:true})
     await page.setViewportSize({width:390,height:844})
@@ -141,7 +208,7 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
     await revealed(heading)
     if (!(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth))) throw Error('Expense viewport overflows')
     await page.screenshot({path:'supabase/.temp/expenses-overview-mobile-ar.png',fullPage:true})
-    console.log('PASS: expenses beyond 100 rows; exact full summary, literal document/driver/unassigned search, pagination, read failure recovery, lost-response retry with one record/audit, fresh form and Arabic mobile')
+    console.log('PASS: expenses beyond 100 rows; exact summary/search/pagination/read recovery; creation and approval lost-response retries; one payable/event/audit/journal/VAT record; inbox reason; balanced postings; Arabic mobile')
   } catch (error) {
     console.error(JSON.stringify({check:'expenses overview',stage,errorType:error.name}))
     await page.screenshot({path:'supabase/.temp/expenses-overview-failure.png',fullPage:true}).catch(()=>{})
@@ -149,9 +216,10 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
   } finally {
     await page.unrouteAll({behavior:'ignoreErrors'})
     const retired = await admin.from('expenses').update({deleted_at:new Date().toISOString()}).eq('tenant_id',tenantId).eq('vendor',createdVendor)
-    const removed = await admin.from('expenses').delete().eq('tenant_id',tenantId).in('id',ids)
+    const retiredSeeds = approvedSeeds.length ? await admin.from('expenses').update({deleted_at:new Date().toISOString()}).eq('tenant_id',tenantId).in('id',approvedSeeds) : {error:null}
+    const removed = await admin.from('expenses').delete().eq('tenant_id',tenantId).in('id',ids.filter(id=>!approvedSeeds.includes(id)))
     const removedDrivers = await admin.from('drivers').delete().eq('tenant_id',tenantId).in('id',drivers)
-    if (retired.error || removed.error || removedDrivers.error) throw Error('Synthetic expense cleanup failed')
+    if (retired.error || retiredSeeds.error || removed.error || removedDrivers.error) throw Error('Synthetic expense cleanup failed')
     if (viewport) await page.setViewportSize(viewport)
     await page.goto(appUrl + '/dashboard?lang=' + locale)
   }
