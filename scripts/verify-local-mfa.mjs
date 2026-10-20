@@ -77,10 +77,13 @@ try {
   await page.goto(`${appUrl}/dashboard`)
   await page.waitForURL(url => url.pathname === "/dashboard")
   await expect(page.locator("html")).toHaveAttribute("lang", "en")
-  stage = "dashboard landmark and data loading"
-  await page.locator("main").waitFor()
-  await page.getByRole("region", { name: "Executive KPIs" })
-    .getByRole("link", { name: /^(Total Drivers|إجمالي السائقين)$/ }).waitFor()
+  stage = "dashboard main landmark settles"
+  await expect(page.locator("main")).toHaveCount(1, { timeout: 20_000 })
+  stage = "dashboard executive region settles"
+  const executive = page.getByRole("region", { name: "Executive KPIs", exact: true })
+  await expect(executive).toHaveCount(1, { timeout: 20_000 })
+  stage = "dashboard total drivers data loads"
+  await expect(executive.getByRole("link", { name: "Total Drivers", exact: true })).toBeVisible({ timeout: 20_000 })
   stage = "persisted MFA state"
   const profile = await admin.from("users").select("two_factor_enabled")
     .eq("auth_user_id", owner.data.user.id).single()
@@ -145,9 +148,10 @@ try {
   await challengeCode.press("Enter")
   await page.waitForURL(url => url.pathname === "/dashboard")
   await expect(page.locator("html")).toHaveAttribute("lang", "en")
-  await page.locator("main").waitFor()
-  await page.getByRole("region", { name: "Executive KPIs" })
-    .getByRole("link", { name: /^(Total Drivers|إجمالي السائقين)$/ }).waitFor()
+  stage = "returning owner dashboard landmarks settle"
+  await expect(page.locator("main")).toHaveCount(1, { timeout: 20_000 })
+  await expect(executive).toHaveCount(1, { timeout: 20_000 })
+  await expect(executive.getByRole("link", { name: "Total Drivers", exact: true })).toBeVisible({ timeout: 20_000 })
   if (pageErrors !== 0) throw new Error("Browser runtime check failed")
   console.log("PASS: owner sign-in → MFA enrollment → persisted MFA → dashboard data → sign-out → returning-user MFA challenge; no browser runtime errors")
 } catch (error) {
