@@ -4,6 +4,7 @@ import { Download, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useTranslation } from "@/hooks/use-translation"
 import { formatDualDate } from "@/lib/formatting/hijri"
+import { useBusinessDate } from "@/hooks/use-business-date"
 import type { DashboardSnapshot } from "@/lib/analytics/types"
 import { kpiRowsToCsv, type KpiCsvRow } from "@/lib/analytics/dashboard-utils"
 
@@ -44,6 +45,7 @@ export function DashboardHeader({
 }) {
   const { t, locale } = useTranslation()
   const isAr = locale === "ar"
+  const businessDay = useBusinessDate()
 
   function exportCsv() {
     if (!snapshot) return
@@ -101,9 +103,9 @@ export function DashboardHeader({
         </h1>
         <p className="mt-1.5 text-sm text-muted-foreground">
           {t.dashboard.welcomeMessage} ·{" "}
-          <span className="font-medium text-foreground/70">
-            {formatDualDate(new Date(), isAr)}
-          </span>
+          <time dateTime={businessDay ?? undefined} data-testid="dashboard-business-date" className="font-medium text-foreground/70">
+            {formatDualDate(businessDay ? `${businessDay}T12:00:00+03:00` : null, isAr)}
+          </time>
         </p>
       </div>
       <div className="flex items-center gap-2">

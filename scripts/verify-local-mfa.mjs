@@ -94,6 +94,11 @@ try {
   if (profile.error || profile.data.two_factor_enabled !== true || pageErrors !== 0) {
     throw new Error("Persisted MFA state or browser runtime check failed")
   }
+  {
+    stage = "dashboard business date across browser timezones"
+    const { verifyDashboardBusinessDate } = await import("./verify-dashboard-business-date.mjs")
+    await verifyDashboardBusinessDate(page, appUrl)
+  }
   if (process.env.VERIFY_APPROVALS === "1") {
     stage = "approvals queue paging and privacy browser verification"
     const { verifyVatPosition } = await import("./verify-local-vat-position.mjs")
