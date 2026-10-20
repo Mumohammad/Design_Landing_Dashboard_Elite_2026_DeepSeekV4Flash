@@ -30,6 +30,8 @@ atomic approval audit/reason and response recovery. Its first browser acceptance
 check exposed missing finance initialization for new companies; the [accounting
 default continuation](company-accounting-defaults-2026-10-20.md) fixes that without
 backfilling existing production tenants. Final commit evidence remains a gate.
+The [VAT posting continuation](expense-vat-posting-2026-10-20.md) also addresses
+zero/non-recoverable VAT journal failures and category-default selection.
 
 - One locale context now controls marketing, company registration, authentication and dashboard interface copy. Switching updates `lang` and `dir`, persists without a forced reload and synchronizes existing tabs. Blocked browser storage does not prevent the current switch. A non-sensitive `lang` parameter carries preference between configured deployment hosts.
 - Static labels, forms, status badges, table headings, loading/error states, help and legal text use the selected interface language. Names, notes, document contents and other customer-entered business data retain their original content. The reference invoice intentionally remains the requested bilingual document.

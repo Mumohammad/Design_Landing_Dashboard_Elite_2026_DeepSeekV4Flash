@@ -55,7 +55,7 @@ the failed candidate was not merged/promoted.
 This fixes positive expense approval, not the entire Approvals module. Expense
 rejection still uses a separate update/audit path and lacks a durable rejected
 state. The inbox's capped queue, inactive search and swallowed read errors need
-further work. Accounting posting with zero VAT/non-recoverable VAT also needs
-dedicated end-to-end acceptance; preserving the correct VAT rate does not prove
-that every dispatcher branch posts successfully. Genuine finance configuration,
+further work. The [VAT posting continuation](expense-vat-posting-2026-10-20.md)
+addresses the reproduced zero-line failure for zero/non-recoverable VAT; its final
+acceptance is recorded separately. Genuine finance configuration,
 tax setup and finance-owner acceptance remain required.

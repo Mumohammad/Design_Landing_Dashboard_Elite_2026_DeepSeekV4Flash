@@ -68,25 +68,34 @@ describe("expense overview reads", () => {
   })
   it("looks up just the mapped account codes without the old first-100 cap", async () => {
     const { client, requests } = fixture(url => url.pathname.endsWith("expense_category_mappings")
-      ? counted([{expense_type:"fuel",coa_account_code:"9999"},{expense_type:"other",coa_account_code:"9999"}])
+      ? counted([{expense_type:"fuel",coa_account_code:"9999",vat_recoverability:"recoverable"},{expense_type:"other",coa_account_code:"9999",vat_recoverability:"pending_review"}])
       : counted([{account_code:"9999",name_ar:"Mapped account"}]))
-    expect(await expenseDependencies(client,signal())).toEqual({byType:{fuel:"9999",other:"9999"},names:{"9999":"Mapped account"}})
+    expect(await expenseDependencies(client,signal())).toEqual({byType:{fuel:"9999",other:"9999"},names:{"9999":"Mapped account"},recoverabilityByType:{fuel:"recoverable",other:"pending_review"}})
     expect(requests[1].searchParams.get("account_code")).toBe('in.(9999)')
     expect(requests[1].searchParams.get("limit")).toBeNull()
     expect(requests[1].searchParams.get("deleted_at")).toBe("is.null")
   })
   it("accepts no configured mappings without issuing an empty account filter", async () => {
     const { client, requests } = fixture()
-    expect(await expenseDependencies(client,signal())).toEqual({byType:{},names:{}})
+    expect(await expenseDependencies(client,signal())).toEqual({byType:{},names:{},recoverabilityByType:{}})
     expect(requests).toHaveLength(1)
   })
   it.each(["mapping failure","account failure","mapping truncation","account truncation"])("surfaces %s", async kind => {
     const { client } = fixture(url => {
       const mapping = url.pathname.endsWith("expense_category_mappings")
       if ((mapping && kind==="mapping failure") || (!mapping && kind==="account failure")) return new Response('{}',{status:403})
-      return mapping ? counted([{expense_type:"fuel",coa_account_code:"5010"}],kind==="mapping truncation"?2:1)
+      return mapping ? counted([{expense_type:"fuel",coa_account_code:"5010",vat_recoverability:"recoverable"}],kind==="mapping truncation"?2:1)
         : counted([{account_code:"5010",name_ar:"Fuel"}],kind==="account truncation"?2:1)
     })
     await expect(expenseDependencies(client,signal())).rejects.toThrow("Could not load expense")
+  })
+  it.each([null,"unknown"])("rejects invalid VAT classification %s instead of assuming recoverable", async classification => {
+    const {client}=fixture(()=>counted([{expense_type:"advance",coa_account_code:"1500",vat_recoverability:classification}]))
+    await expect(expenseDependencies(client,signal())).rejects.toThrow("Could not load expense mappings")
+  })
+  it("does not treat a dangling mapping as ready accounting configuration",async()=>{
+    const {client}=fixture(url=>url.pathname.endsWith("expense_category_mappings")
+      ?counted([{expense_type:"fuel",coa_account_code:"5000",vat_recoverability:"recoverable"}]):counted([]))
+    await expect(expenseDependencies(client,signal())).rejects.toThrow("Could not load expense accounts")
   })
 })

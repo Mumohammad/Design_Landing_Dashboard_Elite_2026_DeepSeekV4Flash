@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import { substringFilter } from "@/lib/supabase/search-filter"
 import { collectRows } from "@/lib/reports/collect-rows"
 import { sumMoney } from "@/lib/accounting/decimal"
+import { RECOVERABILITY, type ExpenseVatRecoverability } from "./constants"
 
 export interface ExpenseRow {
   id: string
@@ -54,12 +55,15 @@ export async function expensesSummary(client: SupabaseClient, signal: AbortSigna
 
 export async function expenseDependencies(client: SupabaseClient, signal: AbortSignal) {
   const mappings = await client.from("expense_category_mappings")
-    .select("expense_type,coa_account_code", { count: "exact" }).abortSignal(signal)
+    .select("expense_type,coa_account_code,vat_recoverability", { count: "exact" }).abortSignal(signal)
   if (mappings.error || !Array.isArray(mappings.data) || mappings.count !== mappings.data.length) throw new Error("Could not load expense mappings")
   const byType: Record<string, string> = {}
+  const recoverabilityByType: Record<string, ExpenseVatRecoverability> = {}
   for (const row of mappings.data) {
-    if (typeof row.expense_type !== "string" || typeof row.coa_account_code !== "string") throw new Error("Could not load expense mappings")
+    if (typeof row.expense_type !== "string" || typeof row.coa_account_code !== "string"
+      || !RECOVERABILITY.includes(row.vat_recoverability as ExpenseVatRecoverability)) throw new Error("Could not load expense mappings")
     byType[row.expense_type] = row.coa_account_code
+    recoverabilityByType[row.expense_type] = row.vat_recoverability as ExpenseVatRecoverability
   }
   const codes = [...new Set(Object.values(byType))]
   const names: Record<string, string> = {}
@@ -72,6 +76,7 @@ export async function expenseDependencies(client: SupabaseClient, signal: AbortS
       if (typeof row.account_code !== "string" || typeof row.name_ar !== "string") throw new Error("Could not load expense accounts")
       names[row.account_code] = row.name_ar
     }
+    if (codes.some(code => !Object.prototype.hasOwnProperty.call(names, code))) throw new Error("Could not load expense accounts")
   }
-  return { byType, names }
+  return { byType, names, recoverabilityByType }
 }

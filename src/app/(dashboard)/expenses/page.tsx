@@ -65,6 +65,7 @@ export default function ExpensesPage() {
   // Category → CoA mapping preview (expense_type → account_code → name)
   const [coaNames, setCoaNames] = useState<Record<string, string>>({})
   const [mappingByType, setMappingByType] = useState<Record<string, string>>({})
+  const [mappingRecoverability, setMappingRecoverability] = useState<Record<string, ExpenseVatRecoverability>>({})
 
   const [approveTarget, setApproveTarget] = useState<ExpenseRow | null>(null)
   const [approveVatRate, setApproveVatRate] = useState("15")
@@ -90,11 +91,11 @@ export default function ExpensesPage() {
       try {
         const result = await expenseDependencies(createClient(), controller.signal)
         if (controller.signal.aborted) return
-        setMappingByType(result.byType); setCoaNames(result.names)
+        setMappingByType(result.byType); setCoaNames(result.names); setMappingRecoverability(result.recoverabilityByType)
         setDependencyState({ loading: false, error: false })
       } catch {
         if (!controller.signal.aborted) {
-          setMappingByType({}); setCoaNames({})
+          setMappingByType({}); setCoaNames({}); setMappingRecoverability({})
           setDependencyState({ loading: false, error: true })
         }
       }
@@ -261,7 +262,7 @@ export default function ExpensesPage() {
           r.is_approved ? null : (
             <div className="flex items-center gap-1">
               <button
-                onClick={() => { setApproveTarget(r); setApproveError(null); setApproveVatRate(String(r.vat_rate)); setApproveRecoverability("recoverable") }}
+                onClick={() => { setApproveTarget(r); setApproveError(null); setApproveVatRate(String(r.vat_rate)); setApproveRecoverability(mappingRecoverability[r.expense_type] ?? "pending_review") }}
                 className="inline-flex h-7 items-center gap-1 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-2 text-xs font-medium text-emerald-600 transition-colors hover:bg-emerald-500/20"
               >
                 <BadgeCheck className="h-3 w-3" />

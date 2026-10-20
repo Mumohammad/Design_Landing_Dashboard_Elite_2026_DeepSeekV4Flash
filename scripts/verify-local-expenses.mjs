@@ -15,6 +15,7 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
   const locale = await page.locator('html').getAttribute('lang')
   const viewport = page.viewportSize(), tag = randomUUID().slice(0,8)
   const needle = `Needle "${tag},50%_`, createdVendor = 'Created-expense-' + tag
+  const managedVendors=[createdVendor]
   const ids = Array.from({length:106},()=>randomUUID()), drivers = [randomUUID(),randomUUID()]
   const pattern = '**/rest/v1/expenses?**'
   const actionPattern='**/expenses*'
@@ -34,7 +35,7 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
   try {
     const defaults=await admin.from('expense_category_mappings').select('expense_type,coa_account_code').eq('tenant_id',tenantId)
     if(defaults.error||defaults.data?.length!==6)throw Error('Provisioned company lacks complete expense accounting defaults')
-    const chart=await admin.from('chart_of_accounts').select('account_code').eq('tenant_id',tenantId).is('deleted_at',null)
+    const chart=await admin.from('chart_of_accounts').select('id,account_code').eq('tenant_id',tenantId).is('deleted_at',null)
     if(chart.error||!defaults.data.every(mapping=>chart.data.some(account=>account.account_code===mapping.coa_account_code)))
       throw Error('Provisioned company expense mappings do not resolve to real accounts')
     const driverRows = drivers.map((id,i)=>({id,tenant_id:tenantId,full_name_ar:i===0?`Normal ${tag}`:`Driver ${needle}`,full_name_en:i===0?`Normal ${tag}`:`Driver ${needle}`,primary_mobile:'+966500000000',category:'freelancer',status:'active'}))
@@ -151,26 +152,31 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
     await dialog.getByRole('button',{name:'Approve',exact:true}).click()
     await expect(dialog).toBeHidden()
     await expect(rows.getByRole('button',{name:'Approve expense',exact:true})).toHaveCount(0)
-    const verifyPosting=async(id,net,vat,total,surface,reason)=>{
-      const expense=await admin.from('expenses').select('is_approved,amount,vat_rate,vat_amount').eq('tenant_id',tenantId).eq('id',id).single()
+    const verifyPosting=async(id,net,vat,total,surface,reason,classification='recoverable')=>{
+      const expense=await admin.from('expenses').select('is_approved,amount,vat_rate,vat_amount,vat_recoverability,coa_account_code').eq('tenant_id',tenantId).eq('id',id).single()
       const ap=await admin.from('payables').select('amount,vat_amount,total_amount').eq('tenant_id',tenantId).eq('source_entity_type','expense').eq('source_entity_id',id).is('deleted_at',null)
       const events=await admin.from('financial_events').select('event_id,processing_status').eq('tenant_id',tenantId).eq('source_type','expense').eq('source_id',id)
       const audit=await admin.from('audit_log').select('new_values').eq('tenant_id',tenantId).eq('entity_id',id).eq('action','expense_approved')
       const entries=await admin.from('journal_entries').select('id,status').eq('tenant_id',tenantId).eq('source_entity_type','expense').eq('source_entity_id',id)
-      const ledger=await admin.from('vat_input_ledger').select('vat_base_amount,vat_rate,vat_amount').eq('tenant_id',tenantId).eq('source_entity_type','expense').eq('source_entity_id',id)
+      const ledger=await admin.from('vat_input_ledger').select('vat_base_amount,vat_rate,vat_amount,vat_recoverability').eq('tenant_id',tenantId).eq('source_entity_type','expense').eq('source_entity_id',id)
       if([expense,ap,events,audit,entries,ledger].some(r=>r.error)||!expense.data?.is_approved
-        ||Number(expense.data.amount)!==net||Number(expense.data.vat_amount)!==vat
+        ||Number(expense.data.amount)!==net||Number(expense.data.vat_amount)!==vat||expense.data.vat_recoverability!==classification
         ||ap.data?.length!==1||Number(ap.data[0].amount)!==net||Number(ap.data[0].vat_amount)!==vat||Number(ap.data[0].total_amount)!==total
         ||events.data?.length!==1||events.data[0].processing_status!=='processed'
         ||audit.data?.length!==1||audit.data[0].new_values.surface!==surface||audit.data[0].new_values.reason!==reason
         ||entries.data?.length!==1||entries.data[0].status!=='posted'
-        ||ledger.data?.length!==1||Number(ledger.data[0].vat_base_amount)!==net||Number(ledger.data[0].vat_amount)!==vat)
+        ||ledger.data?.length!==1||Number(ledger.data[0].vat_base_amount)!==net||Number(ledger.data[0].vat_amount)!==vat||ledger.data[0].vat_recoverability!==classification)
         throw Error('Approval accounting evidence differs')
-      const lines=await admin.from('journal_entry_lines').select('debit_amount,credit_amount').eq('tenant_id',tenantId).eq('journal_entry_id',entries.data[0].id)
-      if(lines.error||lines.data?.length!==3)throw Error('Approval journal lines missing')
+      const lines=await admin.from('journal_entry_lines').select('account_id,debit_amount,credit_amount').eq('tenant_id',tenantId).eq('journal_entry_id',entries.data[0].id)
+      if(lines.error||lines.data?.length!==(classification==='recoverable'&&vat>0?3:2))throw Error('Approval journal lines missing')
       const debit=lines.data.reduce((sum,line)=>sum+Math.round(Number(line.debit_amount)*100),0)
       const credit=lines.data.reduce((sum,line)=>sum+Math.round(Number(line.credit_amount)*100),0)
       if(debit!==Math.round(total*100)||credit!==debit)throw Error('Approval journal does not balance')
+      const debitFor=code=>lines.data.filter(line=>chart.data.find(account=>account.id===line.account_id)?.account_code===code)
+        .reduce((sum,line)=>sum+Math.round(Number(line.debit_amount)*100),0)
+      if(debitFor('2600')!==Math.round((classification==='recoverable'?vat:0)*100)
+        ||debitFor(expense.data.coa_account_code)!==Math.round((classification==='recoverable'?net:total)*100)
+        ||lines.data.some(line=>(Number(line.debit_amount)>0)===(Number(line.credit_amount)>0)))throw Error('Approval VAT classification or journal sides differ')
     }
     stage = 'approval persisted accounting evidence'
     await verifyPosting(created.data.id,1.23,0.18,1.41,'expenses',null)
@@ -194,6 +200,34 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
     await expect(metrics.nth(0)).toHaveText('107')
     await expect(metrics.nth(1)).toHaveText('105')
     await expect(metrics.nth(3)).toHaveText('0.20')
+    for(const test of [
+      {name:'zero',type:'fuel',rate:0,vat:0,total:100,classification:'recoverable'},
+      {name:'nonrecoverable',type:'advance',rate:15,vat:15,total:115,classification:'non_recoverable'},
+      {name:'review',type:'other',rate:15,vat:15,total:115,classification:'pending_review'},
+    ]){
+      stage='create and approve '+test.name+' VAT expense'
+      const vendor=`Posting-${test.name}-${tag}`;managedVendors.push(vendor)
+      await page.getByRole('button',{name:'New expense',exact:true}).click()
+      await dialog.locator('#exp-type').selectOption(test.type)
+      await dialog.locator('#exp-amount').fill('100')
+      await dialog.locator('#exp-vat').fill(String(test.rate))
+      await dialog.locator('#exp-vendor').fill(vendor)
+      await dialog.getByRole('button',{name:'Save expense',exact:true}).click()
+      await expect(dialog).toBeHidden()
+      await search.fill(vendor);await expect(rows).toHaveCount(1)
+      await rows.getByRole('button',{name:'Approve expense',exact:true}).click()
+      await expect(dialog.locator('#exp-vat-rate')).toHaveValue(String(test.rate))
+      await expect(dialog.locator('#exp-recover')).toHaveValue(test.classification)
+      await dialog.getByRole('button',{name:'Approve',exact:true}).click()
+      await expect(dialog).toBeHidden()
+      const persisted=await admin.from('expenses').select('id').eq('tenant_id',tenantId).eq('vendor',vendor).single()
+      if(persisted.error)throw Error('VAT expense persistence unavailable')
+      await verifyPosting(persisted.data.id,100,test.vat,test.total,'expenses',null,test.classification)
+    }
+    await expect(metrics.nth(0)).toHaveText('110')
+    await expect(metrics.nth(1)).toHaveText('105')
+    await expect(metrics.nth(2)).toHaveText('311.93')
+    await expect(metrics.nth(3)).toHaveText('30.20')
     await search.fill(createdVendor)
     await expect(rows).toHaveCount(1)
     stage = 'desktop and Arabic mobile rendering'
@@ -202,7 +236,7 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
     await page.goto(appUrl + '/expenses?lang=ar')
     await expect(page.locator('html')).toHaveAttribute('lang','ar')
     await expect(rows).toHaveCount(25)
-    await expect(metrics.nth(0)).toHaveText('107')
+    await expect(metrics.nth(0)).toHaveText('110')
     await expect(page.getByRole('button',{name:'الصفحة التالية',exact:true})).toBeVisible()
     // Playwright visibility includes opacity:0. Wait for the reveal ancestors,
     // including the table below the mobile fold, before accepting a capture.
@@ -219,7 +253,7 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
     await revealed(heading)
     if (!(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth))) throw Error('Expense viewport overflows')
     await page.screenshot({path:'supabase/.temp/expenses-overview-mobile-ar.png',fullPage:true})
-    console.log('PASS: expenses beyond 100 rows; exact summary/search/pagination/read recovery; creation and approval lost-response retries; one payable/event/audit/journal/VAT record; inbox reason; balanced postings; Arabic mobile')
+    console.log('PASS: expenses beyond 100 rows; exact summary/search/pagination/read recovery; creation and approval lost-response retries; one payable/event/audit/journal/VAT record; inbox reason; zero/nonrecoverable/review VAT classifications and balanced postings; Arabic mobile')
   } catch (error) {
     const operation=/expect\(locator\)\.[A-Za-z]+/.exec(error.message)?.[0]
       ??(/strict mode violation/.test(error.message)?'ambiguous-locator':undefined)
@@ -228,7 +262,7 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
     throw Error('Expense overview verification failed: ' + stage)
   } finally {
     await page.unrouteAll({behavior:'ignoreErrors'})
-    const retired = await admin.from('expenses').update({deleted_at:new Date().toISOString()}).eq('tenant_id',tenantId).eq('vendor',createdVendor)
+    const retired = await admin.from('expenses').update({deleted_at:new Date().toISOString()}).eq('tenant_id',tenantId).in('vendor',managedVendors)
     const retiredSeeds = approvedSeeds.length ? await admin.from('expenses').update({deleted_at:new Date().toISOString()}).eq('tenant_id',tenantId).in('id',approvedSeeds) : {error:null}
     const removed = await admin.from('expenses').delete().eq('tenant_id',tenantId).in('id',ids.filter(id=>!approvedSeeds.includes(id)))
     const removedDrivers = await admin.from('drivers').delete().eq('tenant_id',tenantId).in('id',drivers)

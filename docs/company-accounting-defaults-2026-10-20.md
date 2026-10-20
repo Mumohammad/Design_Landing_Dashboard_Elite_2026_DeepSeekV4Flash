@@ -36,3 +36,9 @@ Final CI, exact-commit preview and hosted approval evidence are recorded on PR 7
 after execution. The earlier `03e0c38` main and E2E jobs passed; its database job
 passed 2,565 assertions and the approval concurrency tests, then failed the browser
 check at the missing-mapping boundary. That candidate was not merged or promoted.
+
+A read-only production aggregate on 20 October found that two of the three
+non-deleted workspaces with active user profiles have no expense mappings; one
+has no chart accounts. No identities or business data were changed. The new
+onboarding behavior does not repair these existing workspaces automatically;
+their configuration needs an approved initialization and finance review.
