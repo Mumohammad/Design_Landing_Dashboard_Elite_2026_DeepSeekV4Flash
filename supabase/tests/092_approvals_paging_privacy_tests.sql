@@ -4,6 +4,10 @@ INSERT INTO auth.users(id,email,encrypted_password,raw_app_meta_data)
 VALUES('92000000-0000-4000-8000-000000000001','queue-092@example.test','synthetic','{"_invite_provisioned":true}');
 CREATE TEMP TABLE approval_company AS SELECT (public.provision_company_atomic('92000000-0000-4000-8000-000000000001',
  '{"name":"Approval queue tests","slug":"approvals-092","domain":"approvals-092.test"}')->>'id')::uuid id;
+INSERT INTO auth.users(id,email,encrypted_password,raw_app_meta_data)
+VALUES('92000000-0000-4000-8000-000000000006','queue-accountant-092@example.test','synthetic','{"_invite_provisioned":true}');
+INSERT INTO public.users(id,auth_user_id,tenant_id,email,role,status,must_change_password)
+SELECT '92000000-0000-4000-8000-000000000007','92000000-0000-4000-8000-000000000006',id,'queue-accountant-092@example.test','accountant','active',false FROM approval_company;
 GRANT SELECT ON approval_company TO authenticated;
 UPDATE public.users SET must_change_password=false WHERE auth_user_id='92000000-0000-4000-8000-000000000001';
 INSERT INTO public.tenants(id,name_ar,name_en) VALUES('92000000-0000-4000-8000-000000000002','مستأجر آخر','Another queue tenant');
@@ -63,27 +67,34 @@ UPDATE public.users SET must_change_password=true WHERE auth_user_id='92000000-0
 SET LOCAL ROLE authenticated;
 SELECT is((SELECT (public.fetch_pending_approvals_page(id)->'kpis'->>'total')::int FROM approval_company),0,'forced password requirement blocks queue at AAL2');
 RESET ROLE;
-UPDATE public.users SET must_change_password=false,role='accountant' WHERE auth_user_id='92000000-0000-4000-8000-000000000001';
+SELECT set_config('request.jwt.claims','{}',true);
 DELETE FROM public.role_permissions WHERE role_id IN(SELECT r.id FROM public.roles r JOIN approval_company c ON r.tenant_id=c.id WHERE r.name='accountant');
 SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims','{"role":"authenticated","sub":"92000000-0000-4000-8000-000000000006","aal":"aal2"}',true);
 SELECT is((SELECT (public.fetch_pending_approvals_page(id)->'kpis'->>'total')::int FROM approval_company),0,'no module approve grants gives no queue');
 RESET ROLE;
+SELECT set_config('request.jwt.claims','{}',true);
 INSERT INTO public.roles(tenant_id,name,name_ar,name_en)
 SELECT id,'accountant','محاسب','Accountant' FROM approval_company ON CONFLICT(tenant_id,name) WHERE deleted_at IS NULL DO NOTHING;
 INSERT INTO public.role_permissions(role_id,permission_id)
 SELECT r.id,p.id FROM public.roles r JOIN approval_company c ON c.id=r.tenant_id CROSS JOIN public.permissions p
 WHERE r.name='accountant' AND r.deleted_at IS NULL AND p.module='hr' AND p.action='approve';
 SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims','{"role":"authenticated","sub":"92000000-0000-4000-8000-000000000006","aal":"aal2"}',true);
 SELECT is((SELECT (public.fetch_pending_approvals_page(id)->'kpis'->>'total')::int FROM approval_company),1,'HR-only approver sees just application');
 SELECT is((SELECT (public.fetch_pending_approvals_page(id)->'kpis'->>'expenses')::int FROM approval_company),0,'HR-only total reveals no expense count');
 SELECT is((SELECT (public.fetch_pending_approvals_page(id)->'kpis'->>'leaves')::int FROM approval_company),0,'HR-only total reveals no leave count');
 RESET ROLE;
-UPDATE public.users SET status='inactive' WHERE auth_user_id='92000000-0000-4000-8000-000000000001';
+SELECT set_config('request.jwt.claims','{}',true);
+UPDATE public.users SET status='inactive' WHERE auth_user_id='92000000-0000-4000-8000-000000000006';
 SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims','{"role":"authenticated","sub":"92000000-0000-4000-8000-000000000006","aal":"aal2"}',true);
 SELECT is((SELECT (public.fetch_pending_approvals_page(id)->'kpis'->>'total')::int FROM approval_company),0,'inactive caller denied');
 RESET ROLE;
-UPDATE public.users SET status='active',locked_until=now()+interval '1 hour' WHERE auth_user_id='92000000-0000-4000-8000-000000000001';
+SELECT set_config('request.jwt.claims','{}',true);
+UPDATE public.users SET status='active',locked_until=now()+interval '1 hour' WHERE auth_user_id='92000000-0000-4000-8000-000000000006';
 SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims','{"role":"authenticated","sub":"92000000-0000-4000-8000-000000000006","aal":"aal2"}',true);
 SELECT is((SELECT (public.fetch_pending_approvals_page(id)->'kpis'->>'total')::int FROM approval_company),0,'locked caller denied');
 SELECT set_config('request.jwt.claims','{"role":"authenticated","sub":"92000000-0000-4000-8000-000000000099","aal":"aal2"}',true);
 SELECT is((SELECT (public.fetch_pending_approvals_page(id)->'kpis'->>'total')::int FROM approval_company),0,'unknown caller denied');
