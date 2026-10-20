@@ -65,12 +65,12 @@ describe("subjectLine", () => {
     expect(subjectLine(r, true)).toBe("annual · 5 أيام")
   })
 
-  it("renders application subjects as the applicant name", () => {
+  it("renders application reference with initials before any display or export", () => {
     const line = subjectLine(
       row({ item_type: "application", subject: "DRV-2026-000042", subject_meta: { full_name: "سعيد علي" } }),
       false
     )
-    expect(line).toBe("سعيد علي")
+    expect(line).toBe("DRV-2026-000042 — س. ع.")
   })
 })
 
@@ -132,7 +132,7 @@ describe("decision error surface", () => {
 
 describe("filters", () => {
   it("keeps the empty state and detects activity", () => {
-    expect(EMPTY_FILTERS).toEqual({ from: "", to: "", type: "all" })
+    expect(EMPTY_FILTERS).toEqual({ search: "", from: "", to: "", type: "all" })
     expect(isFiltersActive(EMPTY_FILTERS)).toBe(false)
     expect(isFiltersActive({ ...EMPTY_FILTERS, type: "expense" })).toBe(true)
     expect(isFiltersActive({ ...EMPTY_FILTERS, from: "2026-09-01" })).toBe(true)
@@ -140,10 +140,10 @@ describe("filters", () => {
 
   it("expands yyyy-mm-dd into inclusive local bounds", () => {
     expect(dateRangeBounds("2026-09-01", "2026-09-24")).toEqual({
-      fromIso: "2026-09-01T00:00:00",
-      toIso: "2026-09-24T23:59:59.999",
+      fromIso: "2026-09-01T00:00:00+03:00",
+      toIso: "2026-09-24T23:59:59.999+03:00",
     })
-    expect(dateRangeBounds("", "2026-09-24")).toEqual({ fromIso: null, toIso: "2026-09-24T23:59:59.999" })
+    expect(dateRangeBounds("", "2026-09-24")).toEqual({ fromIso: null, toIso: "2026-09-24T23:59:59.999+03:00" })
     expect(dateRangeBounds("not-a-date", "")).toEqual({ fromIso: null, toIso: null })
   })
 })
@@ -174,5 +174,19 @@ describe("approvalsToCsv", () => {
     const body = csv.slice(1)
     expect(body.startsWith('a,b\n"x,y","he said ""hi"""\n')).toBe(true)
     expect(body.endsWith('"line1\nline2",5')).toBe(true)
+  })
+})
+
+
+describe("safe queue filters and exports", () => {
+  it("rejects impossible dates rather than silently normalizing a different day", () => {
+    expect(dateRangeBounds("2026-02-30", "2026-13-01")).toEqual({fromIso:null,toIso:null})
+    expect(dateRangeBounds("2024-02-29", "").fromIso).toBe("2024-02-29T00:00:00+03:00")
+    expect(isFiltersActive({...EMPTY_FILTERS,search:" reference "})).toBe(true)
+    expect(isFiltersActive({...EMPTY_FILTERS,search:"   "})).toBe(false)
+  })
+  it("escapes spreadsheet formulas, preserves numeric values and quotes carriage returns", () => {
+    expect(approvalsToCsv(["value"],[["=1+1"],[" +SUM(1)"],["@TEST"],["-2"],[-2],["x\ry"]]))
+      .toBe("\uFEFFvalue\n'=1+1\n' +SUM(1)\n'@TEST\n'-2\n-2\n\"x\ry\"")
   })
 })

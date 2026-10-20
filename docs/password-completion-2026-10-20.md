@@ -58,5 +58,20 @@ their permission/tenant tests exercise their intended boundary. New pgTAP tests
 cover the forced-password gate and separate self-profile bootstrap. Browser
 verification covers recovery completion, lost response before enrollment,
 existing-factor step-up before a subsequent change, Arabic mobile and retained
-sessions. Final build, CI and exact-preview outcomes are recorded on PR 76 after
-execution. This document does not claim the candidate is released.
+sessions. Application head `93eac01145ae8cad8d4a5cd9c8439a7b81769432` passed all three
+CI jobs (run 39451940449), including 2,707 database assertions, actual Auth/Storage,
+concurrent completion/reset guards and the complete disposable browser suite.
+The exact Vercel preview `elite-dashboard-f6655d9m2-elitesaasc-5643.vercel.app`
+passed recovery, required-change response loss, same-session enrollment,
+receivable/expense/invoice CRUD and PDF retention, returning verified-factor
+challenge and Arabic mobile required password completion, with no runtime errors.
+Local build/types/lint passed; PDF assets were 84 MiB. Synthetic app access was
+deactivated, sessions revoked and Auth fixtures retired.
+
+Production Auth requirements could not be read: both locally available management
+credential profiles returned HTTP 403, and the browser redirected to another
+organization. Optional email-nonce reauthentication is implemented, but current-
+password provider enforcement has not been verified. Actual email delivery is
+also an operational acceptance item; generated synthetic recovery links do not
+prove delivery. No production Auth setting or password changed. This is a
+verified staging checkpoint, not a production release.

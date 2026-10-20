@@ -94,6 +94,11 @@ try {
   if (profile.error || profile.data.two_factor_enabled !== true || pageErrors !== 0) {
     throw new Error("Persisted MFA state or browser runtime check failed")
   }
+  if (process.env.VERIFY_APPROVALS === "1") {
+    stage = "approvals queue paging and privacy browser verification"
+    const { verifyApprovalsInbox } = await import("./verify-local-approvals.mjs")
+    await verifyApprovalsInbox(page, admin, company.data.id, appUrl)
+  }
   if (process.env.VERIFY_EXPENSES === "1") {
     stage = "expense overview browser verification"
     const { verifyExpensesOverview } = await import("./verify-local-expenses.mjs")

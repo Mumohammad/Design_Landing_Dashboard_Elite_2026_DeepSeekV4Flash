@@ -199,8 +199,8 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
     stage = 'approval persisted accounting evidence'
     await verifyPosting(created.data.id,1.23,0.18,1.41,'expenses',null)
     stage = 'approvals inbox shares atomic reason and verified posting'
-    // The current inbox is oldest-first and capped. Put this owned synthetic
-    // row first; this test does not claim the inbox's unfinished search works.
+    // Keep the owned decision fixture first in the oldest-first queue;
+    // the dedicated inbox verifier separately covers full search and paging.
     const inbox=await admin.from('expenses').update({created_at:'2000-01-01T00:00:00Z'}).eq('tenant_id',tenantId).eq('id',ids[0]).select('expense_code').single()
     if(inbox.error||!inbox.data?.expense_code)throw Error('Inbox fixture unavailable')
     await page.goto(appUrl+'/approvals?lang=en')

@@ -2,15 +2,15 @@
 
 // Approvals inbox (Prompt E) — one surface for every pending decision across
 // the three existing sources: expenses, driver leave requests, and driver
-// applications. Server-filtered through the capped fetch_pending_approvals
-// RPC (50/100 clamp), decisions via the atomic transition RPCs behind the
+// applications. Caller-bound database pages and exact filtered totals;
+// decisions via the guarded transition RPCs behind the
 // one-action-per-type write path (src/lib/approvals/actions.ts).
 //
 // Repo precedent: audit-log/users module surfaces — EnterpriseModulePage
 // shell, KPI chips, filter toolbar, CSV export, bilingual AR/EN, deferred
 // load effects, useState (no react-query).
 
-import { Suspense, useCallback, useEffect, useState } from "react"
+import { Suspense, useCallback, useEffect, useRef, useState } from "react"
 import {
   AlertTriangle,
   CheckCircle2,
@@ -64,65 +64,67 @@ function ApprovalsInner() {
   const [data, setData] = useState<ApprovalsPageData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [loadFailed, setLoadFailed] = useState(false)
+  const requestSequence = useRef(0)
+  const [page, setPage] = useState(1)
   const [refreshTick, setRefreshTick] = useState(0)
   const [filters, setFilters] = useState<ApprovalFilterState>(() => ({ ...EMPTY_FILTERS }))
   const [target, setTarget] = useState<DecisionTarget | null>(null)
   const [decision, setDecision] = useState<"approved" | "rejected" | null>(null)
 
-  const load = useCallback(
-    async (f: ApprovalFilterState, silent = false) => {
-      if (!silent) setIsLoading(true)
-      try {
-        const result = await fetchApprovalsPage({ ...f }, APPROVALS_PAGE_SIZE_DEFAULT)
-        setData(result)
-        setLoadFailed(false)
-      } catch {
-        setLoadFailed(true)
-        if (!silent) setData(null)
-      }
-      if (!silent) setIsLoading(false)
-    },
-    []
-  )
+  const load = useCallback(async (f: ApprovalFilterState, currentPage: number, isActive: () => boolean) => {
+    const sequence = ++requestSequence.current
+    setIsLoading(true)
+    setLoadFailed(false)
+    setData(null)
+    try {
+      const result = await fetchApprovalsPage(f, APPROVALS_PAGE_SIZE_DEFAULT, currentPage)
+      if (isActive() && sequence === requestSequence.current) setData(result)
+    } catch {
+      if (isActive() && sequence === requestSequence.current) setLoadFailed(true)
+    } finally {
+      if (isActive() && sequence === requestSequence.current) setIsLoading(false)
+    }
+  }, [])
 
-  // Deferred load (repo pattern) — refetches when filters change.
   useEffect(() => {
-    const id = setTimeout(() => void load(filters), 0)
-    return () => clearTimeout(id)
-  }, [load, filters, refreshTick])
+    let active = true
+    const id = setTimeout(() => void load(filters, page, () => active), 200)
+    return () => { clearTimeout(id); active = false }
+  }, [load, filters, page, refreshTick])
 
-  const setFilter = <K extends keyof ApprovalFilterState>(key: K, value: ApprovalFilterState[K]) =>
-    setFilters((prev) => ({ ...prev, [key]: value }))
+  const setFilter = <K extends keyof ApprovalFilterState>(key: K, value: ApprovalFilterState[K]) => {
+    requestSequence.current++
+    setData(null)
+    setIsLoading(true)
+    setPage(1)
+    setFilters(prev => ({ ...prev, [key]: value }))
+  }
+  const refresh = () => {
+    requestSequence.current++
+    setData(null)
+    setIsLoading(true)
+    setRefreshTick(n => n + 1)
+  }
 
   const rows = data?.rows ?? []
 
   const kpiCards: KpiCardData[] = [
-    { label: isAr ? "قرارات معلقة" : "Pending decisions", value: data?.kpis.total ?? 0, icon: ClipboardCheck, color: "#1E5A99" },
-    { label: isAr ? "مصروفات" : "Expenses", value: data?.kpis.expenses ?? 0, icon: ExternalLink, color: "#E87D3E" },
-    { label: isAr ? "إجازات" : "Leave requests", value: data?.kpis.leaves ?? 0, icon: Clock, color: "#0EA5E9" },
-    { label: isAr ? "طلبات توظيف" : "Applications", value: data?.kpis.applications ?? 0, icon: ClipboardCheck, color: "#6366F1" },
+    { label: isAr ? "قرارات معلقة" : "Pending decisions", value: data?.kpis.total ?? "—", icon: ClipboardCheck, color: "#1E5A99" },
+    { label: isAr ? "مصروفات" : "Expenses", value: data?.kpis.expenses ?? "—", icon: ExternalLink, color: "#E87D3E" },
+    { label: isAr ? "إجازات" : "Leave requests", value: data?.kpis.leaves ?? "—", icon: Clock, color: "#0EA5E9" },
+    { label: isAr ? "طلبات توظيف" : "Applications", value: data?.kpis.applications ?? "—", icon: ClipboardCheck, color: "#6366F1" },
   ]
 
   const requesterOf = (r: ApprovalQueueRow): string =>
-    maskRequesterName(r.item_type, r.requester, r.subject_meta?.full_name ?? null, true)
+    maskRequesterName(r.item_type, r.requester, r.subject_meta?.full_name ?? null, false)
 
-  const consentOf = (r: ApprovalQueueRow): boolean => {
-    // Applicant-name masking gate; other sources are not data subjects here.
-    if (r.item_type !== "application") return true
-    const options = data?.requesterOptions ?? []
-    void options
-    // Applications surface masked initials unless a matching consented
-    // profile exists — resolved server-side into requestersConsented by
-    // users.id; the queue row's item_id maps 1:1 to the application, and
-    // the applicants roster is tenant-scoped, so default to masked (fail-
-    // closed) and let the server response open it.
-    return data?.requestersConsented[r.item_id] ?? false
-  }
+  // Public applications have no verified link to a users-table consent record.
+  const consentOf = (r: ApprovalQueueRow): boolean => r.item_type !== "application"
 
   const exportCsv = () => {
-    if (rows.length === 0) return
+    if (isLoading || loadFailed || rows.length === 0) return
     const csv = approvalsToCsv(
-      ["Type", "Subject", "Requester", "Requested at", "Age (days)", "Deep link", "PDPL"],
+      ["Type", "Subject", "Requester", "Requested at", "Age (days)", "Deep link", "Name visibility"],
       rows.map((r) => [
         r.item_type,
         subjectLine(r, false),
@@ -130,14 +132,14 @@ function ApprovalsInner() {
         r.requested_at,
         pendingAgeDays(r.requested_at),
         itemDeepLink(r),
-        consentOf(r) ? "granted" : "masked",
+        consentOf(r) ? "module access" : "initials only",
       ])
     )
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" })
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
-    a.download = `approvals-${new Date().toISOString().slice(0, 10)}.csv`
+    a.download = `approvals-page-${data?.page ?? 1}-${new Date().toISOString().slice(0, 10)}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -156,7 +158,7 @@ function ApprovalsInner() {
         return (
           <span
             className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
-            style={{ backgroundColor: `${meta.color}15`, color: meta.color }}
+            style={{ backgroundColor: `${meta.color}15`, color: "var(--foreground)" }}
           >
             {isAr ? meta.ar : meta.en}
           </span>
@@ -182,7 +184,7 @@ function ApprovalsInner() {
             {requesterOf(r)}
             {masked && (
               <span className="ms-1 text-[10px] text-muted-foreground">
-                {isAr ? "(مقنّع — PDPL)" : "(masked — PDPL)"}
+                {isAr ? "(الأحرف الأولى فقط)" : "(initials only)"}
               </span>
             )}
           </span>
@@ -228,20 +230,11 @@ function ApprovalsInner() {
 
   return (
     <div className="px-4 py-4 lg:px-6">
-      {loadFailed && (
-        <div className="mb-4 flex items-center gap-2 rounded-2xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          <AlertTriangle className="h-4 w-4" />
-          {isAr
-            ? "تعذر تحميل قائمة القرارات — حاول التحديث."
-            : "Could not load the approvals queue — try refreshing."}
-        </div>
-      )}
-
-      {/* Filter + export toolbar (server-side filters — one capped page) */}
+      {/* Server filters apply to the complete permitted pending queue. */}
       <div className="mb-4 space-y-3 rounded-2xl border border-border/50 bg-card/60 px-4 py-3 backdrop-blur-sm">
         <div className="flex flex-wrap items-center gap-2">
           <Select value={filters.type} onValueChange={(v) => setFilter("type", v as ApprovalItemType | "all")}>
-            <SelectTrigger className="h-9 w-40 rounded-xl bg-muted/30 text-xs">
+            <SelectTrigger aria-label={isAr ? "نوع القرار" : "Decision type"} className="h-9 w-40 rounded-xl bg-muted/30 text-xs">
               <SelectValue placeholder={isAr ? "النوع" : "Type"} />
             </SelectTrigger>
             <SelectContent>
@@ -271,8 +264,8 @@ function ApprovalsInner() {
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-xs tabular-nums text-muted-foreground">
             {isAr
-              ? `${rows.length} قرار (حد الصفحة 50/100)`
-              : `${rows.length} decisions (page cap 50/100)`}
+              ? data ? `${rows.length} من ${data.kpis.total} قرار مطابق` : "—"
+              : data ? `${rows.length} of ${data.kpis.total} matching decisions` : "—"}
           </span>
           <div className="ms-auto flex items-center gap-2">
             {isFiltersActive(filters) && (
@@ -280,7 +273,7 @@ function ApprovalsInner() {
                 variant="ghost"
                 size="sm"
                 className="h-9 rounded-xl text-xs"
-                onClick={() => setFilters({ ...EMPTY_FILTERS })}
+                onClick={() => { setPage(1); setData(null); setIsLoading(true); requestSequence.current++; setFilters({ ...EMPTY_FILTERS }) }}
               >
                 {isAr ? "مسح الفلاتر" : "Clear filters"}
               </Button>
@@ -289,7 +282,7 @@ function ApprovalsInner() {
               variant="outline"
               size="sm"
               className="h-9 gap-1.5 rounded-xl"
-              onClick={() => setRefreshTick((n) => n + 1)}
+              onClick={refresh}
             >
               <RefreshCw className={cn("h-3.5 w-3.5", isLoading && "animate-spin")} />
               {isAr ? "تحديث" : "Refresh"}
@@ -299,10 +292,10 @@ function ApprovalsInner() {
               size="sm"
               className="h-9 gap-1.5 rounded-xl"
               onClick={exportCsv}
-              disabled={rows.length === 0}
+              disabled={isLoading || loadFailed || rows.length === 0}
             >
               <Download className="h-3.5 w-3.5" />
-              {isAr ? "تصدير CSV" : "Export CSV"}
+              {isAr ? "تصدير هذه الصفحة" : "Export this page"}
             </Button>
           </div>
         </div>
@@ -316,22 +309,27 @@ function ApprovalsInner() {
             : "Every pending decision in one queue — approve or reject with a mandatory reason and full audit trail"
         }
         kpiCards={kpiCards}
-        searchPlaceholder={isAr ? "بحث..." : "Search..."}
-        searchValue=""
-        onSearchChange={() => {
-          // Search is intentionally a no-op: filtering is server-side via the
-          // capped RPC (type + date range); the shell requires the props.
-        }}
+        searchPlaceholder={isAr ? "بحث في المراجع والبيانات الظاهرة..." : "Search references and visible details..."}
+        searchValue={filters.search}
+        onSearchChange={value => setFilter("search", value)}
         columns={columns}
         data={rows}
         isLoading={isLoading}
+        loadError={loadFailed ? (isAr ? "تعذر تحميل قائمة القرارات. أعد المحاولة." : "Could not load the approvals queue. Try again.") : undefined}
+        onRetry={refresh}
+        retryLabel={isAr ? "إعادة المحاولة" : "Retry"}
+        className="[&_tbody_td:last-child>div]:opacity-100"
+        pagination={data ? {
+          totalRecords: data.kpis.total, currentPage: data.page, totalPages: data.totalPages,
+          onPageChange: nextPage => { requestSequence.current++; setData(null); setIsLoading(true); setPage(nextPage) },
+        } : undefined}
         rowActions={(r) => (
           <div data-row-actions onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
             <div className="flex items-center gap-1">
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-8 gap-1 rounded-lg text-xs text-emerald-600 hover:text-emerald-700"
+                className="h-8 gap-1 rounded-lg text-xs text-emerald-700 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
                 onClick={() => openDecision(r, "approved")}
               >
                 <CheckCircle2 className="h-3.5 w-3.5" />
@@ -382,10 +380,9 @@ function ApprovalsInner() {
           if (!o) {
             setTarget(null)
             setDecision(null)
-            void load(filters, true)
           }
         }}
-        onDone={() => void load(filters, true)}
+        onDone={refresh}
       />
     </div>
   )
