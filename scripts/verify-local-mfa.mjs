@@ -96,6 +96,8 @@ try {
   }
   if (process.env.VERIFY_APPROVALS === "1") {
     stage = "approvals queue paging and privacy browser verification"
+    const { verifyVatPosition } = await import("./verify-local-vat-position.mjs")
+    await verifyVatPosition(page, admin, company.data.id, appUrl)
     const { verifyApprovalsInbox } = await import("./verify-local-approvals.mjs")
     await verifyApprovalsInbox(page, admin, company.data.id, appUrl)
   }

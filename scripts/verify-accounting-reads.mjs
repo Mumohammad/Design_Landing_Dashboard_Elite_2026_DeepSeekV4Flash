@@ -18,9 +18,10 @@ export async function verifyAccountingReads(page, appUrl) {
       ['Payments', 'finance_payments'], ['Periods', 'accounting_periods'],
       ['Events', 'financial_events'], ['ZATCA', 'zatca_transmissions'],
       ['Journal', 'chart_of_accounts'], ['VAT', 'vat_reconciliation'], ['Payments', 'bank_accounts'],
+      ['VAT', 'rpc/read_my_vat_position'],
     ]) {
       stage = `${tab}: failed read and retry`
-      const pattern = `**/rest/v1/${table}?**`
+      const pattern = table.startsWith('rpc/') ? `**/rest/v1/${table}` : `**/rest/v1/${table}?**`
       const fail = route => route.fulfill({ status: 503, contentType: 'application/json', body: '{"message":"Synthetic unavailable read"}' })
       await page.route(pattern, fail)
       await page.goto(`${origin}/accounting?lang=en`)
@@ -88,7 +89,7 @@ export async function verifyAccountingReads(page, appUrl) {
     await page.unroute(pattern, fail)
     await error.getByRole('button', { name: 'أعد المحاولة', exact: true }).click()
     await expect(page.getByRole('tabpanel', { name: 'قيود اليومية', exact: true })).toBeVisible()
-    console.log('PASS: twelve accounting primary/dependency read failures/retries, malformed response rejection, stale-tab cancellation, Arabic mobile recovery; no financial mutations')
+    console.log('PASS: thirteen accounting primary/dependency read failures/retries including complete VAT position, malformed response rejection, stale-tab cancellation, Arabic mobile recovery; no financial mutations')
   } catch (error) {
     console.error(JSON.stringify({ check: 'accounting read recovery', stage, errorType: error.name }))
     throw Error(`Accounting read recovery failed: ${stage}`)

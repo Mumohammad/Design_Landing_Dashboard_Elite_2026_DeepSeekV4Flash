@@ -49,7 +49,7 @@ import {
   type ZatcaCsidSummary,
   type ZatcaCsidEnvironment,
 } from "@/lib/accounting/zatca-csid"
-import { computeVatNetPosition } from "@/lib/accounting/vat-math"
+import { formatVatMoney, readVatPosition, vatNetAdjustments, type VatPosition } from "@/lib/accounting/vat-position"
 import { recordPayment, voidPayment, createBankAccount, updateBankAccount, changeBankAccountState } from "@/lib/accounting/payments"
 import {
   resolveVatReviewItem,
@@ -418,6 +418,7 @@ export default function AccountingPage() {
   const [vatAdjustments, setVatAdjustments] = useState<VatAdjustmentRow[]>([])
   const [vatPeriods, setVatPeriods] = useState<VatPeriodRow[]>([])
   const [vatRecon, setVatRecon] = useState<VatReconRow[]>([])
+  const [vatPosition, setVatPosition] = useState<VatPosition | null>(null)
   const [vatReviewItems, setVatReviewItems] = useState<VatReviewItem[]>([])
   const [reconExporting, setReconExporting] = useState(false)
   const [reconPrinting, setReconPrinting] = useState(false)
@@ -476,7 +477,7 @@ export default function AccountingPage() {
         requireAccountingRows(controller.signal, data)
         setTrial(data as TrialRow[])
       } else if (tab === "vat") {
-        const [outRes, inRes, adjRes, perRes, reconRes, reviewRes] = await Promise.all([
+        const [outRes, inRes, adjRes, perRes, reconRes, reviewRes, position] = await Promise.all([
           supabase
             .from("vat_output_ledger")
             .select("id,period_year,period_month,invoice_ref,invoice_date,vat_base_amount,vat_rate,vat_amount")
@@ -512,8 +513,10 @@ export default function AccountingPage() {
             .eq("vat_recoverability", "pending_review")
             .order("invoice_date", { ascending: true })
             .limit(200).abortSignal(controller.signal).throwOnError(),
+          readVatPosition(supabase, controller.signal),
         ])
         requireAccountingRows(controller.signal, outRes.data, inRes.data, adjRes.data, perRes.data, reconRes.data, reviewRes.data)
+        setVatPosition(position)
         if (outRes.data) setVatOutput(outRes.data as VatLedgerRow[])
         if (inRes.data) setVatInput(inRes.data as VatLedgerRow[])
         if (adjRes.data) setVatAdjustments(adjRes.data as VatAdjustmentRow[])
@@ -1762,30 +1765,30 @@ export default function AccountingPage() {
             <TabsContent value="vat" className="mt-4 space-y-4">
               {/* Net position strip */}
               {(() => {
-                const out = vatOutput.reduce((s, r) => s + Number(r.vat_amount), 0)
-                const rec = vatInput.filter((r) => (r.vat_recoverability ?? "recoverable") === "recoverable").reduce((s, r) => s + Number(r.vat_amount), 0)
-                const adjOut = vatAdjustments.filter((a) => a.direction === "output").reduce((s, a) => s + Number(a.vat_amount), 0)
-                const adjIn = vatAdjustments.filter((a) => a.direction === "input").reduce((s, a) => s + Number(a.vat_amount), 0)
-                const net = computeVatNetPosition(out, adjOut, rec, adjIn)
+                if (!vatPosition) return null
                 const items = [
-                  { label: ar ? "مخرجات" : "Output", value: fmtMoney(out), cls: "text-blue-600" },
-                  { label: ar ? "مدخلات قابلة للاسترداد" : "Recoverable input", value: fmtMoney(rec), cls: "text-emerald-600" },
-                  { label: ar ? "تسويات" : "Adjustments", value: fmtMoney(adjOut + adjIn), cls: "text-amber-600" },
+                  { label: ar ? "مخرجات" : "Output", value: formatVatMoney(vatPosition.output_vat), cls: "text-foreground" },
+                  { label: ar ? "مدخلات قابلة للاسترداد" : "Recoverable input", value: formatVatMoney(vatPosition.recoverable_input_vat), cls: "text-foreground" },
+                  { label: ar ? "صافي التسويات المعتمدة" : "Net finalized adjustments", value: formatVatMoney(vatNetAdjustments(vatPosition)), cls: "text-foreground" },
                   {
                     label: ar ? "صافي المركز" : "Net position",
-                    value: fmtMoney(net),
-                    cls: net > 0 ? "text-red-600" : net < 0 ? "text-emerald-600" : "text-foreground",
+                    value: formatVatMoney(vatPosition.net_position),
+                    cls: "text-foreground",
                   },
                 ]
                 return (
+                  <section aria-label={ar ? "المركز الضريبي لجميع الفترات المسجلة" : "VAT position across all recorded periods"} data-testid="vat-position" className="space-y-3">
+                    <p className="text-sm text-muted-foreground">{ar ? "إجماليات جميع الفترات المسجلة بالريال السعودي؛ تشمل التسويات المعتمدة فقط." : "Totals across all recorded periods in SAR; finalized adjustments only."}</p>
                   <div className="grid gap-3 sm:grid-cols-4">
                     {items.map((it) => (
                       <div key={it.label} className="rounded-2xl border border-border/50 bg-card/80 px-4 py-3 shadow-sm">
                         <p className="text-[11px] font-medium text-muted-foreground">{it.label}</p>
-                        <p dir="ltr" className={`mt-0.5 text-lg font-bold tabular-nums ${it.cls}`}>{it.value}</p>
+                        <p dir="ltr" className={`mt-0.5 break-all text-lg font-bold tabular-nums ${it.cls}`}>{it.value}</p>
                       </div>
                     ))}
                   </div>
+                    <p className="text-xs text-muted-foreground">{ar ? "قوائم التفاصيل أدناه محدودة: أحدث 200 قيد لكل سجل، و100 تسوية، و24 فترة، وأقدم 200 بند للمراجعة. الإجماليات أعلاه مستقلة عن هذه الحدود." : "Detail lists below are limited: latest 200 entries per ledger, 100 adjustments, 24 periods, and oldest 200 review items. Totals above are independent of these limits."}</p>
+                  </section>
                 )
               })()}
 
