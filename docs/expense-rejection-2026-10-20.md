@@ -56,6 +56,16 @@ rejection candidate passed all 2,673 database assertions (27 new rejection
 assertions) and concurrency guards; it failed browser acceptance and was not
 released. Final corrected-head evidence is recorded on PR 76.
 
+The corrected browser journey passed durable rejection, both languages, invoice
+PDF failure/retry/private-byte retention and returning MFA without runtime
+errors. Its first visual review identified weak contrast in the new rejection
+text. The alert, badge and rejection confirmation now use legible light/dark
+red variants. Browser checks measure rendered text/background contrast for the
+alert, button and English/Arabic badges against the 4.5:1 minimum. Notification
+direction is checked after actual messages; Sonner intentionally omits its list
+while idle. The earlier idle-list assertion failure was a test defect, not a
+passed release check.
+
 This is not a complete Approvals module claim. Queue pagination/search and read
 failure handling still need work; leave/application decisions retain their
 separate transition/audit paths. Past audit-only rejections need an explicit

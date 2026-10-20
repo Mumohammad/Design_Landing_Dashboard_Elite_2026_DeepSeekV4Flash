@@ -128,7 +128,7 @@ export function DecisionDialog({
       <DialogContent className="rounded-2xl sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            {decision === "rejected" && <TriangleAlert className="h-5 w-5 text-destructive" />}
+            {decision === "rejected" && <TriangleAlert className="h-5 w-5 text-red-700 dark:text-red-400" />}
             {isAr
               ? decision === "approved"
                 ? `الموافقة على ${typeLabel}`
@@ -169,7 +169,7 @@ export function DecisionDialog({
           />
         </div>
 
-        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+        {error && <p role="alert" className="text-sm text-red-700 dark:text-red-400">{error}</p>}
 
         <DialogFooter className="gap-2">
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={submitting}>
@@ -177,6 +177,7 @@ export function DecisionDialog({
           </Button>
           <Button
             variant={decision === "rejected" ? "destructive" : "default"}
+            className={decision === "rejected" ? "bg-red-700 text-white hover:bg-red-800 dark:bg-red-700 dark:hover:bg-red-800" : undefined}
             onClick={submit}
             disabled={submitting}
           >

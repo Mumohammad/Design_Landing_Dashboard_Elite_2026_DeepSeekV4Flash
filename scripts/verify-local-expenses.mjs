@@ -2,6 +2,23 @@ import { expect as baseExpect } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 const expect = baseExpect.configure({ timeout: 25_000 })
 
+async function verifyTextContrast(locator) {
+  const ratio=await locator.evaluate(element=>{
+    const canvas=document.createElement('canvas');canvas.width=canvas.height=1
+    const context=canvas.getContext('2d',{willReadFrequently:true})
+    const rgba=value=>{context.clearRect(0,0,1,1);context.fillStyle=value;context.fillRect(0,0,1,1);return [...context.getImageData(0,0,1,1).data]}
+    const blend=(top,bottom)=>top.slice(0,3).map((value,i)=>value*top[3]/255+bottom[i]*(1-top[3]/255))
+    const ancestors=[];for(let node=element;node;node=node.parentElement)ancestors.unshift(node)
+    let background=[255,255,255]
+    for(const node of ancestors)background=blend(rgba(getComputedStyle(node).backgroundColor),background)
+    const foreground=blend(rgba(getComputedStyle(element).color),background)
+    const luminance=rgb=>rgb.map(value=>{const c=value/255;return c<=0.04045?c/12.92:((c+0.055)/1.055)**2.4}).reduce((sum,value,i)=>sum+value*[0.2126,0.7152,0.0722][i],0)
+    const a=luminance(foreground),b=luminance(background)
+    return (Math.max(a,b)+0.05)/(Math.min(a,b)+0.05)
+  })
+  if(ratio<4.5)throw Error('Decision text contrast is below 4.5:1')
+}
+
 export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
   const app = new URL(appUrl), db = new URL(admin.supabaseUrl)
   const local = ['localhost','127.0.0.1'].includes(app.hostname) && ['3107','3108'].includes(app.port)
@@ -250,6 +267,8 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
     stage='persistent rejection uncertainty alert'
     await expect(dialog.getByRole('alert')).toHaveText('Unable to confirm the decision. Reload and review before retrying.')
     await expect(dialog.getByRole('alert')).toBeVisible()
+    await verifyTextContrast(dialog.getByRole('alert'))
+    await verifyTextContrast(dialog.getByRole('button',{name:'Confirm rejection',exact:true}))
     await page.screenshot({path:'supabase/.temp/expense-rejection-uncertainty.png'})
     await page.unroute(rejectionPattern,loseRejection)
     if(!rejectionResponseLost)throw Error('Rejection response loss was not exercised')
@@ -273,6 +292,7 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
     await page.goto(appUrl+'/expenses?lang=en');await search.fill(rejection.data.expense_code)
     await expect(rows).toHaveCount(1)
     await expect(rows.getByText('Rejected',{exact:true})).toBeVisible()
+    await verifyTextContrast(rows.getByText('Rejected',{exact:true}))
     await rows.locator('summary').click()
     await expect(rows.getByText('Duplicate receipt',{exact:true})).toBeVisible()
     await expect(rows.getByRole('button',{name:'Approve expense',exact:true})).toHaveCount(0)
@@ -340,6 +360,7 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
     await page.screenshot({path:'supabase/.temp/expenses-overview-mobile-ar.png',fullPage:true})
     await search.fill(rejection.data.expense_code);await expect(rows).toHaveCount(1)
     await rows.getByText('مرفوض',{exact:true}).scrollIntoViewIfNeeded()
+    await verifyTextContrast(rows.getByText('مرفوض',{exact:true}))
     await rows.locator('summary').click()
     await expect(rows.getByText('Duplicate receipt',{exact:true})).toBeVisible()
     if(!(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)))throw Error('Rejected expense viewport overflows')

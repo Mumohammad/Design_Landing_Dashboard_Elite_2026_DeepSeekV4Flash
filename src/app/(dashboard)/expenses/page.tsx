@@ -157,7 +157,7 @@ export default function ExpensesPage() {
         ? <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-600"><BadgeCheck className="h-3 w-3" />{t.common.approved}</span>
         : r.rejected_at
           ? <div className="space-y-1">
-              <span className="inline-flex items-center rounded-full border border-destructive/20 bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">{locale === "ar" ? "مرفوض" : "Rejected"}</span>
+              <span className="inline-flex items-center rounded-full border border-red-700/20 bg-red-700/10 px-2 py-0.5 text-xs font-medium text-red-700 dark:border-red-400/30 dark:bg-red-400/10 dark:text-red-400">{locale === "ar" ? "مرفوض" : "Rejected"}</span>
               <details className="max-w-52 text-xs">
                 <summary className="cursor-pointer font-medium text-foreground/80 underline underline-offset-2">{locale === "ar" ? "سبب الرفض" : "Rejection reason"}</summary>
                 <p className="mt-1 whitespace-pre-wrap break-words text-muted-foreground">{r.rejection_reason ?? (locale === "ar" ? "تعذر تحميل سبب الرفض." : "Rejection reason unavailable.")}</p>
