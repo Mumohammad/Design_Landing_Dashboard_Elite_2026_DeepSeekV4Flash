@@ -32,6 +32,11 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
   }
   let stage = 'fixtures'
   try {
+    const defaults=await admin.from('expense_category_mappings').select('expense_type,coa_account_code').eq('tenant_id',tenantId)
+    if(defaults.error||defaults.data?.length!==6)throw Error('Provisioned company lacks complete expense accounting defaults')
+    const chart=await admin.from('chart_of_accounts').select('account_code').eq('tenant_id',tenantId).is('deleted_at',null)
+    if(chart.error||!defaults.data.every(mapping=>chart.data.some(account=>account.account_code===mapping.coa_account_code)))
+      throw Error('Provisioned company expense mappings do not resolve to real accounts')
     const driverRows = drivers.map((id,i)=>({id,tenant_id:tenantId,full_name_ar:i===0?`Normal ${tag}`:`Driver ${needle}`,full_name_en:i===0?`Normal ${tag}`:`Driver ${needle}`,primary_mobile:'+966500000000',category:'freelancer',status:'active'}))
     if ((await admin.from('drivers').insert(driverRows)).error) throw Error('Synthetic drivers failed')
     const seeded = await admin.from('expenses').insert(ids.map((id,i)=>({
@@ -119,9 +124,11 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
     await expect(dialog.getByRole('alert')).toHaveCount(0)
     await expect(dialog.locator('fieldset')).toBeEnabled()
     await page.keyboard.press('Escape')
-    stage = 'approval commit with lost response and safe retry'
+    stage = 'open approval for the created expense'
     await rows.getByRole('button',{name:'Approve expense',exact:true}).click()
+    stage = 'approval preview VAT'
     await expect(dialog.getByTestId('expense-approval-preview')).toContainText('0.18')
+    stage = 'approval preview total'
     await expect(dialog.getByTestId('expense-approval-preview')).toContainText('1.41')
     const loseApproval=async route=>{
       const request=route.request()
@@ -134,10 +141,13 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
       }else await route.continue()
     }
     await page.route(actionPattern,loseApproval)
+    stage = 'submit approval with committed-response loss'
     await dialog.getByRole('button',{name:'Approve',exact:true}).click()
+    stage = 'approval uncertainty alert'
     await expect(dialog.getByRole('alert')).toContainText('Unable to confirm')
     await page.unroute(actionPattern,loseApproval)
     if(!approvalResponseLost)throw Error('Approval response loss was not exercised')
+    stage = 'approval retry resolves the existing decision'
     await dialog.getByRole('button',{name:'Approve',exact:true}).click()
     await expect(dialog).toBeHidden()
     await expect(rows.getByRole('button',{name:'Approve expense',exact:true})).toHaveCount(0)
@@ -162,6 +172,7 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
       const credit=lines.data.reduce((sum,line)=>sum+Math.round(Number(line.credit_amount)*100),0)
       if(debit!==Math.round(total*100)||credit!==debit)throw Error('Approval journal does not balance')
     }
+    stage = 'approval persisted accounting evidence'
     await verifyPosting(created.data.id,1.23,0.18,1.41,'expenses',null)
     stage = 'approvals inbox shares atomic reason and verified posting'
     // The current inbox is oldest-first and capped. Put this owned synthetic
@@ -210,7 +221,9 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
     await page.screenshot({path:'supabase/.temp/expenses-overview-mobile-ar.png',fullPage:true})
     console.log('PASS: expenses beyond 100 rows; exact summary/search/pagination/read recovery; creation and approval lost-response retries; one payable/event/audit/journal/VAT record; inbox reason; balanced postings; Arabic mobile')
   } catch (error) {
-    console.error(JSON.stringify({check:'expenses overview',stage,errorType:error.name}))
+    const operation=/expect\(locator\)\.[A-Za-z]+/.exec(error.message)?.[0]
+      ??(/strict mode violation/.test(error.message)?'ambiguous-locator':undefined)
+    console.error(JSON.stringify({check:'expenses overview',stage,errorType:error.name,operation}))
     await page.screenshot({path:'supabase/.temp/expenses-overview-failure.png',fullPage:true}).catch(()=>{})
     throw Error('Expense overview verification failed: ' + stage)
   } finally {

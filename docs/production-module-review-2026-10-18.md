@@ -25,6 +25,12 @@ hardening](manual-receivable-retries-2026-10-19.md) is now implemented and appli
 to staging; current-commit CI and hosted evidence remain separate release gates.
 The older checkpoints below describe their own state, not production deployment.
 
+20 October: [expense approval](expense-approval-readiness-2026-10-20.md) now has an
+atomic approval audit/reason and response recovery. Its first browser acceptance
+check exposed missing finance initialization for new companies; the [accounting
+default continuation](company-accounting-defaults-2026-10-20.md) fixes that without
+backfilling existing production tenants. Final commit evidence remains a gate.
+
 - One locale context now controls marketing, company registration, authentication and dashboard interface copy. Switching updates `lang` and `dir`, persists without a forced reload and synchronizes existing tabs. Blocked browser storage does not prevent the current switch. A non-sensitive `lang` parameter carries preference between configured deployment hosts.
 - Static labels, forms, status badges, table headings, loading/error states, help and legal text use the selected interface language. Names, notes, document contents and other customer-entered business data retain their original content. The reference invoice intentionally remains the requested bilingual document.
 - Authenticated users arriving at the sign-in entry point reuse a server-verified session. Refreshed cookies reach both Server Components and the final response, including redirects. Successful sign-in performs a fresh navigation so stale unauthenticated router data cannot prompt a second login.

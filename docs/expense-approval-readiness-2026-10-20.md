@@ -46,6 +46,12 @@ deployment are recorded on PR 76 after execution. Test implementation alone is
 not evidence of a passing run. Production migration/merge/promotion remain
 separate gates.
 
+On `03e0c38`, the main and E2E CI jobs passed, and all 2,565 database assertions
+and approval concurrency cases passed. The subsequent browser approval check
+found that new companies lacked expense mappings. The [accounting initialization
+continuation](company-accounting-defaults-2026-10-20.md) addresses that setup defect;
+the failed candidate was not merged/promoted.
+
 This fixes positive expense approval, not the entire Approvals module. Expense
 rejection still uses a separate update/audit path and lacks a durable rejected
 state. The inbox's capped queue, inactive search and swallowed read errors need
