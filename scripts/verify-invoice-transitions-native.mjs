@@ -49,7 +49,8 @@ const denied = async (promise, pattern) => { await assert.rejects(promise, patte
 try {
   fs.mkdirSync(root, { recursive: true })
   run('initdb', ['-D', data, '-U', 'postgres', '--auth=trust', '--locale=C', '-E', 'UTF8'])
-  run('pg_ctl', ['-D', data, '-l', path.join(data, 'server.log'), '-o', '-p 59449 -h 127.0.0.1', '-w', 'start'])
+  // All clients use loopback TCP; avoid privileged or overlong Linux socket paths.
+  run('pg_ctl', ['-D', data, '-l', path.join(data, 'server.log'), '-o', '-p 59449 -h 127.0.0.1' + (process.platform === 'win32' ? '' : " -k ''"), '-w', 'start'])
   started = true
   // Minimal supporting relations; the invoice tables, constraints, triggers,
   // RBAC/MFA helpers and draft/transition functions below are repository SQL.

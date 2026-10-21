@@ -48,7 +48,8 @@ const denied = async (promise, pattern) => { await assert.rejects(promise, patte
 try {
   fs.mkdirSync(root, { recursive: true })
   run('initdb', ['-D', data, '-U', 'postgres', '--auth=trust', '--locale=C', '-E', 'UTF8'])
-  run('pg_ctl', ['-D', data, '-l', path.join(data, 'server.log'), '-o', '-p 59453 -h 127.0.0.1', '-w', 'start'])
+  // All clients use loopback TCP; avoid privileged or overlong Linux socket paths.
+  run('pg_ctl', ['-D', data, '-l', path.join(data, 'server.log'), '-o', '-p 59453 -h 127.0.0.1' + (process.platform === 'win32' ? '' : " -k ''"), '-w', 'start'])
   started = true
   await sql(`CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;
     CREATE SCHEMA auth; CREATE TABLE auth.users(id uuid PRIMARY KEY); CREATE TABLE public.tenants(id uuid PRIMARY KEY);`)
