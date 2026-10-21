@@ -38,3 +38,12 @@ Do not merge or promote while required gates or launch blockers remain unresolve
 All six candidate migrations were applied to the existing staging project through the connected management API after focused native verification. Local migration filenames now match the exact versions recorded by that API (`20261021091437` through `20261021091526`). No production schema or data changed.
 
 CI at `5f63040` passed the build/unit job and the new 136-assertion full-schema suite. Two legacy RBAC INSERT-grant expectations required adjustment for intentionally RPC-only notes. Hosted E2E correctly failed because its staging preview still served an older commit; a matching preview and rerun remain required. Local lint passed with zero errors and 85 existing warnings.
+
+## Cutover and posted-finance update (2026-10-21)
+
+- Added database guards against direct service-role invoice, note, line, outbox and managed AR/AP writes from old deployments. Current caller-bound transactions and source row-lock reads remain supported. Historical records are retained unchanged.
+- Replaced invoice-header dashboard estimates with complete posted-ledger income/expense and outstanding invoice/debit-note receivables. Exact cents, equal inclusive comparison periods and honest unavailable states are preserved. Four existing SELECT policies cache caller-wide decisions without changing tenant/RBAC semantics; catalog drift aborts the migration.
+- Local verification: 1,301 units, types, production build and configuration/API/PDF bundle checks pass. Lint: zero errors, 85 existing warnings. Native invoice guard/contracts: 399 assertions. Full-schema write guard83, financial KPI44 and invoice136 pass; KPI suite13.238seconds under30second statement limits.
+- Both new migrations are applied to isolated staging, with source versions matching its migration history. Browser lifecycle now checks exact posted income/AR changes before/after a100.25SAR invoice and full credit, with retained debit balance in English/Arabic.
+- New-head CI/browser checks, atomic production rehearsal, merge and exact-commit production deployment are pending. Previous-head passing evidence is not acceptance for the new head.
+- Official ZATCA production acceptance, bank/WPS/provider acceptance and unsupported refund/partial-credit/purchase-reversal flows remain unavailable or unverified; no whole-product launch or official QR certification claim is made.

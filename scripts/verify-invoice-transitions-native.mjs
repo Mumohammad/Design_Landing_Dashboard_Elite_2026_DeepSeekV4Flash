@@ -88,6 +88,9 @@ try {
   await sql(section(accounting, 'CREATE TABLE payables (', '-- ====================================================================='))
   const engine = migration('038_invoice_engine.sql')
   await sql(section(engine, 'CREATE TYPE invoice_type', '-- 6. RLS'))
+  // Prove the cutover guard installs on the old invoice schema, before any
+  // pending release tables/functions. No receipt table dependency is allowed.
+  await sql(migration('20261021102619_block_legacy_finance_service_writes.sql'))
   await sql(section(migration('048_payments_engine.sql'), 'CREATE OR REPLACE FUNCTION protect_finalized_invoice()', 'CREATE OR REPLACE FUNCTION dispatch_payment_allocated'))
   await sql(migration('20260902200214_pin_search_path_security_definer_functions.sql'))
   await sql(section(migration('20261012031158_release_mfa_authorization.sql'), 'CREATE OR REPLACE FUNCTION public.has_required_assurance()', 'CREATE OR REPLACE FUNCTION public.storage_path_in_current_tenant'))
@@ -138,6 +141,61 @@ try {
     'approvals',(SELECT count(*) FROM public.audit_log WHERE entity_id=i.id AND action IN('invoice_finalized','purchase_invoice_approved')),
     'receipts',(SELECT count(*) FROM public.invoice_transition_receipts WHERE invoice_id=i.id AND operation='finalize'))
     FROM public.invoices i WHERE i.id='${id}'`).then(JSON.parse)
+
+  stage = 'legacy service write cutover on the old schema'
+  // Match hosted service table grants; row-lock reads must remain possible.
+  await sql(`GRANT SELECT,INSERT,UPDATE,DELETE,TRUNCATE ON public.invoices,public.invoice_lines,
+    public.credit_notes,public.debit_notes,public.financial_events,public.receivables,public.payables TO service_role;
+    GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO service_role`)
+  const legacyDraft = await draft('purchase'), service = statement => sql(`BEGIN;SET LOCAL ROLE service_role;${statement};COMMIT;`)
+  const earlyServiceState = () => sql(`SELECT jsonb_build_object('status',i.status,'version',i.updated_at,
+    'lines',(SELECT count(*) FROM public.invoice_lines WHERE invoice_id=i.id),
+    'ap',(SELECT count(*) FROM public.payables WHERE source_entity_id=i.id),
+    'events',(SELECT count(*) FROM public.financial_events WHERE source_id=i.id),
+    'audit',(SELECT count(*) FROM public.audit_log WHERE entity_id=i.id)) FROM public.invoices i WHERE i.id='${legacyDraft.id}'`)
+  const beforeService = await earlyServiceState()
+  for (const table of ['invoices','invoice_lines','credit_notes','debit_notes','financial_events']) {
+    for (const statement of [`INSERT INTO public.${table} DEFAULT VALUES`,
+      `UPDATE public.${table} SET id=id WHERE false`,`DELETE FROM public.${table} WHERE false`,
+      `TRUNCATE public.${table} CASCADE`]) await denied(service(statement), /FIN_LEGACY_WRITE|permission denied for table invoice_(transition_receipts|note_requests)/)
+  }
+  for (const status of ['issued','finalized','cancelled','credited']) {
+    await denied(service(`UPDATE public.invoices SET status='${status}' WHERE id='${legacyDraft.id}'`), /FIN_LEGACY_WRITE/)
+  }
+  await denied(service(`UPDATE public.invoice_lines SET description='Legacy changed line' WHERE invoice_id='${legacyDraft.id}'`), /FIN_LEGACY_WRITE/)
+  // In old purchase finalization AP insertion was the first mutation.
+  await denied(service(`INSERT INTO public.payables(tenant_id,invoice_ref,invoice_date,due_date,source_entity_type,source_entity_id)
+    VALUES('${tenant}','Legacy purchase','2026-10-21','2026-10-22','purchase_invoice','${legacyDraft.id}')`), /FIN_LEGACY_WRITE/)
+  equal(await earlyServiceState(), beforeService)
+  equal(await service(`SELECT count(*) FROM (SELECT id FROM public.invoices WHERE id='${legacyDraft.id}' FOR SHARE) locked`), '1')
+  for (const table of ['invoices','credit_notes','debit_notes']) {
+    equal(await sql(`SELECT has_table_privilege('service_role','public.${table}','UPDATE')`), 't')
+  }
+  for (const [table, sources] of [['receivables',['invoice','debit_note']],['payables',['purchase_invoice','expense']]]) {
+    const manual = randomUUID()
+    await service(`INSERT INTO public.${table}(id,tenant_id,invoice_ref,invoice_date,due_date)
+      VALUES('${manual}','${tenant}','Manual source guard','2026-10-21','2026-10-22')`)
+    equal(await service(`UPDATE public.${table} SET notes='Manual edit preserved' WHERE id='${manual}' RETURNING notes`), 'Manual edit preserved')
+    for (const source of sources) {
+      const id = randomUUID()
+      await sql(`INSERT INTO public.${table}(id,tenant_id,invoice_ref,invoice_date,due_date,source_entity_type,source_entity_id)
+        VALUES('${id}','${tenant}','Managed source guard','2026-10-21','2026-10-22','${source}','${legacyDraft.id}')`)
+      for (const statement of [
+        `INSERT INTO public.${table}(tenant_id,invoice_ref,invoice_date,due_date,source_entity_type) VALUES('${tenant}','Legacy source','2026-10-21','2026-10-22','${source}')`,
+        `UPDATE public.${table} SET paid_amount=1 WHERE id='${id}'`,
+        `UPDATE public.${table} SET source_entity_type=NULL WHERE id='${id}'`,
+        `UPDATE public.${table} SET source_entity_type='${source}' WHERE id='${manual}'`,
+        `DELETE FROM public.${table} WHERE id='${id}'`
+      ]) await denied(service(statement), /FIN_LEGACY_WRITE/)
+      equal(await sql(`SELECT paid_amount::text||':'||source_entity_type FROM public.${table} WHERE id='${id}'`), '0.00:' + source)
+    }
+    await denied(service(`TRUNCATE public.${table} CASCADE`), /FIN_LEGACY_WRITE|permission denied for table invoice_note_requests/)
+    equal(await service(`DELETE FROM public.${table} WHERE id='${manual}' RETURNING id`), manual)
+  }
+  // Remove owner-created synthetic sources so later posting counts remain exact.
+  await sql(`DELETE FROM public.receivables WHERE source_entity_id='${legacyDraft.id}';
+    DELETE FROM public.payables WHERE source_entity_id='${legacyDraft.id}'`)
+  console.log('PASS: early service cutover blocks old issue/finalize/cancel/note/outbox and AP-first writes, preserves manual balances and source row-lock reads')
 
   stage = 'simultaneous issuance and approval retries'
   for (const type of ['sales', 'purchase']) {

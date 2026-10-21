@@ -23,6 +23,8 @@ interface KpiCardProps {
   deltaUnit?: "pct" | "pp"
   /** Format the value as currency. */
   currency?: boolean
+  /** Show exact two-decimal financial amounts instead of the count animation. */
+  exactCurrency?: boolean
 }
 
 export function KpiCard({
@@ -34,10 +36,17 @@ export function KpiCard({
   spark,
   deltaUnit = "pct",
   currency = false,
+  exactCurrency = false,
 }: KpiCardProps) {
   const { locale, t } = useTranslation()
   const gradientId = React.useId().replace(/:/g, "")
-  const display = useCountUp(metric.available ? metric.value : 0)
+  const display = useCountUp(metric.available && !exactCurrency ? metric.value : 0)
+  const valueText = currency && exactCurrency
+    ? new Intl.NumberFormat(locale === "ar" ? "ar-SA-u-nu-latn" : "en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(metric.value)
+    : display
 
   // Hide the delta when there is no real previous value (avoids fabricated
   // "+100%" chips when the previous period was zero).
@@ -80,7 +89,7 @@ export function KpiCard({
 
       <div className="relative mt-3 flex items-end justify-between gap-2">
         <span className="text-2xl font-extrabold tabular-nums tracking-tight text-foreground sm:text-3xl">
-          {metric.available ? display : "N/A"}
+          {metric.available ? valueText : "N/A"}
           {currency && metric.available && (
             <span className="ms-1.5 text-sm font-semibold text-muted-foreground">
               {locale === "ar" ? "ر.س" : "SAR"}

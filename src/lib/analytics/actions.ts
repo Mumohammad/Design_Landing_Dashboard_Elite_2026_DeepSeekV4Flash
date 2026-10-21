@@ -556,8 +556,8 @@ export async function getDashboardSnapshot(
     /* table missing */
   }
 
-  // ── Financial KPIs (Prompt I): posted/issued invoices + expenses ──────────
-  // Composed in src/lib/accounting/kpis.ts over the 038/021 indexes; graceful
+  // ── Financial KPIs: posted general ledger and outstanding receivables ──
+  // Caller-bound complete aggregate in src/lib/accounting/kpis.ts; graceful
   // availability, like every other module block.
   const accounting = await getFinancialKpis({
     start: startIso,

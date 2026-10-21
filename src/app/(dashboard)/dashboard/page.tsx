@@ -218,7 +218,7 @@ export default function DashboardPage() {
               <SectionHeader
                 icon={Landmark}
                 title={locale === "ar" ? "المحاسبة" : "Accounting"}
-                subtitle={locale === "ar" ? "الفواتير والمصروفات وصافي النتيجة" : "Invoices, expenses and net result"}
+                subtitle={locale === "ar" ? "قيود دفتر الأستاذ المرحلة والرصيد المتبقي للفواتير والإشعارات المدينة" : "Posted general ledger and outstanding invoice/debit-note receivables"}
               />
             </ScrollReveal>
             <StaggerContainer staggerDelay={60} direction="up">
@@ -228,24 +228,27 @@ export default function DashboardPage() {
                   metric={buildMetric(snapshot.accounting.revenue, snapshot.accounting.revenuePrevious, snapshot.accounting.available)}
                   icon={FileText}
                   color="#1E5A99"
-                  href="/invoices"
+                  href="/accounting"
                   currency
+                  exactCurrency
                 />
                 <KpiCard
                   label={t.dashboard.finPendingInvoices}
                   metric={buildMetric(snapshot.accounting.pendingInvoicesAmount, 0, snapshot.accounting.available)}
                   icon={FileClock}
                   color="#F59E0B"
-                  href="/invoices"
+                  href="/accounting"
                   currency
+                  exactCurrency
                 />
                 <KpiCard
                   label={t.dashboard.finExpenses}
                   metric={buildMetric(snapshot.accounting.expenses, snapshot.accounting.expensesPrevious, snapshot.accounting.available)}
                   icon={Receipt}
                   color="#EF4444"
-                  href="/expenses"
+                  href="/accounting"
                   currency
+                  exactCurrency
                 />
                 <KpiCard
                   label={t.dashboard.finNetResult}
@@ -254,6 +257,7 @@ export default function DashboardPage() {
                   color="#10B981"
                   href="/accounting"
                   currency
+                  exactCurrency
                 />
               </div>
             </StaggerContainer>

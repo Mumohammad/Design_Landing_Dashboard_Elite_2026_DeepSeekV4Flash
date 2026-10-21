@@ -27,10 +27,10 @@ const KPI_CSV_META: Record<string, { label: string; source: string; link: string
   openApprovals: { label: "Open Approvals", source: "fetch_pending_approvals RPC", link: "/approvals" },
   auditEvents: { label: "Audit Events (period)", source: "audit_log", link: "/audit-log" },
   codPendingSessions: { label: "COD Sessions Pending", source: "driver_cod_sessions", link: "/payroll" },
-  finInvoiceRevenue: { label: "Invoice Revenue (SAR, period)", source: "invoices", link: "/invoices" },
-  finPendingInvoices: { label: "Pending Invoices (SAR)", source: "invoices", link: "/invoices" },
-  finExpenses: { label: "Expenses (SAR, period)", source: "expenses", link: "/expenses" },
-  finNetResult: { label: "Net Result (SAR)", source: "invoices+expenses", link: "/accounting" },
+  finInvoiceRevenue: { label: "Posted Revenue (SAR, period)", source: "posted general ledger", link: "/accounting" },
+  finPendingInvoices: { label: "Outstanding Invoice/Debit-note Receivables (SAR)", source: "active posted receivables: total less paid", link: "/accounting" },
+  finExpenses: { label: "Posted Expenses (SAR, period)", source: "posted general ledger", link: "/accounting" },
+  finNetResult: { label: "Posted Net Result (SAR)", source: "posted general ledger: income less expenses", link: "/accounting" },
 }
 
 /** Dashboard header row: title, dual Gregorian/Hijri date, refresh + CSV export. */
