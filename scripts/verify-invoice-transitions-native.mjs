@@ -91,10 +91,10 @@ try {
   await sql(migration('20260902200214_pin_search_path_security_definer_functions.sql'))
   await sql(section(migration('20261012031158_release_mfa_authorization.sql'), 'CREATE OR REPLACE FUNCTION public.has_required_assurance()', 'CREATE OR REPLACE FUNCTION public.storage_path_in_current_tenant'))
   await sql(migration('20261013144623_atomic_invoice_draft_crud.sql'))
-  await sql(migration('20261020230227_invoice_lifecycle_transactions.sql'))
+  await sql(migration('20261021091437_invoice_lifecycle_transactions.sql'))
   await sql(functionSql('042_event_dispatcher.sql', 'resolve_coa_account'))
   await sql(functionSql('046_fix_journal_line_alias.sql', 'post_journal_entry'))
-  await sql(migration('20261020231409_invoice_zero_vat_posting.sql'))
+  await sql(migration('20261021091447_invoice_zero_vat_posting.sql'))
 
   const vatSchema = migration('041_vat_engine.sql')
   await sql(section(vatSchema, 'CREATE TABLE vat_periods (', 'ALTER TABLE vat_periods ENABLE ROW LEVEL SECURITY'))
@@ -103,13 +103,13 @@ try {
     CREATE TABLE public.payment_allocations(id uuid PRIMARY KEY,tenant_id uuid,finance_payment_id uuid,receivable_id uuid,payable_id uuid,allocated_amount numeric);`)
   await sql(section(migration('20261011101411_accounting_atomic_payments.sql'), 'CREATE OR REPLACE FUNCTION public.guard_payment_allocation()', 'CREATE OR REPLACE FUNCTION public.protect_managed_payment()'))
   await sql(`CREATE TRIGGER trg_payment_allocation_guard BEFORE INSERT OR UPDATE ON public.payment_allocations FOR EACH ROW EXECUTE FUNCTION public.guard_payment_allocation();`)
-  await sql(migration('20261021020359_invoice_note_transactions.sql'))
+  await sql(migration('20261021091457_invoice_note_transactions.sql'))
   await sql(`ALTER TABLE public.invoices ADD COLUMN zatca_status text DEFAULT 'not_transmitted',ADD COLUMN zatca_uuid text;
     CREATE TABLE public.zatca_transmissions(tenant_id uuid,invoice_id uuid);
     CREATE TABLE public.zatca_document_issuances(tenant_id uuid,source_type text,source_id uuid);
     GRANT SELECT,INSERT,UPDATE,DELETE ON public.financial_events TO authenticated,anon,service_role;`)
-  await sql(migration('20261021022530_invoice_unposted_cancellation_atomic.sql'))
-  await sql(migration('20261021025602_guard_legacy_invoice_cancellation_events.sql'))
+  await sql(migration('20261021091516_invoice_unposted_cancellation_atomic.sql'))
+  await sql(migration('20261021091526_guard_legacy_invoice_cancellation_events.sql'))
 
   const tenant = randomUUID(), foreignTenant = randomUUID(), actor = randomUUID(), foreignActor = randomUUID()
   const colleague = randomUUID(), unprivileged = randomUUID(), customer = randomUUID(), supplier = randomUUID(), foreignCustomer = randomUUID()

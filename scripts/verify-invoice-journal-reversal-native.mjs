@@ -61,9 +61,9 @@ try {
     GRANT USAGE ON SCHEMA public,auth TO service_role;
     GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
     GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO service_role;`)
-  await sql(migration('20261021020708_protect_invoice_journal_reversal.sql'))
+  await sql(migration('20261021091507_protect_invoice_journal_reversal.sql'))
   // Reapplying the migration must preserve the signature and restricted ACL.
-  await sql(migration('20261021020708_protect_invoice_journal_reversal.sql'))
+  await sql(migration('20261021091507_protect_invoice_journal_reversal.sql'))
   const signature = 'public.reverse_journal_entry(uuid,uuid,text,text,date,uuid)'
   equal(await sql(`SELECT has_function_privilege('anon','${signature}','EXECUTE'),
     has_function_privilege('authenticated','${signature}','EXECUTE'),

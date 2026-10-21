@@ -32,3 +32,9 @@ Require exact-head CI, full-schema and authenticated browser acceptance, staging
 ZATCA official production acceptance, bank/WPS/provider acceptance and full remaining-module operational readiness are unverified. Their controls remain disabled. Keeping the current Supabase plan means paid leaked-password protection remains unavailable by the user's decision. No blanket production-ready or identical-reference-PDF claim is made.
 
 Do not merge or promote while required gates or launch blockers remain unresolved. Record exact commit, migration state, CI run, staging results and final deployment evidence as the pipeline progresses.
+
+## Staging migration checkpoint
+
+All six candidate migrations were applied to the existing staging project through the connected management API after focused native verification. Local migration filenames now match the exact versions recorded by that API (`20261021091437` through `20261021091526`). No production schema or data changed.
+
+CI at `5f63040` passed the build/unit job and the new 136-assertion full-schema suite. Two legacy RBAC INSERT-grant expectations required adjustment for intentionally RPC-only notes. Hosted E2E correctly failed because its staging preview still served an older commit; a matching preview and rerun remain required. Local lint passed with zero errors and 85 existing warnings.
