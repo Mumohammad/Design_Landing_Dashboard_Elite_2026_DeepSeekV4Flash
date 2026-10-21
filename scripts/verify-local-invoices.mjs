@@ -107,6 +107,8 @@ export async function verifyInvoiceCrud(page, admin, tenantId, appUrl) {
       .eq("tenant_id", tenantId).eq("entity_id", created.data.id)
     if (audit.error || !["invoice_draft_created", "invoice_draft_updated", "invoice_draft_deleted"]
       .every((action) => audit.data.some((entry) => entry.action === action))) throw new Error("Invoice audit lifecycle incomplete")
+    const { verifyInvoiceLifecycle } = await import("./verify-local-invoice-lifecycle.mjs")
+    await verifyInvoiceLifecycle(page, admin, tenantId, appUrl)
     console.log("PASS: invoice browser create → exact VAT → edit → mobile → PDF failure/retry → clean PDF download with preserved amounts/status/internal QR and identical private stored hash → soft delete → reload → audit")
   } catch (error) {
     console.error(JSON.stringify({ invoiceStage: stage }))

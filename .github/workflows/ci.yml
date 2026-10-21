@@ -308,6 +308,12 @@ jobs:
     - name: Verify ZATCA preparation ledger in disposable database
       run: node scripts/verify-zatca-issuance-concurrency.mjs --local-disposable
 
+    - name: Verify invoice transaction races in owned PostgreSQL
+      run: INVOICE_TEST_PG_BIN="$(pg_config --bindir)" node scripts/verify-invoice-transitions-native.mjs --local-disposable
+
+    - name: Verify invoice journal reversal boundaries
+      run: JOURNAL_TEST_PG_BIN="$(pg_config --bindir)" node scripts/verify-invoice-journal-reversal-native.mjs --local-disposable
+
     - name: Configure disposable browser verification
       run: |
         node --input-type=module <<'NODE'

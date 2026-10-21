@@ -26,8 +26,10 @@ import {
   exportInvoicesCsv,
   type InvoiceType,
 } from "@/lib/accounting/invoices"
-import { computeInvoiceTotals, round2 } from "@/lib/accounting/invoice-math"
+import { computeInvoiceTotals } from "@/lib/accounting/invoice-math"
 import { requestInvoicePdf } from "@/lib/invoice-pdf-download"
+import { businessDateKey } from "@/lib/formatting/business-date"
+import { useBusinessDate } from "@/hooks/use-business-date"
 import {
   MoreHorizontal, Pencil, Trash2, FileText, Plus, Send, Check, Ban, RotateCcw, Download, Save, X, Printer,
   Loader2, CheckCircle2, AlertTriangle, ReceiptText, BadgeDollarSign, CircleDollarSign,
@@ -134,6 +136,7 @@ function computeLineTotals(lines: LineDraft[]) {
 // ── Main component ────────────────────────────────────────────────────────
 
 export function InvoicesManager() {
+  const businessDay = useBusinessDate()
   const { t, locale } = useTranslation()
   const ar = locale === "ar"
 
@@ -532,79 +535,91 @@ export function InvoicesManager() {
   const [busyId, setBusyId] = useState<string | null>(null)
   async function runAction(action: "issue" | "finalize", r: InvoiceRow) {
     setBusyId(r.id)
-    const res = action === "issue" ? await issueInvoice({ id: r.id }) : await finalizeInvoice({ id: r.id })
-    setBusyId(null)
-    if (res.success) {
-      const finalizeMsg = r.invoice_type === "purchase"
-        ? (ar ? "تم اعتماد فاتورة الشراء وإنشاء ذمم دائنة." : "Purchase invoice approved; payable created.")
-        : (ar ? "تم اعتماد الفاتورة نهائياً." : "Invoice finalized.")
-      flash("ok", action === "issue" ? (ar ? "تم إصدار الفاتورة." : "Invoice issued.") : finalizeMsg)
-      setDetailTarget(null)
-      await load()
-    } else {
-      flash("err", res.error ?? "Failed")
-    }
+    try {
+      const input = { id: r.id, expected_updated_at: r.updated_at }
+      const res = action === "issue" ? await issueInvoice(input) : await finalizeInvoice(input)
+      if (res.success) {
+        const finalizeMsg = res.postingPending
+          ? (ar ? "تم اعتماد الفاتورة. الترحيل المحاسبي قيد الانتظار؛ راجع أحداث المحاسبة." : "Invoice approved. Accounting posting is pending; review Accounting events.")
+          : r.invoice_type === "purchase"
+            ? (ar ? "تم اعتماد فاتورة الشراء وإنشاء ذمم دائنة." : "Purchase invoice approved; payable created.")
+            : (ar ? "تم اعتماد الفاتورة نهائياً." : "Invoice finalized.")
+        flash("ok", action === "issue" ? (ar ? "تم إصدار الفاتورة." : "Invoice issued.") : finalizeMsg)
+        setDetailTarget(null)
+        await load()
+      } else {
+        flash("err", (ar ? res.errorAr : res.error) ?? (ar ? "تعذر تأكيد الإجراء." : "Unable to confirm this action."))
+      }
+    } catch {
+      flash("err", ar ? "تعذر تأكيد إجراء الفاتورة. أعد تحميلها وراجع حالتها قبل المحاولة مجدداً." : "Unable to confirm the invoice decision. Reload and review its status before retrying.")
+    } finally { setBusyId(null) }
   }
 
-  // Cancel
+  // Unposted cancellation preserves the reviewed version/reason on failure.
   const [cancelReason, setCancelReason] = useState("")
+  const [cancelError, setCancelError] = useState("")
   const [isCancelling, setIsCancelling] = useState(false)
   async function handleCancel() {
-    if (!cancelTarget) return
-    setIsCancelling(true)
-    const res = await cancelInvoice({ id: cancelTarget.id, reason: cancelReason })
-    setIsCancelling(false)
-    setCancelTarget(null)
-    setCancelReason("")
-    if (res.success) {
+    if (!cancelTarget || isCancelling) return
+    setIsCancelling(true); setCancelError("")
+    try {
+      const res = await cancelInvoice({ id: cancelTarget.id, expected_updated_at: cancelTarget.updated_at, reason: cancelReason })
+      if (!res.success) { setCancelError((ar ? res.errorAr : res.error) ?? (ar ? "تعذر تأكيد الإلغاء." : "Unable to confirm cancellation.")); return }
+      setCancelTarget(null); setCancelReason("")
       flash("ok", ar ? "تم إلغاء الفاتورة." : "Invoice cancelled.")
       await load()
-    } else {
-      flash("err", res.error ?? "Failed")
-    }
+    } catch {
+      setCancelError(ar ? "تعذر تأكيد الإلغاء. أعد تحميل الفاتورة وراجع حالتها قبل المحاولة مجدداً." : "Unable to confirm cancellation. Reload the invoice and review its status before retrying.")
+    } finally { setIsCancelling(false) }
   }
 
-  // Credit note
+  // Preserve the same request/date and form through network or validation
+  // failures. Opening a new dialog is an explicit new note request.
   const [creditReason, setCreditReason] = useState("")
+  const [creditRequest, setCreditRequest] = useState("")
+  const [creditDate, setCreditDate] = useState("")
   const [isCrediting, setIsCrediting] = useState(false)
+  const [noteError, setNoteError] = useState("")
   async function handleCredit() {
-    if (!creditTarget) return
-    setIsCrediting(true)
-    const res = await issueCreditNote({ reference_invoice_id: creditTarget.id, reason: creditReason })
-    setIsCrediting(false)
-    setCreditTarget(null)
-    setCreditReason("")
-    if (res.success) {
-      flash("ok", ar ? "تم إصدار الإشعار الدائن." : "Credit note issued.")
+    if (!creditTarget || isCrediting) return
+    setIsCrediting(true); setNoteError("")
+    try {
+      const res = await issueCreditNote({ request_id: creditRequest, reference_invoice_id: creditTarget.id,
+        expected_updated_at: creditTarget.updated_at, reason: creditReason, issue_date: creditDate })
+      if (!res.success) { setNoteError((ar ? res.errorAr : res.error) ?? (ar ? "تعذر تأكيد الإشعار." : "Unable to confirm the note.")); return }
+      setCreditTarget(null); setCreditReason("")
+      flash("ok", ar ? "تم إصدار الإشعار الدائن وترحيله محاسبياً. أي رصيد لإشعارات مدينة مستقلة يبقى مستحقاً." : "Credit note issued and posted. Separate debit-note balances remain payable.")
       await load()
-    } else {
-      flash("err", res.error ?? "Failed")
-    }
+    } catch {
+      setNoteError(ar ? "تعذر تأكيد الإشعار. راجع الفاتورة والإشعارات قبل إعادة الطلب نفسه." : "Unable to confirm the note. Review the invoice and notes before retrying the same request.")
+    } finally { setIsCrediting(false) }
   }
 
-  // Debit note
   const [debitAmount, setDebitAmount] = useState("")
   const [debitReason, setDebitReason] = useState("")
+  const [debitVatRate, setDebitVatRate] = useState("15")
+  const [debitRequest, setDebitRequest] = useState("")
+  const [debitDate, setDebitDate] = useState("")
   const [isDebiting, setIsDebiting] = useState(false)
+  const debitPreview = useMemo(() => {
+    if (!debitAmount.trim() || !debitVatRate.trim() || Number(debitAmount) <= 0) return null
+    try { return computeInvoiceTotals([{ description: "Debit note", quantity: 1,
+      unit_price: Number(debitAmount), vat_rate: Number(debitVatRate) }]) } catch { return null }
+  }, [debitAmount, debitVatRate])
   async function handleDebit() {
-    if (!debitTarget) return
-    setIsDebiting(true)
-    const res = await issueDebitNote({
-      reference_invoice_id: debitTarget.id,
-      reason: debitReason,
-      amount: Number(debitAmount || 0),
-      vat_rate: Number(formVatRate || 15),
-    })
-    setIsDebiting(false)
-    setDebitTarget(null)
-    setDebitAmount("")
-    setDebitReason("")
-    if (res.success) {
-      flash("ok", ar ? "تم إصدار الإشعار المدين." : "Debit note issued.")
+    if (!debitTarget || isDebiting || !debitPreview) return
+    setIsDebiting(true); setNoteError("")
+    try {
+      const res = await issueDebitNote({ request_id: debitRequest, reference_invoice_id: debitTarget.id,
+        expected_updated_at: debitTarget.updated_at, reason: debitReason, issue_date: debitDate,
+        amount: Number(debitAmount), vat_rate: Number(debitVatRate) })
+      if (!res.success) { setNoteError((ar ? res.errorAr : res.error) ?? (ar ? "تعذر تأكيد الإشعار." : "Unable to confirm the note.")); return }
+      setDebitTarget(null); setDebitAmount(""); setDebitReason("")
+      flash("ok", ar ? "تم إصدار الإشعار المدين وترحيله محاسبياً." : "Debit note issued and posted.")
       await load()
-    } else {
-      flash("err", res.error ?? "Failed")
-    }
+    } catch {
+      setNoteError(ar ? "تعذر تأكيد الإشعار. راجع الفاتورة والإشعارات قبل إعادة الطلب نفسه." : "Unable to confirm the note. Review the invoice and notes before retrying the same request.")
+    } finally { setIsDebiting(false) }
   }
 
   const parties = formType === "sales" ? customers : suppliers
@@ -662,9 +677,9 @@ export function InvoicesManager() {
         rowActions={(r) => {
           const canIssue = r.status === "draft"
           const canFinalize = r.status === "issued"
-          const canCancel = r.status === "draft" || r.status === "issued" || r.status === "finalized"
-          const canCredit = r.status === "finalized"
-          const canDebit = r.status === "finalized"
+          const canCancel = r.status === "draft" || r.status === "issued"
+          const canCredit = r.status === "finalized" && r.invoice_type === "sales"
+          const canDebit = r.status === "finalized" && r.invoice_type === "sales"
           return (
             <DropdownMenu dir={ar ? "rtl" : "ltr"}>
               <DropdownMenuTrigger asChild>
@@ -682,9 +697,9 @@ export function InvoicesManager() {
                   <DropdownMenuItem className="text-destructive" onSelect={() => setDeleteTarget(r)}><Trash2 className="h-4 w-4" />{ar ? "حذف" : "Delete"}</DropdownMenuItem>
                 </>}
                 {canFinalize && <DropdownMenuItem onSelect={() => void runAction("finalize", r)}><Check className="h-4 w-4" />{ar ? "اعتماد" : "Finalize"}</DropdownMenuItem>}
-                {canCredit && <DropdownMenuItem onSelect={() => { setCreditTarget(r); setCreditReason("") }}><RotateCcw className="h-4 w-4" />{ar ? "دائن" : "Credit"}</DropdownMenuItem>}
-                {canDebit && <DropdownMenuItem onSelect={() => { setDebitTarget(r); setDebitAmount(""); setDebitReason("") }}><BadgeDollarSign className="h-4 w-4" />{ar ? "مدين" : "Debit"}</DropdownMenuItem>}
-                {canCancel && <DropdownMenuItem className="text-destructive" onSelect={() => { setCancelTarget(r); setCancelReason("") }}><Ban className="h-4 w-4" />{ar ? "إلغاء" : "Cancel"}</DropdownMenuItem>}
+                {canCredit && <DropdownMenuItem onSelect={() => { setCreditTarget(r); setCreditReason(""); setCreditRequest(crypto.randomUUID()); setCreditDate(businessDateKey(new Date())); setNoteError("") }}><RotateCcw className="h-4 w-4" />{ar ? "دائن" : "Credit"}</DropdownMenuItem>}
+                {canDebit && <DropdownMenuItem onSelect={() => { setDebitTarget(r); setDebitAmount(""); setDebitReason(""); setDebitVatRate(String(r.vat_rate)); setDebitRequest(crypto.randomUUID()); setDebitDate(businessDateKey(new Date())); setNoteError("") }}><BadgeDollarSign className="h-4 w-4" />{ar ? "مدين" : "Debit"}</DropdownMenuItem>}
+                {canCancel && <DropdownMenuItem className="text-destructive" onSelect={() => { setCancelTarget(r); setCancelReason(""); setCancelError("") }}><Ban className="h-4 w-4" />{ar ? "إلغاء" : "Cancel"}</DropdownMenuItem>}
               </DropdownMenuContent>
             </DropdownMenu>
           )
@@ -973,19 +988,21 @@ export function InvoicesManager() {
       </Dialog>
 
       {/* ── Cancel dialog ─────────────────────────────────────────────── */}
-      <Dialog open={!!cancelTarget} onOpenChange={(o) => { if (!o) setCancelTarget(null) }}>
+      <Dialog open={!!cancelTarget} onOpenChange={(o) => { if (!o && !isCancelling) setCancelTarget(null) }}>
         <DialogContent className="max-w-md rounded-2xl">
           <DialogHeader>
             <DialogTitle>{ar ? "إلغاء الفاتورة" : "Cancel invoice"}</DialogTitle>
             <DialogDescription>
               <span dir="ltr" className="font-mono">{cancelTarget?.invoice_number ?? ""}</span>
               {" — "}
-              {ar ? "يمكن إلغاء الفواتير غير المدفوعة فقط. السبب مطلوب." : "Only unpaid invoices can be cancelled. A reason is required."}
+              {ar ? "يمكن إلغاء المسودات والفواتير الصادرة غير المرحلة فقط. الفواتير المعتمدة تحتاج إشعاراً دائناً أو إجراء عكس مراجعاً." : "Only unposted draft or issued invoices can be cancelled. Finalized invoices require a credit note or reviewed reversal."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
+            {cancelError && <p role="alert" className="text-sm text-destructive">{cancelError}</p>}
+            <Label htmlFor="cancel-reason">{ar ? "سبب الإلغاء (5–500 حرف)" : "Cancellation reason (5–500 characters)"}</Label>
             <Input
-              dir="rtl"
+              id="cancel-reason" dir={ar ? "rtl" : "ltr"} maxLength={500} disabled={isCancelling}
               value={cancelReason}
               onChange={(e) => setCancelReason(e.target.value)}
               placeholder={ar ? "سبب الإلغاء" : "Cancellation reason"}
@@ -994,13 +1011,13 @@ export function InvoicesManager() {
             <div className="flex items-center gap-3">
               <Button
                 onClick={() => void handleCancel()}
-                disabled={isCancelling || !cancelReason.trim()}
+                disabled={isCancelling || cancelReason.trim().length < 5}
                 className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800"
               >
                 {isCancelling ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}
                 {ar ? "إلغاء الفاتورة" : "Cancel invoice"}
               </Button>
-              <Button variant="ghost" onClick={() => setCancelTarget(null)}>
+              <Button variant="ghost" disabled={isCancelling} onClick={() => setCancelTarget(null)}>
                 <X className="h-4 w-4" />
                 {ar ? "تراجع" : "Back"}
               </Button>
@@ -1010,7 +1027,7 @@ export function InvoicesManager() {
       </Dialog>
 
       {/* ── Credit note dialog ────────────────────────────────────────── */}
-      <Dialog open={!!creditTarget} onOpenChange={(o) => { if (!o) setCreditTarget(null) }}>
+      <Dialog open={!!creditTarget} onOpenChange={(o) => { if (!o && !isCrediting) setCreditTarget(null) }}>
         <DialogContent className="max-w-md rounded-2xl">
           <DialogHeader>
             <DialogTitle>{ar ? "إشعار دائن" : "Credit note"}</DialogTitle>
@@ -1023,8 +1040,15 @@ export function InvoicesManager() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
+            {noteError && <p role="alert" className="text-sm text-destructive">{noteError}</p>}
+            <div className="space-y-1.5">
+              <Label htmlFor="cn-date">{ar ? "تاريخ الإشعار (التوقيت السعودي)" : "Note date (Saudi calendar)"}</Label>
+              <Input id="cn-date" type="date" dir="ltr" min={creditTarget?.issue_date} max={businessDay ?? undefined}
+                value={creditDate} onChange={(e) => setCreditDate(e.target.value)} disabled={isCrediting} />
+            </div>
+            <Label htmlFor="cn-reason">{ar ? "سبب الإشعار (5–500 حرف)" : "Reason (5–500 characters)"}</Label>
             <Input
-              dir="rtl"
+              id="cn-reason" dir={ar ? "rtl" : "ltr"} maxLength={500} disabled={isCrediting}
               value={creditReason}
               onChange={(e) => setCreditReason(e.target.value)}
               placeholder={ar ? "سبب الإشعار الدائن" : "Credit note reason"}
@@ -1033,13 +1057,13 @@ export function InvoicesManager() {
             <div className="flex items-center gap-3">
               <Button
                 onClick={() => void handleCredit()}
-                disabled={isCrediting || !creditReason.trim()}
+                disabled={isCrediting || creditReason.trim().length < 5 || !creditDate}
                 className="bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800"
               >
                 {isCrediting ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
                 {ar ? "إصدار الإشعار الدائن" : "Issue credit note"}
               </Button>
-              <Button variant="ghost" onClick={() => setCreditTarget(null)}>
+              <Button variant="ghost" disabled={isCrediting} onClick={() => setCreditTarget(null)}>
                 <X className="h-4 w-4" />
                 {ar ? "تراجع" : "Back"}
               </Button>
@@ -1049,7 +1073,7 @@ export function InvoicesManager() {
       </Dialog>
 
       {/* ── Debit note dialog ─────────────────────────────────────────── */}
-      <Dialog open={!!debitTarget} onOpenChange={(o) => { if (!o) setDebitTarget(null) }}>
+      <Dialog open={!!debitTarget} onOpenChange={(o) => { if (!o && !isDebiting) setDebitTarget(null) }}>
         <DialogContent className="max-w-md rounded-2xl">
           <DialogHeader>
             <DialogTitle>{ar ? "إشعار مدين" : "Debit note"}</DialogTitle>
@@ -1060,6 +1084,12 @@ export function InvoicesManager() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
+            {noteError && <p role="alert" className="text-sm text-destructive">{noteError}</p>}
+            <div className="space-y-1.5">
+              <Label htmlFor="dn-date">{ar ? "تاريخ الإشعار (التوقيت السعودي)" : "Note date (Saudi calendar)"}</Label>
+              <Input id="dn-date" type="date" dir="ltr" min={debitTarget?.issue_date} max={businessDay ?? undefined}
+                value={debitDate} onChange={(e) => setDebitDate(e.target.value)} disabled={isDebiting} />
+            </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="dn-amount">{ar ? "المبلغ (قبل الضريبة)" : "Amount (excl. VAT)"}</Label>
@@ -1067,7 +1097,9 @@ export function InvoicesManager() {
                   id="dn-amount"
                   type="number"
                   dir="ltr"
-                  min="0"
+                  min="0.01"
+                  max="99999999.99"
+                  disabled={isDebiting}
                   step="0.01"
                   value={debitAmount}
                   onChange={(e) => setDebitAmount(e.target.value)}
@@ -1075,15 +1107,16 @@ export function InvoicesManager() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>{ar ? "الضريبة %" : "VAT %"}</Label>
-                <Input type="number" dir="ltr" min="0" max="100" step="0.01" value={formVatRate} onChange={(e) => setFormVatRate(e.target.value)} className="h-9 text-end tabular-nums" />
+                <Label htmlFor="dn-rate">{ar ? "الضريبة %" : "VAT %"}</Label>
+                <Input id="dn-rate" type="number" dir="ltr" min="0" max="100" step="0.01" disabled={isDebiting} value={debitVatRate} onChange={(e) => setDebitVatRate(e.target.value)} className="h-9 text-end tabular-nums" />
               </div>
             </div>
-            {Number(debitAmount || 0) > 0 && (
-              <p className="text-xs text-muted-foreground" dir="ltr"><LocalizedText text="VAT:" />{fmtMoney(round2((Number(debitAmount) * Number(formVatRate || 0)) / 100))} <LocalizedText text="· Total:" /> {fmtMoney(round2(Number(debitAmount) + (Number(debitAmount) * Number(formVatRate || 0)) / 100))}<LocalizedText text="SAR" /></p>
+            {debitPreview && (
+              <p className="text-xs text-muted-foreground" dir="ltr">{ar ? "الضريبة:" : "VAT:"} {fmtMoney(debitPreview.vat_amount)} · {ar ? "الإجمالي:" : "Total:"} {fmtMoney(debitPreview.total)} SAR</p>
             )}
+            <Label htmlFor="dn-reason">{ar ? "سبب الإشعار (5–500 حرف)" : "Reason (5–500 characters)"}</Label>
             <Input
-              dir="rtl"
+              id="dn-reason" dir={ar ? "rtl" : "ltr"} maxLength={500} disabled={isDebiting}
               value={debitReason}
               onChange={(e) => setDebitReason(e.target.value)}
               placeholder={ar ? "سبب الإشعار المدين" : "Debit note reason"}
@@ -1092,13 +1125,13 @@ export function InvoicesManager() {
             <div className="flex items-center gap-3">
               <Button
                 onClick={() => void handleDebit()}
-                disabled={isDebiting || !debitReason.trim() || Number(debitAmount || 0) <= 0}
+                disabled={isDebiting || debitReason.trim().length < 5 || !debitDate || !debitPreview}
                 className="bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-700 hover:to-orange-800"
               >
                 {isDebiting ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeDollarSign className="h-4 w-4" />}
                 {ar ? "إصدار الإشعار المدين" : "Issue debit note"}
               </Button>
-              <Button variant="ghost" onClick={() => setDebitTarget(null)}>
+              <Button variant="ghost" disabled={isDebiting} onClick={() => setDebitTarget(null)}>
                 <X className="h-4 w-4" />
                 {ar ? "تراجع" : "Back"}
               </Button>
