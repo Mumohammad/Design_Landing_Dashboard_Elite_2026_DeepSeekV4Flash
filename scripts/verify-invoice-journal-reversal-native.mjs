@@ -158,6 +158,8 @@ try {
 } catch (error) {
   fs.writeFileSync(path.join(root,'journal-reversal-failure.log'), `${stage}\n${error.stack ?? error.message}`)
   console.error('FAIL: local journal reversal verification at ' + stage + '; inspect ignored synthetic failure log')
+  // These owned clusters contain synthetic SQL only and never load environment files.
+  console.error(String(error.message).slice(0, 1800))
   process.exitCode = 1
 } finally {
   if (started) run('pg_ctl',['-D',data,'-m','fast','-w','stop'])

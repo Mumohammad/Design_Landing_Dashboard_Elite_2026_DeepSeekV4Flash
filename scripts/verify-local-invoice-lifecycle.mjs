@@ -42,19 +42,25 @@ export async function verifyInvoiceLifecycle(page, admin, tenantId, appUrl) {
   }
   try {
     stage = "issue and finalize zero VAT"
+    stage = "lifecycle draft creation"
     const original = await createDraft()
+    stage = "issue reviewed draft"
     await menu(original.invoice_number,/^(Issue|إصدار)$/)
     await expect.poll(async () => (await invoice(original.id)).status).toBe("issued")
     await expect(rowFor(original.invoice_number).getByText(/^(Issued|صادرة)$/)).toBeVisible()
+    stage = "finalize issued invoice"
     await menu(original.invoice_number,/^(Finalize|اعتماد)$/)
     await expect.poll(async () => (await invoice(original.id)).status).toBe("finalized")
     await expect(rowFor(original.invoice_number).getByText(/^(Finalized|معتمدة)$/)).toBeVisible()
+    stage = "verify specific posting event"
     const posting = await admin.from("financial_events").select("event_id,processing_status").eq("tenant_id",tenantId).eq("source_id",original.id).eq("event_type","InvoiceFinalizedEvent").single()
     if (posting.error || !["processed","skipped_duplicate"].includes(posting.data.processing_status)) throw Error("Finalized invoice posting incomplete")
+    stage = "verify original journal"
     const journals = await admin.from("journal_entries").select("id").eq("tenant_id",tenantId).eq("source_entity_id",original.id).eq("entry_type","invoice").eq("status","posted").is("deleted_at",null)
     if (journals.error || journals.data.length !== 1) throw Error("Original journal missing or duplicated")
-    const lines = await admin.from("journal_entry_lines").select("debit,credit").eq("tenant_id",tenantId).eq("journal_entry_id",journals.data[0].id)
-    if (lines.error || lines.data.length !== 2 || lines.data.reduce((a,l)=>a+Number(l.debit)-Number(l.credit),0)!==0) throw Error("Zero-VAT journal imbalance")
+    stage = "verify zero-VAT journal lines"
+    const lines = await admin.from("journal_entry_lines").select("debit_amount,credit_amount").eq("tenant_id",tenantId).eq("journal_entry_id",journals.data[0].id)
+    if (lines.error || lines.data.length !== 2 || lines.data.reduce((a,l)=>a+Number(l.debit_amount)-Number(l.credit_amount),0)!==0) throw Error("Zero-VAT journal imbalance")
 
     stage = "debit note exact preview and posting"
     await menu(original.invoice_number,/^(Debit|مدين)$/)
@@ -97,7 +103,7 @@ export async function verifyInvoiceLifecycle(page, admin, tenantId, appUrl) {
     await expect(rowFor(cancelled.invoice_number).getByText(/^(Cancelled|ملغاة)$/)).toBeVisible()
     console.log("PASS: invoice issue → zero-VAT finalize → journal balance → debit preview/posting → full credit/AR archive with debit balance retained → issued cancellation → reload")
   } catch (error) {
-    console.error(JSON.stringify({invoiceLifecycleStage:stage}))
+    console.error(JSON.stringify({invoiceLifecycleStage:stage, failure:/^(Synthetic |Finalized invoice posting incomplete|Original journal missing or duplicated|Zero-VAT journal imbalance|Debit note persistence mismatch|Credit\/debit receivable effects mismatch|Atomic note posting incomplete|Unposted cancellation created financial effects)/.test(error.message)?error.message:"browser-or-service-assertion"}))
     throw error
   }
 }
