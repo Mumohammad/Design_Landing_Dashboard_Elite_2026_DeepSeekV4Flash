@@ -4,6 +4,7 @@
 // Composes the vehicle picker (tenant vehicles), the latest odometer reading
 // from vehicle_odometer_logs, and the maintenance server actions.
 
+import { LocalizedText } from "@/components/localized-text"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "@/hooks/use-translation"
 import { Button } from "@/components/ui/button"
@@ -258,7 +259,7 @@ export function EventDialogs({
                 </select>
                 {selectedVehicle?.odometer_current != null && (
                   <p className="text-xs text-muted-foreground">
-                    {m.latestOdometer}: <span dir="ltr">{selectedVehicle.odometer_current.toLocaleString()}</span> km · {m.autoLoggedNote}
+                    {m.latestOdometer}: <span dir="ltr">{selectedVehicle.odometer_current.toLocaleString()}</span> <LocalizedText text="km ·" /> {m.autoLoggedNote}
                   </p>
                 )}
               </div>

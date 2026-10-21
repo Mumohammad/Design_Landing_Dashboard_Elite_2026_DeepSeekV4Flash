@@ -4,6 +4,8 @@
 // no extra dependency is needed. Used on card print, leave requests, and any
 // surface that must show Gregorian + Hijri side by side (Saudi requirement).
 
+import { BUSINESS_TIME_ZONE } from "./business-date"
+
 const HIJRI_MONTHS_EN = [
   "Muharram", "Safar", "Rabi al-Awwal", "Rabi al-Thani",
   "Jumada al-Ula", "Jumada al-Akhirah", "Rajab", "Shaban",
@@ -19,6 +21,7 @@ const HIJRI_MONTHS_AR = [
 function hijriParts(date: Date): { day: number; month: number; year: number } | null {
   try {
     const fmt = new Intl.DateTimeFormat("en-US-u-ca-islamic-umalqura", {
+      timeZone: BUSINESS_TIME_ZONE,
       day: "numeric",
       month: "numeric",
       year: "numeric",
@@ -66,6 +69,7 @@ export function formatDualDate(date: Date | string | null | undefined, isAr = fa
   const d = typeof date === "string" ? new Date(date) : date
   if (Number.isNaN(d.getTime())) return typeof date === "string" ? date : "—"
   const g = d.toLocaleDateString(isAr ? "ar-SA-u-ca-gregory" : "en-GB", {
+    timeZone: BUSINESS_TIME_ZONE,
     day: "2-digit",
     month: "short",
     year: "numeric",

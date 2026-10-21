@@ -71,9 +71,9 @@ BEGIN
 
   -- Rescue a leaked row: re-assert the fixture role/status on re-run
   -- (mirrors 063's DO UPDATE discipline for shared fixed ids).
-  INSERT INTO public.users (id, auth_user_id, tenant_id, email, role, status)
-  VALUES (v_u, v_aid, v_t, 'users-module-fixture@test.local', 'supervisor', 'active')
-  ON CONFLICT (id) DO UPDATE SET role = 'supervisor', status = 'active';
+  INSERT INTO public.users (id, auth_user_id, tenant_id, email, role, status, must_change_password)
+  VALUES (v_u, v_aid, v_t, 'users-module-fixture@test.local', 'supervisor', 'active', false)
+  ON CONFLICT (id) DO UPDATE SET role = 'supervisor', status = 'active', must_change_password = false;
 
   -- Each test rolls back its append-only consent fixtures.
 

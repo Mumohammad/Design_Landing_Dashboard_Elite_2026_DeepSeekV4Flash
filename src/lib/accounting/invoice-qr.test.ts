@@ -1,8 +1,9 @@
 // Financial Phase 14 — unit tests for the verification-QR TLV payload
 // (simplified tax invoice field set: seller name, VAT no., timestamp,
 // total, VAT amount) and the PNG renderer.
-import { describe, expect, it } from "vitest"
-import { buildTaxQrPayload, qrPngDataUrl, tlvField } from "./invoice-qr"
+import { describe, expect, it, vi } from "vitest"
+import QRCode from "qrcode"
+import { buildTaxQrPayload, qrPngDataUrl, taxQrBase64, tlvField } from "./invoice-qr"
 
 describe("tlvField", () => {
   it("encodes tag + 1-byte length + UTF-8 value bytes", () => {
@@ -65,6 +66,22 @@ describe("buildTaxQrPayload", () => {
 })
 
 describe("qrPngDataUrl", () => {
+  it("puts Base64 text in the QR, rather than raw TLV bytes", async () => {
+    const bytes = buildTaxQrPayload({sellerName:"شركة",sellerVatNumber:"300000000000003",timestamp:"2026-10-18T10:00:00Z",total:115,vatAmount:15})
+    const render = vi.spyOn(QRCode, "toDataURL")
+    try {
+      await qrPngDataUrl(bytes)
+      const content = render.mock.calls[0][0]
+      expect(typeof content).toBe("string")
+      expect(Buffer.from(content as string,"base64")).toEqual(Buffer.from(bytes))
+    } finally { render.mockRestore() }
+  })
+
+  it("rejects QR text beyond the specification's resource limit", () => {
+    expect(() => taxQrBase64(new Uint8Array(526))).toThrow("700-character")
+    expect(taxQrBase64(new Uint8Array(525))).toHaveLength(700)
+  })
+
   it("renders a base64 PNG data URL from a byte payload", async () => {
     const url = await qrPngDataUrl(buildTaxQrPayload({
       sellerName: "X",

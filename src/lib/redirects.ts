@@ -146,6 +146,17 @@ export function landingUrlWithReturn(returnTo?: string | null): string {
 /** Validate a returnTo/query-provided path (relative, same-site only). */
 export function safeReturnPath(value: string | null | undefined): string {
   if (!value) return DASHBOARD_PATH
-  if (!value.startsWith("/") || value.startsWith("//")) return DASHBOARD_PATH
+  if (!value.startsWith("/") || value.startsWith("//") || /[\\\u0000-\u0020]/.test(value)) return DASHBOARD_PATH
+  try {
+    const path = new URL(value, "https://app.invalid").pathname
+    if (["/auth/sign-in", "/auth/sign-out", "/login", "/platform/login"].includes(path.replace(/\/$/, ""))) return DASHBOARD_PATH
+  } catch { return DASHBOARD_PATH }
   return value
+}
+
+/** Carry a non-sensitive language preference across separate deployment hosts. */
+export function withLocale(url: string, locale: "ar" | "en"): string {
+  const parsed = new URL(url, "https://app.invalid")
+  parsed.searchParams.set("lang", locale)
+  return /^https?:\/\//i.test(url) ? parsed.toString() : `${parsed.pathname}${parsed.search}${parsed.hash}`
 }

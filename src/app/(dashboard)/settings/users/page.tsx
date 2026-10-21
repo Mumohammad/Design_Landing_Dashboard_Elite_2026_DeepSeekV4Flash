@@ -1,5 +1,6 @@
 "use client"
 
+import { LocalizedText } from "@/components/localized-text"
 import { useEffect, useState } from "react"
 import { useActionState } from "react"
 import { useTranslation } from "@/hooks/use-translation"
@@ -157,7 +158,7 @@ export default function UsersSettingsPage() {
                 <thead>
                   <tr className="border-b border-border/60 text-start text-xs text-muted-foreground">
                     <th className="px-4 py-3 text-start font-medium">{ar ? "الاسم" : "Name"}</th>
-                    <th className="px-4 py-3 text-start font-medium">Email</th>
+                    <th className="px-4 py-3 text-start font-medium"><LocalizedText text="Email" /></th>
                     <th className="px-4 py-3 text-start font-medium">{ar ? "الدور" : "Role"}</th>
                     <th className="px-4 py-3 text-start font-medium">{ar ? "الحالة" : "Status"}</th>
                     <th className="px-4 py-3 text-start font-medium">{ar ? "آخر دخول" : "Last login"}</th>
@@ -220,7 +221,7 @@ export default function UsersSettingsPage() {
             <CardContent>
               <form action={inviteAction} className="flex flex-col gap-4 sm:flex-row sm:items-end">
                 <div className="flex-1 space-y-1.5">
-                  <Label htmlFor="inviteEmail">Email</Label>
+                  <Label htmlFor="inviteEmail"><LocalizedText text="Email" /></Label>
                   <Input
                     id="inviteEmail"
                     name="email"
@@ -273,7 +274,7 @@ export default function UsersSettingsPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border/60 text-start text-xs text-muted-foreground">
-                    <th className="px-4 py-3 text-start font-medium">Email</th>
+                    <th className="px-4 py-3 text-start font-medium"><LocalizedText text="Email" /></th>
                     <th className="px-4 py-3 text-start font-medium">{ar ? "الدور" : "Role"}</th>
                     <th className="px-4 py-3 text-start font-medium">{ar ? "تاريخ الإرسال" : "Sent"}</th>
                     <th className="px-4 py-3 text-start font-medium">{ar ? "ينتهي في" : "Expires"}</th>

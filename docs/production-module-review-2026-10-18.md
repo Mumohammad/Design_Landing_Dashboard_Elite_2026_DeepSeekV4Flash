@@ -1,0 +1,174 @@
+# Production module review — 18 October 2026
+
+## Decision
+
+The app is not yet ready to advertise every business capability as production complete. Core internal workflows have release-test coverage, but tax-invoice company setup, external provider acceptance, and a few explicitly limited screens remain. A loaded page is not evidence that its CRUD works.
+
+This review covers the repository's shipped business routes, language selection and landing-to-dashboard authentication. It does not certify Saudi tax compliance, bank acceptance, third-party settlements, or production capacity under a representative customer load.
+
+## Language and authentication changes
+
+The [new-password continuation](auth-password-readiness-2026-10-19.md) aligns
+registration, invitation and recovery rules. Free hosted policy controls passed
+staging verification; production configuration is still held for release.
+Leaked-password protection requires a paid plan, which the user declined.
+The separate forced-password-change administration flow remains under review.
+
+The [Expenses continuation](expenses-readiness-2026-10-19.md) removes the old
+100-row overview/search/summary cutoff and adds explicit table, summary and
+mapping failure recovery. Expense mutation retry hardening is tracked separately.
+
+19 October continuations: the [modern PDF](invoice-pdf-2026-10-19.md) replaces
+the old strict sample layout. Hosted PDF download, retry and private-byte
+retention passed on `5ec5749`. [Manual receivable transaction and retry
+hardening](manual-receivable-retries-2026-10-19.md) is now implemented and applied
+to staging; current-commit CI and hosted evidence remain separate release gates.
+The older checkpoints below describe their own state, not production deployment.
+
+20 October: [expense approval](expense-approval-readiness-2026-10-20.md) now has an
+atomic approval audit/reason and response recovery. Its first browser acceptance
+check exposed missing finance initialization for new companies; the [accounting
+default continuation](company-accounting-defaults-2026-10-20.md) fixes that without
+backfilling existing production tenants. Final commit evidence remains a gate.
+The [VAT posting continuation](expense-vat-posting-2026-10-20.md) also addresses
+zero/non-recoverable VAT journal failures and category-default selection.
+The [rejection continuation](expense-rejection-2026-10-20.md) adds a durable,
+atomic decision and protects stale approval retries; final verification is held
+separately from the earlier passing VAT candidate.
+
+- One locale context now controls marketing, company registration, authentication and dashboard interface copy. Switching updates `lang` and `dir`, persists without a forced reload and synchronizes existing tabs. Blocked browser storage does not prevent the current switch. A non-sensitive `lang` parameter carries preference between configured deployment hosts.
+- Static labels, forms, status badges, table headings, loading/error states, help and legal text use the selected interface language. Names, notes, document contents and other customer-entered business data retain their original content. The reference invoice intentionally remains the requested bilingual document.
+- Authenticated users arriving at the sign-in entry point reuse a server-verified session. Refreshed cookies reach both Server Components and the final response, including redirects. Successful sign-in performs a fresh navigation so stale unauthenticated router data cannot prompt a second login.
+- Return paths retain their query parameters and reject external targets, backslashes, control characters and authentication loops. Account restrictions, MFA enrollment/challenge, tenant authorization and role guards remain enforced.
+- Fresh sign-in and subsequent MFA/password redirects explicitly carry the selected locale, so the current authentication journey stays in English or Arabic even when preference storage is blocked.
+- The unfinished custom-report choice is disabled. Spreadsheet-facing accounting/report CSV cells neutralize formula-like text while preserving numeric balances.
+- The module review also found hardcoded day 31 in the orders list and reconciliation report. Both now reuse the existing calendar-correct month-boundary helper, including February/leap years and 30-day months.
+
+## Module assessment
+
+“Core implemented” describes source and release-test evidence; it does not promise that every permutation has been manually exercised. Delete operations may intentionally mean archive, cancellation or reversal for audit integrity. Financial documents become immutable after finalization/posting.
+
+| Module | Assessment | Evidence and remaining condition |
+| --- | --- | --- |
+| Dashboard | Core implemented | Tenant summaries and navigation; bilingual route/data-read checks required for this candidate. Representative production-load acceptance is separate. |
+| Drivers | Core implemented | Profile create/edit/archive and driver-level operational records exist. The candidate adds 25-row database pagination, full-dataset literal search/filtering, complete filtered CSV export and explicit read/retry errors; KPIs use full-dataset counts. Permission-dependent controls remain restricted. |
+| Vehicles | Core implemented | Fleet create/edit/archive and assignments exist. The candidate adds 25-row database pagination, full-dataset search, global KPI counts and read/retry errors. Operational fixtures and real tenant setup remain necessary. |
+| Attendance | Implemented with workflow limitation | The overview has 25-row database pagination, full driver name/code search, exact date-scoped counts and explicit table/summary failure recovery. Driver links open the existing profile management workspace. Attendance mutations remain available there, not a separate global editor. |
+| Orders | Core implemented | Authorized order/settlement workflows exist. External platform reconciliation requires provider-specific acceptance. |
+| Platforms | Core CRUD tested | Prior isolated hosted tests covered create, edit-field initialization and deactivate. No claim of automatic third-party synchronization. |
+| Payroll | Internal workflow implemented | Database integrity and authorization have regression coverage. Bank-specific WPS acceptance and live banking submission are not certified. |
+| Expenses | Overview/create hardened; approval candidate under verification | Database pagination/full search, complete bounded decimal summaries and mapping/read recovery replace first-100 behavior. Pending-create transaction/request identity is applied to staging; see the [retry review](expense-create-retries-2026-10-19.md). The [approval continuation](expense-approval-readiness-2026-10-20.md) adds atomic audit/reason and uncertain-response handling. Final approval/posting verification, genuine tax configuration and finance-owner acceptance remain required. |
+| Invoices | Conditional production use | Isolated hosted create/edit/delete, audit, mobile, print/PDF and pagination checks passed in the preceding release. All seven invoicing production tenants lacked valid VAT configuration at that review. Genuine company details must be entered before tax printing; values must not be invented. ZATCA production submission is unvalidated. |
+| Accounting | Core draft workflows tested | Isolated hosted journal draft CRUD, bank lifecycle and payment-bank pagination passed. The candidate adds primary/dependency read-failure recovery, malformed-response rejection, stale-tab cancellation and database pagination/search for journal/receivable/payable management. Remaining VAT/payment/selection caps are separate. Posted entries use controlled reversal rather than unrestricted edit/delete. Accountant sign-off on opening balances, mappings and reporting is still required. |
+| Payments | Core transactional workflow tested | Database payment-race checks, recording/reversal and SAR safeguards passed in the preceding release. External payment-provider acceptance is separate. |
+| Maintenance | Core lifecycle tested | Isolated hosted create/edit/start/complete passed. Production mutations were not used as smoke tests. |
+| Violations | Implemented with workflow limitation | Database-paginated overview with full driver/reference/description search, exact counts, complete decimal deduction totals and explicit failures/retry. Document-only matches retain driver information; unassigned violations remain searchable. Mutations/review actions are available through linked driver profiles, not a standalone global CRUD workspace. |
+| HR | Implemented with workflow limitation | Database-paginated reviews, full driver/period search, exact status/score counts and explicit failure recovery. Reviews/training/leave remain managed through linked driver profiles. This is not a full HR/payroll regulatory suite. |
+| Applications | Core implemented | Application intake and authorized review exist. Email/delivery and real onboarding acceptance depend on configured services. |
+| Reports | Partially complete | Named collectors now fetch all pages with deterministic ordering and exact counts, reject database failures, premature empty pages, duplicate IDs, changing counts and exports over 100,000 rows. The obsolete driver phone column is corrected. Custom reports are rejected server-side and disabled in the UI. History has database pagination, bilingual type/file search, global counts and retry states. Do not advertise arbitrary custom reports. |
+| Users | Core implemented | Tenant user management and role assignment exist; invitations/reset mail require verified delivery configuration. |
+| Roles | Read-only catalog | Displays system/custom roles. No full role/permission editor is provided. Standard assignment/permissions are enforced elsewhere. |
+| Approvals | Expense decisions hardened; queue/other decisions open | Expense approval and rejection use atomic decision/audit paths. Capped queue/search/read-failure behavior and other decision types remain unfinished. Actual company approval policy needs business-owner acceptance. |
+| Audit log | Read-only by design | Audit records are intended for viewing, not editable CRUD. Verify retention/export requirements for each customer. |
+| Security | Core controls implemented; setup outstanding | MFA, account restrictions, RLS and authorization are covered by regression tests. Supabase leaked-password protection was disabled at the preceding review. |
+| Settings | Core implemented; tenant setup outstanding | Company/security/user configuration exists. Genuine VAT, legal/company identity and finance settings must be completed before related workflows are enabled. |
+
+The platform administrator console is a separate allowlisted, MFA-protected surface. Tenant credentials must not grant access. Legacy template demonstrations redirect to shipped functionality and are not additional production modules.
+
+## Verification evidence and limits
+
+Baseline release: PRs [74](https://github.com/Mumohammad/Design_Landing_Dashboard_Elite_2026_DeepSeekV4Flash/pull/74) and [75](https://github.com/Mumohammad/Design_Landing_Dashboard_Elite_2026_DeepSeekV4Flash/pull/75), production commit `2fbca4fb7881a05a264a41443e716fd3930d91ca`. [Release CI](https://github.com/Mumohammad/Design_Landing_Dashboard_Elite_2026_DeepSeekV4Flash/actions/runs/38930605475) passed 660 unit tests, 2,468 database assertions, eight Auth/Storage tests, payment concurrency checks, 17 hosted smoke tests, lint, types and production build. Hosted mutation/PDF/MFA checks used synthetic staging data.
+
+This candidate adds dedicated tests for landing/auth language switching, persistence, existing-tab synchronization, unavailable storage, single-login continuity and all 22 business module routes in both languages, including failed data-read detection. New unit tests cover refreshed/cleared proxy cookies, MFA redirects, safe return paths, static translations and CSV formula protection. Candidate results and deployment identity must be recorded after execution; until then this document is a review of a release candidate, not a statement that these changes are live.
+
+Prior locale/session candidate (`130b988`) validation recorded locally: 689 unit tests passed, including reconciliation date boundaries and locale preservation through MFA/password gates; lint passed with no errors and 86 warnings; TypeScript, the production build, API route guards and deployment configuration checks passed. On the Git-linked staging preview, invoice CRUD/VAT/mobile/print/PDF/audit, journal CRUD, bank lifecycle, payment-bank pagination/search, platform CRUD, maintenance lifecycle, and owner MFA enrollment/sign-out/returning challenge all passed without browser runtime errors. These mutations used synthetic staging workspaces. Desktop/mobile review in both languages found an overflowing English landing navigation, which was corrected with a responsive menu and covered by an overflow/navigation regression check. Confirmation captures at 1440px and 390px showed no horizontal viewport overflow in either language.
+
+The latest CI, hosted locale sweep and release/deployment outcome are recorded on [PR #76](https://github.com/Mumohammad/Design_Landing_Dashboard_Elite_2026_DeepSeekV4Flash/pull/76). Test workflows reject a production-bound preview before sending staging credentials.
+
+No production business records, production secrets, or database schema are changed by the locale/session release. Production verification should remain read-only; mutation tests belong in isolated staging.
+
+## Outstanding before unrestricted launch claims
+
+1. Complete genuine VAT/company configuration for each invoicing tenant and verify its tax document using authorized business data.
+2. Obtain provider acceptance for ZATCA production, WPS bank files and external payment/platform webhook delivery, replay and reconciliation. Keep unsupported integrations disabled.
+3. Apply and verify the tested free password-policy baseline during the approved release. Leaked-password protection requires a paid plan; the user chose to keep the current plan. Record that accepted limitation and enable the paid control only after a separately approved upgrade. The forced-password-change administration flow remains under review.
+4. Decide whether the read-only role catalog, overview-only HR/attendance/violations entry points and disabled custom reports match the advertised product scope. Build missing workflows before promising them.
+5. Run representative capacity, restore/incident response and operational delivery acceptance for the intended launch volume. Earlier backup/restore evidence is useful but is not an ongoing operations guarantee.
+6. Complete server-side pagination and full-dataset search for capped overview lists. Drivers, vehicles, report history, attendance, HR reviews, violations, expenses and journal/receivable/payable management are addressed by the current candidate. Remaining examples include orders/applications (200), accounting VAT/payment lists and summaries, and AR/AP allocation/party option lists (100–200). The platform-payments overview is also capped at 100. These screens must not be interpreted as exhaustive totals or full-ledger searches. The paginated invoice manager and payment-bank picker do not resolve every other module's limits.
+7. Continue hardening the remaining overview loading errors: the named report collectors and drivers/vehicles/report-history/attendance/HR-review/violation reads are addressed by the current candidate, but other existing callers still discard query errors and can show an empty result instead of an explicit failure. The bilingual route sweep checks failed HTTP reads, but it cannot prove every server-side export/query failure is surfaced correctly. Financial/report completeness needs additional acceptance before unrestricted launch.
+
+CSV mitigation follows the spreadsheet-viewing trade-off described by [OWASP](https://community.owasp.org/attacks/CSV_Injection): dangerous text receives a tab inside a quoted field. This changes that exported cell's underlying text; downstream machine importers should use a defined data interchange format rather than treating a human-facing spreadsheet export as lossless input.
+
+## Invoice sample comparison — current continuation
+
+Historical requirement: the strict Letter-sample comparison below was superseded by the user's 19 October request for a modern PDF without unnecessary browser writing. The current implementation and verification boundary are described in [the modern invoice PDF review](invoice-pdf-2026-10-19.md). It uses a real PDF download/preview with browser headers disabled, rather than attempting to suppress user-controlled HTML print headers with CSS. This changes the visual target; it does not resolve official ZATCA issuance or electronic tax-artifact requirements.
+
+The supplied original was opened and rendered directly, not inferred from the earlier print smoke test. Both documents use Letter (612 × 792 pt), a 487.5 pt-wide invoice, a 67.5 pt QR, a 112.5 pt logo, bilingual RTL headings and 9 pt Tahoma body text. The candidate corrects an RTL collapsed-border overflow that clipped the left table edge, invoice metadata positioning, client block spacing and totals alignment. Print verification now checks the reference grid's vertical position and both outer printable edges, in addition to one-page output, VAT values and 60-line pagination.
+
+This is not a certification of pixel-identical output. The rendered comparison still has differences in company/phone bidirectional text placement and bank-detail typography/spacing. A real QR also changes with the invoice's seller, tax, timestamp and monetary data. Tahoma availability and browser print settings can change rendering on other computers; the app currently prints through the user's browser. Exact visual acceptance remains open. The reference's zero VAT/IBAN values are test placeholders and must not be copied into production tenant configuration.
+
+Report files are now stored under tenant/job-specific paths so reports generated on the same day or for different parameters do not overwrite one another. Unknown/custom report requests and malformed periods fail instead of generating a misleading parameter-only CSV. The collection budget is explicit: exceeding it fails the job, rather than marking a partial export complete. Row-count and duplicate checks detect common concurrent pagination changes; these multi-request reads are not a database snapshot transaction.
+
+Continuation verification: the complete local unit suite passed 707/707 with two workers; lint had 0 errors and the same 86 existing warnings; explicit TypeScript, production build and API/deployment guards passed. On the exact `6f60c64` isolated staging build, synthetic sets of 106 records per overview passed pagination, search beyond the old cap, quoted/comma/wildcard literal search, full filtered driver CSV, injected read-failure/retry recovery and Arabic mobile controls with no browser runtime errors. All eight named collectors passed a read-only query against the staging schema. Synthetic overview fixtures were removed by their exact IDs.
+
+The subsequent invoice alignment refinement was rendered against the original uploaded PDF with matching test fixture values. `scripts/compare-invoice-reference.py` measured nine numeric/English anchors: the maximum x/y position difference was 0.0116 pt on the same Letter page size. The final PNG was visually inspected. This anchor test does not certify pixel identity, bank text spacing, every Arabic glyph or availability of the reference font on another machine. CI/staging status for the final revision remains recorded on the PR.
+
+## ZATCA and QR audit — 18 October continuation
+
+Read-only production inspection found **zero stored CSIDs** and **six transmissions with `reported` status, all six explicitly mock responses**. No ZATCA-specific variables appeared in Vercel's production environment inventory. The application onboarding/submission gate and independent production-mode gate remain closed. No production data, credentials or secrets were changed during this audit. A separate current VAT aggregate found seven invoicing tenants, six missing a 15-digit configured VAT number; formatting alone is not proof of genuine registration.
+
+The original UBL output failed the supplied SDK's XSD check. The continuation removes the invalid bare root XML signature and nested invoice lines, corrects element ordering and double-deducted line discounts, preserves line currency, adds explicit address/issuance/tax fields without inventing production values, and fixes the genesis/previous-invoice-hash helper. The QR renderer now uses Base64 TLV text instead of raw bytes. Invalid monetary values fail instead of becoming zero.
+
+The repeatable `scripts/verify-zatca-sdk.mjs` suite passed **six of six** synthetic cases with the supplied **SDK 3.0.8 demonstration signer**: standard and simplified invoices, credit notes and debit notes. All cases passed XSD, EN, KSA and PIH; simplified cases also passed QR and signature validation. This is not application-signer validation: the SDK supplies its own public, expired test certificate/key. The suite deliberately refuses customized SDK credentials and treats zero exit with failed/missing validation stages as a failure.
+
+The invoice QR is still **internal and unvalidated for production**. Both the print dialog and saved PDF now preserve that disclosure. Historical transmission badges identify mocks; unknown evidence is unverified rather than showing a green acceptance badge. The authenticated detail action returns a mock classification rather than serializing an arbitrary gateway response.
+
+Official Phase 2 remains a launch blocker. Required work includes genuine taxpayer/EGS setup, authoritative issuance timestamps and atomic counters/hash-chain storage, validated application canonicalization/XAdES signing, the actual JSON API request/response contract, real simulation onboarding/submission, retained cleared XML/QR for standard invoices and EGS-stamped/reporting evidence for simplified documents. The current browser PDF is not a PDF/A-3 electronic invoice with embedded XML. See [ZATCA configuration and verification](financial/ZATCA-ENV.md) for the exact boundary and next implementation requirements. Credentials alone cannot complete this work, and sample SDK output must never be used for a customer invoice.
+
+The prior `652cf35` revision completed all CI gates and the exact-commit staging mobile/overview confirmation. This continuation's final test/deployment evidence is recorded on PR 76 after execution; the earlier results must not be presented as final-revision results. Exact PDF visual acceptance remains open: measured geometry is close, but typography/bidirectional spacing and the necessary internal-QR disclosure differ from the supplied sample.
+
+## Canonical invoice hashing — 19 October continuation
+
+The raw XML hash is replaced by ZATCA exclusion transforms followed by canonicalization of a restricted XML 1.0 UBL profile. Whitespace surrounding excluded signature/extension/QR nodes is preserved. Unsupported namespace changes, XML attributes requiring C14N 1.1 fixup, DTD/entities, processing instructions, malformed input and size/depth excesses fail with a generic error. This is a controlled common C14N 1.0/1.1 subset, not general-purpose C14N 1.1 support. The XML parser is now a production dependency at the existing locked version.
+
+The SDK harness now compares application hashes with SDK-generated hashes for all six unsigned/signed invoice/note cases and byte-level variants. It also checks the SDK-observed digest signature input and requires rejection of a tampered signed invoice. Execution results for the final revision are recorded on PR 76. The SDK signs a raw digest with SHA256/ECDSA in the supplied fixture; the published standard describes canonical SignedInfo binding. This discrepancy remains an implementation/validation blocker for a complete application signer. The old digest/time concatenation is removed and no primitive round trip is represented as XAdES validation.
+
+The incomplete invoice HTTP transport was removed rather than left capable of silently transmitting unsigned XML or interpreting HTTP 2xx as authority acceptance. Sandbox/simulation submission now fails before credential access or networking; mocks remain explicitly unvalidated. The application onboarding/submission gate and independent production gate remain closed. No production data, schema, permissions or secrets were changed. Issuance metadata, complete signing/API/QR workflow, genuine onboarding and PDF visual acceptance are still open launch blockers.
+
+## Preparation ledger and line allowances — 19 October continuation
+
+A new additive migration creates non-production EGS streams and an immutable preparation ledger. It stores UUID/time/counter/PIH, original unsigned XML, canonical bytes/hash and financial-source snapshots together. Row locking and optimistic fencing protect competing preparations; retries return stored bytes; distinct credit/debit notes retain distinct identities. Authenticated clients have tenant/RBAC-filtered read access only, and the invoker RPC is service-role-only. Source document state, totals, tax and line values are validated; no financial totals are updated. Production streams are excluded by schema and server checks, and no historical documents are backfilled. See [the exact boundary](financial/ZATCA-ISSUANCE.md): preparation time is not a retrospective legal issuance time, and this is not activation of official signing/submission or print integration.
+
+The financial binding tests also exposed an omitted line allowance in the UBL builder. Explicit engine line discounts now emit line allowances before line tax while keeping the already-net document totals. The SDK regression includes standard and simplified discounted invoices. Verification/deployment results for this revision are recorded on PR 76 after execution. Complete legal issuance integration, certificate-bound signing/QR, genuine onboarding/API acceptance, signed/cleared artifact retention, PDF visual acceptance and the other documented module/operational launch conditions remain outstanding.
+
+## Independent QR validation — 19 October continuation
+
+The supplied SDK 3.0.8 demonstration output passes its own QR validator but independently decodes to a conflicting Phase 2 tag mapping: public key in tag 7, invoice-signature `r` in tag 8 and `s` in tag 9. The offline harness now verifies and records that finding separately from its eight passing format/hash fixtures. A new strictly bounded QR format primitive rejects the conflicting mapping, malformed fields and production candidate creation. Explicit binary/text encoding experiments are isolated from every invoice/print/network path; neither is presented as an approved profile. See [the investigation and its limits](financial/ZATCA-QR.md). Application signing and genuine authority validation remain launch blockers; no production change or official QR claim follows from these tests.
+
+The current official developer portal's Java 11 SDK was subsequently obtained and verified as **238-R3.4.8**, with isolated extraction and a separately pinned public sample certificate. Its signature/key/CA-signature tag assignments correct the legacy 3.0.8 mapping. The updated harness preserves the eight baseline cases and adds a ninth UTC-source case with a pinned JVM timezone, explicit QR time profile, independent field binding and application/SDK byte comparison. It does not rewrite retained preparations, invent timezones for existing sources, install software globally or enable any production integration. Detailed results are recorded on PR 76 after execution.
+
+## Operational overviews — 19 October continuation
+
+Attendance, HR reviews and violations no longer search a capped 100-row browser array. RLS-scoped database queries use exact counts, 25-row rendering, stable date/ID ordering and literal substring filters, including related Arabic/English driver names and codes. Separate search embeds preserve displayed driver details when a document field matches. Summaries cover all visible records (the chosen date for attendance), independently of the current page/search. Failed counts remain unknown and failed reads show a retry action instead of an empty-success state. Driver links make the existing management workflow discoverable.
+
+Violation deduction totals use exact decimal arithmetic over all matching amount/ID pages, with the existing 100,000-row collection budget and incomplete/duplicate/changing-count rejection. A failed or over-budget collection fails the summary; it never reports a partial amount as a complete total. These multiple reads are not a transactionally consistent database snapshot. No schema or permission changes are introduced.
+
+Local verification passed 816 unit tests, explicit TypeScript, targeted lint (zero errors) and a staging-bound production build. The expanded synthetic browser harness exercises the three additional overviews beyond the old cap, document/driver OR searches, unassigned records, date/page resets, unknown summaries on failure, retry and Arabic mobile layouts. Exact-commit hosted/CI results are recorded on PR 76 after execution; local test success does not mean this change is deployed to production. The remaining launch conditions above are still open.
+
+The accounting screen's main loader now fails visibly when any required ledger, VAT, payment, bank or party-option read fails, including an invalid `null` response with HTTP 200. It hides financial tables while the load is incomplete or failed, offers an English/Arabic retry action and cancels superseded tab reads. Journal refreshes reuse that path after mutations. A read-only fault-injection harness is included in the existing journal browser release check for twelve primary/dependency failures, recovery, malformed responses, late cancelled requests and Arabic mobile layout. This does not certify uncapped financial summaries, the separate child managers, VAT-return delivery or provider acceptance. The expanded overview fixture/selector failures found during verification were corrected; failed test runs are not treated as release approval.
+
+## Journal and AR/AP management — current continuation
+
+Journal, receivable and payable management now request exact-count database pages of 25 rows instead of fixed 100/200-row arrays. Literal reference searches cover the full RLS-visible ledger; journals also search Arabic/English descriptions. Date/ID ordering is deterministic. The bilingual search/refresh/page toolbar stays mounted during loading so typing retains focus. Tab changes reset the search/page and cancel the prior ledger request; unrelated tabs do not issue hidden journal reads. Failed, malformed, truncated or count-inconsistent pages fail explicitly rather than pretending the ledger is empty.
+
+Manual receivable creation now refreshes its ledger. Its label distinguishes a manual receivable from a tax invoice, which must be created through Invoices. The preview uses the shared decimal helpers: SAR 4.10 at 15% shows VAT 0.62 and total 4.72, consistent with the existing persistence path. No financial posting, approval, reversal, RLS or migration rule is changed.
+
+Local verification adds seven query-contract tests (823 unit tests total). The browser release harness adds balanced draft-journal fixtures and unpaid manual AR/AP fixtures beyond the old caps, literal Arabic/English searches, malformed-page recovery, Arabic mobile controls and persisted receivable/preview verification. Fixtures are scoped to a disposable local/staging tenant, preallocate exact cleanup IDs and never use production data. CI and exact-commit staging results for this continuation are recorded on PR 76 after execution. All previously documented unrestricted-launch conditions remain open.
+
+## Build reliability and manual receivable correction — current continuation
+
+The database CI job on `0aaa38c` passed 2,480 pgTAP assertions and eight Auth/Storage integration tests, then failed during the application build in the Google font loader. The application now bundles its existing Inter, Cairo, Noto Nastaliq Urdu and Noto Sans Bengali families using `next/font/local`. Font assets and OFL licenses come from a pinned official `google/fonts` commit; source/output hashes, sizes and variation axes are recorded in `src/assets/fonts/manifest.json`. All source glyphs and axes were retained and checked after WOFF2 conversion. Urdu and Bengali remain scoped to registration layouts. Tests reject runtime external font references, Google build loaders, altered assets and missing/mismatched licenses.
+
+Exact-commit staging verification uncovered a real manual receivable defect: SAR 4.10 at 15% previewed 0.62 VAT / 4.72 total, but server floating-point multiplication persisted 0.61 / 4.71. The server now uses the existing exact decimal VAT/sum helpers before persistence. It also rejects non-finite values, rounded zero amounts, invalid calendar dates and totals outside the database's NUMERIC(12,2) range before attempting a write. New tests exercise the actual server action's insert/audit values, authorization/rate limits, invalid inputs and failed inserts. The old test that duplicated a floating-point formula was removed; it did not exercise persistence and missed this defect.
+
+This corrects future manual receivable creation. No existing production financial record is rewritten, and no schema, permission, invoice tax formula, ZATCA gate or production secret is changed. The expanded hosted test checks the saved VAT and refreshed searched ledger; a failing run is not release approval. Current local/CI/preview evidence is recorded on PR 76 after verification. The subsequent invoice design request supersedes exact reference matching; official ZATCA issuance, remaining capped reads and the other launch conditions remain unresolved.

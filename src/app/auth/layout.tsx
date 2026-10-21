@@ -1,4 +1,5 @@
 import type { Metadata } from "next"
+import { LanguageToggle } from "@/components/language-toggle"
 
 export const metadata: Metadata = {
   title: "Sign In | Elite Development",
@@ -28,7 +29,8 @@ export default function AuthLayout({
         </div>
       </div>
       {/* Right form panel */}
-      <div className="flex-1 flex items-center justify-center p-6 bg-background">
+      <div className="relative flex-1 flex items-center justify-center p-6 pt-20 bg-background">
+        <div className="absolute end-6 top-6"><LanguageToggle /></div>
         <div className="w-full max-w-[420px]">
           {children}
         </div>

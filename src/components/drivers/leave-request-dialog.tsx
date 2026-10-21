@@ -1,5 +1,7 @@
 "use client";
 
+import { LocalizedText, useUiText } from "@/components/localized-text"
+import { useTranslation } from "@/hooks/use-translation"
 import { useEffect, useState } from "react";
 
 import { CalendarClock, Loader2, Send } from "lucide-react";
@@ -59,6 +61,8 @@ export function LeaveRequestDialog({
   driverName,
   onSaved,
 }: LeaveRequestDialogProps) {
+  const ui = useUiText()
+  const { locale } = useTranslation()
   const supabase = createClient();
 
   const [leaveTypes, setLeaveTypes] = useState<LeaveTypeRow[]>([]);
@@ -155,28 +159,22 @@ export function LeaveRequestDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <CalendarClock className="size-5 text-primary" />
-            Request Leave
-          </DialogTitle>
-          <DialogDescription>
-            Submit a leave request for <span className="font-medium text-foreground">{driverName}</span>:
-            {" "}
-            It will be routed for approval.
-          </DialogDescription>
+            <CalendarClock className="size-5 text-primary" /><LocalizedText text="Request Leave" /></DialogTitle>
+          <DialogDescription><LocalizedText text="Submit a leave request for" /><span className="font-medium text-foreground">{driverName}</span>:
+            {" "}<LocalizedText text="It will be routed for approval." /></DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="leave-type">Leave type</Label>
+            <Label htmlFor="leave-type"><LocalizedText text="Leave type" /></Label>
             <Select value={typeId} onValueChange={setTypeId}>
               <SelectTrigger id="leave-type">
-                <SelectValue placeholder="Select leave type" />
+                <SelectValue placeholder={ui("Select leave type")} />
               </SelectTrigger>
               <SelectContent>
                 {leaveTypes.map((type) => (
                   <SelectItem key={type.id} value={type.id}>
-                    {type.name_en ?? type.name_ar ?? type.id}
-                    {type.name_ar ? ` · ${type.name_ar}` : ""}
+                    {locale === "ar" ? (type.name_ar ?? type.name_en ?? type.id) : (type.name_en ?? type.name_ar ?? type.id)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -185,7 +183,7 @@ export function LeaveRequestDialog({
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
-              <Label htmlFor="leave-start">Start date</Label>
+              <Label htmlFor="leave-start"><LocalizedText text="Start date" /></Label>
               <Input
                 id="leave-start"
                 type="date"
@@ -194,7 +192,7 @@ export function LeaveRequestDialog({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="leave-end">End date</Label>
+              <Label htmlFor="leave-end"><LocalizedText text="End date" /></Label>
               <Input
                 id="leave-end"
                 type="date"
@@ -219,35 +217,27 @@ export function LeaveRequestDialog({
           {/* Saudi Labor Law hint (Art. 109 / 117) — server-side enforcement
               lives in validate_leave_request() + the insert trigger. */}
           {selectedTypeCode === "annual" ? (
-            <p className="rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-              Statutory entitlement: 21 days/year (&lt; 5 years of service) or 30 days (5+ years).
-            </p>
+            <p className="rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground"><LocalizedText text="Statutory entitlement: 21 days/year (< 5 years of service) or 30 days (5+ years)." /></p>
           ) : selectedTypeCode === "sick" ? (
-            <p className="rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-              Statutory 120-day window: 30 days full pay · 60 days half pay · 30 days unpaid.
-            </p>
+            <p className="rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground"><LocalizedText text="Statutory 120-day window: 30 days full pay · 60 days half pay · 30 days unpaid." /></p>
           ) : null}
 
           <div className="space-y-2">
-            <Label htmlFor="leave-reason">Reason (optional)</Label>
+            <Label htmlFor="leave-reason"><LocalizedText text="Reason (optional)" /></Label>
             <Textarea
               id="leave-reason"
               value={reason}
               onChange={(event) => setReason(event.target.value)}
               rows={3}
-              placeholder="Add context for the approver…"
+              placeholder={ui("Add context for the approver…")}
             />
           </div>
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
-            Cancel
-          </Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}><LocalizedText text="Cancel" /></Button>
           <Button onClick={() => void submit()} disabled={saving || !days || !typeId}>
-            {saving ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-            Submit Request
-          </Button>
+            {saving ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}<LocalizedText text="Submit Request" /></Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

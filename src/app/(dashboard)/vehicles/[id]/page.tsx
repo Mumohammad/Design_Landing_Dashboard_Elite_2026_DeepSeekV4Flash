@@ -1,5 +1,6 @@
 "use client"
 
+import { LocalizedText } from "@/components/localized-text"
 import { useEffect, useState } from "react"
 import type { ComponentType, ReactNode } from "react"
 import { useParams, useRouter } from "next/navigation"
@@ -1062,7 +1063,7 @@ function MaintenanceTab({
             {ev.date_in && <span>{t.vehicles.dateIn}: {formatDate(ev.date_in)}</span>}
             {ev.date_out && <span>{t.vehicles.dateOut}: {formatDate(ev.date_out)}</span>}
             {ev.odometer_at_service != null && (
-              <span className="tabular-nums">{ev.odometer_at_service.toLocaleString()} km</span>
+              <span className="tabular-nums">{ev.odometer_at_service.toLocaleString()} <LocalizedText text="km" /></span>
             )}
           </div>
         </div>

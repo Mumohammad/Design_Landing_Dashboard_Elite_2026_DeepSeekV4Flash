@@ -102,11 +102,11 @@ BEGIN
           '{"_invite_provisioned": true}')
   ON CONFLICT (id) DO NOTHING;
 
-  INSERT INTO public.users (id, auth_user_id, tenant_id, email, role, status)
-  VALUES (v_users, v_auth, v_tenant, 'approvals-fixture@test.local', 'general_manager', 'active')
+  INSERT INTO public.users (id, auth_user_id, tenant_id, email, role, status, must_change_password)
+  VALUES (v_users, v_auth, v_tenant, 'approvals-fixture@test.local', 'general_manager', 'active', false)
   -- 062's fixtures own the SAME id with role='supervisor'; after one of its
   -- failed runs leaks, DO NOTHING would leave this reviewer a supervisor.
-  ON CONFLICT (id) DO UPDATE SET role = 'general_manager', status = 'active';
+  ON CONFLICT (id) DO UPDATE SET role = 'general_manager', status = 'active', must_change_password = false;
 
   -- Driver (tenant A) — receives the leave request. hire_date is REQUIRED:
   -- validate_leave_request() (enforced by the trg_enforce_leave_policy
@@ -334,9 +334,9 @@ SELECT is(
 RESET ROLE;
 SET LOCAL ROLE postgres;
 SELECT ok(
-  (SELECT pg_get_functiondef('public.fetch_pending_approvals(uuid, text, timestamptz, timestamptz, integer)'::regprocedure)
-   LIKE '%LEAST(GREATEST(COALESCE(p_limit, 50), 1), 100)%'),
-  'fetch_pending_approvals clamps p_limit in SQL (hard cap 100)'
+  (SELECT count(*) FROM public.fetch_pending_approvals('11111111-1111-1111-1111-111111111111',NULL,NULL,NULL,100000)) <= 100
+  AND (SELECT count(*) FROM public.fetch_pending_approvals('11111111-1111-1111-1111-111111111111',NULL,NULL,NULL,1)) = 1,
+  'legacy queue enforces requested row bounds (large-queue cap covered by 092)'
 );
 
 -- ─── 4. RLS tenant isolation + anon-zero on the sources (3) ─────────────────

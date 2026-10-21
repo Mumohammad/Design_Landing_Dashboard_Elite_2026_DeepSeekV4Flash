@@ -4,6 +4,7 @@ import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
 import { SidebarConfigProvider } from "@/contexts/sidebar-context"
 import { LocaleProvider } from "@/contexts/locale-context"
+import { Toaster } from "@/components/ui/sonner"
 import { cairo, inter } from "@/lib/fonts"
 
 export const metadata: Metadata = {
@@ -24,7 +25,8 @@ export const metadata: Metadata = {
 const localeInitScript = `
 (function() {
   try {
-    var locale = localStorage.getItem('elite-locale');
+    var requested = new URLSearchParams(window.location.search).get('lang');
+    var locale = requested === 'en' || requested === 'ar' ? requested : localStorage.getItem('elite-locale');
     if (locale === 'en' || locale === 'ar') {
       document.documentElement.lang = locale;
       document.documentElement.dir = locale === 'ar' ? 'rtl' : 'ltr';
@@ -53,6 +55,7 @@ export default function RootLayout({
         <ThemeProvider defaultTheme="system" storageKey="elite-ui-theme">
           <LocaleProvider>
             <SidebarConfigProvider>{children}</SidebarConfigProvider>
+            <Toaster />
           </LocaleProvider>
         </ThemeProvider>
       </body>

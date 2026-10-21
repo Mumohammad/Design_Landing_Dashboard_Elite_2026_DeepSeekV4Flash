@@ -1,3 +1,4 @@
+import { LocalizedText } from "@/components/localized-text"
 import Link from 'next/link';
 import { ArrowLeft, Check, Sparkles, Zap } from 'lucide-react';
 
@@ -55,13 +56,9 @@ export function PricingSection() {
       <div className="relative mx-auto max-w-7xl px-4 lg:px-8">
         <div className="mx-auto max-w-3xl text-center">
           <span className="inline-flex items-center gap-2 rounded-full border px-4 py-1.5 text-xs font-semibold tracking-wide border-elite-blue-500/30 bg-elite-blue-500/5 text-elite-blue-600 dark:text-elite-blue-300">
-            <span className="h-1.5 w-1.5 rounded-full bg-elite-blue-500 animate-pulse"></span>
-            الأسعار
-          </span>
-          <h2 className="mt-5 text-3xl font-extrabold tracking-tight sm:text-4xl lg:text-5xl text-foreground">خطط بسيطة لأي حجم أسطول</h2>
-          <p className="mx-auto mt-4 max-w-2xl text-base leading-relaxed text-muted-foreground">
-            ابدأ بالأساسيات وانمُ مع نمو عمليتك. الخطط المعروضة استرشادية — السعر النهائي يُحدد لكل عملية.
-          </p>
+            <span className="h-1.5 w-1.5 rounded-full bg-elite-blue-500 animate-pulse"></span><LocalizedText text="الأسعار" /></span>
+          <h2 className="mt-5 text-3xl font-extrabold tracking-tight sm:text-4xl lg:text-5xl text-foreground"><LocalizedText text="خطط بسيطة لأي حجم أسطول" /></h2>
+          <p className="mx-auto mt-4 max-w-2xl text-base leading-relaxed text-muted-foreground"><LocalizedText text="ابدأ بالأساسيات وانمُ مع نمو عمليتك. الخطط المعروضة استرشادية — السعر النهائي يُحدد لكل عملية." /></p>
         </div>
 
         <div className="mt-14 grid items-stretch gap-7 lg:grid-cols-3">
@@ -78,23 +75,23 @@ export function PricingSection() {
                 <>
                   <span className="absolute -top-3.5 start-1/2 inline-flex -translate-x-1/2 items-center gap-2 rounded-full bg-gradient-to-r from-elite-blue-500 to-elite-orange-500 px-4 py-1.5 text-[11px] font-bold whitespace-nowrap text-white shadow-xl shadow-elite-blue-500/30 rtl:translate-x-1/2">
                     <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-                    {plan.badge}
+                    <LocalizedText text={plan.badge} />
                   </span>
                   <div className="absolute -inset-1 rounded-3xl bg-gradient-to-r from-elite-blue-500/10 to-elite-orange-500/10 blur-xl opacity-50"></div>
                 </>
               )}
               <div className="relative">
-                <h3 className="text-xl font-extrabold text-foreground">{plan.name}</h3>
-                <p className="mt-2 text-sm text-muted-foreground">{plan.tagline}</p>
+                <h3 className="text-xl font-extrabold text-foreground"><LocalizedText text={plan.name} /></h3>
+                <p className="mt-2 text-sm text-muted-foreground"><LocalizedText text={plan.tagline} /></p>
                 <div className="mt-6 flex items-baseline gap-2">
-                  <span className="text-4xl font-extrabold tracking-tight text-foreground sm:text-5xl">{plan.price}</span>
-                  <span className="text-sm font-medium text-muted-foreground">{plan.unit}</span>
+                  <span className="text-4xl font-extrabold tracking-tight text-foreground sm:text-5xl"><LocalizedText text={plan.price} /></span>
+                  <span className="text-sm font-medium text-muted-foreground"><LocalizedText text={plan.unit} /></span>
                 </div>
                 <ul className="mt-7 flex-1 space-y-3 border-t border-border/50 pt-6">
                   {plan.features.map((feature) => (
                     <li key={feature} className="flex items-start gap-3 text-sm text-foreground">
                       <CheckIcon />
-                      {feature}
+                      <LocalizedText text={feature} />
                     </li>
                   ))}
                 </ul>
@@ -107,7 +104,7 @@ export function PricingSection() {
                   }
                 >
                   {plan.featured && <Zap className="h-4 w-4" aria-hidden="true" />}
-                  {plan.cta}
+                  <LocalizedText text={plan.cta} />
                   <ArrowLeft className="h-4 w-4 rtl:-scale-x-100" aria-hidden="true" />
                 </Link>
               </div>
@@ -115,9 +112,7 @@ export function PricingSection() {
           ))}
         </div>
         <p className="mt-6 flex items-center justify-center gap-2 text-center text-xs text-muted-foreground">
-          <span className="h-1.5 w-1.5 rounded-full bg-elite-orange-500"></span>
-          الخطط استرشادية — السعر والحدود يُحددان لكل عملية عند الطلب.
-        </p>
+          <span className="h-1.5 w-1.5 rounded-full bg-elite-orange-500"></span><LocalizedText text="الخطط استرشادية — السعر والحدود يُحددان لكل عملية عند الطلب." /></p>
       </div>
     </section>
   );

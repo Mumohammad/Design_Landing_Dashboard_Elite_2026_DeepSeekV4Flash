@@ -22,10 +22,10 @@ import { writeAuditLog } from "@/lib/auth/sessions"
 // Sync helpers live in a plain module (a "use server" file can only export
 // async functions, which would force awaits at every call site).
 import { mapFinancialError, parseCsv, toCsv } from "@/lib/accounting/csv-utils"
-// Canonical 2dp integer-minor rounding (invoice-math.ts) — every money value
-// passes through the SAME EPSILON-guarded function so no float artifact can
-// slip in through a differently-rounded copy (TEST-STRATEGY §4).
+// Round decimal values before persistence; VAT multiplication must also use
+// decimal arithmetic rather than rounding an already-imprecise float product.
 import { round2 } from "@/lib/accounting/invoice-math"
+import { calculateVat, sumMoney } from "@/lib/accounting/decimal"
 import { rateLimitAccounting, rateLimitAccountingImport } from "@/lib/auth/rate-limit"
 import { moduleLogger, logPerformance } from "@/lib/logger"
 import { emit } from "@/lib/webhooks/events"
@@ -961,12 +961,13 @@ export async function postJournalEntry(input: {
 }
 
 export async function createReceivable(input: {
+  request_id: string
   invoice_ref: string
   invoice_date: string
   due_date: string
   amount: number
   vat_rate: number
-}): Promise<ActionResult> {
+}): Promise<ActionResult & { errorAr?: string; id?: string; replayed?: boolean }> {
   try {
     await requirePermission("accounting", "create")
     const currentUser = await getCurrentUser()
@@ -977,55 +978,63 @@ export async function createReceivable(input: {
     const t0 = Date.now()
     log.info({ userId: currentUser.id, tenantId: currentUser.tenantId }, "createReceivable started")
 
-    const amount = Number(input.amount)
-    const vatRate = Number(input.vat_rate)
-    if (!input.invoice_ref.trim() || amount <= 0 || vatRate < 0 || vatRate > 100) {
-      return { success: false, error: "Invoice reference, positive amount, and a valid VAT rate are required." }
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!uuid.test(input.request_id ?? "")) return { success: false, error: "Reopen the form to start a new receivable.", errorAr: "أعد فتح النموذج لبدء ذمة مدينة جديدة." }
+    const amount = input.amount
+    const vatRate = input.vat_rate
+    if (typeof input.invoice_ref !== "string" || !input.invoice_ref.trim() || input.invoice_ref.trim().length > 200
+      || typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0 || amount > 9_999_999_999.99
+      || typeof vatRate !== "number"
+      || !Number.isFinite(vatRate) || vatRate < 0 || vatRate > 100) {
+      return { success: false, error: "Invoice reference, positive amount, and a valid VAT rate are required.", errorAr: "أدخل مرجع الفاتورة ومبلغاً موجباً ونسبة ضريبة صحيحة." }
     }
-    if (new Date(input.due_date) < new Date(input.invoice_date)) {
-      return { success: false, error: "Due date cannot be before the invoice date." }
+    if ([input.invoice_date, input.due_date].some(value => {
+      const date = new Date(value)
+      return !/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== value
+    })) {
+      return { success: false, error: "Valid invoice and due dates are required.", errorAr: "أدخل تاريخ فاتورة وتاريخ استحقاق صحيحين." }
+    }
+    if (input.due_date < input.invoice_date) {
+      return { success: false, error: "Due date cannot be before the invoice date.", errorAr: "لا يمكن أن يسبق الاستحقاق تاريخ الفاتورة." }
     }
 
-    // TEST-STRATEGY §4: the old `Math.round(amount * vatRate) / 100` float
-    // pattern was flagged for replacement — the canonical EPSILON-guarded
-    // round2 on the divided value matches expenses/invoices exactly.
     const amountR = round2(amount)
-    const vatAmount = round2((amountR * vatRate) / 100)
-    const total = round2(amountR + vatAmount)
+    const vatAmount = calculateVat(amountR, vatRate)
+    const total = sumMoney(amountR, vatAmount)
+    if (amountR <= 0 || total > 9_999_999_999.99) {
+      return { success: false, error: "Receivable amounts must fit the supported monetary range.", errorAr: "المبلغ يتجاوز النطاق المالي المدعوم." }
+    }
 
-    const admin = createAdminClient()
-    const { data: row, error } = await admin
-      .from("receivables")
-      .insert({
-        tenant_id: currentUser.tenantId,
+    // Keep the caller's JWT/MFA context. The database derives tenant/actor and
+    // commits the receivable, request identity and audit evidence together.
+    const supabase = await createClient()
+    const { data: row, error } = await supabase.rpc("create_manual_receivable_atomic", {
+      p_request_id: input.request_id,
+      p_receivable: {
         invoice_ref: input.invoice_ref.trim(),
         invoice_date: input.invoice_date,
         due_date: input.due_date,
         amount: amountR,
-        vat_amount: vatAmount,
-        total_amount: total,
-        paid_amount: 0,
-        status: "open",
-        source_entity_type: "manual",
-      })
-      .select("id")
-      .single()
-
-    if (error) return { success: false, error: error.message }
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "accounting",
-      action: "receivable_created",
-      entityType: "receivables",
-      entityId: row.id,
-      newValues: { invoice_ref: input.invoice_ref, total_amount: total, vat_amount: vatAmount },
+        vat_rate: vatRate,
+      },
     })
+    if (error?.message?.startsWith("AR_RETRY_UNAVAILABLE:")) return {
+      success: false, error: "The original receivable changed or was removed. Reload and review it before creating another.",
+      errorAr: "تغيرت الذمة الأصلية أو حُذفت. أعد تحميلها وراجعها قبل إنشاء ذمة أخرى.",
+    }
+    if (error?.message?.startsWith("AR_RETRY:")) return {
+      success: false, error: "This request already saved different details. Reload and review the original receivable before starting a new one.",
+      errorAr: "حُفظ هذا الطلب بتفاصيل مختلفة. أعد تحميل الذمة الأصلية وراجعها قبل بدء طلب جديد.",
+    }
+    if (error || !row || !uuid.test(row.id ?? "") || typeof row.replayed !== "boolean") return {
+      success: false, error: "Unable to confirm this receivable. Retry with unchanged details.",
+      errorAr: "تعذر تأكيد حفظ الذمة. أعد المحاولة بالتفاصيل نفسها.",
+    }
 
     revalidatePath("/accounting")
-    return { success: true }
+    return { success: true, id: row.id, replayed: row.replayed }
   } catch (e) {
-    return { success: false, error: errorMessage(e) }
+    void e
+    return { success: false, error: "Unable to confirm this receivable. Retry with unchanged details.", errorAr: "تعذر تأكيد حفظ الذمة. أعد المحاولة بالتفاصيل نفسها." }
   }
 }

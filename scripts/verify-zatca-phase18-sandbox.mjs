@@ -175,8 +175,8 @@ const ubl = buildZatcaUblInvoice(INVOICE)
   ok("P1.4 UBL invoice well-formed + QR embedded",
     ubl.includes("urn:oasis:names:specification:ubl:schema:xsd:Invoice-2") &&
     ubl.includes(`<cbc:EmbeddedDocumentBinaryObject mimeCode="text/plain">${qrBase64}`))
-  ok("P1.4b UBL has ds:SignatureValue placeholder (signing seam)",
-    ubl.includes("<ds:SignatureValue></ds:SignatureValue>"))
+  ok("P1.4b UBL has a signature reference, not an invalid bare XML signature",
+    ubl.includes("<cac:Signature>") && !ubl.includes("<ds:SignatureValue>"))
 }
 
 // 1.5 invoice hash + PIH chain (genesis for the first doc)
@@ -186,20 +186,18 @@ const nextPih = computePiH(invoiceHash)
 ok("P1.5 invoice hash is base64 SHA-256 (32 bytes)", Buffer.from(invoiceHash, "base64").length === 32)
 ok("P1.5b genesis PIH differs from chain hash", pih !== nextPih && nextPih.length === 44)
 
-// 1.6 ECDSA sign + verify round-trip (signing input = hash + signing time)
-const signingTime = "2026-08-15T10:30:00Z"
-const signature = signZatcaPayload(buildSigningInput(invoiceHash, signingTime), kp.privateKeyPem)
-ok("P1.6 ECDSA signature verifies with the CSID public key",
-  verifyZatcaPayload(buildSigningInput(invoiceHash, signingTime), signature, kp.publicKeyPem))
+// 1.6 Primitive round trip only: not a complete XAdES signature or CSID stamp.
+const signature = signZatcaPayload(buildSigningInput(invoiceHash), kp.privateKeyPem)
+ok("P1.6 primitive ECDSA signature verifies with the generated public key",
+  verifyZatcaPayload(buildSigningInput(invoiceHash), signature, kp.publicKeyPem))
 ok("P1.6b signature rejects a tampered hash",
-  !verifyZatcaPayload(buildSigningInput(computeInvoiceHash(ubl + " "), signingTime), signature, kp.publicKeyPem))
+  !verifyZatcaPayload(buildSigningInput(computeInvoiceHash(ubl.replace(INVOICE.invoiceNumber, "ALTERED-INVOICE"))), signature, kp.publicKeyPem))
 
-// 1.7 signed transmission through the transport (sandbox mode)
-const signedUbl = ubl.replace("<ds:SignatureValue></ds:SignatureValue>", `<ds:SignatureValue>${signature}</ds:SignatureValue>`)
-const tx = await transmitToZatca({ xml: signedUbl, pipeline: "reporting", docRef: INVOICE.invoiceNumber })
+// 1.7 offline mock only. Do not inject a primitive signature as a fake stamp.
+const tx = await transmitToZatca({ xml: ubl, pipeline: "reporting", docRef: INVOICE.invoiceNumber })
 ok("P1.7 sandbox transmission → reported + stable UUID",
   tx.status === "reported" && tx.raw.sandbox === true && /^[0-9a-f-]{36}$/.test(tx.uuid))
-ok("P1.7b signed XML carries the injected signature", signedUbl.includes(`<ds:SignatureValue>${signature}</ds:SignatureValue>`))
+ok("P1.7b mock is explicitly unvalidated", tx.raw.validationResults.status === "NOT_VALIDATED")
 
 // ═══════════════════════════════════════════════════════════════════════════
 // PART 2 — LIVE SANDBOX ONBOARDING (only when the OTP is supplied)

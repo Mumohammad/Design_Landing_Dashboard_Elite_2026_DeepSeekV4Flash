@@ -2,6 +2,7 @@
 
 // Platform create/edit + payment-record dialogs (Prompt O Part 2).
 
+import { useUiText } from "@/components/localized-text"
 import { useState } from "react"
 import { useTranslation } from "@/hooks/use-translation"
 import { Button } from "@/components/ui/button"
@@ -164,6 +165,7 @@ export function PaymentDialog({
   onClose: () => void
   onDone: (err: string | null) => void
 }) {
+  const ui = useUiText()
   const { t } = useTranslation()
   const pm = t.platformsModule
   const [year, setYear] = useState(defaultYear)
@@ -206,12 +208,12 @@ export function PaymentDialog({
             <div className="grid gap-1.5">
               <Label>{pm.fieldPeriod}</Label>
               <div className="flex gap-1.5">
-                <select value={month} onChange={(e) => setMonth(Number(e.target.value))} className="h-9 w-full rounded-xl border border-border/50 bg-muted/30 px-2 text-sm" aria-label="month">
+                <select value={month} onChange={(e) => setMonth(Number(e.target.value))} className="h-9 w-full rounded-xl border border-border/50 bg-muted/30 px-2 text-sm" aria-label={ui("month")}>
                   {Array.from({ length: 12 }, (_, i) => i + 1).map((mo) => (
                     <option key={mo} value={mo}>{mo}</option>
                   ))}
                 </select>
-                <select value={year} onChange={(e) => setYear(Number(e.target.value))} className="h-9 w-full rounded-xl border border-border/50 bg-muted/30 px-2 text-sm" aria-label="year">
+                <select value={year} onChange={(e) => setYear(Number(e.target.value))} className="h-9 w-full rounded-xl border border-border/50 bg-muted/30 px-2 text-sm" aria-label={ui("year")}>
                   {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map((yr) => (
                     <option key={yr} value={yr}>{yr}</option>
                   ))}

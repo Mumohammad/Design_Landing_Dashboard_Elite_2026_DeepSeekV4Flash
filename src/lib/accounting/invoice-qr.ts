@@ -64,10 +64,18 @@ export function buildTaxQrPayload(p: TaxQrPayload): Uint8Array {
   return out
 }
 
-/** Render text (typically the TLV payload) as a PNG data URL (Node API).
- * Passed as a byte-mode segment so binary TLV bytes survive verbatim. */
+/** Base64 is the QR's text content; raw binary TLV is not scanner-compatible.
+ * Security Features Implementation Standards v1.1, section 4.1. This encoding
+ * alone does not establish Phase 2 signing, clearance or reporting. */
+export function taxQrBase64(payload: Uint8Array): string {
+  const encoded = Buffer.from(payload).toString("base64")
+  if (encoded.length > 700) throw new Error("Tax QR exceeds the 700-character limit")
+  return encoded
+}
+
+/** Render a text QR or the Base64 text of a TLV payload (Node API). */
 export async function qrPngDataUrl(text: Uint8Array | string): Promise<string> {
-  return QRCode.toDataURL([{ data: text }], {
+  return QRCode.toDataURL(typeof text === "string" ? text : taxQrBase64(text), {
     errorCorrectionLevel: "M",
     margin: 1,
     width: 180,

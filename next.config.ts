@@ -1,6 +1,12 @@
 import type { NextConfig } from "next"
 import { withSentryConfig } from "@sentry/nextjs"
 import { buildCsp } from "./src/lib/security/csp"
+import { realpathSync } from "node:fs"
+import { relative } from "node:path"
+
+// pnpm package aliases are symlinks. Including children beneath those aliases
+// creates an invalid Vercel function package; trace the physical directory.
+const packagePath = (name: string) => relative(process.cwd(), realpathSync(`node_modules/${name}`)).split("\\").join("/")
 
 // ── Cross-deployment routing ─────────────────────────────────────────────────
 // Two Vercel projects deploy this repo: a public LANDING deployment and an
@@ -30,6 +36,16 @@ const LANDING_HOST = LANDING_URL.slice(LANDING_URL.indexOf("://") + 3).split("/"
 
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: ["@sparticuz/chromium", "playwright-core"],
+  outputFileTracingIncludes: {
+    "/api/invoices/*/pdf": [
+      `${packagePath("@sparticuz/chromium")}/bin/*.br`,
+      // Playwright loads metadata/injected resources dynamically; tracing its
+      // JS entry alone omits browsers.json in the deployed function.
+      `${packagePath("playwright-core")}/**/*`,
+    ],
+    "/*": ["./src/assets/fonts/cairo.woff2"],
+  },
   experimental: {
     optimizePackageImports: ["lucide-react", "@radix-ui/react-icons"],
   },

@@ -5,13 +5,10 @@
 // the adapter never recomputes amounts: it consumes the immutable invoice +
 // line + tax payloads and transforms them into XML.
 //
-// Sandbox-first: this produces a well-formed UBL 2.1 document carrying the
-// documented mandatory field set (seller/buyer VAT numbers, issue date/time,
-// invoice number, item description/quantity/unit price, VAT amount, total,
-// QR). It is NOT a claim of ZATCA compliance, approval, or certification
-// (ZATCA-BOUNDARY.md §1, §5). Cryptographically signing the document is a
-// later, config-only step once production credentials/certs exist — the
-// transport layer (zatca-transport.ts) is where that lands.
+// Offline SDK format work. Complete synthetic fixtures pass the supplied SDK
+// after SDK demonstration signing. Existing application callers do not supply
+// all issuance/tax-profile fields, and application signing/network integration
+// remains incomplete. Production cannot be enabled by configuration alone.
 //
 // UBL 2.1 namespaces (https://www.oasis-open.org/committees/ubl/):
 //   Invoice     urn:oasis:names:specification:ubl:schema:xsd:Invoice-2
@@ -21,10 +18,11 @@
 // ZATCA-relevant field mapping (per the public Electronic Invoice XML
 // Implementation Standard field requirements):
 //   InvoiceTypeCode  388 = standard tax invoice, 381 = credit note, 383 = debit note
-//   ProfileID        reporting:1.0 (compliance) / clearance:1.0 (simplified B2C)
+//   ProfileID        reporting:1.0; standard tax invoices use clearance,
+//                    simplified tax invoices use reporting (transport route).
 //   VAT category     S = standard rate, Z = zero-rated, E = exempt
 
-import { buildTaxQrPayload, type TaxQrPayload } from "./invoice-qr"
+import { buildTaxQrPayload, taxQrBase64, type TaxQrPayload } from "./invoice-qr"
 
 export const ZATCA_CUSTOMIZATION_ID = "urn:cen.eu:en16931:2017#compliant#urn:zatca:egs:en16931:2023"
 
@@ -42,6 +40,8 @@ export interface ZatcaLine {
   description: string
   quantity: number
   unit_price: number
+  /** Line allowance already computed by the financial engine. */
+  discount?: number
   /** Net amount of the line (already computed by the invoice engine). */
   amount: number
   vat_rate: number
@@ -56,6 +56,12 @@ export interface ZatcaParty {
   crNumber?: string | null
   address?: string | null
   city?: string | null
+  buildingNumber?: string | null
+  district?: string | null
+  postalCode?: string | null
+  countryCode?: string | null
+  additionalNumber?: string | null
+  region?: string | null
 }
 
 export interface ZatcaInvoiceData {
@@ -64,7 +70,17 @@ export interface ZatcaInvoiceData {
   issueDate: string            // YYYY-MM-DD
   issueTime: string            // HH:mm:ss (24h)
   currency: string
-  profileId?: string           // reporting:1.0 | clearance:1.0
+  profileId?: "reporting:1.0"
+  invoiceKind?: "standard" | "simplified"
+  uuid?: string
+  invoiceCounter?: number
+  previousInvoiceHash?: string
+  deliveryDate?: string
+  referenceInvoiceNumber?: string
+  noteReason?: string
+  paymentMeansCode?: string
+  /** Required separately for non-SAR invoices; never invent an exchange rate. */
+  vatAmountSar?: number
   seller: ZatcaParty
   buyer: ZatcaParty
   lines: ZatcaLine[]
@@ -89,7 +105,8 @@ export function escXml(text: string | null | undefined): string {
 
 /** Money as a fixed 2dp string (the engine already rounds to the cent). */
 function money(v: number): string {
-  return (Number.isFinite(v) ? v : 0).toFixed(2)
+  if (!Number.isFinite(v) || v < 0) throw new Error("Invalid ZATCA monetary amount")
+  return v.toFixed(2)
 }
 
 /** UBL VAT category code from a rate: 0 → Z (zero-rated), else S (standard).
@@ -101,19 +118,29 @@ function vatCategory(rate: number): string {
 function partyXml(kind: "seller" | "buyer", p: ZatcaParty): string {
   const wrapper = kind === "seller" ? "AccountingSupplierParty" : "AccountingCustomerParty"
   const vat = p.vatNumber ? escXml(p.vatNumber) : ""
+  const address = [
+    p.address ? `<cbc:StreetName>${escXml(p.address)}</cbc:StreetName>` : "",
+    p.buildingNumber ? `<cbc:BuildingNumber>${escXml(p.buildingNumber)}</cbc:BuildingNumber>` : "",
+    p.additionalNumber ? `<cbc:PlotIdentification>${escXml(p.additionalNumber)}</cbc:PlotIdentification>` : "",
+    p.district ? `<cbc:CitySubdivisionName>${escXml(p.district)}</cbc:CitySubdivisionName>` : "",
+    p.city ? `<cbc:CityName>${escXml(p.city)}</cbc:CityName>` : "",
+    p.postalCode ? `<cbc:PostalZone>${escXml(p.postalCode)}</cbc:PostalZone>` : "",
+    p.region ? `<cbc:CountrySubentity>${escXml(p.region)}</cbc:CountrySubentity>` : "",
+    p.countryCode ? `<cac:Country><cbc:IdentificationCode>${escXml(p.countryCode)}</cbc:IdentificationCode></cac:Country>` : "",
+  ].join("")
   return [
     `    <cac:${wrapper}>`,
     `      <cac:Party>`,
+    p.crNumber ? `        <cac:PartyIdentification><cbc:ID schemeID="CRN">${escXml(p.crNumber)}</cbc:ID></cac:PartyIdentification>` : "",
     `        <cac:PartyName><cbc:Name>${escXml(p.name)}</cbc:Name></cac:PartyName>`,
     p.address || p.city
-      ? `        <cac:PostalAddress>${p.address ? `<cbc:StreetName>${escXml(p.address)}</cbc:StreetName>` : ""}${p.city ? `<cbc:CityName>${escXml(p.city)}</cbc:CityName>` : ""}</cac:PostalAddress>`
+      ? `        <cac:PostalAddress>${address}</cac:PostalAddress>`
       : "",
     vat
       ? `        <cac:PartyTaxScheme><cbc:CompanyID schemeID="VAT">${vat}</cbc:CompanyID><cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme></cac:PartyTaxScheme>`
       : "",
     `        <cac:PartyLegalEntity>`,
     `          <cbc:RegistrationName>${escXml(p.name)}</cbc:RegistrationName>`,
-    p.crNumber ? `          <cbc:CompanyID schemeID="CRN">${escXml(p.crNumber)}</cbc:CompanyID>` : "",
     `        </cac:PartyLegalEntity>`,
     `      </cac:Party>`,
     `    </cac:${wrapper}>`,
@@ -122,13 +149,16 @@ function partyXml(kind: "seller" | "buyer", p: ZatcaParty): string {
     .join("\n")
 }
 
-function lineXml(l: ZatcaLine): string {
+function lineXml(l: ZatcaLine, currency: string): string {
   const category = vatCategory(l.vat_rate)
+  const discount = money(l.discount ?? 0)
   return [
     `      <cac:InvoiceLine>`,
     `        <cbc:ID>${l.line_no}</cbc:ID>`,
     `        <cbc:InvoicedQuantity unitCode="EA">${l.quantity}</cbc:InvoicedQuantity>`,
-    `        <cbc:LineExtensionAmount currencyID="SAR">${money(l.amount)}</cbc:LineExtensionAmount>`,
+    `        <cbc:LineExtensionAmount currencyID="${currency}">${money(l.amount)}</cbc:LineExtensionAmount>`,
+    Number(discount) > 0 ? `        <cac:AllowanceCharge><cbc:ChargeIndicator>false</cbc:ChargeIndicator><cbc:AllowanceChargeReason>Line discount</cbc:AllowanceChargeReason><cbc:Amount currencyID="${currency}">${discount}</cbc:Amount></cac:AllowanceCharge>` : "",
+    `        <cac:TaxTotal><cbc:TaxAmount currencyID="${currency}">${money(l.vat_amount)}</cbc:TaxAmount><cbc:RoundingAmount currencyID="${currency}">${money(l.amount + l.vat_amount)}</cbc:RoundingAmount></cac:TaxTotal>`,
     `        <cac:Item>`,
     `          <cbc:Name>${escXml(l.description)}</cbc:Name>`,
     `          <cac:ClassifiedTaxCategory>`,
@@ -137,7 +167,7 @@ function lineXml(l: ZatcaLine): string {
     `            <cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme>`,
     `          </cac:ClassifiedTaxCategory>`,
     `        </cac:Item>`,
-    `        <cac:Price><cbc:PriceAmount currencyID="SAR">${money(l.unit_price)}</cbc:PriceAmount></cac:Price>`,
+    `        <cac:Price><cbc:PriceAmount currencyID="${currency}">${money(l.unit_price)}</cbc:PriceAmount></cac:Price>`,
     `      </cac:InvoiceLine>`,
   ].join("\n")
 }
@@ -147,6 +177,10 @@ function lineXml(l: ZatcaLine): string {
  * Amounts are passed in (never computed here) and rendered 2dp verbatim.
  */
 export function buildZatcaUblInvoice(data: ZatcaInvoiceData): string {
+  if (data.profileId && data.profileId !== "reporting:1.0") throw new Error("ZATCA ProfileID must be reporting:1.0; clearance is a transport route")
+  if (!/^[A-Z]{3}$/.test(data.currency)) throw new Error("Invalid invoice currency")
+  if (data.invoiceCounter !== undefined && (!Number.isSafeInteger(data.invoiceCounter) || data.invoiceCounter < 1)) throw new Error("Invalid invoice counter")
+  if (!data.lines.length || data.lines.some((line) => !Number.isFinite(line.quantity) || line.quantity <= 0 || !Number.isFinite(line.vat_rate) || line.vat_rate < 0)) throw new Error("Invalid invoice line")
   const currency = escXml(data.currency || "SAR")
   const profileId = data.profileId ?? "reporting:1.0"
   const taxTotal = [
@@ -174,10 +208,9 @@ export function buildZatcaUblInvoice(data: ZatcaInvoiceData): string {
   const legalTotal = [
     `    <cac:LegalMonetaryTotal>`,
     `      <cbc:LineExtensionAmount currencyID="${currency}">${money(data.subtotal)}</cbc:LineExtensionAmount>`,
-    data.discount > 0
-      ? `      <cbc:AllowanceTotalAmount currencyID="${currency}">${money(data.discount)}</cbc:AllowanceTotalAmount>`
-      : "",
-    `      <cbc:TaxExclusiveAmount currencyID="${currency}">${money(data.subtotal - data.discount)}</cbc:TaxExclusiveAmount>`,
+    // The invoice engine's subtotal already includes line discounts. They are
+    // not document-level allowances and must never be deducted a second time.
+    `      <cbc:TaxExclusiveAmount currencyID="${currency}">${money(data.subtotal)}</cbc:TaxExclusiveAmount>`,
     `      <cbc:TaxInclusiveAmount currencyID="${currency}">${money(data.total)}</cbc:TaxInclusiveAmount>`,
     `      <cbc:PayableAmount currencyID="${currency}">${money(data.total)}</cbc:PayableAmount>`,
     `    </cac:LegalMonetaryTotal>`,
@@ -185,10 +218,10 @@ export function buildZatcaUblInvoice(data: ZatcaInvoiceData): string {
     .filter(Boolean)
     .join("\n")
 
-  // ZATCA tax QR: base64 of the standard 5-field TLV payload, embedded in an
+  // Unvalidated five-field QR scaffold, embedded in an
   // AdditionalDocumentReference (mimeCode text/plain — the XML carriage form
   // for the QR). Reuses the exact payload the Phase 6 verification QR uses.
-  const qrBase64 = Buffer.from(buildTaxQrPayload(data.qr)).toString("base64")
+  const qrBase64 = taxQrBase64(buildTaxQrPayload(data.qr))
   const qrXml = [
     `    <cac:AdditionalDocumentReference>`,
     `      <cbc:ID>QR</cbc:ID>`,
@@ -198,11 +231,9 @@ export function buildZatcaUblInvoice(data: ZatcaInvoiceData): string {
     `    </cac:AdditionalDocumentReference>`,
   ].join("\n")
 
-  // Digital-signature scaffolding (ZATCA-BOUNDARY §1 seam): the XAdES-B-B
-  // signature block with an EMPTY `<ds:SignatureValue>` placeholder. The
-  // transport (zatca-transport.ts signXmlIfConfigured) injects the ECDSA
-  // signature here when a CSID private key is configured. The digest
-  // placeholder mirrors the invoice-hash the transport computes.
+  // UBL signature reference only. A bare ds:Signature at the Invoice root is
+  // invalid UBL (confirmed with the supplied SDK). This is not a stamp: a
+  // complete validated XAdES extension must be added by the signing layer.
   const signatureXml = [
     `  <cac:Signature>`,
     `    <cbc:ID>urn:oasis:names:specification:ubl:signature:1</cbc:ID>`,
@@ -215,18 +246,6 @@ export function buildZatcaUblInvoice(data: ZatcaInvoiceData): string {
     `      <cac:ExternalReference><cbc:URI>#signature</cbc:URI></cac:ExternalReference>`,
     `    </cac:DigitalSignatureAttachment>`,
     `  </cac:Signature>`,
-    `  <ds:Signature Id="signature">`,
-    `    <ds:SignedInfo>`,
-    `      <ds:CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>`,
-    `      <ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha256"/>`,
-    `      <ds:Reference URI="">`,
-    `        <ds:Transforms><ds:Transform Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/></ds:Transforms>`,
-    `        <ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>`,
-    `        <ds:DigestValue></ds:DigestValue>`,
-    `      </ds:Reference>`,
-    `    </ds:SignedInfo>`,
-    `    <ds:SignatureValue></ds:SignatureValue>`,
-    `  </ds:Signature>`,
   ].join("\n")
 
   return [
@@ -234,24 +253,31 @@ export function buildZatcaUblInvoice(data: ZatcaInvoiceData): string {
     `<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"`,
     `         xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"`,
     `         xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2"`,
+    `         xmlns:ext="urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2"`,
     `         xmlns:ds="http://www.w3.org/2000/09/xmldsig#">`,
     `  <cbc:UBLVersionID>2.1</cbc:UBLVersionID>`,
     `  <cbc:CustomizationID>${escXml(ZATCA_CUSTOMIZATION_ID)}</cbc:CustomizationID>`,
     `  <cbc:ProfileID>${escXml(profileId)}</cbc:ProfileID>`,
     `  <cbc:ID>${escXml(data.invoiceNumber)}</cbc:ID>`,
+    data.uuid ? `  <cbc:UUID>${escXml(data.uuid)}</cbc:UUID>` : "",
     `  <cbc:IssueDate>${escXml(data.issueDate)}</cbc:IssueDate>`,
     `  <cbc:IssueTime>${escXml(data.issueTime)}</cbc:IssueTime>`,
-    `  <cbc:InvoiceTypeCode>${INVOICE_TYPE_CODES[data.docType]}</cbc:InvoiceTypeCode>`,
+    `  <cbc:InvoiceTypeCode name="${data.invoiceKind === "simplified" ? "0200000" : "0100000"}">${INVOICE_TYPE_CODES[data.docType]}</cbc:InvoiceTypeCode>`,
     `  <cbc:DocumentCurrencyCode>${currency}</cbc:DocumentCurrencyCode>`,
+    `  <cbc:TaxCurrencyCode>SAR</cbc:TaxCurrencyCode>`,
+    data.referenceInvoiceNumber ? `  <cac:BillingReference><cac:InvoiceDocumentReference><cbc:ID>${escXml(data.referenceInvoiceNumber)}</cbc:ID></cac:InvoiceDocumentReference></cac:BillingReference>` : "",
+    data.invoiceCounter ? `  <cac:AdditionalDocumentReference><cbc:ID>ICV</cbc:ID><cbc:UUID>${data.invoiceCounter}</cbc:UUID></cac:AdditionalDocumentReference>` : "",
+    data.previousInvoiceHash ? `  <cac:AdditionalDocumentReference><cbc:ID>PIH</cbc:ID><cac:Attachment><cbc:EmbeddedDocumentBinaryObject mimeCode="text/plain">${escXml(data.previousInvoiceHash)}</cbc:EmbeddedDocumentBinaryObject></cac:Attachment></cac:AdditionalDocumentReference>` : "",
+    qrXml,
     signatureXml,
     partyXml("seller", data.seller),
     partyXml("buyer", data.buyer),
+    data.deliveryDate ? `  <cac:Delivery><cbc:ActualDeliveryDate>${escXml(data.deliveryDate)}</cbc:ActualDeliveryDate></cac:Delivery>` : "",
+    data.paymentMeansCode ? `  <cac:PaymentMeans><cbc:PaymentMeansCode>${escXml(data.paymentMeansCode)}</cbc:PaymentMeansCode>${data.noteReason ? `<cbc:InstructionNote>${escXml(data.noteReason)}</cbc:InstructionNote>` : ""}</cac:PaymentMeans>` : "",
+    currency === "SAR" || data.vatAmountSar !== undefined ? `  <cac:TaxTotal><cbc:TaxAmount currencyID="SAR">${money(currency === "SAR" ? data.vatAmount : data.vatAmountSar!)}</cbc:TaxAmount></cac:TaxTotal>` : "",
     taxTotal,
     legalTotal,
-    `  <cac:InvoiceLine>`,
-    ...data.lines.map(lineXml),
-    `  </cac:InvoiceLine>`,
-    qrXml,
+    ...data.lines.map((line) => lineXml(line, currency)),
     `</Invoice>`,
   ].join("\n")
 }

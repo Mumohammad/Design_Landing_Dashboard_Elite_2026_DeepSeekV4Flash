@@ -1,7 +1,8 @@
 "use client"
 
+import { LocalizedText } from "@/components/localized-text"
 import { integrationAvailable } from "@/lib/release/integrations"
-import { Fragment, useEffect, useState } from "react"
+import { Fragment, useCallback, useEffect, useState } from "react"
 import { useActionState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
@@ -11,6 +12,10 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { BankAccountPicker } from "@/components/accounting/bank-account-picker"
+import { LedgerToolbar } from "@/components/accounting/ledger-toolbar"
+import { ledgerQuery, isLedgerKind } from "@/lib/accounting/ledger-queries"
+import { useTablePage } from "@/hooks/use-table-page"
+import { calculateVat, decimalRound, sumMoney } from "@/lib/accounting/decimal"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { LoadingSpinner } from "@/components/ui/loading-spinner"
@@ -37,13 +42,14 @@ import { PartiesManager } from "./components/parties-manager"
 import { StatementsManager } from "./components/statements-manager"
 import { runEventDispatcher } from "@/lib/accounting/dispatcher"
 import { runZatcaAdapter, getZatcaTransmission } from "@/lib/accounting/zatca"
+import { zatcaEvidenceLabel } from "@/lib/accounting/zatca-evidence"
 import {
   listZatcaCsids,
   onboardZatcaCsids,
   type ZatcaCsidSummary,
   type ZatcaCsidEnvironment,
 } from "@/lib/accounting/zatca-csid"
-import { computeVatNetPosition } from "@/lib/accounting/vat-math"
+import { formatVatMoney, readVatPosition, vatNetAdjustments, type VatPosition } from "@/lib/accounting/vat-position"
 import { recordPayment, voidPayment, createBankAccount, updateBankAccount, changeBankAccountState } from "@/lib/accounting/payments"
 import {
   resolveVatReviewItem,
@@ -231,6 +237,7 @@ interface ZatcaTransmissionRow {
   error_message: string | null
   transmitted_at: string | null
   created_at: string
+  is_mock: string | null
 }
 
 interface ZatcaDetail {
@@ -239,7 +246,7 @@ interface ZatcaDetail {
   status: string
   zatca_uuid: string | null
   payload_xml: string
-  response: Record<string, unknown> | null
+  mock: boolean
   transmitted_at: string | null
   error_message: string | null
 }
@@ -319,6 +326,20 @@ const ARAP_STATUS: Record<string, { ar: string; en: string; className: string }>
   written_off: { ar: "مشطوبة", en: "Written off", className: "bg-gray-500/15 text-gray-600 border-gray-500/20" },
 }
 
+function requireAccountingRows(signal: AbortSignal, ...values: unknown[]) {
+  if (signal.aborted || values.some(value => !Array.isArray(value))) throw new Error("Could not load accounting data")
+}
+
+function manualReceivablePreview(amount: string, rate: string) {
+  try {
+    if (!amount || !Number.isFinite(Number(rate)) || Number(rate) < 0 || Number(rate) > 100) return null
+    const net = decimalRound(amount)
+    if (net <= 0) return null
+    const vat = calculateVat(net, rate || "0")
+    return { vat, total: sumMoney(net, vat) }
+  } catch { return null }
+}
+
 function fmtDate(d: string | null): string {
   if (!d) return "—"
   try {
@@ -374,21 +395,30 @@ export default function AccountingPage() {
 
   const [tab, setTab] = useState("journal")
   const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
+  const [loadRevision, setLoadRevision] = useState(0)
 
-  const [journals, setJournals] = useState<JournalRow[]>([])
+  const ledgerTab = isLedgerKind(tab)
+  const buildLedgerQuery = useCallback((term: string) => {
+    if (!isLedgerKind(tab)) throw new Error("Unsupported ledger")
+    return ledgerQuery(createClient(), tab, term)
+  }, [tab])
+  const ledger = useTablePage<JournalRow | ArApRow>(ledgerTab ? buildLedgerQuery : null)
+  const journals = ledger.rows as JournalRow[]
   const [expandedEntryId, setExpandedEntryId] = useState<string | null>(null)
   const [lineCache, setLineCache] = useState<Record<string, JournalLineRow[]>>({})
   const [linesBusy, setLinesBusy] = useState(false)
   const [linesError, setLinesError] = useState<string | null>(null)
   const [accounts, setAccounts] = useState<AccountRow[]>([])
   const [trial, setTrial] = useState<TrialRow[]>([])
-  const [receivables, setReceivables] = useState<ArApRow[]>([])
-  const [payables, setPayables] = useState<ArApRow[]>([])
+  const receivables = ledger.rows as ArApRow[]
+  const payables = ledger.rows as ArApRow[]
   const [vatOutput, setVatOutput] = useState<VatLedgerRow[]>([])
   const [vatInput, setVatInput] = useState<VatLedgerRow[]>([])
   const [vatAdjustments, setVatAdjustments] = useState<VatAdjustmentRow[]>([])
   const [vatPeriods, setVatPeriods] = useState<VatPeriodRow[]>([])
   const [vatRecon, setVatRecon] = useState<VatReconRow[]>([])
+  const [vatPosition, setVatPosition] = useState<VatPosition | null>(null)
   const [vatReviewItems, setVatReviewItems] = useState<VatReviewItem[]>([])
   const [reconExporting, setReconExporting] = useState(false)
   const [reconPrinting, setReconPrinting] = useState(false)
@@ -425,85 +455,68 @@ export default function AccountingPage() {
   const [periods, setPeriods] = useState<PeriodRow[]>([])
 
   useEffect(() => {
+    const controller = new AbortController()
     void (async () => {
       setIsLoading(true)
+      setLoadError(false)
       const supabase = createClient()
-
+      try {
       if (tab === "journal" || tab === "payments") {
         const { data } = await supabase
           .from("chart_of_accounts")
           .select("id,account_code,name_ar,name_en,account_type,normal_balance")
           .eq("is_active", true).is("deleted_at", null)
           .order("account_code", { ascending: true })
-        if (data) setAccounts(data as AccountRow[])
+          .abortSignal(controller.signal).throwOnError()
+        requireAccountingRows(controller.signal, data)
+        setAccounts(data as AccountRow[])
       }
 
-      if (tab === "journal") {
-        const { data } = await supabase
-          .from("journal_entries")
-          .select("id,entry_ref,entry_date,entry_type,status,description_ar,description_en,posted_at,updated_at,journal_approvals(status)")
-          .is("deleted_at", null)
-          .order("entry_date", { ascending: false })
-          .order("created_at", { ascending: false })
-          .limit(100)
-        if (data) setJournals(data as unknown as JournalRow[])
-      } else if (tab === "trial") {
-        const { data } = await supabase.from("trial_balance").select("*")
-        if (data) setTrial(data as TrialRow[])
-      } else if (tab === "receivables") {
-        const { data } = await supabase
-          .from("receivables")
-          .select("id,invoice_ref,invoice_date,due_date,amount,vat_amount,total_amount,paid_amount,status")
-          .is("deleted_at", null)
-          .order("due_date", { ascending: true })
-          .limit(200)
-        if (data) setReceivables(data as ArApRow[])
-      } else if (tab === "payables") {
-        const { data } = await supabase
-          .from("payables")
-          .select("id,invoice_ref,invoice_date,due_date,amount,vat_amount,total_amount,paid_amount,status")
-          .is("deleted_at", null)
-          .order("due_date", { ascending: true })
-          .limit(200)
-        if (data) setPayables(data as ArApRow[])
+      if (tab === "trial") {
+        const { data } = await supabase.from("trial_balance").select("*").abortSignal(controller.signal).throwOnError()
+        requireAccountingRows(controller.signal, data)
+        setTrial(data as TrialRow[])
       } else if (tab === "vat") {
-        const [outRes, inRes, adjRes, perRes, reconRes, reviewRes] = await Promise.all([
+        const [outRes, inRes, adjRes, perRes, reconRes, reviewRes, position] = await Promise.all([
           supabase
             .from("vat_output_ledger")
             .select("id,period_year,period_month,invoice_ref,invoice_date,vat_base_amount,vat_rate,vat_amount")
             .order("invoice_date", { ascending: false })
-            .limit(200),
+            .limit(200).abortSignal(controller.signal).throwOnError(),
           supabase
             .from("vat_input_ledger")
             .select("id,period_year,period_month,invoice_ref,invoice_date,vat_base_amount,vat_rate,vat_amount,vat_recoverability")
             .order("invoice_date", { ascending: false })
-            .limit(200),
+            .limit(200).abortSignal(controller.signal).throwOnError(),
           supabase
             .from("vat_adjustments")
             .select("id,period_year,period_month,adjustment_type,direction,base_amount,vat_amount,reason,status")
             .is("deleted_at", null)
             .order("period_year", { ascending: false })
             .order("period_month", { ascending: false })
-            .limit(100),
+            .limit(100).abortSignal(controller.signal).throwOnError(),
           supabase
             .from("vat_periods")
             .select("id,period_year,period_month,status")
             .is("deleted_at", null)
             .order("period_year", { ascending: false })
             .order("period_month", { ascending: false })
-            .limit(24),
+            .limit(24).abortSignal(controller.signal).throwOnError(),
           supabase
             .from("vat_reconciliation")
             .select("*")
             .order("period_year", { ascending: false })
-            .order("period_month", { ascending: false }),
+            .order("period_month", { ascending: false }).limit(1000).abortSignal(controller.signal).throwOnError(),
           supabase
             .from("vat_input_ledger")
             .select("id,invoice_ref,invoice_date,vat_base_amount,vat_rate,vat_amount,supplier_id")
             .eq("vat_recoverability", "pending_review")
             .order("invoice_date", { ascending: true })
-            .limit(200),
+            .limit(200).abortSignal(controller.signal).throwOnError(),
+          readVatPosition(supabase, controller.signal),
         ])
+        requireAccountingRows(controller.signal, outRes.data, inRes.data, adjRes.data, perRes.data, reconRes.data, reviewRes.data)
+        setVatPosition(position)
         if (outRes.data) setVatOutput(outRes.data as VatLedgerRow[])
         if (inRes.data) setVatInput(inRes.data as VatLedgerRow[])
         if (adjRes.data) setVatAdjustments(adjRes.data as VatAdjustmentRow[])
@@ -517,40 +530,42 @@ export default function AccountingPage() {
             .select("id,payment_ref,direction,payment_date,amount,method,reference,status,payment_allocations(id),bank_accounts(bank_name),customers(name_ar,name_en),suppliers(name_ar,name_en)")
             .is("deleted_at", null)
             .order("payment_date", { ascending: false })
-            .limit(200),
+            .limit(200).abortSignal(controller.signal).throwOnError(),
           supabase
             .from("bank_accounts")
             .select("id,bank_name,account_name,iban,account_number,currency,opening_balance,is_active,coa_account_code,updated_at", { count: "exact" })
             .is("deleted_at", null)
             .order("bank_name", { ascending: true }).order("id", { ascending: true })
-            .range(bankPage * 50, bankPage * 50 + 49),
+            .range(bankPage * 50, bankPage * 50 + 49).abortSignal(controller.signal).throwOnError(),
           supabase
             .from("receivables")
             .select("id,invoice_ref,invoice_date,due_date,amount,vat_amount,total_amount,paid_amount,status,customer_id,customers(name_ar,name_en)")
             .is("deleted_at", null)
             .in("status", ["open", "partially_paid", "overdue"])
             .order("due_date", { ascending: true })
-            .limit(100),
+            .limit(100).abortSignal(controller.signal).throwOnError(),
           supabase
             .from("payables")
             .select("id,invoice_ref,invoice_date,due_date,amount,vat_amount,total_amount,paid_amount,status,supplier_id,suppliers(name_ar,name_en)")
             .is("deleted_at", null)
             .in("status", ["open", "partially_paid", "overdue"])
             .order("due_date", { ascending: true })
-            .limit(100),
+            .limit(100).abortSignal(controller.signal).throwOnError(),
           supabase
             .from("customers")
             .select("id,name_ar,name_en")
             .is("deleted_at", null)
             .order("name_ar", { ascending: true })
-            .limit(200),
+            .limit(200).abortSignal(controller.signal).throwOnError(),
           supabase
             .from("suppliers")
             .select("id,name_ar,name_en")
             .is("deleted_at", null)
             .order("name_ar", { ascending: true })
-            .limit(200),
+            .limit(200).abortSignal(controller.signal).throwOnError(),
         ])
+        requireAccountingRows(controller.signal, payRes.data, bankRes.data, arRes.data, apRes.data, custRes.data, suppRes.data)
+        if (bankRes.count === null) throw new Error("Could not load accounting data")
         if (payRes.data) setPayments(payRes.data as unknown as PaymentRow[])
         setBankLoadError(!!bankRes.error)
         if (bankRes.data) {
@@ -588,28 +603,41 @@ export default function AccountingPage() {
           .order("period_year", { ascending: false })
           .order("period_month", { ascending: false })
           .limit(60)
-        if (data) setPeriods(data as PeriodRow[])
+          .abortSignal(controller.signal).throwOnError()
+        requireAccountingRows(controller.signal, data)
+        setPeriods(data as PeriodRow[])
       } else if (tab === "events") {
         const { data } = await supabase
           .from("financial_events")
           .select("id,idempotency_key,source_type,event_type,processing_status,event_date,created_at,processed_at,error_message")
           .order("created_at", { ascending: false })
           .limit(100)
-        if (data) setEvents(data as EventRow[])
+          .abortSignal(controller.signal).throwOnError()
+        requireAccountingRows(controller.signal, data)
+        setEvents(data as EventRow[])
       } else if (tab === "zatca") {
         const { data } = await supabase
           .from("zatca_transmissions")
-          .select("id,doc_ref,doc_type,status,zatca_uuid,error_message,transmitted_at,created_at")
+          .select("id,doc_ref,doc_type,status,zatca_uuid,error_message,transmitted_at,created_at,is_mock:response->>sandbox")
           .order("created_at", { ascending: false })
           .limit(100)
-        if (data) setZatcaRows(data as ZatcaTransmissionRow[])
+          .abortSignal(controller.signal).throwOnError()
+        requireAccountingRows(controller.signal, data)
+        setZatcaRows(data as ZatcaTransmissionRow[])
         const csids = await listZatcaCsids()
-        if (csids.success && csids.csids) setZatcaCsids(csids.csids)
+        if (controller.signal.aborted) return
+        if (!csids.success || !csids.csids) throw new Error("Could not load accounting data")
+        requireAccountingRows(controller.signal, csids.csids)
+        setZatcaCsids(csids.csids)
       }
-
-      setIsLoading(false)
+      } catch {
+        if (!controller.signal.aborted) setLoadError(true)
+      } finally {
+        if (!controller.signal.aborted) setIsLoading(false)
+      }
     })()
-  }, [tab, payRefresh, vatRefresh, bankPage])
+    return () => controller.abort()
+  }, [tab, payRefresh, vatRefresh, bankPage, loadRevision])
 
   // ── VAT return (Phase 12) — auto-select the latest period once the
   // reconciliation list is loaded, then fetch its return summary. Mirror the
@@ -650,15 +678,10 @@ export default function AccountingPage() {
     { key: 2, account_id: "", description: "", debit: "", credit: "" },
   ])
   async function reloadJournal() {
-    const supabase = createClient()
-    const { data } = await supabase
-      .from("journal_entries")
-      .select("id,entry_ref,entry_date,entry_type,status,description_ar,description_en,posted_at,updated_at,journal_approvals(status)")
-      .is("deleted_at", null)
-      .order("entry_date", { ascending: false })
-      .order("created_at", { ascending: false })
-      .limit(100)
-    if (data) setJournals(data as unknown as JournalRow[])
+    setIsLoading(true)
+    setLoadError(false)
+    ledger.reload()
+    setLoadRevision(value => value + 1)
   }
 
   const [asDraft, setAsDraft] = useState(true)
@@ -910,7 +933,7 @@ export default function AccountingPage() {
     const supabase = createClient()
     const { data } = await supabase
       .from("zatca_transmissions")
-      .select("id,doc_ref,doc_type,status,zatca_uuid,error_message,transmitted_at,created_at")
+      .select("id,doc_ref,doc_type,status,zatca_uuid,error_message,transmitted_at,created_at,is_mock:response->>sandbox")
       .order("created_at", { ascending: false })
       .limit(100)
     if (data) setZatcaRows(data as ZatcaTransmissionRow[])
@@ -1206,17 +1229,30 @@ export default function AccountingPage() {
   const [rcvDue, setRcvDue] = useState(() => new Date().toISOString().slice(0, 10))
   const [rcvAmount, setRcvAmount] = useState("")
   const [rcvVat, setRcvVat] = useState("15")
+  const [rcvRequest, setRcvRequest] = useState("")
+  function newReceivable() {
+    setRcvRequest(crypto.randomUUID())
+    setRcvRef(""); setRcvAmount(""); setRcvVat("15")
+    const today = new Date().toISOString().slice(0, 10)
+    setRcvDate(today); setRcvDue(today)
+    openDialog("receivable")
+  }
+  const rcvPreview = manualReceivablePreview(rcvAmount, rcvVat)
   const [rcvState, rcvAction, isSavingRcv] = useActionState(
-    async (_prev: { success: boolean; error?: string } | null, _form: FormData) => {
-      const res = await createReceivable({
+    async (_prev: { success: boolean; error?: string; errorAr?: string; requestId: string } | null, _form: FormData) => {
+      let res: { success: boolean; error?: string; errorAr?: string }
+      try { res = await createReceivable({
+        request_id: rcvRequest,
         invoice_ref: rcvRef,
         invoice_date: rcvDate,
         due_date: rcvDue,
         amount: Number(rcvAmount || 0),
         vat_rate: Number(rcvVat || 0),
-      })
-      if (res.success) closeDialog("receivable")
-      return res
+      }) } catch {
+        res = { success: false, error: "Unable to confirm this receivable. Retry with unchanged details.", errorAr: "تعذر تأكيد حفظ الذمة. أعد المحاولة بالتفاصيل نفسها." }
+      }
+      if (res.success) { closeDialog("receivable"); ledger.reload() }
+      return { ...res, requestId: rcvRequest }
     },
     null
   )
@@ -1407,7 +1443,9 @@ export default function AccountingPage() {
         </DialogContent>
       </Dialog>
 
-      <Tabs value={tab} onValueChange={setTab}>
+      <Tabs dir={ar ? "rtl" : "ltr"} value={tab} onValueChange={value => {
+        setIsLoading(true); setLoadError(false); setTab(value); ledger.setSearch(""); ledger.reload()
+      }}>
         <TabsList className="flex-wrap h-auto">
           <TabsTrigger value="journal" className="gap-2"><BookOpenText className="h-4 w-4" />{ar ? "قيود اليومية" : "Journal"}</TabsTrigger>
           <TabsTrigger value="accounts" className="gap-2"><ListTree className="h-4 w-4" />{ar ? "دليل الحسابات" : "Accounts"}</TabsTrigger>
@@ -1424,16 +1462,26 @@ export default function AccountingPage() {
           <TabsTrigger value="zatca" className="gap-2"><FileCheck2 className="h-4 w-4" />{ar ? "إشعارات ZATCA" : "ZATCA"}</TabsTrigger>
         </TabsList>
 
-        {isLoading ? (
+        {ledgerTab && <LedgerToolbar journal={tab === "journal"} search={ledger.search} onSearchChange={ledger.setSearch} pagination={ledger.pagination}
+          loading={isLoading || ledger.loading} error={loadError || ledger.error}
+          onRefresh={() => { ledger.reload(); setLoadRevision(value => value + 1) }} />}
+
+        {isLoading || (ledgerTab && ledger.loading) ? (
           <div className="flex items-center justify-center py-24">
             <LoadingSpinner className="h-6 w-6 text-elite-blue-600" />
+          </div>
+        ) : loadError || (ledgerTab && ledger.error) ? (
+          <div role="alert" data-testid="accounting-load-error" className="flex flex-col items-center gap-3 rounded-xl border border-border px-4 py-12 text-center">
+            <AlertTriangle aria-hidden="true" className="h-6 w-6 text-destructive" />
+            <p className="text-sm">{ar ? "تعذر تحميل البيانات المحاسبية. أعد المحاولة قبل الاعتماد على الأرصدة أو السجلات." : "Could not load accounting data. Retry before relying on balances or records."}</p>
+            <Button variant="outline" onClick={() => { ledger.reload(); setLoadRevision(value => value + 1) }}>{ar ? "أعد المحاولة" : "Try again"}</Button>
           </div>
         ) : (
           <>
             <TabsContent value="journal" className="mt-4">
               <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
                 <TableShell headers={["", "Ref", ar ? "التاريخ" : "Date", ar ? "الوصف" : "Description", ar ? "النوع" : "Type", ar ? "الحالة" : "Status", ar ? "إجراء" : "Action"]}>
-                  {journals.length === 0 && <EmptyRow colSpan={7} text={ar ? "لا توجد قيود بعد. أنشئ قيداً جديداً." : "No journal entries yet. Create one."} />}
+                  {journals.length === 0 && <EmptyRow colSpan={7} text={ledger.search.trim() ? (ar ? "لا توجد قيود تطابق البحث." : "No journal entries match this search.") : (ar ? "لا توجد قيود بعد. أنشئ قيداً جديداً." : "No journal entries yet. Create one.")} />}
                   {journals.map((j) => {
                     const s = JOURNAL_STATUS[j.status] ?? JOURNAL_STATUS.draft
                     const approval = j.journal_approvals?.status
@@ -1607,60 +1655,60 @@ export default function AccountingPage() {
                 <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
                   <CardHeader className="pb-3 flex-row items-center justify-between">
                     <CardTitle className="text-base">{ar ? "الذمم المدينة" : "Receivables"}</CardTitle>
-                    <Dialog open={openDialogs["receivable"]} onOpenChange={(o) => setOpenDialogs((p) => ({ ...p, receivable: o }))}>
+                    <Dialog open={openDialogs["receivable"]} onOpenChange={(o) => { if (!isSavingRcv) setOpenDialogs((p) => ({ ...p, receivable: o })) }}>
                       <DialogTrigger asChild>
-                        <button className={dialogBtn} onClick={() => openDialog("receivable")}>
-                          <Plus className="h-3.5 w-3.5" />{ar ? "فاتورة جديدة" : "New invoice"}
+                        <button className={dialogBtn} onClick={newReceivable}>
+                          <Plus className="h-3.5 w-3.5" />{ar ? "ذمة مدينة جديدة" : "New receivable"}
                         </button>
                       </DialogTrigger>
                       <DialogContent className="max-w-md rounded-2xl">
                         <DialogHeader>
                           <DialogTitle>{ar ? "إنشاء ذمم مدينة" : "Create receivable"}</DialogTitle>
-                          <DialogDescription>{ar ? "فاتورة عميل مع ضريبة القيمة المضافة" : "Customer invoice with VAT"}</DialogDescription>
+                          <DialogDescription>{ar ? "تسجيل ذمة مدينة يدوية. تُنشأ الفواتير الضريبية من قسم الفواتير." : "Record a manual receivable. Create tax invoices in Invoices."}</DialogDescription>
                         </DialogHeader>
                         <form action={rcvAction} className="space-y-3">
+                          <fieldset disabled={isSavingRcv} className="space-y-3">
                           <div className="space-y-1.5">
                             <Label htmlFor="rcvRef">{ar ? "رقم الفاتورة" : "Invoice ref"}</Label>
-                            <Input id="rcvRef" dir="ltr" value={rcvRef} onChange={(e) => setRcvRef(e.target.value)} className="h-9" />
+                            <Input id="rcvRef" required maxLength={200} dir="ltr" value={rcvRef} onChange={(e) => setRcvRef(e.target.value)} className="h-9" />
                           </div>
                           <div className="grid gap-3 sm:grid-cols-2">
                             <div className="space-y-1.5">
                               <Label htmlFor="rcvDate">{ar ? "تاريخ الفاتورة" : "Invoice date"}</Label>
-                              <Input id="rcvDate" type="date" dir="ltr" value={rcvDate} onChange={(e) => setRcvDate(e.target.value)} className="h-9" />
+                              <Input id="rcvDate" required type="date" dir="ltr" value={rcvDate} onChange={(e) => setRcvDate(e.target.value)} className="h-9" />
                             </div>
                             <div className="space-y-1.5">
                               <Label htmlFor="rcvDue">{ar ? "تاريخ الاستحقاق" : "Due date"}</Label>
-                              <Input id="rcvDue" type="date" dir="ltr" value={rcvDue} onChange={(e) => setRcvDue(e.target.value)} className="h-9" />
+                              <Input id="rcvDue" required min={rcvDate} type="date" dir="ltr" value={rcvDue} onChange={(e) => setRcvDue(e.target.value)} className="h-9" />
                             </div>
                           </div>
                           <div className="grid gap-3 sm:grid-cols-2">
                             <div className="space-y-1.5">
                               <Label htmlFor="rcvAmount">{ar ? "المبلغ (قبل الضريبة)" : "Amount (excl. VAT)"}</Label>
-                              <Input id="rcvAmount" type="number" dir="ltr" min="0" step="0.01" value={rcvAmount} onChange={(e) => setRcvAmount(e.target.value)} className="h-9 text-end tabular-nums" />
+                              <Input id="rcvAmount" required type="number" dir="ltr" min="0.01" max="9999999999.99" step="0.01" value={rcvAmount} onChange={(e) => setRcvAmount(e.target.value)} className="h-9 text-end tabular-nums" />
                             </div>
                             <div className="space-y-1.5">
                               <Label htmlFor="rcvVat">{ar ? "نسبة الضريبة %" : "VAT rate %"}</Label>
                               <Input id="rcvVat" type="number" dir="ltr" min="0" max="100" step="0.01" value={rcvVat} onChange={(e) => setRcvVat(e.target.value)} className="h-9 text-end tabular-nums" />
                             </div>
                           </div>
-                          {Number(rcvAmount || 0) > 0 && (
-                            <p className="text-xs text-muted-foreground" dir="ltr">
-                              VAT: {fmtMoney((Number(rcvAmount) * Number(rcvVat || 0)) / 100)} · Total: {fmtMoney(Number(rcvAmount) + (Number(rcvAmount) * Number(rcvVat || 0)) / 100)} SAR
-                            </p>
+                          {rcvPreview && (
+                            <p data-testid="receivable-preview" className="text-xs text-muted-foreground" dir="ltr"><LocalizedText text="VAT:" />{fmtMoney(rcvPreview.vat)} <LocalizedText text="· Total:" /> {fmtMoney(rcvPreview.total)}<LocalizedText text="SAR" /></p>
                           )}
                           <div className="flex items-center gap-3">
                             <Button type="submit" disabled={isSavingRcv} className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800">
                               {isSavingRcv ? <LoadingSpinner className="h-4 w-4" /> : <Save className="h-4 w-4" />}
                               {t.common.save}
                             </Button>
-                            {rcvState?.error && <span className="text-xs text-red-500">{rcvState.error}</span>}
+                            {rcvState?.requestId === rcvRequest && rcvState?.error && <span role="alert" className="text-xs text-red-500">{ar ? rcvState.errorAr ?? rcvState.error : rcvState.error}</span>}
                           </div>
+                          </fieldset>
                         </form>
                       </DialogContent>
                     </Dialog>
                   </CardHeader>
                   <TableShell headers={[ar ? "الفاتورة" : "Invoice", ar ? "التاريخ" : "Date", ar ? "الاستحقاق" : "Due", ar ? "المبلغ" : "Amount", "VAT", ar ? "الإجمالي" : "Total", ar ? "المدفوع" : "Paid", ar ? "الحالة" : "Status"]}>
-                    {receivables.length === 0 && <EmptyRow colSpan={8} text={ar ? "لا توجد ذمم مدينة." : "No receivables."} />}
+                    {receivables.length === 0 && <EmptyRow colSpan={8} text={ledger.search.trim() ? (ar ? "لا توجد ذمم مدينة تطابق البحث." : "No receivables match this search.") : (ar ? "لا توجد ذمم مدينة." : "No receivables.")} />}
                     {receivables.map((r) => {
                       const s = ARAP_STATUS[r.status] ?? ARAP_STATUS.open
                       const overdue = r.status !== "paid" && new Date(r.due_date) < new Date()
@@ -1685,7 +1733,7 @@ export default function AccountingPage() {
             <TabsContent value="payables" className="mt-4">
               <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
                 <TableShell headers={[ar ? "الفاتورة" : "Invoice", ar ? "التاريخ" : "Date", ar ? "الاستحقاق" : "Due", ar ? "المبلغ" : "Amount", "VAT", ar ? "الإجمالي" : "Total", ar ? "المدفوع" : "Paid", ar ? "الحالة" : "Status"]}>
-                  {payables.length === 0 && <EmptyRow colSpan={8} text={ar ? "لا توجد ذمم دائنة." : "No payables."} />}
+                  {payables.length === 0 && <EmptyRow colSpan={8} text={ledger.search.trim() ? (ar ? "لا توجد ذمم دائنة تطابق البحث." : "No payables match this search.") : (ar ? "لا توجد ذمم دائنة." : "No payables.")} />}
                   {payables.map((r) => {
                     const s = ARAP_STATUS[r.status] ?? ARAP_STATUS.open
                     const overdue = r.status !== "paid" && new Date(r.due_date) < new Date()
@@ -1717,30 +1765,30 @@ export default function AccountingPage() {
             <TabsContent value="vat" className="mt-4 space-y-4">
               {/* Net position strip */}
               {(() => {
-                const out = vatOutput.reduce((s, r) => s + Number(r.vat_amount), 0)
-                const rec = vatInput.filter((r) => (r.vat_recoverability ?? "recoverable") === "recoverable").reduce((s, r) => s + Number(r.vat_amount), 0)
-                const adjOut = vatAdjustments.filter((a) => a.direction === "output").reduce((s, a) => s + Number(a.vat_amount), 0)
-                const adjIn = vatAdjustments.filter((a) => a.direction === "input").reduce((s, a) => s + Number(a.vat_amount), 0)
-                const net = computeVatNetPosition(out, adjOut, rec, adjIn)
+                if (!vatPosition) return null
                 const items = [
-                  { label: ar ? "مخرجات" : "Output", value: fmtMoney(out), cls: "text-blue-600" },
-                  { label: ar ? "مدخلات قابلة للاسترداد" : "Recoverable input", value: fmtMoney(rec), cls: "text-emerald-600" },
-                  { label: ar ? "تسويات" : "Adjustments", value: fmtMoney(adjOut + adjIn), cls: "text-amber-600" },
+                  { label: ar ? "مخرجات" : "Output", value: formatVatMoney(vatPosition.output_vat), cls: "text-foreground" },
+                  { label: ar ? "مدخلات قابلة للاسترداد" : "Recoverable input", value: formatVatMoney(vatPosition.recoverable_input_vat), cls: "text-foreground" },
+                  { label: ar ? "صافي التسويات المعتمدة" : "Net finalized adjustments", value: formatVatMoney(vatNetAdjustments(vatPosition)), cls: "text-foreground" },
                   {
                     label: ar ? "صافي المركز" : "Net position",
-                    value: fmtMoney(net),
-                    cls: net > 0 ? "text-red-600" : net < 0 ? "text-emerald-600" : "text-foreground",
+                    value: formatVatMoney(vatPosition.net_position),
+                    cls: "text-foreground",
                   },
                 ]
                 return (
-                  <div className="grid gap-3 sm:grid-cols-4">
-                    {items.map((it) => (
-                      <div key={it.label} className="rounded-2xl border border-border/50 bg-card/80 px-4 py-3 shadow-sm">
-                        <p className="text-[11px] font-medium text-muted-foreground">{it.label}</p>
-                        <p dir="ltr" className={`mt-0.5 text-lg font-bold tabular-nums ${it.cls}`}>{it.value}</p>
-                      </div>
-                    ))}
-                  </div>
+                  <section aria-label={ar ? "المركز الضريبي لجميع الفترات المسجلة" : "VAT position across all recorded periods"} data-testid="vat-position" className="space-y-3">
+                    <p className="text-sm text-muted-foreground">{ar ? "إجماليات جميع الفترات المسجلة بالريال السعودي؛ تشمل التسويات المعتمدة فقط." : "Totals across all recorded periods in SAR; finalized adjustments only."}</p>
+                    <div className="grid gap-3 sm:grid-cols-4">
+                      {items.map((it) => (
+                        <div key={it.label} className="rounded-2xl border border-border/50 bg-card/80 px-4 py-3 shadow-sm">
+                          <p className="text-[11px] font-medium text-muted-foreground">{it.label}</p>
+                          <p dir="ltr" className={`mt-0.5 break-all text-lg font-bold tabular-nums ${ar ? "text-right" : "text-left"} ${it.cls}`}>{it.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-xs text-muted-foreground">{ar ? "قوائم التفاصيل أدناه محدودة: أحدث 200 قيد لكل سجل، و100 تسوية، و24 فترة، و1000 فترة تسوية ضريبية، وأقدم 200 بند للمراجعة. الإجماليات أعلاه مستقلة عن هذه الحدود." : "Detail lists below are limited: latest 200 entries per ledger, 100 adjustments, 24 periods, 1,000 reconciliation periods, and oldest 200 review items. Totals above are independent of these limits."}</p>
+                  </section>
                 )
               })()}
 
@@ -1921,8 +1969,7 @@ export default function AccountingPage() {
                       <div className="rounded-xl border border-border/50 bg-muted/20 p-3 text-sm">
                         <p className="font-mono text-xs" dir="ltr">{resolveTarget.invoice_ref}</p>
                         <p className="mt-1 text-xs text-muted-foreground" dir="ltr">
-                          {fmtDate(resolveTarget.invoice_date)} · VAT {fmtMoney(resolveTarget.vat_amount)} SAR
-                        </p>
+                          {fmtDate(resolveTarget.invoice_date)} <LocalizedText text="· VAT" /> {fmtMoney(resolveTarget.vat_amount)}<LocalizedText text="SAR" /></p>
                       </div>
                       <div className="grid grid-cols-2 gap-2">
                         <button
@@ -2098,7 +2145,10 @@ export default function AccountingPage() {
             </TabsContent>
 
             <TabsContent value="zatca" className="mt-4 space-y-4">
-              <p role="status" className="rounded-xl border p-4 text-sm">{ar ? "الإرسال والإعداد غير متاحين حتى اكتمال اختبارات واعتماد التكامل مع الهيئة." : "Submission and onboarding are unavailable until ZATCA integration validation is complete."}</p>
+              <div role="status" className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm space-y-2">
+                <p>{ar ? "ربط ZATCA غير مكتمل. الإعداد والإرسال الإنتاجي معطلان." : "ZATCA integration is incomplete. Onboarding and production submissions are disabled."}</p>
+                <p>{ar ? "رمز الفاتورة الحالي داخلي. يلزم إكمال بيانات المنشأة وتسجيل وحدة إصدار الفواتير والتحقق من XML والتوقيع والرمز باستخدام أدوات الهيئة واختبارات الربط." : "The current invoice QR is internal. Company tax details, EGS onboarding, XML/signature/QR validation with the official tools, and integration tests are still required."}</p>
+              </div>
               <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
                 <CardHeader className="pb-3 flex-row items-center justify-between">
                   <div>
@@ -2203,7 +2253,7 @@ export default function AccountingPage() {
                   </button>
                 </CardHeader>
                 <TableShell headers={[ar ? "المستند" : "Doc", ar ? "النوع" : "Type", ar ? "الحالة" : "Status", "UUID", ar ? "التاريخ" : "Date", ar ? "الخطأ" : "Error", ""]}>
-                  {zatcaRows.length === 0 && <EmptyRow colSpan={7} text={ar ? "لا توجد إرسالات بعد. رحّل فاتورة بيع ثم شغّل المحوّل." : "No transmissions yet. Finalize a sales invoice, then run the adapter."} />}
+                  {zatcaRows.length === 0 && <EmptyRow colSpan={7} text={ar ? "لا توجد سجلات. الإرسال معطل حتى اكتمال التحقق من الربط." : "No records. Submission is disabled until integration validation is complete."} />}
                   {zatcaRows.map((t) => {
                     const s = ZATCA_STATUS[t.status] ?? ZATCA_STATUS.not_transmitted
                     const dt = ZATCA_DOC_TYPE[t.doc_type] ?? { ar: t.doc_type, en: t.doc_type }
@@ -2212,7 +2262,8 @@ export default function AccountingPage() {
                         <td className="px-4 py-3 font-mono text-xs" dir="ltr">{t.doc_ref}</td>
                         <td className="px-4 py-3 text-xs">{ar ? dt.ar : dt.en}</td>
                         <td className="px-4 py-3">
-                          <Badge className={s.className}>{ar ? s.ar : s.en}</Badge>
+                          <Badge variant="outline">{zatcaEvidenceLabel(t.is_mock === "true", ar)}</Badge>
+                          <span className="mt-1 block text-xs text-muted-foreground">{ar ? "الحالة المسجلة: " : "Recorded status: "}{ar ? s.ar : s.en}</span>
                         </td>
                         <td className="px-4 py-3 font-mono text-[11px] text-muted-foreground" dir="ltr">{t.zatca_uuid ?? "—"}</td>
                         <td className="px-4 py-3 text-xs" dir="ltr">{fmtDate(t.transmitted_at ?? t.created_at)}</td>
@@ -2242,7 +2293,7 @@ export default function AccountingPage() {
                     </DialogTitle>
                     <DialogDescription>
                       {zatcaDetail
-                        ? `${ar ? "الحالة" : "Status"}: ${zatcaDetail.status} · UUID: ${zatcaDetail.zatca_uuid ?? "—"}`
+                        ? `${zatcaEvidenceLabel(zatcaDetail.mock, ar)} · ${ar ? "الحالة المسجلة" : "Recorded status"}: ${zatcaDetail.status} · UUID: ${zatcaDetail.zatca_uuid ?? "—"}`
                         : ""}
                     </DialogDescription>
                   </DialogHeader>
@@ -2417,7 +2468,7 @@ export default function AccountingPage() {
                           <p className="mt-0.5 truncate text-xs text-muted-foreground">{b.account_name}</p>
                           <p className="mt-2 break-all font-mono text-xs text-foreground/80" dir="ltr">{b.iban}</p>
                           <p className="mt-2 text-xs text-muted-foreground" dir="ltr">
-                            {ar ? "رصيد افتتاحي" : "Opening"}: <span className="font-semibold tabular-nums text-foreground">{fmtMoney(b.opening_balance)} {b.currency}</span> · CoA <span className="font-mono font-semibold text-foreground">{b.coa_account_code ?? "1100"}</span>
+                            {ar ? "رصيد افتتاحي" : "Opening"}: <span className="font-semibold tabular-nums text-foreground">{fmtMoney(b.opening_balance)} {b.currency}</span> <LocalizedText text="· CoA" /> <span className="font-mono font-semibold text-foreground">{b.coa_account_code ?? "1100"}</span>
                           </p>
                           <div className="mt-3 flex flex-wrap gap-2 border-t border-border/50 pt-3">
                             <Button size="sm" variant="outline" onClick={() => openBankForm(b)}>{ar ? "تعديل" : "Edit"}</Button>

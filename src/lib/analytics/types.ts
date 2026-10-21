@@ -35,16 +35,16 @@ export interface CodSnapshot {
 
 /** Accounting-sourced financial aggregates (Prompt I, src/lib/accounting/kpis.ts). */
 export interface AccountingKpis {
-  /** Finalized sales-invoice totals in the window. */
+  /** Posted general-ledger income credits less debits in the window. */
   revenue: number
   revenuePrevious: number
-  /** Issued sales invoices not yet paid/credited (any issue date). */
+  /** Active invoice/debit-note receivable balances, total less paid (all dates). */
   pendingInvoicesAmount: number
   pendingInvoicesCount: number
-  /** Recorded expenses in the window. */
+  /** Posted general-ledger expense debits less credits in the window. */
   expenses: number
   expensesPrevious: number
-  /** revenue − expenses (invoice-side revenue; informational). */
+  /** Posted income less posted expense in the window. */
   netResult: number
   available: boolean
 }

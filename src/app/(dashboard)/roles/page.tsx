@@ -1,5 +1,6 @@
 "use client"
 
+import { LocalizedText, useUiText } from "@/components/localized-text"
 import { useEffect, useState } from "react"
 import { useTranslation } from "@/hooks/use-translation"
 import { EnterpriseModulePage, type KpiCardData, type TableColumn } from "@/components/dashboard/enterprise-module-page"
@@ -19,7 +20,8 @@ const ROLE_AR: Record<string, string> = {
 }
 
 export default function RolesPage() {
-  const { t } = useTranslation()
+  const { t, locale } = useTranslation()
+  const ui = useUiText()
   const [data, setData] = useState<RoleRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [search, setSearch] = useState("")
@@ -43,9 +45,9 @@ export default function RolesPage() {
 
   const kpiCards: KpiCardData[] = [
     { label: t.nav.roles, value: data.length, icon: ShieldCheck, color: "#1E5A99" },
-    { label: "System", value: data.filter(r => r.is_system_role).length, icon: Lock, color: "#EF4444" },
-    { label: "GM", value: data.filter(r => r.name === "general_manager").length, icon: Star, color: "#F59E0B" },
-    { label: "Read-only", value: data.filter(r => r.name === "readonly_auditor").length, icon: Eye, color: "#64748B" },
+    { label: ui("System"), value: data.filter(r => r.is_system_role).length, icon: Lock, color: "#EF4444" },
+    { label: ui("General manager"), value: data.filter(r => r.name === "general_manager").length, icon: Star, color: "#F59E0B" },
+    { label: ui("Read-only"), value: data.filter(r => r.name === "readonly_auditor").length, icon: Eye, color: "#64748B" },
   ]
 
   const columns: TableColumn<RoleRow>[] = [
@@ -53,19 +55,19 @@ export default function RolesPage() {
       key: "name_ar", header: t.nav.roles,
       render: (r) => (
         <div className="flex items-center gap-2">
-          <span className="font-medium">{r.name_ar}</span>
+          <span className="font-medium">{locale === "ar" ? (r.name_ar ?? r.name) : (r.name_en ?? r.name)}</span>
           {r.is_system_role && <Lock className="h-3 w-3 text-muted-foreground" />}
         </div>
       ),
     },
     { key: "name_en", header: "English", render: (r) => <span dir="ltr" className="text-sm text-muted-foreground">{r.name_en ?? r.name}</span> },
-    { key: "name", header: "Code", render: (r) => <span dir="ltr" className="font-mono text-xs">{r.name}</span> },
-    { key: "description", header: "Description", render: (r) => <span className="text-xs text-muted-foreground">{r.description ?? "—"}</span> },
+    { key: "name", header: ui("Code"), render: (r) => <span dir="ltr" className="font-mono text-xs">{r.name}</span> },
+    { key: "description", header: ui("Description"), render: (r) => <span className="text-xs text-muted-foreground">{r.description ?? "—"}</span> },
     {
       key: "is_system_role", header: t.common.status,
       render: (r) => r.is_system_role
-        ? <span className="inline-flex items-center rounded-full border border-red-500/20 bg-red-500/15 px-2 py-0.5 text-xs font-medium text-red-600">System</span>
-        : <span className="inline-flex items-center rounded-full border border-blue-500/20 bg-blue-500/15 px-2 py-0.5 text-xs font-medium text-blue-600">Custom</span>,
+        ? <span className="inline-flex items-center rounded-full border border-red-500/20 bg-red-500/15 px-2 py-0.5 text-xs font-medium text-red-600"><LocalizedText text="System" /></span>
+        : <span className="inline-flex items-center rounded-full border border-blue-500/20 bg-blue-500/15 px-2 py-0.5 text-xs font-medium text-blue-600"><LocalizedText text="Custom" /></span>,
     },
   ]
 

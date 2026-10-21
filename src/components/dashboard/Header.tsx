@@ -1,5 +1,6 @@
 'use client';
 
+import { LocalizedText, useUiText } from "@/components/localized-text"
 import { Bell, Search, User, LogOut } from 'lucide-react';
 import { REDIRECTS } from '@/lib/redirects';
 
@@ -16,6 +17,7 @@ interface HeaderProps {
 }
 
 export default function Header({ tenant }: HeaderProps) {
+  const ui = useUiText()
   const handleLogout = () => {
     localStorage.removeItem('tenant');
     // Centralized sign-out: clears the Supabase session, then → the public
@@ -36,7 +38,7 @@ export default function Header({ tenant }: HeaderProps) {
           )}
           <div>
             <h1 className="text-white font-semibold">{tenant?.name || 'Company'}</h1>
-            <p className="text-white/50 text-sm">Dashboard</p>
+            <p className="text-white/50 text-sm"><LocalizedText text="Dashboard" /></p>
           </div>
         </div>
 
@@ -45,7 +47,7 @@ export default function Header({ tenant }: HeaderProps) {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
             <input
               type="text"
-              placeholder="Search..."
+              placeholder={ui("Search...")}
               className="bg-white/5 border border-white/10 rounded-lg py-2 pl-10 pr-4 text-white placeholder:text-white/30 focus:outline-none focus:border-blue-500 transition w-64"
             />
           </div>

@@ -3,14 +3,14 @@
 // Accounting Module — Phase 5: Invoice Engine.
 //
 // Lifecycle: draft → issued → finalized (immutable) → paid / partially_paid /
-// overdue / cancelled (unpaid only) / credited (credit note issued).
+// overdue / credited (full credit note issued); unposted documents may be cancelled.
 //
 // Actions:
 // - createInvoiceDraft      invoices:create  → header + lines, totals computed
 // - updateInvoiceDraft      invoices:update  → edit draft (lines replaced)
 // - issueInvoice            invoices:update  → draft → issued
 // - finalizeInvoice         invoices:approve → issued → finalized + event
-// - cancelInvoice           invoices:update  → unpaid only → cancelled + event
+// - cancelInvoice           invoices:update  → unposted only → atomic cancellation/audit
 // - issueCreditNote         invoices:create  → reversal vs finalized invoice
 // - issueDebitNote          invoices:create  → additional charge note
 // - exportInvoicesCsv       invoices:export  → BOM CSV of the invoice list
@@ -32,10 +32,11 @@ import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
 import { writeAuditLog } from "@/lib/auth/sessions"
 import { mapFinancialError, toCsv } from "@/lib/accounting/csv-utils"
-import { idempotencyKey } from "@/lib/accounting/financial-events"
-import { computeInvoiceTotals, round2, type InvoiceLineInput } from "@/lib/accounting/invoice-math"
+import { computeInvoiceTotals, type InvoiceLineInput } from "@/lib/accounting/invoice-math"
 import { runEventDispatcher } from "@/lib/accounting/dispatcher"
 import { runZatcaAdapter } from "@/lib/accounting/zatca"
+import { rateLimitAccounting } from "@/lib/auth/rate-limit"
+import { getErrorDefinition } from "@/lib/errors/error-codes"
 
 export type { InvoiceLineInput } from "@/lib/accounting/invoice-math"
 
@@ -60,42 +61,6 @@ export type InvoiceDraftInput = {
 
 function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : "Unknown error"
-}
-
-function mapInv(code: string): string {
-  return mapFinancialError(`${code}: `)
-}
-
-/** Emit an idempotent financial event (EVENT-MODEL.md §2).
- * The idempotency key must match the spec exactly — `suffix` is the canonical
- * verb (finalized | cancelled | issued) → "invoice:{id}:finalized" etc. */
-async function emitEvent(input: {
-  tenantId: string
-  sourceType: string
-  sourceId: string
-  eventType: string
-  suffix: string
-  eventDate: string
-  payload: Record<string, unknown>
-}): Promise<void> {
-  const admin = createAdminClient()
-  const { error } = await admin.from("financial_events").insert({
-    tenant_id: input.tenantId,
-    event_id: crypto.randomUUID(),
-    idempotency_key: idempotencyKey(input.sourceType, input.sourceId, input.suffix),
-    source_type: input.sourceType,
-    source_id: input.sourceId,
-    event_type: input.eventType,
-    event_date: input.eventDate,
-    payload: input.payload,
-  })
-  // Event persistence failures are logged, not thrown — the document change
-  // already succeeded; Phase 9's consumer will reconcile on a replay.
-  if (error) {
-    if (process.env.NODE_ENV !== "production") {
-      console.error("[financial_events] insert failed:", error.message)
-    }
-  }
 }
 
 // Draft writes use the caller's authenticated session. The database validates
@@ -150,594 +115,217 @@ export async function deleteInvoiceDraft(input: { id: string; expected_updated_a
   }
 }
 
-// ── Issue (draft → issued) ────────────────────────────────────────────────
+// Issuance/approval use caller-bound transactions; a receipt makes retries of
+// the same reviewed version safe without adopting older partial effects.
+export type InvoiceTransitionInput = { id: string; expected_updated_at: string }
+type TransitionResult = ActionResult & { errorAr?: string; postingPending?: boolean; replayed?: boolean }
 
-export async function issueInvoice(input: { id: string }): Promise<ActionResult> {
-  try {
-    await requirePermission("invoices", "update")
-    const currentUser = await getCurrentUser()
-    if (!currentUser) return { success: false, error: "Not authenticated." }
-
-    const admin = createAdminClient()
-    const { data: existing, error: fetchError } = await admin
-      .from("invoices")
-      .select("id,status,invoice_number")
-      .eq("id", input.id)
-      .eq("tenant_id", currentUser.tenantId)
-      .is("deleted_at", null)
-      .maybeSingle()
-    if (fetchError || !existing) return { success: false, error: mapInv("INV001") }
-    if (existing.status !== "draft") return { success: false, error: mapInv("INV006") }
-
-    const { error } = await admin
-      .from("invoices")
-      .update({ status: "issued", updated_by: currentUser.authUserId })
-      .eq("id", input.id)
-      .eq("tenant_id", currentUser.tenantId)
-      .is("deleted_at", null)
-    if (error) return { success: false, error: mapFinancialError(error.message) }
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "invoices",
-      action: "invoice_issued",
-      entityType: "invoices",
-      entityId: input.id,
-      newValues: { invoice_number: existing.invoice_number },
-    })
-
-    revalidatePath("/invoices")
-    revalidatePath("/accounting")
-    return { success: true }
-  } catch (e) {
-    return { success: false, error: errorMessage(e) }
+async function transitionInvoice(operation: "issue" | "finalize", input: InvoiceTransitionInput): Promise<TransitionResult> {
+  const uncertain = {
+    success: false,
+    error: "Unable to confirm the invoice decision. Reload and review its status before retrying.",
+    errorAr: "تعذر تأكيد إجراء الفاتورة. أعد تحميلها وراجع حالتها قبل المحاولة مجدداً.",
   }
-}
-
-// ── Finalize (issued → finalized) + event ─────────────────────────────────
-
-export async function finalizeInvoice(input: { id: string }): Promise<ActionResult> {
   try {
-    await requirePermission("invoices", "approve")
-    const currentUser = await getCurrentUser()
-    if (!currentUser) return { success: false, error: "Not authenticated." }
-
-    const admin = createAdminClient()
-    const { data: inv, error: fetchError } = await admin
-      .from("invoices")
-      .select("id,tenant_id,invoice_number,invoice_type,customer_id,supplier_id,issue_date,due_date,currency,status,subtotal,discount,vat_amount,total,vat_rate")
-      .eq("id", input.id)
-      .eq("tenant_id", currentUser.tenantId)
-      .is("deleted_at", null)
-      .maybeSingle()
-    if (fetchError || !inv) return { success: false, error: mapInv("INV001") }
-    if (inv.status !== "issued") return { success: false, error: mapInv("INV006") }
-
-    const { data: lines, error: linesErr } = await admin
-      .from("invoice_lines")
-      .select("line_no,description,quantity,unit_price,discount,amount,vat_rate,vat_amount")
-      .eq("invoice_id", input.id)
-      .order("line_no", { ascending: true })
-    if (linesErr) return { success: false, error: mapFinancialError(linesErr.message) }
-
-    // Recompute server-side and reconcile with the stored header (INV004 guard).
-    const totals = computeInvoiceTotals(
-      (lines ?? []).map((l) => ({
-        description: l.description,
-        quantity: Number(l.quantity),
-        unit_price: Number(l.unit_price),
-        discount: Number(l.discount),
-        vat_rate: Number(l.vat_rate),
-      })),
-      Number(inv.vat_rate ?? 15)
-    )
-    const storedTotal = Number(inv.total)
-    if (Math.abs(totals.total - storedTotal) > 0.01) {
-      return { success: false, error: mapInv("INV004") }
+    await requirePermission("invoices", operation === "issue" ? "update" : "approve")
+    const user = await getCurrentUser()
+    if (!user) return { success: false, error: "Not authenticated.", errorAr: "يلزم تسجيل الدخول." }
+    const limit = await rateLimitAccounting(user.id)
+    if (!limit.success) return { success: false, error: "Too many requests. Try again shortly.", errorAr: "طلبات كثيرة. حاول مجدداً بعد قليل." }
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!uuid.test(input.id ?? "") || typeof input.expected_updated_at !== "string"
+      || !input.expected_updated_at || !Number.isFinite(Date.parse(input.expected_updated_at))) return {
+      success: false, error: "Reload the invoice before confirming this action.", errorAr: "أعد تحميل الفاتورة قبل تأكيد الإجراء.",
     }
-
-    const isPurchase = inv.invoice_type === "purchase"
-
-    // Phase 7 — purchase invoice approval: create the payable BEFORE the
-    // status flip so a failed AP insert aborts the finalize cleanly.
-    if (isPurchase) {
-      const { error: payErr } = await admin.from("payables").insert({
-        tenant_id: currentUser.tenantId,
-        supplier_id: inv.supplier_id,
-        invoice_ref: inv.invoice_number,
-        invoice_date: inv.issue_date,
-        due_date: inv.due_date ?? inv.issue_date,
-        amount: totals.subtotal,
-        vat_amount: totals.vat_amount,
-        total_amount: totals.total,
-        paid_amount: 0,
-        status: "open",
-        source_entity_type: "purchase_invoice",
-        source_entity_id: input.id,
-        notes: `Purchase invoice ${inv.invoice_number} approval`,
-        created_by: currentUser.authUserId,
-      })
-      if (payErr) return { success: false, error: mapFinancialError(payErr.message) }
-    }
-
-    const { error } = await admin
-      .from("invoices")
-      .update({
-        status: "finalized",
-        finalized_at: new Date().toISOString(),
-        finalized_by: currentUser.authUserId,
-        updated_by: currentUser.authUserId,
-      })
-      .eq("id", input.id)
-      .eq("tenant_id", currentUser.tenantId)
-      .is("deleted_at", null)
+    const client = await createClient()
+    const { data, error } = await client.rpc("transition_my_invoice", {
+      p_invoice_id: input.id, p_operation: operation, p_expected_updated_at: input.expected_updated_at,
+    })
     if (error) {
-      // Roll back the AP row if the status flip failed.
-      if (isPurchase) {
-        await admin
-          .from("payables")
-          .update({ deleted_at: new Date().toISOString() })
-          .eq("source_entity_type", "purchase_invoice")
-          .eq("source_entity_id", input.id)
+      // Only public taxonomy messages may leave this boundary; SQL/provider
+      // diagnostics can contain private invoice, account or infrastructure data.
+      const code = /^(INV00[1-6]|INV01[235]|AUTH007):/.exec(error.message)?.[1]
+      if (code) {
+        const def = getErrorDefinition(code)
+        return { success: false, error: def.messageEn, errorAr: def.messageAr }
       }
-      return { success: false, error: mapFinancialError(error.message) }
+      return uncertain
     }
+    if (!data || data.id !== input.id || data.operation !== operation
+      || !["sales", "purchase"].includes(data.invoice_type) || typeof data.replayed !== "boolean"
+      || (operation === "finalize" ? !uuid.test(data.event_id ?? "") : data.event_id !== null)) return uncertain
 
-    if (isPurchase) {
-      await emitEvent({
-        tenantId: currentUser.tenantId,
-        sourceType: "purchase_invoice",
-        sourceId: input.id,
-        eventType: "PurchaseInvoiceApprovedEvent",
-        suffix: "approved",
-        eventDate: inv.issue_date,
-        payload: {
-          supplier_id: inv.supplier_id,
-          invoice_ref: inv.invoice_number,
-          subtotal: totals.subtotal,
-          vat_amount: totals.vat_amount,
-          total: totals.total,
-          currency: inv.currency,
-          period_year: new Date(inv.issue_date).getUTCFullYear(),
-          period_month: new Date(inv.issue_date).getUTCMonth() + 1,
-        },
-      })
-      await writeAuditLog({
-        tenantId: currentUser.tenantId,
-        actorId: currentUser.authUserId,
-        module: "invoices",
-        action: "purchase_invoice_approved",
-        entityType: "invoices",
-        entityId: input.id,
-        newValues: {
-          invoice_number: inv.invoice_number,
-          payable_total: totals.total,
-          vat_amount: totals.vat_amount,
-        },
-      })
-    } else {
-      await emitEvent({
-        tenantId: currentUser.tenantId,
-        sourceType: "invoice",
-        sourceId: input.id,
-        eventType: "InvoiceFinalizedEvent",
-        suffix: "finalized",
-        eventDate: inv.issue_date,
-        payload: {
-          invoice_number: inv.invoice_number,
-          customer_id: inv.customer_id,
-          supplier_id: inv.supplier_id,
-          lines: totals.lines,
-          subtotal: totals.subtotal,
-          discount: totals.discount,
-          vat_amount: totals.vat_amount,
-          total: totals.total,
-          currency: inv.currency,
-          period_year: new Date(inv.issue_date).getUTCFullYear(),
-          period_month: new Date(inv.issue_date).getUTCMonth() + 1,
-        },
-      })
-      await writeAuditLog({
-        tenantId: currentUser.tenantId,
-        actorId: currentUser.authUserId,
-        module: "invoices",
-        action: "invoice_finalized",
-        entityType: "invoices",
-        entityId: input.id,
-        newValues: {
-          invoice_number: inv.invoice_number,
-          subtotal: totals.subtotal,
-          vat_amount: totals.vat_amount,
-          total: totals.total,
-        },
-      })
+    // The decision is committed. A later dispatcher, adapter or cache failure
+    // cannot turn it into a failed approval or provoke a duplicate payable.
+    let postingPending = operation === "finalize"
+    if (operation === "finalize") {
+      try {
+        await runEventDispatcher()
+        const posting = await createAdminClient().from("financial_events").select("processing_status")
+          .eq("tenant_id", user.tenantId).eq("event_id", data.event_id)
+          .eq("source_type", data.invoice_type === "purchase" ? "purchase_invoice" : "invoice")
+          .eq("source_id", input.id).maybeSingle()
+        postingPending = !!posting.error || !["processed", "skipped_duplicate"].includes(posting.data?.processing_status ?? "")
+      } catch { /* Preserve the committed result and disclose pending posting. */ }
+      if (data.invoice_type === "sales") {
+        try { await runZatcaAdapter() } catch { /* Separate, production-gated transmission workflow. */ }
+      }
     }
-
-    // Phase 9 — dispatch the event now: journal + VAT + AR/AP effects land
-    // immediately. runEventDispatcher never throws (returns a summary), so a
-    // dispatch problem can never poison the finalize result.
-    await runEventDispatcher()
-
-    // Phase 15 — ZATCA adapter: transmit finalized SALES documents to ZATCA
-    // (sandbox mock by default). Same never-throw contract as the dispatcher;
-    // a transmission problem can never poison the finalize result.
-    if (!isPurchase) {
-      await runZatcaAdapter()
-    }
-
-    revalidatePath("/invoices")
-    revalidatePath("/accounting")
-    return { success: true }
-  } catch (e) {
-    return { success: false, error: errorMessage(e) }
-  }
+    try { revalidatePath("/invoices"); revalidatePath("/accounting") } catch { /* Refresh reads the committed state. */ }
+    return { success: true, replayed: data.replayed, ...(operation === "finalize" ? { postingPending } : {}) }
+  } catch { return uncertain }
 }
 
-// ── Cancel (unpaid only) + event ──────────────────────────────────────────
+export async function issueInvoice(input: InvoiceTransitionInput): Promise<TransitionResult> {
+  return transitionInvoice("issue", input)
+}
 
-export async function cancelInvoice(input: {
-  id: string
-  reason: string
-}): Promise<ActionResult> {
+export async function finalizeInvoice(input: InvoiceTransitionInput): Promise<TransitionResult> {
+  return transitionInvoice("finalize", input)
+}
+
+// Only unposted documents may be cancelled directly. Posted sales corrections
+// use the full-credit transaction; purchase reversals need their own workflow.
+export async function cancelInvoice(input: InvoiceTransitionInput & { reason: string }): Promise<TransitionResult> {
+  const uncertain: TransitionResult = { success: false,
+    error: "Unable to confirm cancellation. Reload the invoice and review its status before retrying.",
+    errorAr: "تعذر تأكيد الإلغاء. أعد تحميل الفاتورة وراجع حالتها قبل المحاولة مجدداً.",
+  }
   try {
     await requirePermission("invoices", "update")
-    const currentUser = await getCurrentUser()
-    if (!currentUser) return { success: false, error: "Not authenticated." }
-
-    const reason = input.reason.trim()
-    if (!reason) return { success: false, error: "A cancellation reason is required." }
-
-    const admin = createAdminClient()
-    const { data: inv, error: fetchError } = await admin
-      .from("invoices")
-      .select("id,tenant_id,invoice_number,invoice_type,status,issue_date")
-      .eq("id", input.id)
-      .eq("tenant_id", currentUser.tenantId)
-      .is("deleted_at", null)
-      .maybeSingle()
-    if (fetchError || !inv) return { success: false, error: mapInv("INV001") }
-    if (inv.status === "cancelled" || inv.status === "credited") {
-      return { success: false, error: mapInv("INV006") }
-    }
-
-    // Only unpaid finalized invoices can be cancelled. The Accounting engine
-    // (Phase 9) creates receivables for finalized invoices; until then none
-    // exist, so every finalized invoice is considered unpaid.
-    if (inv.status === "finalized") {
-      const { data: ar } = await admin
-        .from("receivables")
-        .select("id,paid_amount")
-        .eq("tenant_id", currentUser.tenantId)
-        .eq("source_entity_type", "invoice")
-        .eq("source_entity_id", input.id)
-        .limit(5)
-      const paid = (ar ?? []).some((r) => Number(r.paid_amount) > 0)
-      if (paid) return { success: false, error: mapInv("INV007") }
-    }
-
-    const { error } = await admin
-      .from("invoices")
-      .update({
-        status: "cancelled",
-        cancel_reason: reason,
-        cancelled_at: new Date().toISOString(),
-        cancelled_by: currentUser.authUserId,
-        updated_by: currentUser.authUserId,
-      })
-      .eq("id", input.id)
-      .eq("tenant_id", currentUser.tenantId)
-      .is("deleted_at", null)
-    if (error) return { success: false, error: mapFinancialError(error.message) }
-
-    // Phase 7 — cancelling a purchase invoice voids its payable.
-    if (inv.invoice_type === "purchase") {
-      await admin
-        .from("payables")
-        .update({ deleted_at: new Date().toISOString(), updated_by: currentUser.authUserId })
-        .eq("source_entity_type", "purchase_invoice")
-        .eq("source_entity_id", input.id)
-    }
-
-    await emitEvent({
-      tenantId: currentUser.tenantId,
-      sourceType: "invoice",
-      sourceId: input.id,
-      eventType: "InvoiceCancelledEvent",
-      suffix: "cancelled",
-      eventDate: inv.issue_date,
-      payload: { invoice_number: inv.invoice_number, cancel_reason: reason },
+    const user = await getCurrentUser()
+    if (!user) return { success: false, error: "Not authenticated.", errorAr: "يلزم تسجيل الدخول." }
+    const limit = await rateLimitAccounting(user.id)
+    if (!limit.success) return { success: false, error: "Too many requests. Try again shortly.", errorAr: "طلبات كثيرة. حاول مجدداً بعد قليل." }
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!uuid.test(input.id ?? "") || typeof input.expected_updated_at !== "string" || !input.expected_updated_at
+      || !Number.isFinite(Date.parse(input.expected_updated_at)) || typeof input.reason !== "string"
+      || input.reason.trim().length < 5 || input.reason.trim().length > 500) return { success: false,
+        error: "Reload the invoice and enter a cancellation reason of 5 to 500 characters.",
+        errorAr: "أعد تحميل الفاتورة وأدخل سبب إلغاء من 5 إلى 500 حرف.",
+      }
+    const client = await createClient()
+    const { data, error } = await client.rpc("cancel_unposted_invoice_atomic", {
+      p_invoice_id: input.id, p_expected_updated_at: input.expected_updated_at, p_reason: input.reason.trim(),
     })
-
-    // Phase 9 — reverse the finalized effect immediately (reversal journal +
-    // VAT adjustment; the AR is voided, the payable was voided above).
-    await runEventDispatcher()
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "invoices",
-      action: "invoice_cancelled",
-      entityType: "invoices",
-      entityId: input.id,
-      newValues: { invoice_number: inv.invoice_number, cancel_reason: reason },
-    })
-
-    revalidatePath("/invoices")
-    revalidatePath("/accounting")
-    return { success: true }
-  } catch (e) {
-    return { success: false, error: errorMessage(e) }
-  }
+    if (error) {
+      const code = error.message?.split(":", 1)[0]
+      if (code === "INV_CANCEL_POSTED") return { success: false,
+        error: "Finalized invoices require a credit note or a reviewed purchase reversal. Direct cancellation is unavailable.",
+        errorAr: "الفاتورة المعتمدة تتطلب إشعاراً دائناً أو إجراء عكس مشتريات مراجعاً. الإلغاء المباشر غير متاح.",
+      }
+      if (code === "INV_CANCEL_REVIEW") return { success: false,
+        error: "Existing accounting evidence requires review before this invoice can be cancelled.",
+        errorAr: "تحتاج البيانات المحاسبية الموجودة إلى مراجعة قبل إلغاء الفاتورة.",
+      }
+      if (/^(INV001|INV002|INV006|INV015|AUTH007)$/.test(code)) {
+        const def = getErrorDefinition(code)
+        return { success: false, error: def.messageEn, errorAr: def.messageAr }
+      }
+      return uncertain
+    }
+    if (!data || data.id !== input.id || data.operation !== "cancel" || typeof data.replayed !== "boolean") return uncertain
+    try { revalidatePath("/invoices"); revalidatePath("/accounting") } catch { /* The cancellation and audit are committed. */ }
+    return { success: true, replayed: data.replayed }
+  } catch { return uncertain }
 }
 
-// ── Credit note (reversal vs finalized invoice) + event ───────────────────
-
-export async function issueCreditNote(input: {
+// Notes use an explicit request identity and Saudi issue date. The database
+// posts the note, ledger effects, event, audit and receipt in one transaction.
+export type CreditNoteInput = {
+  request_id: string
   reference_invoice_id: string
+  expected_updated_at: string
   reason: string
-  issue_date?: string
+  issue_date: string
   lines?: InvoiceLineInput[]
-}): Promise<ActionResult & { id?: string }> {
-  try {
-    await requirePermission("invoices", "create")
-    const currentUser = await getCurrentUser()
-    if (!currentUser) return { success: false, error: "Not authenticated." }
-
-    const reason = input.reason.trim()
-    if (!reason) return { success: false, error: "A credit note reason is required." }
-
-    const admin = createAdminClient()
-    const { data: inv, error: fetchError } = await admin
-      .from("invoices")
-      .select("id,tenant_id,invoice_number,status,customer_id,issue_date,currency,subtotal,discount,vat_amount,total,vat_rate")
-      .eq("id", input.reference_invoice_id)
-      .eq("tenant_id", currentUser.tenantId)
-      .is("deleted_at", null)
-      .maybeSingle()
-    if (fetchError || !inv) return { success: false, error: mapInv("INV001") }
-    if (inv.status !== "finalized") return { success: false, error: mapInv("INV011") }
-
-    const { data: existingNote } = await admin
-      .from("credit_notes")
-      .select("id")
-      .eq("tenant_id", currentUser.tenantId)
-      .eq("reference_invoice_id", input.reference_invoice_id)
-      .limit(1)
-    if ((existingNote ?? []).length > 0) return { success: false, error: mapInv("INV009") }
-
-    // Line snapshot: caller lines, or the full reversal of the invoice.
-    let totals: ReturnType<typeof computeInvoiceTotals>
-    let snapshot: ReturnType<typeof computeInvoiceTotals>["lines"]
-    if (input.lines && input.lines.length > 0) {
-      try {
-        totals = computeInvoiceTotals(input.lines, Number(inv.vat_rate ?? 15))
-        snapshot = totals.lines
-      } catch (e) {
-        return { success: false, error: errorMessage(e) }
-      }
-    } else {
-      const { data: lines, error: linesErr } = await admin
-        .from("invoice_lines")
-        .select("line_no,description,quantity,unit_price,discount,amount,vat_rate,vat_amount")
-        .eq("invoice_id", inv.id)
-        .order("line_no", { ascending: true })
-      if (linesErr) return { success: false, error: mapFinancialError(linesErr.message) }
-      snapshot = (lines ?? []).map((l) => ({
-        line_no: l.line_no,
-        description: l.description,
-        quantity: Number(l.quantity),
-        unit_price: Number(l.unit_price),
-        discount: Number(l.discount),
-        amount: Number(l.amount),
-        vat_rate: Number(l.vat_rate),
-        vat_amount: Number(l.vat_amount),
-      }))
-      // For a full reversal the header amounts mirror the reference invoice.
-      totals = {
-        lines: snapshot,
-        subtotal: Number(inv.subtotal),
-        discount: Number(inv.discount),
-        vat_amount: Number(inv.vat_amount),
-        total: Number(inv.total),
-      }
-    }
-
-    const { data: note, error } = await admin
-      .from("credit_notes")
-      .insert({
-        tenant_id: currentUser.tenantId,
-        reference_invoice_id: inv.id,
-        customer_id: inv.customer_id,
-        issue_date: input.issue_date ?? new Date().toISOString().slice(0, 10),
-        currency: inv.currency,
-        status: "finalized",
-        subtotal: totals.subtotal,
-        discount: totals.discount,
-        vat_amount: totals.vat_amount,
-        total: totals.total,
-        vat_rate: Number(inv.vat_rate ?? 15),
-        reason,
-        lines: snapshot,
-        created_by: currentUser.authUserId,
-      })
-      .select("id,credit_note_number")
-      .single()
-    if (error) return { success: false, error: mapFinancialError(error.message) }
-
-    // Reference invoice becomes credited.
-    await admin
-      .from("invoices")
-      .update({ status: "credited", updated_by: currentUser.authUserId })
-      .eq("id", inv.id)
-      .eq("tenant_id", currentUser.tenantId)
-      .is("deleted_at", null)
-
-    await emitEvent({
-      tenantId: currentUser.tenantId,
-      sourceType: "credit_note",
-      sourceId: note.id,
-      eventType: "CreditNoteIssuedEvent",
-      suffix: "issued",
-      eventDate: new Date().toISOString().slice(0, 10),
-      payload: {
-        credit_note_number: note.credit_note_number,
-        reference_invoice_id: inv.id,
-        subtotal: totals.subtotal,
-        vat_amount: totals.vat_amount,
-        total: totals.total,
-        reason,
-      },
-    })
-
-    // Phase 9 — reversal journal + output-VAT adjustment + AR reduction.
-    await runEventDispatcher()
-
-    // Phase 15 — transmit the credit note document to ZATCA (sandbox mock).
-    await runZatcaAdapter()
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "invoices",
-      action: "credit_note_issued",
-      entityType: "credit_notes",
-      entityId: note.id,
-      newValues: {
-        credit_note_number: note.credit_note_number,
-        reference_invoice_id: inv.id,
-        reference_number: inv.invoice_number,
-        total: totals.total,
-        reason,
-      },
-    })
-
-    revalidatePath("/invoices")
-    revalidatePath("/accounting")
-    return { success: true, id: note.id }
-  } catch (e) {
-    return { success: false, error: errorMessage(e) }
-  }
 }
-
-// ── Debit note (additional charge) + event ────────────────────────────────
-
-export async function issueDebitNote(input: {
-  reference_invoice_id: string
-  reason: string
+export type DebitNoteInput = Omit<CreditNoteInput, "lines"> & {
   amount: number
   vat_rate?: number
-  issue_date?: string
   description?: string
-}): Promise<ActionResult & { id?: string }> {
+}
+type NoteResult = TransitionResult & { id?: string }
+
+async function createInvoiceNote(kind: "credit" | "debit", input: CreditNoteInput | DebitNoteInput): Promise<NoteResult> {
+  const uncertain: NoteResult = {
+    success: false,
+    error: "Unable to confirm the note. Review the invoice and notes before retrying the same request.",
+    errorAr: "تعذر تأكيد الإشعار. راجع الفاتورة والإشعارات قبل إعادة الطلب نفسه.",
+  }
+  const invalid: NoteResult = {
+    success: false, error: "Enter a valid note date, a reason of 5 to 500 characters, and exact monetary values.",
+    errorAr: "أدخل تاريخ إشعار صحيحاً وسبباً من 5 إلى 500 حرف وقيماً مالية دقيقة.",
+  }
   try {
     await requirePermission("invoices", "create")
-    const currentUser = await getCurrentUser()
-    if (!currentUser) return { success: false, error: "Not authenticated." }
-
-    const reason = input.reason.trim()
-    if (!reason) return { success: false, error: "A debit note reason is required." }
-    const amount = Number(input.amount)
-    if (!Number.isFinite(amount) || amount <= 0) {
-      return { success: false, error: mapInv("INV012") }
+    await requirePermission("invoices", "approve")
+    const user = await getCurrentUser()
+    if (!user) return { success: false, error: "Not authenticated.", errorAr: "يلزم تسجيل الدخول." }
+    const limit = await rateLimitAccounting(user.id)
+    if (!limit.success) return { success: false, error: "Too many requests. Try again shortly.", errorAr: "طلبات كثيرة. حاول مجدداً بعد قليل." }
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!uuid.test(input.request_id ?? "") || !uuid.test(input.reference_invoice_id ?? "")
+      || typeof input.expected_updated_at !== "string" || !input.expected_updated_at
+      || !Number.isFinite(Date.parse(input.expected_updated_at))) return invalid
+    if (typeof input.reason !== "string" || input.reason.trim().length < 5 || input.reason.trim().length > 500
+      || typeof input.issue_date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(input.issue_date)) return invalid
+    const issueDate = new Date(input.issue_date)
+    if (!Number.isFinite(issueDate.getTime()) || input.issue_date < "0001-01-01"
+      || issueDate.toISOString().slice(0, 10) !== input.issue_date) return invalid
+    if (kind === "credit" && "lines" in input && input.lines !== undefined) return {
+      success: false, error: "This action supports a full invoice credit. Partial credits require a separate reviewed allocation.",
+      errorAr: "هذا الإجراء يدعم الإشعار الدائن لكامل الفاتورة. الإشعارات الجزئية تحتاج توزيعاً مستقلاً ومراجعاً.",
     }
-
-    const admin = createAdminClient()
-    const { data: inv, error: fetchError } = await admin
-      .from("invoices")
-      .select("id,tenant_id,invoice_number,status,customer_id,issue_date,currency,subtotal,discount,vat_amount,total,vat_rate")
-      .eq("id", input.reference_invoice_id)
-      .eq("tenant_id", currentUser.tenantId)
-      .is("deleted_at", null)
-      .maybeSingle()
-    if (fetchError || !inv) return { success: false, error: mapInv("INV001") }
-    if (inv.status !== "finalized") return { success: false, error: mapInv("INV011") }
-
-    const vatRate = Number(input.vat_rate ?? 15)
-    if (!Number.isFinite(vatRate) || vatRate < 0 || vatRate > 100) {
-      return { success: false, error: mapInv("INV002") }
+    const payload: Record<string, unknown> = { reason: input.reason.trim(), issue_date: input.issue_date }
+    if (kind === "debit") {
+      const debit = input as DebitNoteInput
+      const rate = debit.vat_rate === undefined ? 15 : debit.vat_rate
+      if (typeof debit.amount !== "number" || debit.amount <= 0 || debit.amount > 99_999_999.99
+        || typeof rate !== "number" || (debit.description !== undefined && typeof debit.description !== "string")) return invalid
+      const description = debit.description?.trim() || payload.reason as string
+      try {
+        computeInvoiceTotals([{ description, quantity: 1, unit_price: debit.amount, vat_rate: rate }], rate)
+      } catch { return invalid }
+      payload.amount = debit.amount; payload.vat_rate = rate; payload.description = description
     }
-    const subtotal = round2(amount)
-    const vatAmount = round2((subtotal * vatRate) / 100)
-
-    const { data: note, error } = await admin
-      .from("debit_notes")
-      .insert({
-        tenant_id: currentUser.tenantId,
-        reference_invoice_id: inv.id,
-        customer_id: inv.customer_id,
-        issue_date: input.issue_date ?? new Date().toISOString().slice(0, 10),
-        currency: inv.currency,
-        status: "finalized",
-        subtotal,
-        discount: 0,
-        vat_amount: vatAmount,
-        total: round2(subtotal + vatAmount),
-        vat_rate: vatRate,
-        reason,
-        lines: [
-          {
-            line_no: 1,
-            description: input.description?.trim() || reason,
-            quantity: 1,
-            unit_price: subtotal,
-            discount: 0,
-            amount: subtotal,
-            vat_rate: vatRate,
-            vat_amount: vatAmount,
-          },
-        ],
-        created_by: currentUser.authUserId,
-      })
-      .select("id,debit_note_number")
-      .single()
-    if (error) return { success: false, error: mapFinancialError(error.message) }
-
-    await emitEvent({
-      tenantId: currentUser.tenantId,
-      sourceType: "debit_note",
-      sourceId: note.id,
-      eventType: "DebitNoteIssuedEvent",
-      suffix: "issued",
-      eventDate: new Date().toISOString().slice(0, 10),
-      payload: {
-        debit_note_number: note.debit_note_number,
-        reference_invoice_id: inv.id,
-        subtotal,
-        vat_amount: vatAmount,
-        total: round2(subtotal + vatAmount),
-        reason,
-      },
+    const client = await createClient()
+    const { data, error } = await client.rpc("create_invoice_note_atomic", {
+      p_request_id: input.request_id, p_invoice_id: input.reference_invoice_id,
+      p_expected_updated_at: input.expected_updated_at, p_kind: kind, p_input: payload,
     })
+    if (error) {
+      const code = error.message?.split(":", 1)[0]
+      const safe: Record<string, [string, string]> = {
+        INV_NOTE_INPUT: [invalid.error!, invalid.errorAr!],
+        INV_NOTE_REFERENCE: ["Notes require a finalized SAR sales invoice. Purchase notes and paid-invoice refunds require separate workflows.", "الإشعارات تتطلب فاتورة مبيعات معتمدة بالريال. إشعارات المشتريات واستردادات الفواتير المدفوعة لها إجراءات مستقلة."],
+        INV_NOTE_POSTING: ["Post the original invoice successfully before issuing a note. Review Accounting events.", "أكمل ترحيل الفاتورة الأصلية بنجاح قبل إصدار الإشعار. راجع أحداث المحاسبة."],
+        INV_NOTE_RESERVED: ["A payment reserves this invoice balance. Resolve the payment before issuing a note.", "يوجد حجز دفع على رصيد الفاتورة. عالج الدفعة قبل إصدار الإشعار."],
+        INV_NOTE_RETRY: ["This request already identifies another note decision. Review existing notes before starting a new request.", "هذا الطلب مرتبط بإجراء إشعار مختلف. راجع الإشعارات الموجودة قبل بدء طلب جديد."],
+        INV_NOTE_REVIEW: ["The invoice or note accounting evidence requires review. No new note was confirmed.", "تحتاج بيانات محاسبة الفاتورة أو الإشعار إلى مراجعة. لم يتم تأكيد إشعار جديد."],
+      }
+      if (safe[code]) return { success: false, error: safe[code][0], errorAr: safe[code][1] }
+      if (/^(INV00[1-9]|INV01[0-5]|AUTH007|ACC001|VAT001)$/.test(code)) {
+        const def = getErrorDefinition(code)
+        return { success: false, error: def.messageEn, errorAr: def.messageAr }
+      }
+      return uncertain
+    }
+    if (!data || !uuid.test(data.id ?? "") || !uuid.test(data.event_id ?? "") || data.kind !== kind
+      || data.reference_invoice_id !== input.reference_invoice_id || typeof data.replayed !== "boolean"
+      || data.posting_status !== "posted") return uncertain
+    try { await runZatcaAdapter() } catch { /* Separate gated transmission; no claim of authority acceptance. */ }
+    try { revalidatePath("/invoices"); revalidatePath("/accounting") } catch { /* Confirmed note remains committed. */ }
+    return { success: true, id: data.id, replayed: data.replayed, postingPending: false }
+  } catch { return uncertain }
+}
 
-    // Phase 9 — additional-AR journal + output-VAT adjustment + receivable.
-    await runEventDispatcher()
+export async function issueCreditNote(input: CreditNoteInput): Promise<NoteResult> {
+  return createInvoiceNote("credit", input)
+}
 
-    // Phase 15 — transmit the debit note document to ZATCA (sandbox mock).
-    await runZatcaAdapter()
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "invoices",
-      action: "debit_note_issued",
-      entityType: "debit_notes",
-      entityId: note.id,
-      newValues: {
-        debit_note_number: note.debit_note_number,
-        reference_invoice_id: inv.id,
-        reference_number: inv.invoice_number,
-        total: round2(subtotal + vatAmount),
-        reason,
-      },
-    })
-
-    revalidatePath("/invoices")
-    revalidatePath("/accounting")
-    return { success: true, id: note.id }
-  } catch (e) {
-    return { success: false, error: errorMessage(e) }
-  }
+export async function issueDebitNote(input: DebitNoteInput): Promise<NoteResult> {
+  return createInvoiceNote("debit", input)
 }
 
 // ── CSV export (BOM-prefixed so Excel renders Arabic) ─────────────────────

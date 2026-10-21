@@ -18,21 +18,8 @@ describe("round2 (integer-minor rounding)", () => {
   })
 })
 
-// createReceivable / expenses use the SAME canonical formula
-// (vat = round2(amount × vat_rate / 100), total = round2(amount + vat)).
-// Pins the exact computation so a regression to the old
-// `Math.round(amount * vatRate) / 100` pattern (TEST-STRATEGY §4 flagged
-// it) cannot sneak back in.
-describe("AR/expense VAT formula (createReceivable path)", () => {
-  it("computes VAT and total with the canonical formula", () => {
-    const vat = (amount: number, rate: number) => round2((round2(amount) * rate) / 100)
-    const total = (amount: number, rate: number) => round2(round2(amount) + vat(amount, rate))
-    expect(vat(1000, 15)).toBe(150)
-    expect(total(1000, 15)).toBe(1150)
-    expect(vat(33.33, 15)).toBe(5.0) // 4.9995 → 5.00
-    expect(total(33.33, 15)).toBe(38.33)
-  })
-
+// Manual receivable action persistence is exercised in receivable-actions.test.ts.
+describe("invoice VAT rounding boundaries", () => {
   it("matches Postgres rounding for edge values", () => {
     const invoice = computeInvoiceTotals([{ description: "VAT boundary", quantity: 1, unit_price: 4.1 }])
     expect(invoice.vat_amount).toBe(0.62)

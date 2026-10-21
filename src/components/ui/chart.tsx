@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- vendored shadcn chart component */
 
+import { LocalizedText } from "@/components/localized-text"
 import * as React from "react"
 import * as RechartsPrimitive from "recharts"
 
@@ -109,7 +110,7 @@ function ChartContainer({
           </RechartsPrimitive.ResponsiveContainer>
         ) : (
           <div className="flex aspect-video items-center justify-center">
-            <span className="text-xs text-muted-foreground/50">Loading chart…</span>
+            <span className="text-xs text-muted-foreground/50"><LocalizedText text="Loading chart…" /></span>
           </div>
         )}
       </div>

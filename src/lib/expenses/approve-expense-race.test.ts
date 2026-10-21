@@ -3,9 +3,9 @@
 // The defect: the old action did check-then-insert (read is_approved →
 // insert payable → update expense) across three round-trips; two concurrent
 // approvals could both pass the check and create two payable rows.
-// The fix (migration 063): ONE atomic RPC — approve_expense_atomic — whose
-// conditional UPDATE is the race arbiter (0 rows ⇒ EXP002) and whose payable
-// insert is ON CONFLICT DO NOTHING + an exactly-one-live-row assert (FX06).
+// The shared transaction retains the original conditional-claim/AP guarantees
+// and adds an atomic approval audit/reason. Real SQL concurrency, audit rollback
+// and financial persistence are covered by the disposable database verifier.
 //
 // These tests mock the RPC boundary and model the DB arbitration: the first
 // caller claims the expense (claim=1), the concurrent caller sees 0 rows
@@ -17,7 +17,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest"
 
 // ── Mocks (hoisted) ────────────────────────────────────────────────────────
 
-const { rpcMock, adminState, authState, rateLimitState, auditState, dispatcherState, emitState } = vi.hoisted(() => {
+const { rpcMock, adminState, authState, rateLimitState, auditState, dispatcherState, emitState, postingState, postingEqMock } = vi.hoisted(() => {
   // Models the DB: is_approved flag + the claim rows each RPC call returns.
   const adminState = {
     expenseApproved: false,
@@ -27,7 +27,7 @@ const { rpcMock, adminState, authState, rateLimitState, auditState, dispatcherSt
     calls: [] as Array<{ claimed: number }>,
   }
   const rpcMock = vi.fn(async (fn: string, args: Record<string, unknown>) => {
-    if (fn !== "approve_expense_atomic") throw new Error(`unexpected rpc ${fn}`)
+    if (fn !== "approve_expense_with_context_atomic") throw new Error(`unexpected rpc ${fn}`)
     adminState.calls.push({ claimed: 0 })
     const idx = adminState.calls.length - 1
     // supabase-js .rpc() resolves to { data, error } — a raised DB exception
@@ -59,11 +59,18 @@ const { rpcMock, adminState, authState, rateLimitState, auditState, dispatcherSt
   const auditState = { writeAuditLog: vi.fn(async () => undefined) }
   const dispatcherState = { runEventDispatcher: vi.fn(async () => undefined) }
   const emitState = { emit: vi.fn() }
-  return { rpcMock, adminState, authState, rateLimitState, auditState, dispatcherState, emitState }
+  const postingState={status:'processed' as string|null,error:false}
+  const postingEqMock=vi.fn()
+  return { rpcMock, adminState, authState, rateLimitState, auditState, dispatcherState, emitState, postingState, postingEqMock }
 })
 
 vi.mock("@/lib/supabase/admin", () => ({
-  createAdminClient: () => ({ rpc: rpcMock }),
+  createAdminClient: () => ({ rpc: rpcMock, from:(table:string)=>{
+    if(table!=='financial_events')throw Error('Unexpected posting table')
+    const query={select:()=>query,eq:(...args:unknown[])=>{postingEqMock(...args);return query},
+      maybeSingle:async()=>({data:postingState.status?{processing_status:postingState.status}:null,error:postingState.error?{message:'unavailable'}:null})}
+    return query
+  } }),
 }))
 
 vi.mock("@/lib/auth/authorization", () => ({
@@ -92,7 +99,7 @@ vi.mock("next/cache", () => ({
 }))
 
 // NOTE: @/lib/accounting/csv-utils (mapFinancialError) is NOT mocked — the
-// real EXP002 taxonomy message and the FX06 raw passthrough are asserted.
+// real EXP002 taxonomy message and sanitized FX06 review message are asserted.
 
 // ── Load the action module ─────────────────────────────────────────────────
 
@@ -113,6 +120,7 @@ beforeEach(() => {
   dispatcherState.runEventDispatcher.mockClear()
   emitState.emit.mockClear()
   rpcMock.mockClear()
+  postingState.status='processed';postingState.error=false;postingEqMock.mockClear()
 })
 
 // ── The acceptance test: two concurrent approvals → one payable row ───────
@@ -136,18 +144,10 @@ describe("FX-06 approveExpense race", () => {
     expect(adminState.calls).toHaveLength(2)
     expect(adminState.calls.reduce((n, c) => n + c.claimed, 0)).toBe(1)
 
-    // The winner posted the journal event + audit + webhook exactly once.
+    // Audit is part of the database transaction, tested by the real SQL suite.
+    // The winner alone attempts dispatch and the notification.
     expect(dispatcherState.runEventDispatcher).toHaveBeenCalledTimes(1)
-    expect(auditState.writeAuditLog).toHaveBeenCalledTimes(1)
-    expect(auditState.writeAuditLog).toHaveBeenCalledWith(
-      expect.objectContaining({
-        tenantId: USER.tenantId,
-        actorId: USER.authUserId,
-        module: "expenses",
-        action: "expense_approved",
-        entityId: "exp-1",
-      })
-    )
+    expect(auditState.writeAuditLog).not.toHaveBeenCalled()
     expect(emitState.emit).toHaveBeenCalledTimes(1)
     expect(emitState.emit).toHaveBeenCalledWith(
       "expense.approved",
@@ -164,12 +164,14 @@ describe("FX-06 approveExpense race", () => {
     })
 
     expect(res.success).toBe(true)
-    expect(rpcMock).toHaveBeenCalledWith("approve_expense_atomic", {
+    expect(rpcMock).toHaveBeenCalledWith("approve_expense_with_context_atomic", {
       p_tenant_id: USER.tenantId,
       p_expense_id: "exp-2",
       p_vat_rate: 5,
       p_vat_recoverability: "non_recoverable",
       p_actor: USER.authUserId,
+      p_reason: null,
+      p_surface: "expenses",
     })
   })
 
@@ -178,6 +180,15 @@ describe("FX-06 approveExpense race", () => {
     const res = await approveExpense({ id: "exp-3" })
     expect(res.success).toBe(false)
     expect(res.error).toBe("This expense is already approved.")
+    expect(res.alreadyApproved).toBe(true)
+  })
+  it('does not mislabel a rejected expense as approved on a stale retry',async()=>{
+    rpcMock.mockImplementationOnce(async()=>({data:null,error:{message:'EXP_REJECTED: expense already rejected'}}))
+    const result=await approveExpense({id:'exp-rejected'})
+    expect(result).toMatchObject({success:false,alreadyDecided:true})
+    expect(result.alreadyApproved).toBeUndefined()
+    expect(result.error).toContain('rejected')
+    expect(dispatcherState.runEventDispatcher).not.toHaveBeenCalled()
   })
 
   // Review round 2 — mapping determinism: the RPC raises EXP005 when the
@@ -240,5 +251,44 @@ describe("FX-06 approveExpense race", () => {
     expect(res.success).toBe(false)
     expect(res.error).toMatch(/rate limit/i)
     expect(rpcMock).not.toHaveBeenCalled()
+  })
+
+  it('normalizes the retained VAT rate before the RPC',async()=>{
+    await approveExpense({id:'exp-rate',vat_rate:15.555})
+    expect(rpcMock.mock.calls[0][1].p_vat_rate).toBe(15.56)
+  })
+  it('passes the inbox reason into the same approval transaction',async()=>{
+    await approveExpense({id:'exp-inbox',approvalReason:'  Receipts checked  ',surface:'approvals_inbox'})
+    expect(rpcMock.mock.calls[0][1]).toMatchObject({p_reason:'Receipts checked',p_surface:'approvals_inbox',p_vat_rate:null})
+    expect(auditState.writeAuditLog).not.toHaveBeenCalled()
+  })
+  it('rejects a missing inbox reason before the RPC',async()=>{
+    expect((await approveExpense({id:'exp-inbox',surface:'approvals_inbox'})).success).toBe(false)
+    expect(rpcMock).not.toHaveBeenCalled()
+  })
+  it.each(['pending','failed',null])('keeps confirmed approval while disclosing own event status %s',async status=>{
+    postingState.status=status
+    const result=await approveExpense({id:'exp-posting'})
+    expect(result).toEqual({success:true,postingPending:true})
+    expect(postingEqMock).toHaveBeenCalledWith('tenant_id',USER.tenantId)
+    expect(postingEqMock).toHaveBeenCalledWith('source_id','exp-posting')
+    expect(postingEqMock).toHaveBeenCalledWith('event_id','event-1')
+  })
+  it('treats a posting read failure as unverified posting, not failed approval',async()=>{
+    postingState.error=true
+    expect(await approveExpense({id:'exp-read-failure'})).toEqual({success:true,postingPending:true})
+  })
+  it('retains approval confirmation if immediate dispatch throws',async()=>{
+    dispatcherState.runEventDispatcher.mockRejectedValueOnce(Error('private posting diagnostic'))
+    expect(await approveExpense({id:'exp-dispatch'})).toEqual({success:true,postingPending:true})
+    expect(auditState.writeAuditLog).not.toHaveBeenCalled()
+  })
+  it('does not expose unknown RPC diagnostics',async()=>{
+    rpcMock.mockImplementationOnce(async()=>({data:null,error:{message:'private database diagnostic'}}))
+    const result=await approveExpense({id:'exp-failure'})
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/review/i)
+    expect(JSON.stringify(result)).not.toContain('private')
+    expect(result.errorAr).toBeTruthy()
   })
 })

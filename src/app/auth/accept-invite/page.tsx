@@ -6,9 +6,10 @@ import { User, Lock, Eye, EyeOff, Loader2, AlertCircle } from "lucide-react"
 import { LogoMark } from "@/components/logo"
 import { useTranslation } from "@/hooks/use-translation"
 import { acceptInvite } from "@/lib/auth/invites"
+import { isValidNewPassword, newPasswordHint, MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH } from "@/lib/auth/password-policy"
 
 export default function AcceptInvitePage() {
-  const { t } = useTranslation()
+  const { t, locale } = useTranslation()
   const [fullName, setFullName] = useState("")
   const [password, setPassword] = useState("")
   const [confirm, setConfirm] = useState("")
@@ -29,11 +30,13 @@ export default function AcceptInvitePage() {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (loading) return
     if (password !== confirm) {
       setMismatch(true)
       return
     }
     setMismatch(false)
+    if (!isValidNewPassword(password)) { setError(newPasswordHint(locale)); return }
     setError(null)
     setLoading(true)
     try {
@@ -41,7 +44,7 @@ export default function AcceptInvitePage() {
       if (result.success) {
         setAccepted(true)
       } else {
-        setError(result.error ?? t.auth.genericError)
+        setError((locale === "ar" ? result.errorAr ?? result.error : result.error) ?? t.auth.genericError)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : t.auth.genericError)
@@ -105,7 +108,7 @@ export default function AcceptInvitePage() {
 
         <form onSubmit={onSubmit} className="stagger-3 grid gap-4">
           {error && (
-            <div className="flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <div role="alert" className="flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               <AlertCircle className="size-4 shrink-0" />
               <span>{error}</span>
             </div>
@@ -139,6 +142,10 @@ export default function AcceptInvitePage() {
                 id="password"
                 type={showPassword ? "text" : "password"}
                 required
+                minLength={MIN_PASSWORD_LENGTH}
+                maxLength={MAX_PASSWORD_LENGTH}
+                disabled={loading}
+                aria-describedby="password-policy"
                 autoComplete="new-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -154,6 +161,7 @@ export default function AcceptInvitePage() {
                 {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
               </button>
             </div>
+            <p id="password-policy" className="text-sm text-muted-foreground">{newPasswordHint(locale)}</p>
           </div>
 
           <div className="grid gap-2">
@@ -166,6 +174,9 @@ export default function AcceptInvitePage() {
                 id="confirm"
                 type="password"
                 required
+                minLength={MIN_PASSWORD_LENGTH}
+                maxLength={MAX_PASSWORD_LENGTH}
+                disabled={loading}
                 autoComplete="new-password"
                 value={confirm}
                 onChange={(e) => {

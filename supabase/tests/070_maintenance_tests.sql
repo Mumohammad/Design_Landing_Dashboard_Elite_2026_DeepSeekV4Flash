@@ -84,8 +84,8 @@ BEGIN
           now(), now(), now(), '{"provider":"email","providers":["email"]}',
           '{"_invite_provisioned": true}');
 
-  INSERT INTO public.users (id, auth_user_id, tenant_id, email, role, status)
-  VALUES (v_uid, v_aid, v_t_a, 'maint-fixture@test.local', 'supervisor', 'active');
+  INSERT INTO public.users (id, auth_user_id, tenant_id, email, role, status, must_change_password)
+  VALUES (v_uid, v_aid, v_t_a, 'maint-fixture@test.local', 'supervisor', 'active', false);
 
   INSERT INTO public.roles (tenant_id,name,name_ar,name_en) VALUES (v_t_a,'supervisor','Fixture','Fixture');
   INSERT INTO public.role_permissions (role_id,permission_id)

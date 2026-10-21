@@ -28,6 +28,7 @@ import { writeAuditLog } from "@/lib/auth/sessions"
 import { rateLimit, getClientIp } from "@/lib/auth/rate-limit"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { hashInviteToken, verifyInviteToken } from "@/lib/auth/invite-tokens"
+import { isValidNewPassword, newPasswordHint } from "@/lib/auth/password-policy"
 
 /** One week in milliseconds — invite expiry window (auth plan 6.3 step 9). */
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000
@@ -53,7 +54,7 @@ export type PendingInvite = {
   expires_at: string
 }
 
-type ActionResult = { success: boolean; error?: string }
+type ActionResult = { success: boolean; error?: string; errorAr?: string }
 
 
 
@@ -262,6 +263,9 @@ export async function acceptInvite(
       }
     }
 
+    if (!isValidNewPassword(password)) {
+      return { success: false, error: newPasswordHint("en"), errorAr: newPasswordHint("ar") }
+    }
     const admin = createAdminClient()
 
     // 1. Lookup by token_id (O(1) index). Generic error on miss to avoid

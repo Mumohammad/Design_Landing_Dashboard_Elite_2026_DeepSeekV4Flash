@@ -1,5 +1,6 @@
 "use client";
 
+import { LocalizedText, useUiText } from "@/components/localized-text"
 import { useEffect, useState } from "react";
 
 import { Loader2, Trash2 } from "lucide-react";
@@ -200,6 +201,7 @@ export function DriverTabsFormDialog({
   pendingEdit = null,
   onSaved,
 }: DriverTabsFormDialogProps) {
+  const ui = useUiText()
   const config = CONFIG[surface];
   const [values, setValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -282,7 +284,7 @@ export function DriverTabsFormDialog({
         }
         const { error } = await supabase.from(config.table).insert(insert);
         if (error) throw error;
-        toast.success("Saved");
+        toast.success(ui("Saved"));
       } else {
         const update: Record<string, unknown> = { ...payload, ...(pendingEdit ?? {}) };
         const { error } = await supabase
@@ -298,7 +300,7 @@ export function DriverTabsFormDialog({
       emitDriverChanged({ driverId, action: config.action });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to save";
-      toast.error(message);
+      toast.error(ui(message));
     } finally {
       setSaving(false);
     }
@@ -330,8 +332,8 @@ export function DriverTabsFormDialog({
     <Dialog open={open} onOpenChange={(next) => { if (!saving) onOpenChange(next); }}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{mode === "create" ? config.title.create : config.title.edit}</DialogTitle>
-          <DialogDescription>{config.description}</DialogDescription>
+          <DialogTitle>{ui(mode === "create" ? config.title.create : config.title.edit)}</DialogTitle>
+          <DialogDescription>{ui(config.description)}</DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-3 sm:grid-cols-2">
@@ -341,7 +343,7 @@ export function DriverTabsFormDialog({
               className={field.type === "textarea" ? "space-y-1.5 sm:col-span-2" : "space-y-1.5"}
             >
               <Label htmlFor={`${surface}-${field.key}`}>
-                {field.label}
+                {ui(field.label)}
                 {field.required ? " *" : ""}
               </Label>
               {field.type === "textarea" ? (
@@ -357,12 +359,12 @@ export function DriverTabsFormDialog({
                   onValueChange={(v) => setField(field.key, v)}
                 >
                   <SelectTrigger id={`${surface}-${field.key}`}>
-                    <SelectValue placeholder="Select…" />
+                    <SelectValue placeholder={ui("Select…")} />
                   </SelectTrigger>
                   <SelectContent>
                     {(field.options ?? []).map((opt) => (
                       <SelectItem key={opt.value} value={opt.value}>
-                        {opt.label}
+                        {ui(opt.label)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -390,13 +392,9 @@ export function DriverTabsFormDialog({
                   variant="outline"
                   onClick={() => setConfirmDelete(false)}
                   disabled={saving}
-                >
-                  Keep record
-                </Button>
+                ><LocalizedText text="Keep record" /></Button>
                 <Button variant="destructive" onClick={() => void softDelete()} disabled={saving}>
-                  {saving ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
-                  Confirm delete
-                </Button>
+                  {saving ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}<LocalizedText text="Confirm delete" /></Button>
               </>
             ) : (
               <Button
@@ -405,14 +403,10 @@ export function DriverTabsFormDialog({
                 onClick={() => setConfirmDelete(true)}
                 disabled={saving}
               >
-                <Trash2 className="size-4" />
-                Delete
-              </Button>
+                <Trash2 className="size-4" /><LocalizedText text="Delete" /></Button>
             )
           ) : null}
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
-            Cancel
-          </Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}><LocalizedText text="Cancel" /></Button>
           <Button onClick={() => void save()} disabled={saving}>
             {saving ? <Loader2 className="size-4 animate-spin" /> : null}
             {mode === "create" ? "Add" : "Save changes"}

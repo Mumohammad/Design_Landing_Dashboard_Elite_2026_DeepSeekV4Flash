@@ -80,6 +80,7 @@ export type ErrorCode =
   | "JRN012"
   | "JRN013"
   | "JRN014"
+  | "JRN015"
   // Accounting — Periods (Phase 1)
   | "ACC001"
   | "ACC002"
@@ -509,6 +510,12 @@ export const ERROR_CODES: Record<ErrorCode, ErrorDefinition> = {
     messageEn: "Journal entry state does not permit this action.",
   },
 
+  JRN015: {
+    code: "JRN015",
+    httpStatus: 409,
+    messageAr: "هذا القيد تابع لفاتورة أو إشعار. استخدم إجراء الفاتورة أو الإشعار للحفاظ على الذمم والضريبة.",
+    messageEn: "This journal belongs to an invoice or note. Use its document workflow to keep balances and VAT consistent.",
+  },
   JRN014: {
     code: "JRN014",
     httpStatus: 409,
@@ -694,8 +701,8 @@ export const ERROR_CODES: Record<ErrorCode, ErrorDefinition> = {
   INV015: {
     code: "INV015",
     httpStatus: 409,
-    messageAr: "تم تعديل الفاتورة. أعد تحميلها قبل الحفظ أو الحذف.",
-    messageEn: "This invoice has changed. Reload it before saving or deleting.",
+    messageAr: "تم تعديل الفاتورة. أعد تحميلها قبل تأكيد الإجراء.",
+    messageEn: "This invoice has changed. Reload it before confirming this action.",
   },
   INV014: {
     code: "INV014",

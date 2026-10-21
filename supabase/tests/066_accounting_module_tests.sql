@@ -84,9 +84,9 @@ BEGIN
           '{"_invite_provisioned": true}')
   ON CONFLICT (id) DO NOTHING;
 
-  INSERT INTO public.users (id, auth_user_id, tenant_id, email, role, status)
-  VALUES (v_users, v_auth, v_tenant, 'acct-fixture@test.local', 'general_manager', 'active')
-  ON CONFLICT (id) DO UPDATE SET role = 'general_manager', status = 'active';
+  INSERT INTO public.users (id, auth_user_id, tenant_id, email, role, status, must_change_password)
+  VALUES (v_users, v_auth, v_tenant, 'acct-fixture@test.local', 'general_manager', 'active', false)
+  ON CONFLICT (id) DO UPDATE SET role = 'general_manager', status = 'active', must_change_password = false;
 
   -- Bank account (tenant A) for the in/out payment fixtures.
   INSERT INTO public.bank_accounts (id, tenant_id, bank_name, account_name, iban)
@@ -384,13 +384,13 @@ VALUES ('00000000-0000-0000-0000-000000000000',
         '{"_invite_provisioned": true}')
 ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO public.users (id, auth_user_id, tenant_id, email, role, status)
+INSERT INTO public.users (id, auth_user_id, tenant_id, email, role, status, must_change_password)
 VALUES ('13999999-9999-9999-9999-999999999999',
         '13888888-8888-8888-8888-888888888888',
         '13222222-2222-2222-2222-222222222222',
-        'acct-fixture-b@test.local', 'general_manager', 'active')
+        'acct-fixture-b@test.local', 'general_manager', 'active', false)
 ON CONFLICT (id) DO UPDATE SET tenant_id = '13222222-2222-2222-2222-222222222222',
-                               role = 'general_manager', status = 'active';
+                               role = 'general_manager', status = 'active', must_change_password = false;
 
 RESET ROLE;
 SET LOCAL ROLE authenticated;

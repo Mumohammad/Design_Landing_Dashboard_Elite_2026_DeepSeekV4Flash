@@ -49,6 +49,7 @@ export function DecisionDialog({
   const isAr = locale === "ar"
   const [reason, setReason] = useState("")
   const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [lastClosed, setLastClosed] = useState(true)
 
   // Reset the reason field when the dialog transitions from closed → open
@@ -56,6 +57,7 @@ export function DecisionDialog({
   if (lastClosed && target !== null) {
     setLastClosed(false)
     setReason("")
+    setError(null)
   } else if (!lastClosed && target === null) {
     setLastClosed(true)
   }
@@ -67,40 +69,51 @@ export function DecisionDialog({
   const requester = maskRequesterName(row.item_type, row.requester, row.subject_meta?.full_name ?? null, consent)
 
   async function submit() {
+    if (submitting) return
     if (reason.trim().length < 5) {
-      toast.error(isAr ? "السبب مطلوب (٥ أحرف على الأقل)" : "A reason (min 5 characters) is required")
+      setError(isAr ? "السبب مطلوب (٥ أحرف على الأقل)" : "A reason (min 5 characters) is required")
       return
     }
     setSubmitting(true)
-
-    // One server action per decision type; dynamic import keeps the inbox
-    // bundle free of the write path until a dialog actually opens.
-    const { decideExpense, decideLeaveRequest, decideApplication } = await import(
-      "@/lib/approvals/actions"
-    )
-    const res =
-      row.item_type === "expense"
-        ? await decideExpense({ expenseId: row.item_id, decision, reason: reason.trim() })
-        : row.item_type === "leave_request"
-          ? await decideLeaveRequest({ requestId: row.item_id, decision, reason: reason.trim() })
-          : await decideApplication({ applicationId: row.item_id, decision, reason: reason.trim() })
-
-    setSubmitting(false)
-    if (res.success) {
-      toast.success(
-        isAr
-          ? decision === "approved"
-            ? "تمت الموافقة"
-            : "تم الرفض"
-          : decision === "approved"
-            ? "Approved"
-            : "Rejected"
+    setError(null)
+    try {
+      // One server action per decision type; dynamic import keeps the inbox
+      // bundle free of the write path until a dialog actually opens.
+      const { decideExpense, decideLeaveRequest, decideApplication } = await import(
+        "@/lib/approvals/actions"
       )
-      onOpenChange(false)
-      onDone()
-    } else {
-      toast.error(decisionErrorText(res.error ?? "", isAr))
-    }
+      const res =
+        row.item_type === "expense"
+          ? await decideExpense({ expenseId: row.item_id, decision, reason: reason.trim() })
+          : row.item_type === "leave_request"
+            ? await decideLeaveRequest({ requestId: row.item_id, decision, reason: reason.trim() })
+            : await decideApplication({ applicationId: row.item_id, decision, reason: reason.trim() })
+
+      if (res.success) {
+        if (res.postingPending) toast.warning(isAr
+          ? "تم اعتماد المصروف. راجع أحداث المحاسبة لاستكمال الترحيل."
+          : "Expense approved. Review Accounting events to complete posting.")
+        else toast.success(
+          isAr
+            ? decision === "approved"
+              ? "تمت الموافقة"
+              : "تم الرفض"
+            : decision === "approved"
+              ? "Approved"
+              : "Rejected"
+        )
+        onOpenChange(false)
+        onDone()
+      } else if (res.alreadyDecided) {
+        toast.info(isAr ? "تم اتخاذ القرار مسبقاً. راجع القائمة بعد تحديثها." : "This decision was already made. Review the refreshed list.")
+        onOpenChange(false)
+        onDone()
+      } else {
+        setError((isAr ? res.errorAr : res.error) ?? decisionErrorText(res.error ?? "", isAr))
+      }
+    } catch {
+      setError(isAr ? "تعذر تأكيد القرار. أعد تحميل القائمة وراجعها قبل المحاولة مجدداً." : "Unable to confirm the decision. Reload and review before retrying.")
+    } finally { setSubmitting(false) }
   }
 
   const typeLabel =
@@ -115,7 +128,7 @@ export function DecisionDialog({
       <DialogContent className="rounded-2xl sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            {decision === "rejected" && <TriangleAlert className="h-5 w-5 text-destructive" />}
+            {decision === "rejected" && <TriangleAlert className="h-5 w-5 text-red-700 dark:text-red-400" />}
             {isAr
               ? decision === "approved"
                 ? `الموافقة على ${typeLabel}`
@@ -139,6 +152,7 @@ export function DecisionDialog({
           </Label>
           <Textarea
             id="decision-reason"
+            maxLength={500}
             rows={3}
             value={reason}
             onChange={(e) => setReason(e.target.value)}
@@ -155,12 +169,15 @@ export function DecisionDialog({
           />
         </div>
 
+        {error && <p role="alert" className="text-sm text-red-700 dark:text-red-400">{error}</p>}
+
         <DialogFooter className="gap-2">
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={submitting}>
             {isAr ? "إلغاء" : "Cancel"}
           </Button>
           <Button
             variant={decision === "rejected" ? "destructive" : "default"}
+            className={decision === "rejected" ? "bg-red-700 text-white hover:bg-red-800 dark:bg-red-700 dark:hover:bg-red-800" : undefined}
             onClick={submit}
             disabled={submitting}
           >

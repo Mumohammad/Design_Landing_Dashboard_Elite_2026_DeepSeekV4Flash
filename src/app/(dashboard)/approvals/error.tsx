@@ -1,5 +1,6 @@
 "use client"
 
+import { LocalizedText } from "@/components/localized-text"
 import { useEffect } from "react"
 import { TriangleAlert } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -21,7 +22,7 @@ export default function ApprovalsError({
         <span className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-destructive/10 text-destructive">
           <TriangleAlert className="h-7 w-7" aria-hidden />
         </span>
-        <h2 className="text-lg font-bold text-foreground">تعذّر تحميل صندوق القرارات</h2>
+        <h2 className="text-lg font-bold text-foreground"><LocalizedText text="تعذّر تحميل صندوق القرارات" /></h2>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
           حدث خطأ غير متوقع أثناء عرض البيانات. القرارات المعلقة محفوظة — جرّب إعادة التحميل.
         </p>
@@ -29,7 +30,7 @@ export default function ApprovalsError({
           <p className="mt-2 font-mono text-[11px] text-muted-foreground/70">ref: {error.digest}</p>
         )}
         <div className="mt-6 flex items-center justify-center gap-3">
-          <Button onClick={reset} className="rounded-xl">إعادة المحاولة</Button>
+          <Button onClick={reset} className="rounded-xl"><LocalizedText text="إعادة المحاولة" /></Button>
           <Button variant="outline" className="rounded-xl" onClick={() => (window.location.href = "/")}>
             العودة للرئيسية
           </Button>

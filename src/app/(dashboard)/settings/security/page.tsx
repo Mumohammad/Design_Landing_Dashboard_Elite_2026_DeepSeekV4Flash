@@ -1,6 +1,8 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import Link from "next/link"
+import { Button } from "@/components/ui/button"
 import { useTranslation } from "@/hooks/use-translation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -80,6 +82,9 @@ export default function SecuritySettingsPage() {
         <p className="text-sm text-muted-foreground mt-1">
           {ar ? "حالة حسابك وسياسات الأمان الخاصة بالمنشأة" : "Your account status and organization security policies"}
         </p>
+        <Button asChild variant="outline" className="mt-3">
+          <Link href="/auth/change-password"><KeyRound className="h-4 w-4" />{t.pages.changePassword}</Link>
+        </Button>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">

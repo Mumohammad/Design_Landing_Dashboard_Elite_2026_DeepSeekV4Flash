@@ -220,6 +220,18 @@ describe("acceptInvite — single-use consumption (invariant #3)", () => {
     writeAuditLogMock.mockClear()
   })
 
+  it("rejects a weak password before provisioning or consuming the invite", async () => {
+    await seedInvite()
+    const result = await acceptInvite(TOKEN,TID,"سامي","short1")
+    expect(result.success).toBe(false)
+    expect(result.error).toContain("10–128")
+    expect(result.errorAr).toContain("10 إلى 128")
+    expect(state.authUsers.created).toHaveLength(0)
+    expect(state.users).toHaveLength(0)
+    expect(state.inviteUpdates).toHaveLength(0)
+    expect((await acceptInvite(TOKEN,TID,"سامي","Str0ngPass!1")).success).toBe(true)
+  })
+
   it("accepts a valid pending invite exactly once (status flipped to accepted)", async () => {
     await seedInvite()
 

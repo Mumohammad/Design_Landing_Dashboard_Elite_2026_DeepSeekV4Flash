@@ -1,9 +1,13 @@
+"use client"
+
+import { LocalizedText, useUiText } from "@/components/localized-text"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { FileQuestion } from "lucide-react"
 import { REDIRECTS } from "@/lib/redirects"
 
 export default function NotFound() {
+  const ui = useUiText()
   return (
     <div className="flex min-h-screen items-center justify-center">
       <div className="text-center">
@@ -13,15 +17,11 @@ export default function NotFound() {
         <h1 className="text-4xl font-bold">404</h1>
         <p className="text-muted-foreground mt-2">
           {/* Note: This is a static Server Component — it cannot use client hooks.
-              The text is intentionally generic; localized pages use the client error pages. */}
-          Page not found
-        </p>
+              The text is intentionally generic; localized pages use the client error pages. */}<LocalizedText text="Page not found" /></p>
         <Button asChild className="mt-4">
           {/* Centralized destination — absolute (dashboard deployment) in the
               two-host production topology. */}
-          <Link href={REDIRECTS.dashboardUrl} aria-label="Go to Dashboard">
-            Go to Dashboard
-          </Link>
+          <Link href={REDIRECTS.dashboardUrl} aria-label={ui("Go to Dashboard")}><LocalizedText text="Go to Dashboard" /></Link>
         </Button>
       </div>
     </div>

@@ -7,6 +7,9 @@
 // completed. Pure helpers here are unit-testable without a live DB.
 
 import type { SupabaseClient } from "@supabase/supabase-js"
+import { escapeCsvCell } from "@/lib/csv-cell"
+import { collectRows } from "./collect-rows"
+import { monthBounds } from "@/lib/orders/month-boundaries"
 
 export type ReportType =
   | "driver_performance"
@@ -43,15 +46,16 @@ export const REPORT_TYPE_AR: Record<ReportType, string> = {
   custom: "مخصص",
 }
 
-// ── CSV serialization (RFC-4180-ish, UTF-8, CRLF) ─────────────────────
-function esc(v: unknown): string {
-  if (v === null || v === undefined) return ""
-  const s = String(v)
-  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s
+export const REPORT_TYPE_EN: Record<ReportType, string> = {
+  driver_performance: "Driver performance", payroll_summary: "Payroll summary",
+  fleet_cost: "Fleet cost", revenue: "Revenue", violations_report: "Violations",
+  attendance_summary: "Attendance summary", executive_dashboard: "Executive dashboard",
+  hs_reconciliation: "HungerStation reconciliation", custom: "Custom",
 }
 
+// ── CSV serialization (RFC-4180-ish, UTF-8, CRLF) ─────────────────────
 export function buildCsv(headers: string[], rows: unknown[][]): string {
-  const lines = [headers, ...rows].map((row) => row.map(esc).join(","))
+  const lines = [headers, ...rows].map((row) => row.map(escapeCsvCell).join(","))
   return lines.join("\r\n") + "\r\n"
 }
 
@@ -86,25 +90,30 @@ export async function collectReportData(
   type: ReportType,
   params: Record<string, unknown>
 ): Promise<ReportOutput> {
+  if (!REPORT_TYPES.includes(type) || type === "custom") {
+    throw new Error("This report type is not supported yet. Choose one of the available reports.")
+  }
   const year = Number(params.year ?? new Date().getFullYear())
   const month = Number(params.month ?? new Date().getMonth() + 1)
+  if (!Number.isInteger(year) || year < 1900 || year > 9999 || !Number.isInteger(month) || month < 1 || month > 12) {
+    throw new Error("Choose a valid reporting year and month.")
+  }
   const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "")
 
   switch (type) {
     case "driver_performance": {
-      const { data } = await admin
+      const data = await collectRows(() => admin
         .from("drivers")
-        .select(
-          "driver_code,iqama_number,full_name_ar,phone,category,status,profile_completeness_score,cod_outstanding_amount,cod_risk_flag"
-        )
+        .select("id,driver_code,iqama_number,full_name_ar,primary_mobile,category,status,profile_completeness_score,cod_outstanding_amount,cod_risk_flag", { count: "exact" })
         .eq("tenant_id", tenantId)
         .is("deleted_at", null)
         .order("driver_code", { ascending: true })
+        .order("id", { ascending: true }))
       const rows = ((data as Record<string, unknown>[]) ?? []).map((d) => [
         d.driver_code ?? "",
         d.iqama_number ?? "",
         d.full_name_ar ?? "",
-        d.phone ?? "",
+        d.primary_mobile ?? "",
         d.category ?? "",
         d.status ?? "",
         d.profile_completeness_score ?? 0,
@@ -119,16 +128,15 @@ export async function collectReportData(
     }
 
     case "payroll_summary": {
-      const { data } = await admin
+      const data = await collectRows(() => admin
         .from("driver_payroll_periods")
-        .select(
-          "period_year,period_month,status,orders_achieved,orders_prorated_target,base_amount,orders_bonus,total_deductions,net_payroll,below_minimum_wage,driver:drivers(driver_code,full_name_ar)"
-        )
+        .select("id,period_year,period_month,status,orders_achieved,orders_prorated_target,base_amount,orders_bonus,total_deductions,net_payroll,below_minimum_wage,driver:drivers(driver_code,full_name_ar)", { count: "exact" })
         .eq("tenant_id", tenantId)
         .eq("period_year", year)
         .eq("period_month", month)
         .is("deleted_at", null)
         .order("created_at", { ascending: false })
+        .order("id", { ascending: true }))
       const rows = ((data as unknown[]) ?? []).map((r) => {
         const row = r as {
           period_year: number; period_month: number; status: string
@@ -160,29 +168,13 @@ export async function collectReportData(
     }
 
     case "fleet_cost": {
-      // Cursor-based pagination: fetch maintenance events in batches
-      // to handle tenants with large vehicle fleets.
-      const allData: unknown[] = []
-      let cursor: string | null = null
-      const BATCH = 500
-      while (allData.length < 10_000) {
-        let q = admin
-          .from("vehicle_maintenance_events")
-          .select("id,vehicle:vehicles(vehicle_code,plate_number,make,model),maintenance_type,status,fault_description,provider,cost,odometer_at_service,date_in,date_out")
-          .eq("tenant_id", tenantId)
-          .is("deleted_at", null)
-          .order("created_at", { ascending: false })
-          .order("id", { ascending: false })
-          .limit(BATCH + 1)
-        if (cursor) q = q.lt("id", cursor)
-        const { data } = await q
-        if (!data || data.length === 0) break
-        const hasMore = data.length > BATCH
-        const batch = hasMore ? data.slice(0, BATCH) : data
-        cursor = String(batch[batch.length - 1].id)
-        allData.push(...batch)
-        if (!hasMore) break
-      }
+      const allData = await collectRows(() => admin
+        .from("vehicle_maintenance_events")
+        .select("id,vehicle:vehicles(vehicle_code,plate_number,make,model),maintenance_type,status,fault_description,provider,cost,odometer_at_service,date_in,date_out", { count: "exact" })
+        .eq("tenant_id", tenantId)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: true }))
       const rows = allData.map((r) => {
         const row = r as {
           maintenance_type: string | null; status: string | null
@@ -213,14 +205,15 @@ export async function collectReportData(
     }
 
     case "revenue": {
-      const { data } = await admin
+      const data = await collectRows(() => admin
         .from("platform_payments")
-        .select("period_year,period_month,expected_amount,received_amount,outstanding_amount,payment_status,payment_date,platform:delivery_platforms(name_ar)")
+        .select("id,period_year,period_month,expected_amount,received_amount,outstanding_amount,payment_status,payment_date,platform:delivery_platforms(name_ar)", { count: "exact" })
         .eq("tenant_id", tenantId)
         .eq("period_year", year)
         .eq("period_month", month)
         .is("deleted_at", null)
         .order("created_at", { ascending: false })
+        .order("id", { ascending: true }))
       const rows = ((data as unknown[]) ?? []).map((r) => {
         const row = r as {
           period_year: number; period_month: number
@@ -246,28 +239,13 @@ export async function collectReportData(
     }
 
     case "violations_report": {
-      // Cursor-based pagination for violations report
-      const allVData: unknown[] = []
-      let vCursor: string | null = null
-      const VBATCH = 500
-      while (allVData.length < 10_000) {
-        let vq = admin
-          .from("violations")
-          .select("id,violation_ref,incident_date,severity,status,deduction_amount,incident_description,driver:drivers(full_name_ar)")
-          .eq("tenant_id", tenantId)
-          .is("deleted_at", null)
-          .order("incident_date", { ascending: false })
-          .order("id", { ascending: false })
-          .limit(VBATCH + 1)
-        if (vCursor) vq = vq.lt("id", vCursor)
-        const { data: vBatch } = await vq
-        if (!vBatch || vBatch.length === 0) break
-        const hasMore = vBatch.length > VBATCH
-        const events = hasMore ? vBatch.slice(0, VBATCH) : vBatch
-        vCursor = String(events[events.length - 1].id)
-        allVData.push(...events)
-        if (!hasMore) break
-      }
+      const allVData = await collectRows(() => admin
+        .from("violations")
+        .select("id,violation_ref,incident_date,severity,status,deduction_amount,incident_description,driver:drivers(full_name_ar)", { count: "exact" })
+        .eq("tenant_id", tenantId)
+        .is("deleted_at", null)
+        .order("incident_date", { ascending: false })
+        .order("id", { ascending: true }))
       const rows = allVData.map((r) => {
         const row = r as {
           violation_ref: string | null; incident_date: string | null
@@ -293,14 +271,15 @@ export async function collectReportData(
     }
 
     case "attendance_summary": {
-      const { data } = await admin
+      const data = await collectRows(() => admin
         .from("driver_attendance_summary")
-        .select("period_year,period_month,working_days_target,working_days_actual,days_present,days_late,days_absent_unexcused,days_on_leave,driver:drivers(driver_code,full_name_ar)")
+        .select("id,period_year,period_month,working_days_target,working_days_actual,days_present,days_late,days_absent_unexcused,days_on_leave,driver:drivers(driver_code,full_name_ar)", { count: "exact" })
         .eq("tenant_id", tenantId)
         .eq("period_year", year)
         .eq("period_month", month)
         .is("deleted_at", null)
         .order("working_days_actual", { ascending: false })
+        .order("id", { ascending: true }))
       const rows = ((data as unknown[]) ?? []).map((r) => {
         const row = r as {
           working_days_target: number | null; working_days_actual: number | null
@@ -332,14 +311,17 @@ export async function collectReportData(
         admin.from("vehicles").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).is("deleted_at", null),
         admin.from("violations").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).in("status", ["open", "disputed"]).is("deleted_at", null),
         admin.from("vehicle_assignments").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).eq("is_current", true).is("deleted_at", null),
-        admin.from("driver_payroll_periods").select("net_payroll").eq("tenant_id", tenantId).eq("period_year", year).eq("period_month", month).in("status", ["approved", "paid"]).is("deleted_at", null),
-        admin.from("receivables").select("total_amount,paid_amount").eq("tenant_id", tenantId).in("status", ["open", "partially_paid", "overdue"]).is("deleted_at", null),
+        collectRows(() => admin.from("driver_payroll_periods").select("id,net_payroll", { count: "exact" }).eq("tenant_id", tenantId).eq("period_year", year).eq("period_month", month).in("status", ["approved", "paid"]).is("deleted_at", null).order("id", { ascending: true })),
+        collectRows(() => admin.from("receivables").select("id,total_amount,paid_amount", { count: "exact" }).eq("tenant_id", tenantId).in("status", ["open", "partially_paid", "overdue"]).is("deleted_at", null).order("id", { ascending: true })),
       ])
 
+      for (const result of [drivers, vehicles, violations, assignments]) {
+        if (result.error || result.count === null) throw new Error("Could not read report totals. Retry the report.")
+      }
       let totalNet = 0
-      for (const p of ((payroll.data as { net_payroll: number | null }[]) ?? [])) totalNet += Number(p.net_payroll ?? 0)
+      for (const p of ((payroll as { net_payroll: number | null }[]) ?? [])) totalNet += Number(p.net_payroll ?? 0)
       let arOutstanding = 0
-      for (const r of ((receivables.data as { total_amount: number | null; paid_amount: number | null }[]) ?? [])) {
+      for (const r of ((receivables as { total_amount: number | null; paid_amount: number | null }[]) ?? [])) {
         arOutstanding += Number(r.total_amount ?? 0) - Number(r.paid_amount ?? 0)
       }
 
@@ -360,15 +342,16 @@ export async function collectReportData(
     }
 
     case "hs_reconciliation": {
-      const { data } = await admin
+      const { start, end } = monthBounds(year, month)
+      const data = await collectRows(() => admin
         .from("daily_order_entries")
-        .select("entry_date,orders_delivered,orders_failed,orders_returned,gross_revenue,platform_reported_revenue,revenue_variance,platform:delivery_platforms(name_ar)")
+        .select("id,entry_date,orders_delivered,orders_failed,orders_returned,gross_revenue,platform_reported_revenue,revenue_variance,platform:delivery_platforms(name_ar)", { count: "exact" })
         .eq("tenant_id", tenantId)
-        .gte("entry_date", `${year}-${String(month).padStart(2, "0")}-01`)
-        .lte("entry_date", `${year}-${String(month).padStart(2, "0")}-31`)
+        .gte("entry_date", start)
+        .lte("entry_date", end)
         .is("deleted_at", null)
         .order("entry_date", { ascending: true })
-        .limit(1000)
+        .order("id", { ascending: true }))
       const rows = ((data as unknown[]) ?? []).map((r) => {
         const row = r as {
           entry_date: string | null; orders_delivered: number | null
@@ -395,13 +378,7 @@ export async function collectReportData(
       }
     }
 
-    case "custom":
-    default: {
-      return {
-        headers: ["Key", "Value"],
-        rows: Object.entries(params).map(([k, v]) => [k, String(v ?? "")]),
-        filename: `custom-report-${stamp}.csv`,
-      }
-    }
+    default:
+      throw new Error("This report type is not supported yet. Choose one of the available reports.")
   }
 }

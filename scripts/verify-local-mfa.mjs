@@ -1,7 +1,7 @@
 // Run after `pnpm build` and `pnpm start --port 3107` with the isolated local
 // Supabase stack. Creates a disposable owner/workspace; the next local reset
 // removes fixtures. Never writes to a hosted project or records MFA secrets.
-import { chromium } from "@playwright/test"
+import { chromium, expect } from "@playwright/test"
 import { createClient } from "@supabase/supabase-js"
 import { createHmac, randomBytes, randomUUID } from "node:crypto"
 import { setTimeout } from "node:timers/promises"
@@ -33,7 +33,7 @@ let stage = "fixture creation"
 try {
   const id = randomUUID()
   const email = `release-${id}@example.test`
-  const password = `${randomBytes(20).toString("base64url")}1a`
+  let password = `${randomBytes(20).toString("base64url")}1a`
   const owner = await admin.auth.admin.createUser({
     email, password, email_confirm: true, app_metadata: { _invite_provisioned: true },
   })
@@ -43,17 +43,28 @@ try {
     p_company: { name: "Disposable browser verification", domain: `${id}.test`, slug: id },
   })
   if (company.error) throw new Error("Company fixture failed")
+  if ((await admin.from("users").update({must_change_password:true}).eq("auth_user_id",owner.data.user.id)).error) throw new Error("Required-password fixture failed")
 
   browser = await chromium.launch({ headless: true })
+  if (process.env.VERIFY_PASSWORD_FLOWS === "1") {
+    stage = "new-password and recovery browser verification"
+    const { verifyNewPasswordFlows } = await import("./verify-local-password-policy.mjs")
+    await verifyNewPasswordFlows(browser, admin, appUrl, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
+  }
   const page = await browser.newPage()
   page.setDefaultTimeout(20_000)
   let pageErrors = 0
   page.on("pageerror", () => { pageErrors++ })
   stage = "sign-in and mandatory MFA routing"
-  await page.goto(`${appUrl}/auth/sign-in`)
+  // Exercise these mutation selectors in English; locale-session.spec.ts
+  // separately verifies every module in both languages.
+  await page.goto(`${appUrl}/auth/sign-in?lang=en`)
   await page.getByLabel(/email|البريد الإلكتروني/i).fill(email)
   await page.getByLabel(/^(password|كلمة المرور)$/i).fill(password)
   await page.getByRole("button", { name: /sign in|تسجيل الدخول/i }).click()
+  stage = "required password before privileged MFA enrollment"
+  const { verifyRequiredPasswordChange } = await import("./verify-local-password-policy.mjs")
+  password = await verifyRequiredPasswordChange(page,admin,owner.data.user.id,appUrl,{responseLoss:true,nextPath:"/settings/mfa"})
   await page.waitForURL(/\/settings\/mfa/)
 
   stage = "MFA enrollment"
@@ -68,16 +79,42 @@ try {
 
   stage = "dashboard navigation"
   await page.goto(`${appUrl}/dashboard`)
-  await page.waitForURL(/\/dashboard$/)
-  stage = "dashboard landmark and data loading"
-  await page.locator("main").waitFor()
-  await page.getByRole("region", { name: "Executive KPIs" })
-    .getByRole("link", { name: /^(Total Drivers|إجمالي السائقين)$/ }).waitFor()
+  await page.waitForURL(url => url.pathname === "/dashboard")
+  await expect(page.locator("html")).toHaveAttribute("lang", "en")
+  stage = "dashboard main landmark settles"
+  await expect(page.locator("main")).toHaveCount(1, { timeout: 20_000 })
+  stage = "dashboard executive region settles"
+  const executive = page.getByRole("region", { name: "Executive KPIs", exact: true })
+  await expect(executive).toHaveCount(1, { timeout: 20_000 })
+  stage = "dashboard total drivers data loads"
+  await expect(executive.getByRole("link", { name: "Total Drivers", exact: true })).toBeVisible({ timeout: 20_000 })
   stage = "persisted MFA state"
   const profile = await admin.from("users").select("two_factor_enabled")
     .eq("auth_user_id", owner.data.user.id).single()
   if (profile.error || profile.data.two_factor_enabled !== true || pageErrors !== 0) {
     throw new Error("Persisted MFA state or browser runtime check failed")
+  }
+  {
+    stage = "dashboard business date across browser timezones"
+    const { verifyDashboardBusinessDate } = await import("./verify-dashboard-business-date.mjs")
+    await verifyDashboardBusinessDate(page, appUrl)
+  }
+  if (process.env.VERIFY_APPROVALS === "1") {
+    stage = "approvals queue paging and privacy browser verification"
+    const { verifyVatPosition } = await import("./verify-local-vat-position.mjs")
+    await verifyVatPosition(page, admin, company.data.id, appUrl)
+    const { verifyApprovalsInbox } = await import("./verify-local-approvals.mjs")
+    await verifyApprovalsInbox(page, admin, company.data.id, appUrl)
+  }
+  if (process.env.VERIFY_EXPENSES === "1") {
+    stage = "expense overview browser verification"
+    const { verifyExpensesOverview } = await import("./verify-local-expenses.mjs")
+    await verifyExpensesOverview(page, admin, company.data.id, appUrl)
+  }
+  if (process.env.VERIFY_RECEIVABLE_CRUD === "1") {
+    stage = "manual receivable retry browser verification"
+    const { verifyReceivableCrud } = await import("./verify-local-receivables.mjs")
+    await verifyReceivableCrud(page, admin, company.data.id, appUrl)
   }
   if (process.env.VERIFY_INVOICE_CRUD === "1") {
     stage = "invoice CRUD browser verification"
@@ -99,11 +136,18 @@ try {
     const { verifyOperationsCrud } = await import("./verify-local-operations.mjs")
     await verifyOperationsCrud(page, admin, company.data.id, appUrl)
   }
+  if (process.env.VERIFY_OVERVIEWS === "1") {
+    stage = "large overview search, export, pagination, and read recovery"
+    const { verifyOverviews } = await import("./verify-local-overviews.mjs")
+    await verifyOverviews(page, admin, company.data.id, owner.data.user.id, appUrl)
+  }
+
   stage = "sign-out denies dashboard access"
   await page.goto(`${appUrl}/auth/sign-out`)
   await page.waitForURL(/\/landing$/)
   await page.goto(`${appUrl}/dashboard`)
   await page.waitForURL(/\/auth\/sign-in/)
+  if ((await admin.from("users").update({must_change_password:true}).eq("auth_user_id",owner.data.user.id)).error) throw new Error("Returning password requirement fixture failed")
 
   stage = "returning owner requires MFA challenge"
   await page.getByLabel(/email|البريد الإلكتروني/i).fill(email)
@@ -119,10 +163,14 @@ try {
   stage = "returning owner TOTP verification"
   await challengeCode.fill(totp(secret))
   await challengeCode.press("Enter")
-  await page.waitForURL(/\/dashboard$/)
-  await page.locator("main").waitFor()
-  await page.getByRole("region", { name: "Executive KPIs" })
-    .getByRole("link", { name: /^(Total Drivers|إجمالي السائقين)$/ }).waitFor()
+  stage = "verified returning owner required password change"
+  password = await verifyRequiredPasswordChange(page,admin,owner.data.user.id,appUrl,{locale:"ar",nextPath:"/dashboard"})
+  await page.waitForURL(url => url.pathname === "/dashboard")
+  await expect(page.locator("html")).toHaveAttribute("lang", "en")
+  stage = "returning owner dashboard landmarks settle"
+  await expect(page.locator("main")).toHaveCount(1, { timeout: 20_000 })
+  await expect(executive).toHaveCount(1, { timeout: 20_000 })
+  await expect(executive.getByRole("link", { name: "Total Drivers", exact: true })).toBeVisible({ timeout: 20_000 })
   if (pageErrors !== 0) throw new Error("Browser runtime check failed")
   console.log("PASS: owner sign-in → MFA enrollment → persisted MFA → dashboard data → sign-out → returning-user MFA challenge; no browser runtime errors")
 } catch (error) {

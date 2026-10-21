@@ -1,153 +1,91 @@
 "use server"
 
-// Read queries for the Approvals module (Prompt E) — the /approvals inbox.
-//
-// Server-side only: the unified queue read flows through the capped
-// SECURITY DEFINER RPC (fetch_pending_approvals, 20260926120000). The RPC
-// binds the tenant to auth.uid() and applies each source module's approve
-// permission. The tenant argument is ALWAYS taken from getCurrentUser()
-// server-side, never from the browser.
-//
-// PDPL masking: applicant display names are masked per the users-module
-// consent gate (has_user_pdpl_consent batched per distinct requester with a
-// consent-bearing profile). The queue RPC itself never projects applicant
-// mobile / identity numbers — only a presence flag.
-
+import { z } from "zod"
 import { getCurrentUser } from "@/lib/auth/authorization"
-import { createAdminClient } from "@/lib/supabase/admin"
 import { createClient } from "@/lib/supabase/server"
 import {
-  APPROVALS_PAGE_SIZE_DEFAULT,
-  APPROVALS_PAGE_SIZE_MAX,
-  dateRangeBounds,
-  isStale,
-  type ApprovalItemType,
-  type ApprovalQueueRow,
+  APPROVAL_ITEM_TYPES, APPROVALS_PAGE_SIZE_DEFAULT, APPROVALS_PAGE_SIZE_MAX,
+  dateRangeBounds, maskRequesterName, type ApprovalFilterState, type ApprovalQueueRow,
 } from "./approvals-utils"
 
 export type ApprovalsPageData = {
   rows: ApprovalQueueRow[]
-  requesterOptions: { id: string; name: string }[]
-  /** users.id -> has PDPL terms consent (masking gate for applicant names). */
-  requestersConsented: Record<string, boolean>
-  kpis: {
-    total: number
-    expenses: number
-    leaves: number
-    applications: number
-    stale: number
-  }
+  kpis: { total: number; expenses: number; leaves: number; applications: number; stale: number }
+  page: number
   pageSize: number
+  totalPages: number
 }
 
-function isUuid(v: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
-}
+const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
+const optionalText = z.string().nullable().optional()
+// Whitelist the wire projection; never forward arbitrary RPC properties/PII.
+const rowSchema = z.object({
+  item_type: z.enum(APPROVAL_ITEM_TYPES), item_id: z.uuid(), subject: z.string(),
+  requester: z.string(), requested_at: z.iso.datetime({ offset: true }),
+  subject_meta: z.object({
+    amount: z.union([z.number().finite(), z.string()]).nullable().optional(),
+    currency: optionalText, expense_type: optionalText, category: optionalText,
+    vendor: optionalText, expense_date: optionalText, driver_id: z.uuid().nullable().optional(),
+    leave_type: optionalText, start_date: optionalText, end_date: optionalText,
+    days_requested: z.number().nullable().optional(), reason: optionalText,
+    full_name: optionalText, mobile_hashed: optionalText, city: optionalText,
+    work_type: optionalText, driver_category: optionalText, status: optionalText,
+  }),
+})
+const pageSchema = z.object({
+  rows: z.array(rowSchema).max(APPROVALS_PAGE_SIZE_MAX),
+  kpis: z.object({ total: count, expenses: count, leaves: count, applications: count, stale: count }),
+  page: count.min(1), pageSize: count.min(1).max(APPROVALS_PAGE_SIZE_MAX), totalPages: count.min(1),
+})
+const filtersSchema = z.object({
+  from: z.string().max(10).optional(), to: z.string().max(10).optional(),
+  type: z.enum([...APPROVAL_ITEM_TYPES, "all"]).optional(), search: z.string().max(200).optional(),
+})
 
-function emptyData(pageSize: number): ApprovalsPageData {
-  return {
-    rows: [],
-    requesterOptions: [],
-    requestersConsented: {},
-    kpis: { total: 0, expenses: 0, leaves: 0, applications: 0, stale: 0 },
-    pageSize,
-  }
-}
-
-/**
- * Fetch one capped page of the unified pending-decision queue with
- * server-side filters applied. Requires an authenticated session (GM bypasses
- * per can(); decisions are additionally gated per item type in actions.ts).
- */
+/** Caller/session-bound, exact filtered totals and stable database pages.
+ * No service-role roster read or guessed application-to-user consent link. */
 export async function fetchApprovalsPage(
-  filters: { from?: string; to?: string; type?: ApprovalItemType | "all" } = {},
-  pageSize = APPROVALS_PAGE_SIZE_DEFAULT
+  filters: Partial<ApprovalFilterState> = {},
+  pageSize = APPROVALS_PAGE_SIZE_DEFAULT,
+  page = 1,
 ): Promise<ApprovalsPageData> {
-  const currentUser = await getCurrentUser()
-  if (!currentUser) return emptyData(APPROVALS_PAGE_SIZE_DEFAULT)
-
-  const cap = Math.min(Math.max(1, Math.floor(pageSize)), APPROVALS_PAGE_SIZE_MAX)
-  const admin = createAdminClient()
-  const supabase = await createClient()
-
-  const type =
-    filters.type && filters.type !== "all" ? (filters.type as ApprovalItemType) : null
-  const { fromIso, toIso } = dateRangeBounds(filters.from ?? "", filters.to ?? "")
-
-  let rows: ApprovalQueueRow[] = []
   try {
-    const { data, error } = await supabase.rpc("fetch_pending_approvals", {
-      p_tenant_id: currentUser.tenantId,
-      p_type: type,
-      p_from: fromIso,
-      p_to: toIso,
-      p_limit: cap,
+    const user = await getCurrentUser()
+    if (!user) throw new Error("Unauthenticated")
+    const input = filtersSchema.parse(filters)
+    const { fromIso, toIso } = dateRangeBounds(input.from ?? "", input.to ?? "")
+    if ((input.from && !fromIso) || (input.to && !toIso) || (fromIso && toIso && fromIso > toIso)) {
+      throw new Error("Invalid date range")
+    }
+    const size = Number.isFinite(pageSize)
+      ? Math.min(Math.max(1, Math.floor(pageSize)), APPROVALS_PAGE_SIZE_MAX) : APPROVALS_PAGE_SIZE_DEFAULT
+    const requestedPage = Number.isFinite(page) ? Math.min(Math.max(1, Math.floor(page)), 2147483647) : 1
+    const client = await createClient()
+    const { data, error } = await client.rpc("fetch_pending_approvals_page", {
+      p_tenant_id: user.tenantId,
+      p_type: input.type && input.type !== "all" ? input.type : null,
+      p_from: fromIso, p_to: toIso, p_search: input.search?.trim() ?? "",
+      p_page: requestedPage, p_page_size: size,
     })
-    if (error) throw error
-    rows = (data ?? []) as unknown as ApprovalQueueRow[]
-  } catch (e) {
-    console.error("[approvals] fetchApprovalsPage failed:", e)
-    return emptyData(cap)
-  }
-
-  // Requester picker + PDPL consent batch: applicant identities resolve via
-  // the custom users table where present; every distinct application on the
-  // page gets exactly one consent RPC call (batched, fail-closed).
-  const requesterOptions: { id: string; name: string }[] = []
-  const requestersConsented: Record<string, boolean> = {}
-
-  const applicantIds = rows
-    .filter((r) => r.item_type === "application")
-    .map((r) => r.item_id)
-
-  if (applicantIds.length > 0) {
-    const { data: profileRows } = await admin
-      .from("users")
-      .select("id, full_name_ar, full_name_en, email")
-      .eq("tenant_id", currentUser.tenantId)
-      .is("deleted_at", null)
-      .limit(200)
-
-    for (const u of profileRows ?? []) {
-      const r = u as Record<string, unknown>
-      requesterOptions.push({
-        id: r.id as string,
-        name:
-          (r.full_name_ar as string | null) ??
-          (r.full_name_en as string | null) ??
-          (r.email as string),
-      })
+    if (error) throw new Error("Queue unavailable")
+    const result = pageSchema.parse(data)
+    if (result.kpis.total !== result.kpis.expenses + result.kpis.leaves + result.kpis.applications
+      || result.kpis.stale > result.kpis.total || result.pageSize !== size
+      || result.totalPages !== Math.max(1, Math.ceil(result.kpis.total / size))
+      || result.page !== Math.min(requestedPage, result.totalPages)
+      || result.rows.length !== Math.min(size, Math.max(0, result.kpis.total - (result.page - 1) * size))) {
+      throw new Error("Incomplete queue")
     }
-
-    // Consent is a per-profile gate: profile rows on the page's tenant roster.
-    for (const u of profileRows ?? []) {
-      const r = u as Record<string, unknown>
-      const usersId = r.id as string
-      try {
-        const { data: consent, error: consentError } = await admin.rpc(
-          "has_user_pdpl_consent",
-          { p_user_id: usersId, p_consent_type: "terms" }
-        )
-        requestersConsented[usersId] = !consentError && consent === true
-      } catch {
-        requestersConsented[usersId] = false
-      }
-    }
-  }
-
-  const stale = rows.filter((r) => isStale(r.requested_at)).length
-
-  return {
-    rows,
-    requesterOptions,
-    requestersConsented,
-    kpis: {
-      total: rows.length,
-      expenses: rows.filter((r) => r.item_type === "expense").length,
-      leaves: rows.filter((r) => r.item_type === "leave_request").length,
-      applications: rows.filter((r) => r.item_type === "application").length,
-      stale,
-    },
-    pageSize: cap,
+    return { ...result, rows: result.rows.map(row => row.item_type === "application"
+      ? { ...row, id: `${row.item_type}:${row.item_id}`, requester: "", subject_meta: {
+        full_name: maskRequesterName("application", "", row.subject_meta.full_name ?? null, false),
+        city: row.subject_meta.city, work_type: row.subject_meta.work_type,
+        driver_category: row.subject_meta.driver_category, status: row.subject_meta.status,
+      } }
+      : { ...row, id: `${row.item_type}:${row.item_id}` }) }
+  } catch {
+    // Errors must reach the explicit retry state, never a successful empty queue.
+    // Raw database/provider errors can contain personal data and are not logged.
+    throw new Error("Could not load the approvals queue")
   }
 }

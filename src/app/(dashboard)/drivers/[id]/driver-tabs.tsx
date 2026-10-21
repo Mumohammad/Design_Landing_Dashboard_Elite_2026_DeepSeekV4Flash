@@ -1,5 +1,6 @@
 "use client"
 
+import { LocalizedText } from "@/components/localized-text"
 import { useCallback, useEffect, useState } from "react"
 import type { ReactNode } from "react"
 import { createClient } from "@/lib/supabase/client"
@@ -1059,8 +1060,7 @@ function OdometerTab({ driverId, isAr }: OdometerTabProps) {
                   ) : null}
                 </td>
                 <td className="px-4 py-3 font-semibold tabular-nums text-foreground" dir="ltr">
-                  {Number(r.reading ?? 0).toLocaleString("en-US")} km
-                </td>
+                  {Number(r.reading ?? 0).toLocaleString("en-US")}<LocalizedText text="km" /></td>
                 <td className="px-4 py-3 text-muted-foreground">
                   {r.recorded_at ? String(r.recorded_at).slice(0, 16).replace("T", " ") : "—"}
                 </td>
@@ -1175,18 +1175,14 @@ export function DriverTabs({
                     onClick={actions.onEdit}
                     className="inline-flex h-8 items-center gap-1 rounded-lg border px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-60"
                   >
-                    <Pencil className="h-3 w-3" />
-                    Edit
-                  </button>
+                    <Pencil className="h-3 w-3" /><LocalizedText text="Edit" /></button>
                   <button
                     type="button"
                     disabled={actions.disabled}
                     onClick={actions.onCancel}
                     className="inline-flex h-8 items-center gap-1 rounded-lg border px-2.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-500/10 disabled:opacity-60 dark:text-red-400"
                   >
-                    <XCircle className="h-3 w-3" />
-                    Cancel
-                  </button>
+                    <XCircle className="h-3 w-3" /><LocalizedText text="Cancel" /></button>
                 </>
               ) : row.status === "cancelled" ? (
                 <button
@@ -1195,9 +1191,7 @@ export function DriverTabs({
                   onClick={actions.onRestore}
                   className="inline-flex h-8 items-center gap-1 rounded-lg border px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-60"
                 >
-                  <RefreshCw className="h-3 w-3" />
-                  Restore
-                </button>
+                  <RefreshCw className="h-3 w-3" /><LocalizedText text="Restore" /></button>
               ) : null}
             </>
           )}

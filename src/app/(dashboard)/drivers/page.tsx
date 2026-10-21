@@ -1,7 +1,11 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
+import { useTablePage } from "@/hooks/use-table-page"
+import { substringFilter } from "@/lib/supabase/search-filter"
+import { collectRows } from "@/lib/reports/collect-rows"
+import { escapeCsvCell } from "@/lib/csv-cell"
 import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
 import { subscribeDriverChanged } from "@/lib/drivers/driver-events"
@@ -134,12 +138,16 @@ function daysUntil(iso: string | null | undefined): number | null {
   return Math.ceil((d.getTime() - Date.now()) / 86_400_000)
 }
 
-function isExpiringSoon(row: DriverListItem): boolean {
-  const dates = [row.iqama_expiry_date, row.license_expiry_date]
-  return dates.some((d) => {
-    const days = daysUntil(d)
-    return days !== null && days >= 0 && days <= EXPIRY_WINDOW_DAYS
-  })
+function expiryWindow() {
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Riyadh" })
+  const until = new Date(`${today}T00:00:00Z`)
+  until.setUTCDate(until.getUTCDate() + EXPIRY_WINDOW_DAYS)
+  return { today, until: until.toISOString().slice(0, 10) }
+}
+function expiringFilter() {
+  const { today, until } = expiryWindow()
+  return ["iqama_expiry_date", "license_expiry_date"].map((column) =>
+    `and(${column}.gte.${today},${column}.lte.${until})`).join(",")
 }
 
 function DriverAvatar({
@@ -194,163 +202,124 @@ export default function DriversPage() {
   const router = useRouter()
   const isAr = locale === "ar"
 
-  const [drivers, setDrivers] = useState<DriverListItem[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [search, setSearch] = useState("")
   const [dialogOpen, setDialogOpen] = useState(false)
   const [statusFilter, setStatusFilter] = useState<"all" | DriverStatus>("all")
   const [categoryFilter, setCategoryFilter] = useState<"all" | DriverCategory>("all")
   const [expiringOnly, setExpiringOnly] = useState(false)
 
-  const loadDrivers = useCallback(async (silent = false) => {
-    if (!silent) setIsLoading(true)
-    const supabase = createClient()
-    const { data, error } = await supabase
-      .from("drivers")
-      .select(DRIVER_FIELDS)
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false })
-      .limit(100)
-
-    if (error) {
-      console.error("Failed to load drivers:", error)
-      if (!silent) setDrivers([])
-    } else {
-      setDrivers((data ?? []) as unknown as DriverListItem[])
-    }
-    if (!silent) setIsLoading(false)
+  const buildQuery = useCallback((term: string) => {
+    let query = createClient().from("drivers").select(DRIVER_FIELDS, { count: "exact" }).is("deleted_at", null)
+    if (term.trim()) query = query.or(substringFilter(["full_name_ar", "full_name_en", "driver_code", "primary_mobile"], term))
+    if (statusFilter !== "all") query = query.eq("status", statusFilter)
+    if (categoryFilter !== "all") query = query.eq("category", categoryFilter)
+    if (expiringOnly) query = query.or(expiringFilter())
+    return query.order("created_at", { ascending: false }).order("id")
+  }, [statusFilter, categoryFilter, expiringOnly])
+  const { rows: drivers, search, setSearch, loading: isLoading, error, pagination, reload } = useTablePage<DriverListItem>(buildQuery)
+  const [counts, setCounts] = useState<number[] | null>(null)
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState(false)
+  const loadCounts = useCallback(async () => {
+    const base = () => createClient().from("drivers").select("id", { count: "exact", head: true }).is("deleted_at", null)
+    const results = await Promise.all([
+      base(), base().eq("status", "active"), base().eq("status", "on_leave"), base().eq("status", "suspended"),
+      base().or(expiringFilter()),
+      base().or("nationality.ilike.%saudi%,nationality.ilike.%سعودي%"),
+      base().lte("iqama_expiry_date", expiryWindow().until)
+        .or("nationality.is.null,and(nationality.not.ilike.%saudi%,nationality.not.ilike.%سعودي%)"),
+    ])
+    setCounts(results.some((result) => result.error || result.count === null) ? null : results.map((result) => result.count!))
   }, [])
-
-  useEffect(() => {
-    // Defer to a task boundary so the compiler does not trace the initial
-    // setState (loading flag) as a synchronous write inside the effect body.
-    const id = setTimeout(() => void loadDrivers(), 0)
-    return () => clearTimeout(id)
-  }, [loadDrivers])
-
-  // Refetch silently when any driver surface reports a change (photo, status, edit…)
-  useEffect(() => {
-    return subscribeDriverChanged(() => {
-      void loadDrivers(true)
-    })
-  }, [loadDrivers])
-
-  const filtered = useMemo(() => {
-    let rows = drivers
-    const q = search.trim().toLowerCase()
-    if (q) {
-      rows = rows.filter(
-        (d) =>
-          (d.full_name_ar ?? "").toLowerCase().includes(q) ||
-          (d.full_name_en ?? "").toLowerCase().includes(q) ||
-          (d.driver_code ?? "").toLowerCase().includes(q) ||
-          (d.primary_mobile ?? "").includes(q),
-      )
-    }
-    if (statusFilter !== "all") rows = rows.filter((d) => d.status === statusFilter)
-    if (categoryFilter !== "all") rows = rows.filter((d) => d.category === categoryFilter)
-    if (expiringOnly) rows = rows.filter(isExpiringSoon)
-    return rows
-  }, [drivers, search, statusFilter, categoryFilter, expiringOnly])
-
-  const activeCount = drivers.filter((d) => d.status === "active").length
-  const onLeaveCount = drivers.filter((d) => d.status === "on_leave").length
-  const suspendedCount = drivers.filter((d) => d.status === "suspended").length
-  const expiringCount = drivers.filter(isExpiringSoon).length
-  // Saudization KPI: Saudi share of the fleet (nationality-based).
-  const saudiCount = drivers.filter((d) => (d.nationality ?? "").toLowerCase().includes("saudi") || (d.nationality ?? "").includes("سعودي")).length
-  const saudiPct = drivers.length > 0 ? Math.round((saudiCount / drivers.length) * 100) : 0
-  // Iqama alert pool: expat drivers with iqama expiring within 30 days.
-  const in30Days = new Date()
-  in30Days.setDate(in30Days.getDate() + 30)
-  const expiringIqamaCount = drivers.filter((d) => {
-    if (!d.iqama_expiry_date) return false
-    if ((d.nationality ?? "").toLowerCase().includes("saudi") || (d.nationality ?? "").includes("سعودي")) return false
-    const exp = new Date(d.iqama_expiry_date)
-    return !Number.isNaN(exp.getTime()) && exp <= in30Days
-  }).length
+  useEffect(() => { const timer = setTimeout(() => void loadCounts(), 0); return () => clearTimeout(timer) }, [loadCounts])
+  useEffect(() => subscribeDriverChanged(() => { reload(); void loadCounts() }), [reload, loadCounts])
+  const filtered = drivers
+  const saudiPct = counts && counts[0] > 0 ? Math.round(counts[5] / counts[0] * 100) : 0
+  const expiringIqamaCount = counts?.[6] ?? 0
 
   const kpiCards: KpiCardData[] = [
-    { label: t.dashboard.totalDrivers, value: drivers.length, icon: Users, color: "#1E5A99" },
+    { label: t.dashboard.totalDrivers, value: counts?.[0] ?? "—", icon: Users, color: "#1E5A99" },
     {
       label: isAr ? `نسبة السعودة ${saudiPct}%` : `Saudization ${saudiPct}%`,
-      value: `${saudiCount}/${drivers.length}`,
+      value: counts ? `${counts[5]}/${counts[0]}` : "—",
       icon: CheckCircle2,
       color: "#10B981",
     },
     {
       label: isAr ? "نشط" : "Active",
-      value: activeCount,
+      value: counts?.[1] ?? "—",
       icon: CheckCircle2,
       color: "#10B981",
     },
     {
       label: isAr ? "في إجازة" : "On Leave",
-      value: onLeaveCount,
+      value: counts?.[2] ?? "—",
       icon: CalendarClock,
       color: "#F59E0B",
     },
     {
       label: isAr ? "معلّق" : "Suspended",
-      value: suspendedCount,
+      value: counts?.[3] ?? "—",
       icon: UserX,
       color: "#EF4444",
     },
     {
       label: isAr ? "وثائق تنتهي قريبًا" : "Expiring documents",
-      value: expiringCount,
+      value: counts?.[4] ?? "—",
       icon: AlertTriangle,
       color: "#F97316",
     },
     {
       label: isAr ? "إقامات تنتهي قريبًا" : "Iqamas expiring ≤30d",
-      value: expiringIqamaCount,
+      value: counts?.[6] ?? "—",
       icon: AlertTriangle,
       color: expiringIqamaCount > 0 ? "#EF4444" : "#64748B",
     },
   ]
 
-  const exportCsv = () => {
-    const header = [
-      "Driver Code",
-      "Name (AR)",
-      "Name (EN)",
-      "Phone",
-      "Category",
-      "Status",
-      "Iqama Expiry",
-      "License Expiry",
-      "Hire Date",
-      "Completeness %",
-    ]
-    const escape = (v: unknown) => {
-      const s = v === null || v === undefined ? "" : String(v)
-      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-    }
-    const lines = filtered.map((d) =>
-      [
-        d.driver_code,
-        d.full_name_ar,
-        d.full_name_en,
-        d.primary_mobile,
-        d.category,
-        d.status,
-        d.iqama_expiry_date,
-        d.license_expiry_date,
-        d.hire_date,
-        d.profile_completeness_score,
+  const exportCsv = async () => {
+    setExporting(true)
+    setExportError(false)
+    try {
+      const exportRows = await collectRows(() => buildQuery(search))
+      const header = [
+        "Driver Code",
+        "Name (AR)",
+        "Name (EN)",
+        "Phone",
+        "Category",
+        "Status",
+        "Iqama Expiry",
+        "License Expiry",
+        "Hire Date",
+        "Completeness %",
       ]
-        .map(escape)
-        .join(","),
-    )
-    const csv = "\uFEFF" + [header.join(","), ...lines].join("\n")
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `drivers-${new Date().toISOString().slice(0, 10)}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
+      const lines = exportRows.map((d) =>
+        [
+          d.driver_code,
+          d.full_name_ar,
+          d.full_name_en,
+          d.primary_mobile,
+          d.category,
+          d.status,
+          d.iqama_expiry_date,
+          d.license_expiry_date,
+          d.hire_date,
+          d.profile_completeness_score,
+        ]
+          .map(escapeCsvCell)
+          .join(","),
+      )
+      const csv = "\uFEFF" + [header.join(","), ...lines].join("\n")
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `drivers-${new Date().toISOString().slice(0, 10)}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      setExportError(true)
+    } finally { setExporting(false) }
   }
 
   const columns: TableColumn<DriverListItem>[] = [
@@ -483,7 +452,7 @@ export default function DriversPage() {
 
   const noResults =
     !isLoading &&
-    drivers.length > 0 &&
+    (search.trim() !== "" || statusFilter !== "all" || categoryFilter !== "all" || expiringOnly) &&
     filtered.length === 0
 
   return (
@@ -503,7 +472,7 @@ export default function DriversPage() {
       <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-border/50 bg-card/60 px-4 py-3 backdrop-blur-sm">
         <Select
           value={statusFilter}
-          onValueChange={(v) => setStatusFilter(v as "all" | DriverStatus)}
+          onValueChange={(v) => { setStatusFilter(v as "all" | DriverStatus); pagination.onPageChange(1) }}
         >
           <SelectTrigger className="h-9 w-36 rounded-xl bg-muted/30 text-xs">
             <SelectValue placeholder={isAr ? "الحالة" : "Status"} />
@@ -519,7 +488,7 @@ export default function DriversPage() {
         </Select>
         <Select
           value={categoryFilter}
-          onValueChange={(v) => setCategoryFilter(v as "all" | DriverCategory)}
+          onValueChange={(v) => { setCategoryFilter(v as "all" | DriverCategory); pagination.onPageChange(1) }}
         >
           <SelectTrigger className="h-9 w-40 rounded-xl bg-muted/30 text-xs">
             <SelectValue placeholder={isAr ? "الفئة" : "Category"} />
@@ -537,7 +506,7 @@ export default function DriversPage() {
           <Switch
             id="expiring-only"
             checked={expiringOnly}
-            onCheckedChange={setExpiringOnly}
+            onCheckedChange={(value) => { setExpiringOnly(value); pagination.onPageChange(1) }}
           />
           <Label htmlFor="expiring-only" className="text-xs text-muted-foreground">
             {isAr ? `تنتهي خلال ${EXPIRY_WINDOW_DAYS} يوم` : `Expiring ≤ ${EXPIRY_WINDOW_DAYS}d`}
@@ -546,22 +515,23 @@ export default function DriversPage() {
         <div className="ms-auto flex items-center gap-3">
           <span className="text-xs tabular-nums text-muted-foreground">
             {isAr
-              ? `${filtered.length} من ${drivers.length}`
-              : `${filtered.length} of ${drivers.length}`}
+              ? `${filtered.length} من ${pagination.totalRecords}`
+              : `${filtered.length} of ${pagination.totalRecords}`}
           </span>
           <Button
             variant="outline"
             size="sm"
             className="h-9 gap-1.5 rounded-xl"
             onClick={exportCsv}
-            disabled={filtered.length === 0}
+            disabled={isLoading || exporting || !!error || pagination.totalRecords === 0}
           >
             <Download className="h-3.5 w-3.5" />
-            {isAr ? "تصدير CSV" : "Export CSV"}
+            {exporting ? (isAr ? "جاري التصدير…" : "Exporting…") : (isAr ? "تصدير CSV" : "Export CSV")}
           </Button>
         </div>
       </div>
 
+      {exportError && <p role="alert" className="mb-4 text-sm text-destructive">{isAr ? "تعذر تصدير القائمة الكاملة. أعد المحاولة." : "Could not export the complete list. Try again."}</p>}
       <EnterpriseModulePage<DriverListItem>
         title={t.nav.drivers}
         subtitle={
@@ -578,6 +548,10 @@ export default function DriversPage() {
         columns={columns}
         data={filtered}
         isLoading={isLoading}
+        pagination={pagination}
+        loadError={error ? (isAr ? "تعذر تحميل السائقين. أعد المحاولة." : "Could not load drivers. Try again.") : undefined}
+        onRetry={() => { reload(); void loadCounts() }}
+        retryLabel={t.common.retry}
         onRowClick={(row) => router.push(`/drivers/${row.id}`)}
         rowActions={(row) => (
           <div
@@ -611,7 +585,10 @@ export default function DriversPage() {
               }
         }
       >
-        <CreateDriverDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+        <CreateDriverDialog open={dialogOpen} onOpenChange={(open) => {
+          setDialogOpen(open)
+          if (!open) { reload(); void loadCounts() }
+        }} />
       </EnterpriseModulePage>
     </div>
   )

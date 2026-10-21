@@ -1,8 +1,12 @@
+"use client"
+
+import { useUiText } from "@/components/localized-text"
 import { Skeleton } from "@/components/ui/skeleton"
 
 export default function Loading() {
+  const ui = useUiText()
   return (
-    <div className="space-y-6 p-6" aria-busy="true" aria-label="جارٍ التحميل">
+    <div className="space-y-6 p-6" aria-busy="true" aria-label={ui("جارٍ التحميل")}>
       <div className="flex items-center gap-4">
         <Skeleton className="h-14 w-14 rounded-2xl" />
         <div className="space-y-2">

@@ -88,11 +88,11 @@ BEGIN
           now(), now(), now(), '{"provider":"email","providers":["email"]}',
           '{"_invite_provisioned": true}');
 
-  INSERT INTO public.users (id, auth_user_id, tenant_id, email, role, status)
+  INSERT INTO public.users (id, auth_user_id, tenant_id, email, role, status, must_change_password)
   VALUES ('55555555-5555-5555-5555-555555555555',
           '33333333-3333-3333-3333-333333333333',
           '11111111-1111-1111-1111-111111111111',
-          'audit-trail-fixture@test.local', 'general_manager', 'active');
+          'audit-trail-fixture@test.local', 'general_manager', 'active', false);
 
   -- Tenant A: created (with reason + sensitive payload), system (no actor),
   -- updated (newest). Tenant B: 1 semantic row + 120 cap-probe rows.

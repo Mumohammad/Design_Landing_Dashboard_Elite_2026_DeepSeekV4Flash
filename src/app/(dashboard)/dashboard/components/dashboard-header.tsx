@@ -4,6 +4,7 @@ import { Download, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useTranslation } from "@/hooks/use-translation"
 import { formatDualDate } from "@/lib/formatting/hijri"
+import { useBusinessDate } from "@/hooks/use-business-date"
 import type { DashboardSnapshot } from "@/lib/analytics/types"
 import { kpiRowsToCsv, type KpiCsvRow } from "@/lib/analytics/dashboard-utils"
 
@@ -26,10 +27,10 @@ const KPI_CSV_META: Record<string, { label: string; source: string; link: string
   openApprovals: { label: "Open Approvals", source: "fetch_pending_approvals RPC", link: "/approvals" },
   auditEvents: { label: "Audit Events (period)", source: "audit_log", link: "/audit-log" },
   codPendingSessions: { label: "COD Sessions Pending", source: "driver_cod_sessions", link: "/payroll" },
-  finInvoiceRevenue: { label: "Invoice Revenue (SAR, period)", source: "invoices", link: "/invoices" },
-  finPendingInvoices: { label: "Pending Invoices (SAR)", source: "invoices", link: "/invoices" },
-  finExpenses: { label: "Expenses (SAR, period)", source: "expenses", link: "/expenses" },
-  finNetResult: { label: "Net Result (SAR)", source: "invoices+expenses", link: "/accounting" },
+  finInvoiceRevenue: { label: "Posted Revenue (SAR, period)", source: "posted general ledger", link: "/accounting" },
+  finPendingInvoices: { label: "Outstanding Invoice/Debit-note Receivables (SAR)", source: "active posted receivables: total less paid", link: "/accounting" },
+  finExpenses: { label: "Posted Expenses (SAR, period)", source: "posted general ledger", link: "/accounting" },
+  finNetResult: { label: "Posted Net Result (SAR)", source: "posted general ledger: income less expenses", link: "/accounting" },
 }
 
 /** Dashboard header row: title, dual Gregorian/Hijri date, refresh + CSV export. */
@@ -44,6 +45,7 @@ export function DashboardHeader({
 }) {
   const { t, locale } = useTranslation()
   const isAr = locale === "ar"
+  const businessDay = useBusinessDate()
 
   function exportCsv() {
     if (!snapshot) return
@@ -101,9 +103,9 @@ export function DashboardHeader({
         </h1>
         <p className="mt-1.5 text-sm text-muted-foreground">
           {t.dashboard.welcomeMessage} ·{" "}
-          <span className="font-medium text-foreground/70">
-            {formatDualDate(new Date(), isAr)}
-          </span>
+          <time dateTime={businessDay ?? undefined} data-testid="dashboard-business-date" className="font-medium text-foreground/70">
+            {formatDualDate(businessDay ? `${businessDay}T12:00:00+03:00` : null, isAr)}
+          </time>
         </p>
       </div>
       <div className="flex items-center gap-2">

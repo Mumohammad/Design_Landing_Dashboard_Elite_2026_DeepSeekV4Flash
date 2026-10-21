@@ -1,8 +1,14 @@
 "use client"
 
+import { LocalizedText, useUiText } from "@/components/localized-text"
 import { useCallback, useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
+import { expensesQuery, expensesSummary, expenseDependencies, type ExpenseRow } from "@/lib/expenses/overview-queries"
+import { useTablePage } from "@/hooks/use-table-page"
+import { useReadSummary } from "@/hooks/use-read-summary"
 import { useTranslation } from "@/hooks/use-translation"
+import { round2 } from "@/lib/accounting/invoice-math"
+import { calculateVat, sumMoney } from "@/lib/accounting/decimal"
 import { EnterpriseModulePage, type KpiCardData, type TableColumn } from "@/components/dashboard/enterprise-module-page"
 import {
   approveExpense,
@@ -21,37 +27,19 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
-interface ExpenseRow {
-  id: string
-  expense_code: string | null
-  expense_type: string
-  category: string | null
-  amount: number
-  currency: string
-  expense_date: string
-  description: string | null
-  is_approved: boolean
-  vendor: string | null
-  vat_rate: number
-  vat_amount: number
-  vat_recoverability: string
-  coa_account_code: string | null
-  driver: { full_name_ar: string; driver_code: string } | null
+const TYPE_META: Record<string, { ar: string; en: string; className: string }> = {
+  fuel: { ar: "وقود", en: "Fuel", className: "bg-amber-500/15 text-amber-600 border-amber-500/20" },
+  advance: { ar: "سلفة", en: "Advance", className: "bg-blue-500/15 text-blue-600 border-blue-500/20" },
+  operational: { ar: "تشغيلي", en: "Operational", className: "bg-gray-500/15 text-gray-600 border-gray-500/20" },
+  platform_commission: { ar: "عمولة", en: "Commission", className: "bg-purple-500/15 text-purple-600 border-purple-500/20" },
+  maintenance: { ar: "صيانة", en: "Maintenance", className: "bg-orange-500/15 text-orange-600 border-orange-500/20" },
+  other: { ar: "أخرى", en: "Other", className: "bg-gray-500/15 text-gray-600 border-gray-500/20" },
 }
 
-const TYPE_META: Record<string, { ar: string; className: string }> = {
-  fuel: { ar: "وقود", className: "bg-amber-500/15 text-amber-600 border-amber-500/20" },
-  advance: { ar: "سلفة", className: "bg-blue-500/15 text-blue-600 border-blue-500/20" },
-  operational: { ar: "تشغيلي", className: "bg-gray-500/15 text-gray-600 border-gray-500/20" },
-  platform_commission: { ar: "عمولة", className: "bg-purple-500/15 text-purple-600 border-purple-500/20" },
-  maintenance: { ar: "صيانة", className: "bg-orange-500/15 text-orange-600 border-orange-500/20" },
-  other: { ar: "أخرى", className: "bg-gray-500/15 text-gray-600 border-gray-500/20" },
-}
-
-const RECOVER_META: Record<string, { ar: string; className: string }> = {
-  recoverable: { ar: "قابل للاسترداد", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/20" },
-  non_recoverable: { ar: "غير قابل للاسترداد", className: "bg-red-500/15 text-red-600 border-red-500/20" },
-  pending_review: { ar: "قيد المراجعة", className: "bg-amber-500/15 text-amber-600 border-amber-500/20" },
+const RECOVER_META: Record<string, { ar: string; en: string; className: string }> = {
+  recoverable: { ar: "قابل للاسترداد", en: "Recoverable", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/20" },
+  non_recoverable: { ar: "غير قابل للاسترداد", en: "Non-recoverable", className: "bg-red-500/15 text-red-600 border-red-500/20" },
+  pending_review: { ar: "قيد المراجعة", en: "Pending review", className: "bg-amber-500/15 text-amber-600 border-amber-500/20" },
 }
 
 function fmtDate(date: string): string {
@@ -62,25 +50,31 @@ function fmtMoney(n: number | null | undefined): string {
   return (n ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-const EXPENSE_SELECT = "id,expense_code,expense_type,category,amount,currency,expense_date,description,is_approved,vendor,vat_rate,vat_amount,vat_recoverability,coa_account_code,driver:drivers(full_name_ar,driver_code)"
-
 export default function ExpensesPage() {
-  const { t } = useTranslation()
-  const [data, setData] = useState<ExpenseRow[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [search, setSearch] = useState("")
-  const [feedback, setFeedback] = useState<{ type: "ok" | "err"; text: string } | null>(null)
+  const { t, locale } = useTranslation()
+  const ui = useUiText()
+  const buildQuery = useCallback((term: string) => expensesQuery(createClient(), term), [])
+  const { rows, loading, error, search, setSearch, pagination, reload } = useTablePage<ExpenseRow>(buildQuery)
+  const readSummary = useCallback((signal: AbortSignal) => expensesSummary(createClient(), signal), [])
+  const summary = useReadSummary(readSummary)
+  const reloadSummary = summary.reload
+  const [dependencyState, setDependencyState] = useState({ loading: true, error: false })
+  const [dependencyRevision, setDependencyRevision] = useState(0)
+  const [feedback, setFeedback] = useState<{ type: "ok" | "err" | "info"; text: string } | null>(null)
 
   // Category → CoA mapping preview (expense_type → account_code → name)
   const [coaNames, setCoaNames] = useState<Record<string, string>>({})
   const [mappingByType, setMappingByType] = useState<Record<string, string>>({})
+  const [mappingRecoverability, setMappingRecoverability] = useState<Record<string, ExpenseVatRecoverability>>({})
 
   const [approveTarget, setApproveTarget] = useState<ExpenseRow | null>(null)
   const [approveVatRate, setApproveVatRate] = useState("15")
   const [approveRecoverability, setApproveRecoverability] = useState<ExpenseVatRecoverability>("recoverable")
   const [isApproving, setIsApproving] = useState(false)
+  const [approveError, setApproveError] = useState<string | null>(null)
 
   const [createOpen, setCreateOpen] = useState(false)
+  const [createRequestId, setCreateRequestId] = useState("")
   const [formType, setFormType] = useState<ExpenseType>("fuel")
   const [formCategory, setFormCategory] = useState("")
   const [formAmount, setFormAmount] = useState("")
@@ -91,58 +85,40 @@ export default function ExpensesPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    const supabase = createClient()
-    const [expRes, mapRes, coaRes] = await Promise.all([
-      supabase
-        .from("expenses")
-        .select(EXPENSE_SELECT)
-        .is("deleted_at", null)
-        .order("expense_date", { ascending: false })
-        .limit(100),
-      supabase.from("expense_category_mappings").select("expense_type,coa_account_code"),
-      supabase
-        .from("chart_of_accounts")
-        .select("account_code,name_ar")
-        .is("deleted_at", null)
-        .limit(100),
-    ])
-    if (expRes.error) { console.error(expRes.error); setData([]) }
-    else { setData((expRes.data as unknown as ExpenseRow[]) ?? []) }
-    if (mapRes.data) {
-      const m: Record<string, string> = {}
-      for (const r of mapRes.data as { expense_type: string; coa_account_code: string }[]) m[r.expense_type] = r.coa_account_code
-      setMappingByType(m)
-    }
-    if (coaRes.data) {
-      const n: Record<string, string> = {}
-      for (const r of coaRes.data as { account_code: string; name_ar: string }[]) n[r.account_code] = r.name_ar
-      setCoaNames(n)
-    }
-    setIsLoading(false)
-  }, [])
-
   useEffect(() => {
-    void (async () => { await load() })()
-  }, [load])
+    const controller = new AbortController()
+    void (async () => {
+      try {
+        const result = await expenseDependencies(createClient(), controller.signal)
+        if (controller.signal.aborted) return
+        setMappingByType(result.byType); setCoaNames(result.names); setMappingRecoverability(result.recoverabilityByType)
+        setDependencyState({ loading: false, error: false })
+      } catch {
+        if (!controller.signal.aborted) {
+          setMappingByType({}); setCoaNames({}); setMappingRecoverability({})
+          setDependencyState({ loading: false, error: true })
+        }
+      }
+    })()
+    return () => controller.abort()
+  }, [dependencyRevision])
 
-  const flash = (type: "ok" | "err", text: string) => {
+  const load = useCallback(async () => {
+    reload(); reloadSummary()
+    setDependencyState({ loading: true, error: false })
+    setDependencyRevision(value => value + 1)
+  }, [reload, reloadSummary])
+
+  const flash = (type: "ok" | "err" | "info", text: string) => {
     setFeedback({ type, text })
     window.setTimeout(() => setFeedback(null), 6000)
   }
 
-  const filtered = search
-    ? data.filter(r => r.expense_code?.includes(search) || r.driver?.full_name_ar?.includes(search) || r.vendor?.includes(search) || r.expense_type?.includes(search))
-    : data
-
-  const totalAmount = data.reduce((s, r) => s + (r.amount ?? 0), 0)
-  const totalVat = data.reduce((s, r) => s + (r.vat_amount ?? 0), 0)
-
   const kpiCards: KpiCardData[] = [
-    { label: t.nav.expenses, value: data.length, icon: Wallet, color: "#1E5A99" },
-    { label: t.common.pending, value: data.filter(r => !r.is_approved).length, icon: Clock, color: "#F59E0B" },
-    { label: "Total (SAR)", value: fmtMoney(totalAmount), icon: DollarSign, color: "#EF4444" },
-    { label: "Input VAT", value: fmtMoney(totalVat), icon: ReceiptText, color: "#10B981" },
+    { label: t.nav.expenses, value: summary.value?.count ?? "—", icon: Wallet, color: "#1E5A99" },
+    { label: t.common.pending, value: summary.value?.pending ?? "—", icon: Clock, color: "#F59E0B" },
+    { label: locale === "ar" ? "صافي المبالغ المسجلة (ر.س)" : "Recorded net (SAR)", value: summary.value ? fmtMoney(summary.value.net) : "—", icon: DollarSign, color: "#EF4444" },
+    { label: locale === "ar" ? "الضريبة المسجلة (ر.س)" : "Recorded VAT (SAR)", value: summary.value ? fmtMoney(summary.value.vat) : "—", icon: ReceiptText, color: "#10B981" },
   ]
 
   const columns: TableColumn<ExpenseRow>[] = [
@@ -151,10 +127,10 @@ export default function ExpensesPage() {
       key: "expense_type", header: "Type",
       render: (r) => {
         const m = TYPE_META[r.expense_type] ?? TYPE_META.other
-        return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${m.className}`}>{m.ar}</span>
+        return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${m.className}`}>{locale === "ar" ? m.ar : m.en}</span>
       },
     },
-    { key: "amount", header: "Net", render: (r) => <span dir="ltr" className="tabular-nums font-medium">{fmtMoney(r.amount)} SAR</span> },
+    { key: "amount", header: "Net", render: (r) => <span dir="ltr" className="tabular-nums font-medium">{fmtMoney(r.amount)} {r.currency === "SAR" ? <LocalizedText text="SAR" /> : r.currency}</span> },
     {
       key: "vat_amount", header: "VAT",
       render: (r) => (
@@ -171,7 +147,7 @@ export default function ExpensesPage() {
       render: (r) => {
         const m = RECOVER_META[r.vat_recoverability] ?? RECOVER_META.pending_review
         return r.is_approved
-          ? <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${m.className}`}>{m.ar}</span>
+          ? <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${m.className}`}>{locale === "ar" ? m.ar : m.en}</span>
           : <span className="text-xs text-muted-foreground">—</span>
       },
     },
@@ -179,11 +155,21 @@ export default function ExpensesPage() {
       key: "is_approved", header: t.common.status,
       render: (r) => r.is_approved
         ? <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-600"><BadgeCheck className="h-3 w-3" />{t.common.approved}</span>
-        : <span className="inline-flex items-center rounded-full border border-amber-500/20 bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-600">{t.common.pending}</span>,
+        : r.rejected_at
+          ? <div className="space-y-1">
+              <span className="inline-flex items-center rounded-full border border-red-700/20 bg-red-700/10 px-2 py-0.5 text-xs font-medium text-red-700 dark:border-red-400/30 dark:bg-red-400/10 dark:text-red-400">{locale === "ar" ? "مرفوض" : "Rejected"}</span>
+              <details className="max-w-52 text-xs">
+                <summary className="cursor-pointer font-medium text-foreground/80 underline underline-offset-2">{locale === "ar" ? "سبب الرفض" : "Rejection reason"}</summary>
+                <p className="mt-1 whitespace-pre-wrap break-words text-muted-foreground">{r.rejection_reason ?? (locale === "ar" ? "تعذر تحميل سبب الرفض." : "Rejection reason unavailable.")}</p>
+              </details>
+            </div>
+          : <span className="inline-flex items-center rounded-full border border-amber-500/20 bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-600">{t.common.pending}</span>,
     },
   ]
 
   const openCreate = () => {
+    if (isSaving) return
+    setCreateRequestId(crypto.randomUUID())
     setFormType("fuel")
     setFormCategory("")
     setFormAmount("")
@@ -196,48 +182,62 @@ export default function ExpensesPage() {
   }
 
   async function handleCreate() {
+    if (isSaving) return
     setIsSaving(true)
     setFormError(null)
-    const res = await createExpense({
-      expense_type: formType,
-      category: formCategory || undefined,
-      amount: Number(formAmount || 0),
-      expense_date: formDate,
-      vendor: formVendor || null,
-      description: formDescription || null,
-      vat_rate: Number(formVatRate || 0),
-    })
-    setIsSaving(false)
-    if (res.success) {
-      flash("ok", "تم إنشاء المصروف (قيد الاعتماد). / Expense created (pending).")
-      setCreateOpen(false)
-      await load()
-    } else {
-      setFormError(res.error ?? "Failed")
-    }
+    try {
+      const res = await createExpense({
+        request_id: createRequestId,
+        expense_type: formType,
+        category: formCategory || undefined,
+        amount: Number(formAmount || 0),
+        expense_date: formDate,
+        vendor: formVendor || null,
+        description: formDescription || null,
+        vat_rate: Number(formVatRate || 0),
+      })
+      if (res.success) {
+        flash(res.replayed ? "info" : "ok", res.replayed
+          ? locale === "ar" ? "حُفظ هذا المصروف مسبقاً. راجع حالته الحالية." : "This expense was already saved. Review its current status."
+          : locale === "ar" ? "تم إنشاء المصروف (قيد الاعتماد)." : "Expense created (pending).")
+        setCreateOpen(false)
+        await load()
+      } else {
+        setFormError((locale === "ar" ? res.errorAr ?? res.error : res.error) ?? (locale === "ar" ? "تعذر الحفظ." : "Save failed."))
+      }
+    } catch {
+      setFormError(locale === "ar" ? "تعذر تأكيد حفظ المصروف. أعد المحاولة بالتفاصيل نفسها." : "Unable to confirm this expense. Retry with unchanged details.")
+    } finally { setIsSaving(false) }
   }
 
   async function handleApprove() {
-    if (!approveTarget) return
+    if (!approveTarget || isApproving) return
     setIsApproving(true)
-    const res = await approveExpense({
-      id: approveTarget.id,
-      vat_rate: Number(approveVatRate || 0),
-      vat_recoverability: approveRecoverability,
-    })
-    setIsApproving(false)
-    if (res.success) {
-      flash("ok", "تم اعتماد المصروف وإنشاء ذمم دائنة. / Expense approved; payable created.")
-      setApproveTarget(null)
-      setApproveVatRate("15")
-      setApproveRecoverability("recoverable")
-      await load()
-    } else {
-      flash("err", res.error ?? "Approval failed")
-    }
+    setApproveError(null)
+    try {
+      const res = await approveExpense({
+        id: approveTarget.id,
+        vat_rate: Number(approveVatRate),
+        vat_recoverability: approveRecoverability,
+      })
+      if (res.success || res.alreadyApproved || res.alreadyDecided) {
+        if (res.alreadyDecided) flash("info", locale === "ar" ? "رُفض المصروف مسبقاً. راجع القرار بعد تحديث القائمة." : "This expense was already rejected. Review the refreshed decision.")
+        else if (res.alreadyApproved) flash("info", locale === "ar" ? "تم اعتماد المصروف مسبقاً. راجع بياناته بعد تحديث القائمة." : "This expense is already approved. Review the refreshed record.")
+        else if (res.postingPending) flash("info", locale === "ar" ? "تم اعتماد المصروف وإنشاء الذمة الدائنة. الترحيل المحاسبي قيد المراجعة؛ راجع أحداث المحاسبة." : "Expense approved; payable created. Accounting posting needs review in Accounting events.")
+        else flash("ok", locale === "ar" ? "تم اعتماد المصروف وإنشاء الذمة الدائنة ومعالجة الحدث المحاسبي." : "Expense approved; payable created and accounting event processed.")
+        setApproveTarget(null)
+        await load()
+      } else setApproveError((locale === "ar" ? res.errorAr ?? res.error : res.error) ?? t.auth.genericError)
+    } catch {
+      setApproveError(locale === "ar" ? "تعذر تأكيد اعتماد المصروف. أعد تحميله وراجعه قبل المحاولة مجدداً." : "Unable to confirm expense approval. Reload and review before retrying.")
+    } finally { setIsApproving(false) }
   }
 
   const previewCode = approveTarget ? mappingByType[approveTarget.expense_type] : null
+  const approvalRate = Number(approveVatRate)
+  const validApprovalRate = approveVatRate.trim() !== "" && Number.isFinite(approvalRate) && approvalRate >= 0 && approvalRate <= 100
+  const approvalVat = approveTarget && validApprovalRate ? calculateVat(Number(approveTarget.amount), round2(approvalRate)) : null
+  const approvalTotal = approveTarget && approvalVat !== null ? sumMoney(Number(approveTarget.amount), approvalVat) : null
 
   return (
     <div className="px-4 lg:px-6 py-4">
@@ -245,16 +245,16 @@ export default function ExpensesPage() {
         <div className={`mb-4 flex items-center gap-2 rounded-xl border px-3 py-2 text-sm ${
           feedback.type === "ok"
             ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-600"
-            : "border-red-500/20 bg-red-500/10 text-red-500"
+            : feedback.type === "info" ? "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-400" : "border-red-500/20 bg-red-500/10 text-red-500"
         }`}>
           {feedback.type === "ok" ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
-          {feedback.text}
+          {ui(feedback.text)}
         </div>
       )}
 
       <EnterpriseModulePage
         title={t.nav.expenses}
-        subtitle="تسجيل واعتماد المصاريف مع التقاط ضريبة المدخلات وربطها بدليل الحسابات / Record and approve expenses with input VAT capture + CoA mapping"
+        subtitle={locale === "ar" ? "تسجيل واعتماد المصروفات. الملخص لجميع المصروفات ولا يتغير مع البحث." : "Record and approve expenses. Summary covers all expenses, independently of search."}
         kpiCards={kpiCards}
         searchPlaceholder={t.common.searchPlaceholder}
         searchValue={search}
@@ -263,18 +263,21 @@ export default function ExpensesPage() {
         onPrimaryCta={openCreate}
         primaryCtaIcon={Plus}
         columns={columns}
-        data={filtered}
-        isLoading={isLoading}
+        data={rows}
+        isLoading={loading || dependencyState.loading}
+        pagination={pagination}
+        loadError={error || summary.error || dependencyState.error ? (locale === "ar" ? "تعذر تحميل المصروفات أو ملخصها أو حساباتها. أعد المحاولة." : "Could not load expenses, their totals or account mappings. Try again.") : undefined}
+        onRetry={() => { void load() }}
         emptyStateMessage={t.common.noData}
         rowActions={(r) =>
-          r.is_approved ? null : (
+          r.is_approved || r.rejected_at ? null : (
             <div className="flex items-center gap-1">
               <button
-                onClick={() => { setApproveTarget(r); setApproveVatRate("15"); setApproveRecoverability("recoverable") }}
+                onClick={() => { setApproveTarget(r); setApproveError(null); setApproveVatRate(String(r.vat_rate)); setApproveRecoverability(mappingRecoverability[r.expense_type] ?? "pending_review") }}
                 className="inline-flex h-7 items-center gap-1 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-2 text-xs font-medium text-emerald-600 transition-colors hover:bg-emerald-500/20"
               >
                 <BadgeCheck className="h-3 w-3" />
-                {t.common.approved}
+                {locale === "ar" ? "اعتماد المصروف" : "Approve expense"}
               </button>
             </div>
           )
@@ -282,18 +285,18 @@ export default function ExpensesPage() {
       />
 
       {/* ── New expense dialog ────────────────────────────────────────── */}
-      <Dialog open={createOpen} onOpenChange={(o) => { if (!o) setCreateOpen(false) }}>
+      <Dialog open={createOpen} onOpenChange={(o) => { if (!isSaving && !o) setCreateOpen(false) }}>
         <DialogContent className="max-w-lg rounded-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>مصروف جديد / New expense</DialogTitle>
+            <DialogTitle><LocalizedText text="New expense" /></DialogTitle>
             <DialogDescription>
-              يُنشأ كقيد انتظار (غير معتمد) برمز تلقائي EXP-…؛ يُعتمد لاحقاً مع احتساب الضريبة / Created pending with an auto code; approval captures VAT
+              <LocalizedText text="Created pending with an automatic code; approval captures VAT" />
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          <fieldset disabled={isSaving} className="min-w-0 space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="exp-type">النوع / Type</Label>
+                <Label htmlFor="exp-type"><LocalizedText text="Type" /></Label>
                 <select
                   id="exp-type"
                   value={formType}
@@ -301,51 +304,51 @@ export default function ExpensesPage() {
                   className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   {EXPENSE_TYPES.map((tp) => (
-                    <option key={tp} value={tp}>{(TYPE_META[tp] ?? TYPE_META.other).ar} / {tp}</option>
+                    <option key={tp} value={tp}>{locale === "ar" ? (TYPE_META[tp] ?? TYPE_META.other).ar : (TYPE_META[tp] ?? TYPE_META.other).en}</option>
                   ))}
                 </select>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="exp-category">التصنيف / Category</Label>
-                <Input id="exp-category" value={formCategory} onChange={(e) => setFormCategory(e.target.value)} className="h-9" />
+                <Label htmlFor="exp-category"><LocalizedText text="Category" /></Label>
+                <Input id="exp-category" maxLength={200} value={formCategory} onChange={(e) => setFormCategory(e.target.value)} className="h-9" />
               </div>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="space-y-1.5">
-                <Label htmlFor="exp-amount">المبلغ (قبل الضريبة) / Net amount</Label>
-                <Input id="exp-amount" type="number" dir="ltr" min="0" step="0.01" value={formAmount} onChange={(e) => setFormAmount(e.target.value)} className="h-9 text-end tabular-nums" />
+                <Label htmlFor="exp-amount"><LocalizedText text="Net amount" /></Label>
+                <Input id="exp-amount" type="number" dir="ltr" min="0.01" max="99999999.99" step="0.01" value={formAmount} onChange={(e) => setFormAmount(e.target.value)} className="h-9 text-end tabular-nums" />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="exp-date">التاريخ / Date</Label>
+                <Label htmlFor="exp-date"><LocalizedText text="Date" /></Label>
                 <Input id="exp-date" type="date" dir="ltr" value={formDate} onChange={(e) => setFormDate(e.target.value)} className="h-9" />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="exp-vat">الضريبة % / VAT %</Label>
+                <Label htmlFor="exp-vat"><LocalizedText text="VAT %" /></Label>
                 <Input id="exp-vat" type="number" dir="ltr" min="0" max="100" step="0.01" value={formVatRate} onChange={(e) => setFormVatRate(e.target.value)} className="h-9 text-end tabular-nums" />
               </div>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="exp-vendor">المورد / Vendor</Label>
-                <Input id="exp-vendor" value={formVendor} onChange={(e) => setFormVendor(e.target.value)} className="h-9" />
+                <Label htmlFor="exp-vendor"><LocalizedText text="Vendor" /></Label>
+                <Input id="exp-vendor" maxLength={200} value={formVendor} onChange={(e) => setFormVendor(e.target.value)} className="h-9" />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="exp-desc">الوصف / Description</Label>
-                <Input id="exp-desc" value={formDescription} onChange={(e) => setFormDescription(e.target.value)} className="h-9" />
+                <Label htmlFor="exp-desc"><LocalizedText text="Description" /></Label>
+                <Input id="exp-desc" maxLength={2000} value={formDescription} onChange={(e) => setFormDescription(e.target.value)} className="h-9" />
               </div>
             </div>
 
             {formType && (
               <p className="rounded-xl border border-border/50 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
                 {mappingByType[formType]
-                  ? <>سيُرحّل الاعتماد لاحقاً إلى حساب <b dir="ltr">{mappingByType[formType]}</b> — {coaNames[mappingByType[formType]] ?? ""}</>
-                  : "لا يوجد ربط لهذه الفئة بعد / No CoA mapping for this category yet"}
+                  ? <><LocalizedText text="Will post to account" /> <b dir="ltr">{mappingByType[formType]}</b> — {coaNames[mappingByType[formType]] ?? ""}</>
+                  : ui("لا يوجد ربط لهذه الفئة بعد / No CoA mapping for this category yet")}
               </p>
             )}
 
-            {formError && <p className="text-xs text-red-500">{formError}</p>}
+            {formError && <p role="alert" className="text-xs text-red-500">{ui(formError)}</p>}
 
             <div className="flex items-center gap-3">
               <Button
@@ -353,77 +356,66 @@ export default function ExpensesPage() {
                 disabled={isSaving || Number(formAmount || 0) <= 0 || !formDate}
                 className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800"
               >
-                {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                حفظ المصروف / Save expense
-              </Button>
+                {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}<LocalizedText text="Save expense" /></Button>
               <Button variant="ghost" onClick={() => setCreateOpen(false)}>
-                <X className="h-4 w-4" />
-                إلغاء / Cancel
-              </Button>
+                <X className="h-4 w-4" /><LocalizedText text="Cancel" /></Button>
             </div>
-          </div>
+          </fieldset>
         </DialogContent>
       </Dialog>
 
       {/* ── Approve dialog ────────────────────────────────────────────── */}
-      <Dialog open={!!approveTarget} onOpenChange={(o) => { if (!o) setApproveTarget(null) }}>
+      <Dialog open={!!approveTarget} onOpenChange={(o) => { if (!isApproving && !o) setApproveTarget(null) }}>
         <DialogContent className="max-w-md rounded-2xl">
           <DialogHeader>
-            <DialogTitle>اعتماد المصروف / Approve expense</DialogTitle>
+            <DialogTitle><LocalizedText text="Approve expense" /></DialogTitle>
             <DialogDescription>
               {approveTarget && (
                 <span dir="ltr" className="font-mono">{approveTarget.expense_code ?? approveTarget.id.slice(0, 8)}</span>
               )}
-              {" — "}
-              يحسب مبلغ الضريبة، ينشئ ذمماً دائنة ويصدر حدث الاعتماد / Computes VAT, creates a payable and emits the approval event
-            </DialogDescription>
+              {" — "}<LocalizedText text="Computes VAT, creates a payable and emits the approval event" /></DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          <fieldset disabled={isApproving} className="min-w-0 space-y-4">
             {previewCode && (
-              <p className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-400">
-                سيُرحّل إلى حساب <b dir="ltr">{previewCode}</b> — {coaNames[previewCode] ?? ""}
+              <p className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-400"><LocalizedText text="سيُرحّل إلى حساب" /><b dir="ltr">{previewCode}</b> — {coaNames[previewCode] ?? ""}
               </p>
             )}
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="exp-vat-rate">الضريبة % / VAT %</Label>
+                <Label htmlFor="exp-vat-rate"><LocalizedText text="VAT %" /></Label>
                 <Input id="exp-vat-rate" type="number" dir="ltr" min="0" max="100" step="0.01" value={approveVatRate} onChange={(e) => setApproveVatRate(e.target.value)} className="h-9 text-end tabular-nums" />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="exp-recover">تصنيف الاسترداد / Recoverability</Label>
+                <Label htmlFor="exp-recover"><LocalizedText text="Recoverability" /></Label>
                 <select
                   id="exp-recover"
                   value={approveRecoverability}
                   onChange={(e) => setApproveRecoverability(e.target.value as ExpenseVatRecoverability)}
                   className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  <option value="recoverable">قابل للاسترداد / Recoverable</option>
-                  <option value="non_recoverable">غير قابل للاسترداد / Non-recoverable</option>
-                  <option value="pending_review">قيد المراجعة / Pending review</option>
+                  <option value="recoverable"><LocalizedText text="Recoverable" /></option>
+                  <option value="non_recoverable"><LocalizedText text="Non-recoverable" /></option>
+                  <option value="pending_review"><LocalizedText text="Pending review" /></option>
                 </select>
               </div>
             </div>
 
-            {approveTarget && Number(approveVatRate || 0) >= 0 && (
-              <p className="rounded-xl border border-border/50 bg-muted/20 px-3 py-2 text-xs text-muted-foreground" dir="ltr">
-                Net: {fmtMoney(approveTarget.amount)} · VAT: {fmtMoney((Number(approveTarget.amount) * Number(approveVatRate || 0)) / 100)} · Total: {fmtMoney(Number(approveTarget.amount) + (Number(approveTarget.amount) * Number(approveVatRate || 0)) / 100)} SAR
-              </p>
+            {approveTarget && approvalVat !== null && approvalTotal !== null && (
+              <p data-testid="expense-approval-preview" className="rounded-xl border border-border/50 bg-muted/20 px-3 py-2 text-xs text-muted-foreground" dir="ltr"><LocalizedText text="Net:" />{fmtMoney(approveTarget.amount)} <LocalizedText text="· VAT:" /> {fmtMoney(approvalVat)} <LocalizedText text="· Total:" /> {fmtMoney(approvalTotal)}<LocalizedText text="SAR" /></p>
             )}
+            <p className="text-xs text-muted-foreground">{locale === "ar" ? "تُحفظ نسبة الضريبة بمنزلتين عشريتين." : "The VAT rate is saved with two decimal places."}</p>
+            {approveError && <p role="alert" className="text-sm text-destructive">{approveError}</p>}
 
             <div className="flex items-center gap-3">
               <Button
                 onClick={() => void handleApprove()}
-                disabled={isApproving || Number(approveVatRate) < 0 || Number(approveVatRate) > 100}
+                disabled={isApproving || !validApprovalRate}
                 className="bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800"
               >
-                {isApproving ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />}
-                اعتماد / Approve
-              </Button>
-              <Button variant="ghost" onClick={() => setApproveTarget(null)}>
-                إلغاء / Cancel
-              </Button>
+                {isApproving ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />}<LocalizedText text="Approve" /></Button>
+              <Button variant="ghost" onClick={() => setApproveTarget(null)}><LocalizedText text="Cancel" /></Button>
             </div>
-          </div>
+          </fieldset>
         </DialogContent>
       </Dialog>
     </div>

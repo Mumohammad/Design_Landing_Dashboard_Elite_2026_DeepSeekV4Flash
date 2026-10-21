@@ -2,17 +2,19 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { createServerClient } from "@supabase/ssr"
 import crypto from "crypto"
+import { safeReturnPath, withLocale } from "@/lib/redirects"
 
 // Next 16: this file is `proxy.ts` (renamed from middleware.ts).
 // Exported function is `proxy`. See the `matcher` export at the bottom.
 // M8 / ADR-019: narrowed matcher — dashboard/module and platform-admin routes.
-// Excludes: /auth, /api, /_next, /favicon.ico, /login, /register, /landing, /.
+// Also handles /auth/sign-in to reuse verified sessions. Other public routes
+// and assets remain outside the authentication boundary.
 
 type UserProfile = {
   id: string
   tenant_id: string
   role: string
-  status: "active" | "inactive" | "locked"
+  status: string
   must_change_password: boolean
   locked_until: string | null
 }
@@ -29,8 +31,29 @@ const SETTINGS_ROLE_GUARDS: Record<string, string[]> = {
 
 export async function proxy(request: NextRequest) {
   const requestId = crypto.randomUUID()
-  const response = NextResponse.next({ request })
+  let response = NextResponse.next({ request })
   response.headers.set("X-Request-ID", requestId)
+  // Every branch must return refreshed/cleared cookies, including redirects
+  // to MFA and sign-in. Otherwise the next request can reuse a stale session.
+  const finish = (next: NextResponse = response) => {
+    for (const cookie of response.cookies.getAll()) next.cookies.set(cookie)
+    // URL preference must survive full navigations when browser storage is
+    // unavailable, including MFA enrollment/challenge and password gates.
+    const locale = request.nextUrl.searchParams.get("lang")
+    const location = next.headers.get("location")
+    if ((locale === "en" || locale === "ar") && location) {
+      const destination = new URL(location, request.url)
+      if (destination.origin === request.nextUrl.origin) {
+        destination.searchParams.set("lang", locale)
+        next.headers.set("location", destination.toString())
+      }
+    }
+    next.headers.set("X-Request-ID", requestId)
+    next.headers.set("Cache-Control", "private, no-store")
+    next.headers.set("Pragma", "no-cache")
+    next.headers.set("Expires", "0")
+    return next
+  }
 
   // 1. Create the SSR server client bound to this request's cookies.
   //    setAll writes refreshed session cookies back to the response.
@@ -43,6 +66,11 @@ export async function proxy(request: NextRequest) {
           return request.cookies.getAll()
         },
         setAll(cookiesToSet) {
+          const previous = response.cookies.getAll()
+          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
+          // Forward refreshed request cookies to Server Components too.
+          response = NextResponse.next({ request })
+          previous.forEach(cookie => response.cookies.set(cookie))
           cookiesToSet.forEach(({ name, value, options }) => {
             response.cookies.set(name, value, options)
           })
@@ -56,10 +84,20 @@ export async function proxy(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
+  if (request.nextUrl.pathname === "/auth/sign-in") {
+    if (user && !request.nextUrl.searchParams.has("error")) {
+      let destination = safeReturnPath(request.nextUrl.searchParams.get("returnTo"))
+      const locale = request.nextUrl.searchParams.get("lang")
+      if (locale === "en" || locale === "ar") destination = withLocale(destination, locale)
+      return finish(NextResponse.redirect(new URL(destination, request.url)))
+    }
+    return finish()
+  }
+
   if (!user) {
     const signInUrl = new URL("/auth/sign-in", request.url)
-    signInUrl.searchParams.set("returnTo", request.nextUrl.pathname)
-    return NextResponse.redirect(signInUrl)
+    signInUrl.searchParams.set("returnTo", `${request.nextUrl.pathname}${request.nextUrl.search}`)
+    return finish(NextResponse.redirect(signInUrl))
   }
 
   const pathname = request.nextUrl.pathname
@@ -74,7 +112,7 @@ export async function proxy(request: NextRequest) {
       .maybeSingle()
 
     if (platformAdminError || !platformAdmin) {
-      return NextResponse.rewrite(new URL("/auth/errors/forbidden", request.url))
+      return finish(NextResponse.rewrite(new URL("/auth/errors/forbidden", request.url)))
     }
 
     const { data: aal, error: aalError } =
@@ -84,19 +122,21 @@ export async function proxy(request: NextRequest) {
       const url = new URL("/auth/errors/internal-server-error", request.url)
       url.searchParams.set("error", "MFA_ASSURANCE_UNAVAILABLE")
       url.searchParams.set("returnTo", pathname)
-      return NextResponse.redirect(url)
+      return finish(NextResponse.redirect(url))
     }
 
     if (aal.currentLevel !== "aal2") {
       if (aal.nextLevel === "aal2") {
-        return NextResponse.redirect(new URL("/auth/mfa-challenge", request.url))
+        const url = new URL("/auth/mfa-challenge", request.url)
+        url.searchParams.set("returnTo", `${pathname}${request.nextUrl.search}`)
+        return finish(NextResponse.redirect(url))
       }
       const url = new URL("/auth/errors/forbidden", request.url)
       url.searchParams.set("error", "MFA_ENROLLMENT_REQUIRED")
-      return NextResponse.redirect(url)
+      return finish(NextResponse.redirect(url))
     }
 
-    return response
+    return finish()
   }
 
   // 3. Fetch the custom users row (tenant, role, status, lockout, password).
@@ -104,6 +144,7 @@ export async function proxy(request: NextRequest) {
     .from("users")
     .select("id, tenant_id, role, status, must_change_password, locked_until")
     .eq("auth_user_id", user.id)
+    .is("deleted_at", null)
     .single<UserProfile>()
 
   if (!profile) {
@@ -113,36 +154,43 @@ export async function proxy(request: NextRequest) {
     await supabase.auth.signOut()
     const url = new URL("/auth/sign-in", request.url)
     url.searchParams.set("error", "AUTH_PROFILE_NOT_FOUND")
-    return NextResponse.redirect(url)
+    return finish(NextResponse.redirect(url))
   }
 
   // 4. Account status checks.
-  if (profile.status === "inactive") {
+  if (profile.status !== "active") {
     await supabase.auth.signOut()
     const url = new URL("/auth/sign-in", request.url)
-    url.searchParams.set("error", "AUTH_ACCOUNT_INACTIVE")
-    return NextResponse.redirect(url)
+    url.searchParams.set("error", profile.status === "locked" ? "AUTH_ACCOUNT_LOCKED" : "AUTH_ACCOUNT_INACTIVE")
+    return finish(NextResponse.redirect(url))
   }
 
   if (
-    profile.status === "locked" &&
     profile.locked_until &&
     new Date(profile.locked_until).getTime() > Date.now()
   ) {
+    await supabase.auth.signOut()
     const url = new URL("/auth/sign-in", request.url)
     url.searchParams.set("error", "AUTH_ACCOUNT_LOCKED")
-    return NextResponse.redirect(url)
+    return finish(NextResponse.redirect(url))
   }
 
-  // Path of the current request — shared by the gates below (declared once).
-  // 5. Must-change-password gate.
+  // Password replacement precedes enrollment for users without a factor.
+  // An existing verified factor must still be challenged before replacement.
   if (profile.must_change_password) {
-    const allowed = "/settings/security"
-    if (!pathname.startsWith(allowed)) {
-      const url = new URL(allowed, request.url)
-      url.searchParams.set("require", "change_password")
-      return NextResponse.redirect(url)
+    const { data: aal, error: aalError } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+    if (aalError || !aal) {
+      const url = new URL("/auth/errors/internal-server-error", request.url)
+      url.searchParams.set("error", "MFA_ASSURANCE_UNAVAILABLE")
+      return finish(NextResponse.redirect(url))
     }
+    if (aal.nextLevel === "aal2" && aal.currentLevel !== "aal2") {
+      const url = new URL("/auth/mfa-challenge", request.url)
+      url.searchParams.set("returnTo", "/auth/change-password")
+      return finish(NextResponse.redirect(url))
+    }
+    if (pathname !== "/auth/change-password") return finish(NextResponse.redirect(new URL("/auth/change-password", request.url)))
+    return finish()
   }
 
   // 5.5. MFA gate (AAL2) — enforces the TOTP layer at the routing boundary.
@@ -169,18 +217,20 @@ export async function proxy(request: NextRequest) {
       const url = new URL("/auth/errors/internal-server-error", request.url)
       url.searchParams.set("error", "MFA_ASSURANCE_UNAVAILABLE")
       url.searchParams.set("returnTo", pathname)
-      return NextResponse.redirect(url)
+      return finish(NextResponse.redirect(url))
     } else {
       const hasVerifiedFactor = aal.nextLevel === "aal2"
 
       if (hasVerifiedFactor && aal.currentLevel === "aal1") {
-        return NextResponse.redirect(new URL("/auth/mfa-challenge", request.url))
+        const url = new URL("/auth/mfa-challenge", request.url)
+        url.searchParams.set("returnTo", `${pathname}${request.nextUrl.search}`)
+        return finish(NextResponse.redirect(url))
       }
 
       if (privileged && !hasVerifiedFactor) {
         const url = new URL("/settings/mfa", request.url)
         url.searchParams.set("require", "mfa_enroll")
-        return NextResponse.redirect(url)
+        return finish(NextResponse.redirect(url))
       }
     }
   }
@@ -189,19 +239,21 @@ export async function proxy(request: NextRequest) {
   for (const [prefix, allowedRoles] of Object.entries(SETTINGS_ROLE_GUARDS)) {
     if (pathname.startsWith(prefix)) {
       if (!allowedRoles.includes(profile.role)) {
-        return NextResponse.rewrite(new URL("/auth/errors/forbidden", request.url))
+        return finish(NextResponse.rewrite(new URL("/auth/errors/forbidden", request.url)))
       }
       break
     }
   }
 
-  return response
+  return finish()
 }
 
 export const config = {
   // M8 / ADR-019: narrowed matcher. Dashboard/module + platform-admin routes.
-  // Static assets, /auth, /api, /landing, /login, /register, and / are excluded.
+  // Static assets, other /auth pages, /api and marketing pages are excluded.
   matcher: [
+    "/auth/sign-in",
+    "/auth/change-password",
     "/dashboard/:path*",
     "/drivers/:path*",
     "/vehicles/:path*",

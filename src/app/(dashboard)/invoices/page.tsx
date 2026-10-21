@@ -22,12 +22,12 @@ interface PaymentRow {
   platform: { name_ar: string; code: string } | null
 }
 
-const STATUS_META: Record<string, { ar: string; className: string }> = {
-  pending: { ar: "معلقة", className: "bg-amber-500/15 text-amber-600 border-amber-500/20" },
-  partial: { ar: "جزئية", className: "bg-blue-500/15 text-blue-600 border-blue-500/20" },
-  paid: { ar: "مدفوعة", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/20" },
-  overdue: { ar: "متأخرة", className: "bg-red-500/15 text-red-600 border-red-500/20" },
-  disputed: { ar: "نزاع", className: "bg-orange-500/15 text-orange-600 border-orange-500/20" },
+const STATUS_META: Record<string, { ar: string; en: string; className: string }> = {
+  pending: { ar: "معلقة", en: "Pending", className: "bg-amber-500/15 text-amber-600 border-amber-500/20" },
+  partial: { ar: "جزئية", en: "Partial", className: "bg-blue-500/15 text-blue-600 border-blue-500/20" },
+  paid: { ar: "مدفوعة", en: "Paid", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/20" },
+  overdue: { ar: "متأخرة", en: "Overdue", className: "bg-red-500/15 text-red-600 border-red-500/20" },
+  disputed: { ar: "نزاع", en: "Disputed", className: "bg-orange-500/15 text-orange-600 border-orange-500/20" },
 }
 
 const MONTH_AR = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"]
@@ -36,7 +36,7 @@ function fmtMoney(n: number): string { return n.toFixed(2) + " SAR" }
 function fmtDate(date: string | null): string { if (!date) return "—"; try { return new Date(date).toLocaleDateString("en-GB") } catch { return date } }
 
 function PlatformPaymentsTab() {
-  const { t } = useTranslation()
+  const { t, locale } = useTranslation()
   const [data, setData] = useState<PaymentRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [search, setSearch] = useState("")
@@ -88,7 +88,7 @@ function PlatformPaymentsTab() {
       key: "payment_status", header: t.common.status,
       render: (r) => {
         const s = STATUS_META[r.payment_status] ?? STATUS_META.pending
-        return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${s.className}`}>{s.ar}</span>
+        return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${s.className}`}>{locale === "ar" ? s.ar : s.en}</span>
       },
     },
     { key: "payment_date", header: "Paid On", render: (r) => <span dir="ltr" className="text-xs">{fmtDate(r.payment_date)}</span> },
@@ -97,7 +97,7 @@ function PlatformPaymentsTab() {
   return (
     <EnterpriseModulePage
       title={t.nav.invoices}
-      subtitle="تسوية مدفوعات المنصات / Platform payment reconciliation"
+      subtitle={locale === "ar" ? "تسوية مدفوعات المنصات" : "Platform payment reconciliation"}
       kpiCards={kpiCards}
       searchPlaceholder={t.common.searchPlaceholder}
       searchValue={search}

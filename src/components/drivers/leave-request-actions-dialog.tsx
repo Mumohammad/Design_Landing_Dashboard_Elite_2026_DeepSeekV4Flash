@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslation } from "@/hooks/use-translation";
+import { LocalizedText, useUiText } from "@/components/localized-text"
 import { useEffect, useState } from "react";
 
 import { Loader2, Send } from "lucide-react";
@@ -89,6 +91,8 @@ export function LeaveRequestEditDialog({
   driverId,
   onSaved,
 }: LeaveRequestEditDialogProps) {
+  const { locale } = useTranslation();
+  const ui = useUiText()
   const supabase = createClient();
   const leaveTypes = useLeaveTypes(open);
 
@@ -123,7 +127,7 @@ export function LeaveRequestEditDialog({
   const save = async () => {
     if (saving) return;
     if (!days) {
-      toast.error("End date must be on or after the start date");
+      toast.error(ui("End date must be on or after the start date"));
       return;
     }
     setSaving(true);
@@ -140,12 +144,12 @@ export function LeaveRequestEditDialog({
         .eq("id", row.id);
       if (error) throw error;
 
-      toast.success("Leave request updated");
+      toast.success(ui("Leave request updated"));
       onOpenChange(false);
       onSaved?.();
       emitDriverChanged({ driverId, action: "leave" });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to update leave request";
+      const message = error instanceof Error ? error.message : ui("Failed to update leave request");
       toast.error(message);
     } finally {
       setSaving(false);
@@ -156,15 +160,13 @@ export function LeaveRequestEditDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Edit leave request</DialogTitle>
-          <DialogDescription>
-            Pending requests can be edited until they are approved or rejected.
-          </DialogDescription>
+          <DialogTitle><LocalizedText text="Edit leave request" /></DialogTitle>
+          <DialogDescription><LocalizedText text="Pending requests can be edited until they are approved or rejected." /></DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="leave-edit-type">Leave type</Label>
+            <Label htmlFor="leave-edit-type"><LocalizedText text="Leave type" /></Label>
             <Select
               value={typeId}
               onValueChange={setTypeId}
@@ -172,14 +174,13 @@ export function LeaveRequestEditDialog({
             >
               <SelectTrigger id="leave-edit-type">
                 <SelectValue
- placeholder={leaveTypes.length === 0 ? "No leave types configured" : "Select leave type"}
+ placeholder={ui(leaveTypes.length === 0 ? "No leave types configured" : "Select leave type")}
                 />
               </SelectTrigger>
               <SelectContent>
                 {leaveTypes.map((type) => (
                   <SelectItem key={type.id} value={type.id}>
-                    {type.name_en ?? type.name_ar ?? type.id}
-                    {type.name_ar ? ` · ${type.name_ar}` : ""}
+                    {locale === "ar" ? (type.name_ar ?? type.name_en ?? type.id) : (type.name_en ?? type.name_ar ?? type.id)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -188,7 +189,7 @@ export function LeaveRequestEditDialog({
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
-              <Label htmlFor="leave-edit-start">Start date</Label>
+              <Label htmlFor="leave-edit-start"><LocalizedText text="Start date" /></Label>
               <Input
                 id="leave-edit-start"
                 type="date"
@@ -197,7 +198,7 @@ export function LeaveRequestEditDialog({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="leave-edit-end">End date</Label>
+              <Label htmlFor="leave-edit-end"><LocalizedText text="End date" /></Label>
               <Input
                 id="leave-edit-end"
                 type="date"
@@ -209,29 +210,25 @@ export function LeaveRequestEditDialog({
           </div>
 
           <p className="text-xs text-muted-foreground">
-            {days ? `${days} day${days === 1 ? "" : "s"} requested` : "Select a valid date range"}
+            {days ? (locale === "ar" ? `${days} يوم مطلوب` : `${days} day${days === 1 ? "" : "s"} requested`) : ui("Select a valid date range")}
           </p>
 
           <div className="space-y-2">
-            <Label htmlFor="leave-edit-reason">Reason</Label>
+            <Label htmlFor="leave-edit-reason"><LocalizedText text="Reason" /></Label>
             <Textarea
               id="leave-edit-reason"
               value={reason}
               onChange={(event) => setReason(event.target.value)}
               rows={3}
-              placeholder="Add context for the approver…"
+              placeholder={ui("Add context for the approver…")}
             />
           </div>
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
-            Cancel
-          </Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}><LocalizedText text="Cancel" /></Button>
           <Button onClick={() => void save()} disabled={saving || !days || !typeId}>
-            {saving ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-            Save changes
-          </Button>
+            {saving ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}<LocalizedText text="Save changes" /></Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -254,6 +251,7 @@ export function LeaveRequestCancelDialog({
   driverId,
   onSaved,
 }: LeaveRequestCancelDialogProps) {
+  const ui = useUiText();
   const supabase = createClient();
   const [cancelling, setCancelling] = useState(false);
 
@@ -267,12 +265,12 @@ export function LeaveRequestCancelDialog({
         .eq("id", row.id);
       if (error) throw error;
 
-      toast.success("Leave request cancelled");
+      toast.success(ui("Leave request cancelled"));
       onOpenChange(false);
       onSaved?.();
       emitDriverChanged({ driverId, action: "leave" });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to cancel leave request";
+      const message = error instanceof Error ? error.message : ui("Failed to cancel leave request");
       toast.error(message);
     } finally {
       setCancelling(false);
@@ -283,25 +281,18 @@ export function LeaveRequestCancelDialog({
     <Dialog open={open} onOpenChange={(next) => { if (!cancelling) onOpenChange(next); }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Cancel leave request</DialogTitle>
-          <DialogDescription>
-            Cancel this {row.leave_type_name ?? "leave"} request ({row.start_date} →{" "}
-            {row.end_date})? Cancelled requests are kept and can be restored while they remain
-            pending.
-          </DialogDescription>
+          <DialogTitle><LocalizedText text="Cancel leave request" /></DialogTitle>
+          <DialogDescription><LocalizedText text="Cancel this" />{row.leave_type_name ?? "leave"} <LocalizedText text="request (" />{row.start_date} →{" "}
+            {row.end_date}<LocalizedText text=")? Cancelled requests are kept and can be restored while they remain pending." /></DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={cancelling}>
-            Keep request
-          </Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={cancelling}><LocalizedText text="Keep request" /></Button>
           <Button
             variant="destructive"
             onClick={() => void confirmCancel()}
             disabled={cancelling}
           >
-            {cancelling ? <Loader2 className="size-4 animate-spin" /> : null}
-            Cancel request
-          </Button>
+            {cancelling ? <Loader2 className="size-4 animate-spin" /> : null}<LocalizedText text="Cancel request" /></Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -324,6 +315,7 @@ export function LeaveRequestRestoreDialog({
   driverId,
   onSaved,
 }: LeaveRequestRestoreDialogProps) {
+  const ui = useUiText();
   const supabase = createClient();
   const [restoring, setRestoring] = useState(false);
 
@@ -337,12 +329,12 @@ export function LeaveRequestRestoreDialog({
         .eq("id", row.id);
       if (error) throw error;
 
-      toast.success("Leave request restored");
+      toast.success(ui("Leave request restored"));
       onOpenChange(false);
       onSaved?.();
       emitDriverChanged({ driverId, action: "leave" });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to restore leave request";
+      const message = error instanceof Error ? error.message : ui("Failed to restore leave request");
       toast.error(message);
     } finally {
       setRestoring(false);
@@ -353,20 +345,14 @@ export function LeaveRequestRestoreDialog({
     <Dialog open={open} onOpenChange={(next) => { if (!restoring) onOpenChange(next); }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Restore leave request</DialogTitle>
-          <DialogDescription>
-            Restore the cancelled {row.leave_type_name ?? "leave"} request ({row.start_date} →{" "}
-            {row.end_date}) back to pending?
-          </DialogDescription>
+          <DialogTitle><LocalizedText text="Restore leave request" /></DialogTitle>
+          <DialogDescription><LocalizedText text="Restore the cancelled" />{row.leave_type_name ?? "leave"} <LocalizedText text="request (" />{row.start_date} →{" "}
+            {row.end_date}<LocalizedText text=") back to pending?" /></DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={restoring}>
-            Keep cancelled
-          </Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={restoring}><LocalizedText text="Keep cancelled" /></Button>
           <Button onClick={() => void confirmRestore()} disabled={restoring}>
-            {restoring ? <Loader2 className="size-4 animate-spin" /> : null}
-            Restore
-          </Button>
+            {restoring ? <Loader2 className="size-4 animate-spin" /> : null}<LocalizedText text="Restore" /></Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

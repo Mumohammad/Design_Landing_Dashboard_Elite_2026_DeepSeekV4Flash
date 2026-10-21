@@ -76,6 +76,9 @@ jobs:
         SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
         SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
 
+    - name: Invoice PDF runtime assets
+      run: node scripts/verify-invoice-pdf-bundle.mjs
+
     # ── Security gates ────────────────────────────────────────────────────
 
     - name: Dependency audit
@@ -183,7 +186,7 @@ jobs:
     - name: Start Supabase local stack
       run: |
         set -o pipefail
-        supabase start > /tmp/supabase-start.log 2>&1 || { echo "Local Supabase startup failed"; exit 1; }
+        supabase start > /tmp/supabase-start.log 2>&1 || { node scripts/report-supabase-start-failure.mjs /tmp/supabase-start.log; exit 1; }
         echo "Supabase started successfully"
 
     - name: Wait for database
@@ -284,6 +287,33 @@ jobs:
     - name: Verify payment races in disposable database
       run: node scripts/verify-payment-concurrency.mjs --local-disposable
 
+    - name: Verify manual receivable retries in disposable database
+      run: node scripts/verify-manual-receivable-concurrency.mjs --local-disposable
+
+    - name: Verify expense creation retries in disposable database
+      run: node scripts/verify-expense-creation-concurrency.mjs --local-disposable
+
+    - name: Verify expense approval audit in disposable database
+      run: node scripts/verify-expense-approval-concurrency.mjs --local-disposable
+
+    - name: Verify accounting default initialization in disposable database
+      run: node scripts/verify-accounting-defaults-concurrency.mjs --local-disposable
+
+    - name: Verify expense decision races in disposable database
+      run: node scripts/verify-expense-rejection-concurrency.mjs --local-disposable
+
+    - name: Verify password completion and administrator reset guards
+      run: node scripts/verify-password-completion.mjs --local-disposable
+
+    - name: Verify ZATCA preparation ledger in disposable database
+      run: node scripts/verify-zatca-issuance-concurrency.mjs --local-disposable
+
+    - name: Verify invoice transaction races in owned PostgreSQL
+      run: INVOICE_TEST_PG_BIN="$(pg_config --bindir)" node scripts/verify-invoice-transitions-native.mjs --local-disposable
+
+    - name: Verify invoice journal reversal boundaries
+      run: JOURNAL_TEST_PG_BIN="$(pg_config --bindir)" node scripts/verify-invoice-journal-reversal-native.mjs --local-disposable
+
     - name: Configure disposable browser verification
       run: |
         node --input-type=module <<'NODE'
@@ -311,7 +341,7 @@ jobs:
           sleep 2
         done
         test "$ready" = "1" || { echo "Local app dependencies are not ready"; exit 1; }
-        VERIFY_INVOICE_CRUD=1 VERIFY_JOURNAL_CRUD=1 VERIFY_BANK_CRUD=1 VERIFY_OPERATIONS_CRUD=1 node scripts/verify-local-mfa.mjs
+        VERIFY_PASSWORD_FLOWS=1 VERIFY_APPROVALS=1 VERIFY_EXPENSES=1 VERIFY_RECEIVABLE_CRUD=1 VERIFY_INVOICE_CRUD=1 VERIFY_JOURNAL_CRUD=1 VERIFY_BANK_CRUD=1 VERIFY_OPERATIONS_CRUD=1 VERIFY_OVERVIEWS=1 node scripts/verify-local-mfa.mjs
         node scripts/verify-invoice-print.mjs
 
     - name: Stop Supabase
@@ -321,7 +351,7 @@ jobs:
   # ── E2E tests (independent PR release gate, needs staging env) ────────────
   e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     if: github.event_name == 'pull_request'
     env:
       BASE_URL: ${{ secrets.STAGING_URL }}
@@ -354,7 +384,7 @@ jobs:
     - name: Verify E2E configuration
       run: |
         missing=0
-        for var in BASE_URL TEST_USER_EMAIL TEST_USER_PASSWORD; do
+        for var in BASE_URL TEST_USER_EMAIL TEST_USER_PASSWORD STAGING_SUPABASE_URL; do
           if [ -z "${!var}" ]; then
             echo "MISSING: $var is required for authenticated staging E2E"
             missing=1
@@ -367,4 +397,8 @@ jobs:
         echo "E2E staging URL and credentials are configured"
 
     - name: Run E2E smoke tests
-      run: pnpm exec playwright test e2e/smoke.spec.ts --reporter=github
+      env:
+        STAGING_EXPECTED_COMMIT: ${{ github.event.pull_request.head.sha }}
+      run: |
+        node scripts/wait-for-staging.mjs
+        pnpm exec playwright test e2e/smoke.spec.ts e2e/locale-session.spec.ts --reporter=github

@@ -9,8 +9,8 @@
 //   application    → driver_applications.status IN (submitted, under_review) (029/030)
 //
 // PDPL note: applicant PII (mobile, identity numbers) is never projected from
-// the queue RPC — the RPC returns a presence flag only, and the server layer
-// masks requester names per the users-module consent gate (maskRequesterName).
+// the queue RPC. Applicant names are initials at the database boundary and
+// are masked again before server-action serialization; no consent link is inferred.
 
 /** Queue item types (the `item_type` discriminator from fetch_pending_approvals). */
 export const APPROVAL_ITEM_TYPES = [
@@ -132,7 +132,7 @@ export function subjectLine(row: Pick<ApprovalQueueRow, "item_type" | "subject" 
       return `${m.leave_type ?? row.subject} · ${isAr ? `${days} أيام` : `${days} days`}`
     }
     case "application":
-      return m.full_name ?? row.subject
+      return `${row.subject} — ${maskRequesterName("application", "", m.full_name ?? null, false)}`
   }
 }
 
@@ -173,25 +173,30 @@ export function isStale(requestedAt: string, now = new Date()): boolean {
 }
 
 export type ApprovalFilterState = {
+  search: string
   from: string
   to: string
   type: ApprovalItemType | "all"
 }
 
 export const EMPTY_FILTERS: ApprovalFilterState = {
+  search: "",
   from: "",
   to: "",
   type: "all",
 }
 
 export function isFiltersActive(f: ApprovalFilterState): boolean {
-  return f.from !== "" || f.to !== "" || f.type !== "all"
+  return f.search.trim() !== "" || f.from !== "" || f.to !== "" || f.type !== "all"
 }
 
-/** ISO date (yyyy-mm-dd) -> inclusive local ISO range bounds for the RPC. */
+/** Date-only filters use the app's Saudi business timezone (UTC+3). */
 export function dateRangeBounds(from: string, to: string): { fromIso: string | null; toIso: string | null } {
-  const fromIso = /^\d{4}-\d{2}-\d{2}$/.test(from) ? `${from}T00:00:00` : null
-  const toIso = /^\d{4}-\d{2}-\d{2}$/.test(to) ? `${to}T23:59:59.999` : null
+  const valid = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value)
+    && Number.isFinite(Date.parse(`${value}T00:00:00Z`))
+    && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value
+  const fromIso = valid(from) ? `${from}T00:00:00+03:00` : null
+  const toIso = valid(to) ? `${to}T23:59:59.999+03:00` : null
   return { fromIso, toIso }
 }
 
@@ -200,8 +205,9 @@ export type CsvCell = string | number | boolean | null | undefined
 /** RFC-4180-safe CSV line builder with a UTF-8 BOM (Excel + Arabic safe). */
 export function approvalsToCsv(header: string[], rows: CsvCell[][]): string {
   const escape = (v: CsvCell) => {
-    const s = v === null || v === undefined ? "" : String(v)
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+    const raw = v === null || v === undefined ? "" : String(v)
+    const s = typeof v === "string" && /^[\s\u0000-\u001f]*[=+@-]/.test(raw) ? `'${raw}` : raw
+    return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
   }
   return "\uFEFF" + [header, ...rows].map((r) => r.map(escape).join(",")).join("\n")
 }

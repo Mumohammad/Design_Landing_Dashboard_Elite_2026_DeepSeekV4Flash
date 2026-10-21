@@ -1,22 +1,15 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { LocalizedText } from "@/components/localized-text"
+import { useCallback } from "react"
+import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
+import { violationsQuery, violationsSummary, type ViolationRow } from "@/lib/operations/overview-queries"
+import { useTablePage } from "@/hooks/use-table-page"
+import { useReadSummary } from "@/hooks/use-read-summary"
 import { useTranslation } from "@/hooks/use-translation"
 import { EnterpriseModulePage, type KpiCardData, type TableColumn } from "@/components/dashboard/enterprise-module-page"
 import { ShieldAlert, AlertCircle, MessageSquareWarning, DollarSign } from "lucide-react"
-
-interface ViolationRow {
-  id: string
-  violation_ref: string
-  incident_date: string
-  status: string
-  severity: string
-  deduction_amount: number
-  dispute_deadline: string | null
-  incident_description: string
-  driver: { full_name_ar: string; driver_code: string } | null
-}
 
 const SEVERITY_META: Record<string, { ar: string; en: string; className: string }> = {
   minor: { ar: "بسيطة", en: "Minor", className: "bg-blue-500/15 text-blue-600 border-blue-500/20" },
@@ -54,59 +47,39 @@ function isExpired(deadline: string | null): boolean {
 }
 
 export default function ViolationsPage() {
-  const { t } = useTranslation()
-  const [data, setData] = useState<ViolationRow[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [search, setSearch] = useState("")
-
-  useEffect(() => {
-    async function load() {
-      const supabase = createClient()
-      const { data: result, error } = await supabase
-        .from("violations")
-        .select("id,violation_ref,incident_date,status,severity,deduction_amount,dispute_deadline,incident_description,driver:drivers(full_name_ar,driver_code)")
-        .is("deleted_at", null)
-        .order("created_at", { ascending: false })
-        .limit(100)
-      if (error) { console.error(error); setData([]) }
-      else { setData((result as unknown as ViolationRow[]) ?? []) }
-      setIsLoading(false)
-    }
-    load()
-  }, [])
-
-  const filtered = search
-    ? data.filter(r => r.violation_ref?.includes(search) || r.driver?.full_name_ar?.includes(search) || r.driver?.driver_code?.includes(search))
-    : data
-
-  const totalDeductions = data.filter(r => r.status === "deduction_applied").reduce((s, r) => s + (r.deduction_amount ?? 0), 0)
+  const { t, locale } = useTranslation()
+  const buildQuery = useCallback((term: string) => violationsQuery(createClient(), term), [])
+  const { rows, loading, error, search, setSearch, pagination, reload } = useTablePage<ViolationRow>(buildQuery)
+  const readSummary = useCallback((signal: AbortSignal) => violationsSummary(createClient(), signal), [])
+  const summary = useReadSummary(readSummary)
+  const counts = summary.value?.counts
 
   const kpiCards: KpiCardData[] = [
-    { label: t.nav.violations, value: data.length, icon: ShieldAlert, color: "#1E5A99" },
-    { label: t.common.pending, value: data.filter(r => r.status === "open").length, icon: AlertCircle, color: "#F59E0B" },
-    { label: t.dashboard.pendingViolations, value: data.filter(r => r.status === "disputed").length, icon: MessageSquareWarning, color: "#EF4444" },
-    { label: "Deductions (SAR)", value: totalDeductions.toFixed(0), icon: DollarSign, color: "#8B5CF6" },
+    { label: t.nav.violations, value: counts?.[0] ?? "—", icon: ShieldAlert, color: "#1E5A99" },
+    { label: locale === "ar" ? "مفتوحة" : "Open", value: counts?.[1] ?? "—", icon: AlertCircle, color: "#F59E0B" },
+    { label: locale === "ar" ? "معترض عليها" : "Disputed", value: counts?.[2] ?? "—", icon: MessageSquareWarning, color: "#EF4444" },
+    { label: "Deductions (SAR)", value: summary.value?.deductions.toFixed(2) ?? "—", icon: DollarSign, color: "#8B5CF6" },
   ]
 
   const columns: TableColumn<ViolationRow>[] = [
     { key: "violation_ref", header: "Ref", render: (r) => <span dir="ltr" className="font-mono text-xs">{r.violation_ref}</span> },
-    { key: "driver", header: t.nav.drivers, render: (r) => <span className="font-medium">{r.driver?.full_name_ar ?? "—"}</span> },
+    { key: "driver", header: t.nav.drivers, render: (r) => r.driver && r.driver_id ? <Link className="font-medium underline underline-offset-4" href={`/drivers/${r.driver_id}`}>{r.driver.full_name_ar}</Link> : "—" },
     { key: "incident_date", header: "Date", render: (r) => <span dir="ltr">{fmtDate(r.incident_date)}</span> },
     {
       key: "severity", header: "Severity",
       render: (r) => {
         const s = SEVERITY_META[r.severity] ?? SEVERITY_META.minor
-        return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${s.className}`}>{s.ar}</span>
+        return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${s.className}`}>{locale === "ar" ? s.ar : s.en}</span>
       },
     },
     {
       key: "status", header: t.common.status,
       render: (r) => {
         const s = STATUS_META[r.status] ?? STATUS_META.open
-        return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${s.className}`}>{s.ar}</span>
+        return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${s.className}`}>{locale === "ar" ? s.ar : s.en}</span>
       },
     },
-    { key: "deduction_amount", header: "Deduction", render: (r) => <span dir="ltr" className="tabular-nums">{r.deduction_amount?.toFixed(2) ?? "0.00"} SAR</span> },
+    { key: "deduction_amount", header: "Deduction", render: (r) => <span dir="ltr" className="tabular-nums">{r.deduction_amount?.toFixed(2) ?? "0.00"} <LocalizedText text="SAR" /></span> },
     {
       key: "dispute_deadline", header: "Dispute Deadline",
       render: (r) => {
@@ -114,7 +87,7 @@ export default function ViolationsPage() {
         const expired = isExpired(r.dispute_deadline)
         const soon = isExpiringSoon(r.dispute_deadline)
         const cls = expired ? "text-red-600 font-medium" : soon ? "text-amber-600 font-medium" : "text-muted-foreground"
-        const suffix = expired ? " (expired)" : soon ? " (soon)" : ""
+        const suffix = expired ? (locale === "ar" ? " (منتهية)" : " (expired)") : soon ? (locale === "ar" ? " (قريباً)" : " (soon)") : ""
         return <span dir="ltr" className={cls}>{fmtDate(r.dispute_deadline)}{suffix}</span>
       },
     },
@@ -124,14 +97,17 @@ export default function ViolationsPage() {
     <div className="px-4 lg:px-6 py-4">
       <EnterpriseModulePage
         title={t.nav.violations}
-        subtitle={t.common.status}
+        subtitle={locale === "ar" ? "إدارة المخالفات من ملف السائق. الملخص لجميع المخالفات." : "Manage violations from the driver profile. Summary covers all violations."}
         kpiCards={kpiCards}
         searchPlaceholder={t.common.searchPlaceholder}
         searchValue={search}
         onSearchChange={setSearch}
         columns={columns}
-        data={filtered}
-        isLoading={isLoading}
+        data={rows}
+        isLoading={loading}
+        pagination={pagination}
+        loadError={error || summary.error ? (locale === "ar" ? "تعذر تحميل المخالفات أو الملخص. أعد المحاولة." : "Could not load violations or their summary. Try again.") : undefined}
+        onRetry={() => { reload(); summary.reload() }}
         emptyStateMessage={t.common.noData}
       />
     </div>

@@ -1,0 +1,140 @@
+{
+  "conversion": {
+    "fonttools": "4.66.1",
+    "brotli": "1.2.0",
+    "format": "WOFF2, all source glyphs and variation axes retained"
+  },
+  "fonts": [
+    {
+      "family": "Inter",
+      "directory": "inter",
+      "ref": "47d54ca1ebb14fd864695f1d39dc734f39017c33",
+      "font": {
+        "source": "https://github.com/google/fonts/blob/47d54ca1ebb14fd864695f1d39dc734f39017c33/ofl/inter/Inter%5Bopsz%2Cwght%5D.ttf",
+        "sha256": "29160a80ff49ddcab2c97711247e08b1fab27a484a329ce8b813d820dc559031",
+        "bytes": 876576
+      },
+      "license": {
+        "source": "https://github.com/google/fonts/blob/47d54ca1ebb14fd864695f1d39dc734f39017c33/ofl/inter/OFL.txt",
+        "sha256": "5b9321a4298cfeb6b34354164a1c3afc3db114569984c502b9b35d988fd58c57",
+        "bytes": 4377
+      },
+      "file": "inter.woff2",
+      "licenseFile": "licenses/inter.txt",
+      "axes": {
+        "opsz": [
+          14.0,
+          14.0,
+          32.0
+        ],
+        "wght": [
+          100.0,
+          400.0,
+          900.0
+        ]
+      },
+      "glyphCount": 2933,
+      "output": {
+        "sha256": "13b4cddc57045d40b411008e61588c8f81aa0bd72fe884624831a0ff9c4d159a",
+        "bytes": 350460
+      }
+    },
+    {
+      "family": "Cairo",
+      "directory": "cairo",
+      "ref": "47d54ca1ebb14fd864695f1d39dc734f39017c33",
+      "font": {
+        "source": "https://github.com/google/fonts/blob/47d54ca1ebb14fd864695f1d39dc734f39017c33/ofl/cairo/Cairo%5Bslnt%2Cwght%5D.ttf",
+        "sha256": "667c987182391c91f4e57a2f455b1794fb5e3ee6ca4ef3383e86bb690fa9c964",
+        "bytes": 599548
+      },
+      "license": {
+        "source": "https://github.com/google/fonts/blob/47d54ca1ebb14fd864695f1d39dc734f39017c33/ofl/cairo/OFL.txt",
+        "sha256": "a4554e1799d42e1405924b61eb0e0722ae1623b1f1f07f995348f96c496362a9",
+        "bytes": 4473
+      },
+      "file": "cairo.woff2",
+      "licenseFile": "licenses/cairo.txt",
+      "axes": {
+        "wght": [
+          200.0,
+          400.0,
+          1000.0
+        ],
+        "slnt": [
+          -11.0,
+          0.0,
+          11.0
+        ]
+      },
+      "glyphCount": 1956,
+      "output": {
+        "sha256": "e4c1508879f83fd7bfe5bdd49c46d8cf124a7c23b26fe24de98646a12c271486",
+        "bytes": 177732
+      }
+    },
+    {
+      "family": "Noto Sans Bengali",
+      "directory": "notosansbengali",
+      "ref": "47d54ca1ebb14fd864695f1d39dc734f39017c33",
+      "font": {
+        "source": "https://github.com/google/fonts/blob/47d54ca1ebb14fd864695f1d39dc734f39017c33/ofl/notosansbengali/NotoSansBengali%5Bwdth%2Cwght%5D.ttf",
+        "sha256": "dcd42978094e584a849c84a51450eeac40c8826057d566ea6d4b9627a403a05a",
+        "bytes": 463668
+      },
+      "license": {
+        "source": "https://github.com/google/fonts/blob/47d54ca1ebb14fd864695f1d39dc734f39017c33/ofl/notosansbengali/OFL.txt",
+        "sha256": "754f0e221aa7d5a915489f3bf1f20fe53ddc35ab2834a4d91656d78f9622de70",
+        "bytes": 4383
+      },
+      "file": "notosansbengali.woff2",
+      "licenseFile": "licenses/notosansbengali.txt",
+      "axes": {
+        "wght": [
+          100.0,
+          400.0,
+          900.0
+        ],
+        "wdth": [
+          62.5,
+          100.0,
+          100.0
+        ]
+      },
+      "glyphCount": 730,
+      "output": {
+        "sha256": "c213cda58fe85a19e5327c51768b15431439fff2482d7e25898e69e22e12ba3f",
+        "bytes": 244108
+      }
+    },
+    {
+      "family": "Noto Nastaliq Urdu",
+      "directory": "notonastaliqurdu",
+      "ref": "47d54ca1ebb14fd864695f1d39dc734f39017c33",
+      "font": {
+        "source": "https://github.com/google/fonts/blob/47d54ca1ebb14fd864695f1d39dc734f39017c33/ofl/notonastaliqurdu/NotoNastaliqUrdu%5Bwght%5D.ttf",
+        "sha256": "98a4787f34eb6fde57fb9a1121a8f216301196ab0da98ea110cad581be8abbcd",
+        "bytes": 690304
+      },
+      "license": {
+        "source": "https://github.com/google/fonts/blob/47d54ca1ebb14fd864695f1d39dc734f39017c33/ofl/notonastaliqurdu/OFL.txt",
+        "sha256": "e90279e3fb2003c4d54f8685e25274bd7838b1b21c891520d71dbdb1d4a98907",
+        "bytes": 4384
+      },
+      "file": "notonastaliqurdu.woff2",
+      "licenseFile": "licenses/notonastaliqurdu.txt",
+      "axes": {
+        "wght": [
+          400.0,
+          400.0,
+          700.0
+        ]
+      },
+      "glyphCount": 1723,
+      "output": {
+        "sha256": "895a175d7f625abef8f2121129b884dfc89ee444414598cb08403d2805eb8c76",
+        "bytes": 267296
+      }
+    }
+  ]
+}

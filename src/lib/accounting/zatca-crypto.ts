@@ -1,35 +1,10 @@
-// ZATCA production-prep — cryptographic primitives (Financial Phase 18).
-//
-// This module implements the ZATCA Phase 2 cryptographic seam with the
-// documented algorithm from authoritative sources:
-//
-//   - Key algorithm:  ECDSA on curve **secp256k1** (Microsoft's official
-//     onboarding script uses `openssl ecparam -name secp256k1`; the ZATCA
-//     Developer-community simulator and the SallaApp SDK confirm secp256k1
-//     is the mandatory stamp curve).
-//   - Invoice hash:   SHA-256 of the canonicalized (C14N) UBL invoice XML,
-//     Base64-encoded.
-//   - PIH chaining:    every invoice embeds the Base64 SHA-256 hash of the
-//     previous invoice; the genesis PIH is Base64(SHA-256("0")).
-//   - Digital signature: ECDSA (secp256k1) over the signing input; the
-//     documented input is the invoice hash + signing time; the result is
-//     injected into the UBL as the `ds:SignatureValue` (XAdES-B-B).
-//   - CSR (onboarding): subject C=SA/OU/O/CN + subjectAltName dirName with
-//     SN (solution serial `1-..|2-..|3-..`), UID (VAT number), title (TSCZ
-//     document-type code), registeredAddress, businessCategory.
-//
-// ⚠️ SEAM, NOT PRODUCTION-READY: nothing here is exercised against the live
-// ZATCA API. Before any real transmission, this seam must be validated
-// against the ZATCA sandbox and the official SDK (ZATCA-BOUNDARY.md §1/§5).
-// The exact byte layout of the signature input and the XML canonicalization
-// MUST be confirmed against the official ZATCA technical documents — the
-// constructions below are the documented ones but are not yet verified
-// end-to-end against ZATCA.
-//
-// No ZATCA compliance is claimed (ZATCA-BOUNDARY.md §5).
+// ZATCA cryptographic primitives, not a complete XAdES signer.
+// Invoice hashing uses the restricted, SDK-tested UBL canonicalization profile.
+// A primitive ECDSA round trip is not an official stamp or authority acceptance.
 
 import { createHash, createPublicKey, generateKeyPairSync, sign, verify } from "node:crypto"
 import { KJUR } from "jsrsasign"
+import { canonicalizeZatcaInvoice } from "./zatca-canonical"
 
 export const ZATCA_CURVE = "secp256k1" as const
 export const ZATCA_HASH = "sha256" as const
@@ -59,49 +34,39 @@ export function generateZatcaKeyPair(): ZatcaKeyPair {
 // ── Invoice hash + PIH chain ────────────────────────────────────────────────
 
 /**
- * Base64 SHA-256 hash of the (canonicalized) invoice XML — the "invoice hash"
- * embedded in the QR and the signature.
- *
- * NOTE: ZATCA hashes the C14N (canonical XML) form. The UBL builder in
- * zatca-ubl.ts emits deterministic, normalized XML, but the exact C14N
- * transformation must be validated against the official SDK before the hash
- * is used for a real transmission.
+ * Base64 SHA-256 after ZATCA exclusions and restricted canonicalization.
+ * Rejects unsupported XML; callers must preserve issuance bytes and metadata.
  */
 export function computeInvoiceHash(xml: string): string {
-  return createHash(ZATCA_HASH).update(xml, "utf8").digest("base64")
+  return createHash(ZATCA_HASH).update(canonicalizeZatcaInvoice(xml), "utf8").digest("base64")
 }
 
-/** Base64 SHA-256 of the ASCII string "0" — the first invoice's PIH. */
+/** Initial PIH matching the supplied ZATCA SDK's Data/PIH/pih.txt fixture. */
 export function genesisPiH(): string {
-  return createHash(ZATCA_HASH).update("0", "utf8").digest("base64")
+  return Buffer.from(createHash(ZATCA_HASH).update("0", "utf8").digest("hex"), "utf8").toString("base64")
 }
 
 /**
  * The Previous Invoice Hash for an invoice that follows `prevInvoiceHash`.
- * The chain input is the previous invoice's Base64 hash string.
+ * Copy the previous canonical invoice digest, never hash that digest again.
  */
 export function computePiH(prevInvoiceHash: string): string {
-  return createHash(ZATCA_HASH).update(prevInvoiceHash, "utf8").digest("base64")
+  if (!/^[A-Za-z0-9+/]{43}=$/.test(prevInvoiceHash) || Buffer.from(prevInvoiceHash, "base64").toString("base64") !== prevInvoiceHash) {
+    throw new Error("Previous invoice hash must be a Base64 SHA-256 digest")
+  }
+  return prevInvoiceHash
 }
 
 // ── Digital signature ───────────────────────────────────────────────────────
 
 /**
- * Build the signing input for a ZATCA digital signature.
- *
- * Documented construction: the signature covers the invoice hash combined
- * with the signing time (ISO 8601, e.g. `2026-08-15T10:30:00Z`).
- *
- * ⚠️ SEAM NOTE: the exact concatenation order / encoding is a detail that
- * MUST be verified against the official ZATCA security-standards document and
- * sandbox before production use — implementations differ in whether the hash
- * is Base64-decoded to raw bytes before concatenation and whether a second
- * SHA-256 pass is applied inside ECDSA. The construction here follows the
- * documented "hash + signing time → ECDSA-SHA256" model and is isolated in
- * one function so a spec correction touches only this line.
+ * Digest input observed in the supplied SDK 3.0.8 demonstration signature.
+ * This is NOT a complete XMLDSig/XAdES construction: the published standard
+ * also requires SignedInfo and SignedProperties. That discrepancy must be
+ * resolved before an application signer can be connected to submissions.
  */
-export function buildSigningInput(invoiceHashBase64: string, signingTimeIso: string): Buffer {
-  return Buffer.from(`${invoiceHashBase64}${signingTimeIso}`, "utf8")
+export function buildSigningInput(invoiceHashBase64: string): Buffer {
+  return Buffer.from(computePiH(invoiceHashBase64), "base64")
 }
 
 /**
