@@ -15,6 +15,7 @@
 import { integrationAvailable, INTEGRATION_UNAVAILABLE } from "@/lib/release/integrations"
 import { revalidatePath } from "next/cache"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { createClient } from "@/lib/supabase/server"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
 import { writeAuditLog } from "@/lib/auth/sessions"
 import { calculateDriverPayroll } from "./calculate"
@@ -53,7 +54,7 @@ type WpsPeriodRow = {
 /**
  * Run the canonical payroll calculation for every active/on-leave driver of
  * the current tenant for one period. Idempotent per (tenant, driver, period)
- * thanks to the UNIQUE constraint + upsert inside calculateDriverPayroll().
+ * through caller-bound atomic calculation; cancelled revisions remain immutable.
  */
 export async function calculatePayrollForPeriod(
   periodYear: number,
@@ -66,27 +67,26 @@ export async function calculatePayrollForPeriod(
     const rl = await rateLimitPayroll(currentUser.id)
     if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
 
+    if (!Number.isInteger(periodYear) || periodYear < 2000 || periodYear > 2100 || !Number.isInteger(periodMonth) || periodMonth < 1 || periodMonth > 12) return { success: false, error: "Invalid payroll period" }
     const t0 = Date.now()
     log.info({ userId: currentUser.id, tenantId: currentUser.tenantId, periodYear, periodMonth }, "calculatePayrollForPeriod started")
 
-    const admin = createAdminClient()
-    const { data: drivers, error: driversError } = await admin
-      .from("drivers")
-      .select("id")
-      .eq("tenant_id", currentUser.tenantId)
-      .in("status", ["active", "on_leave"])
-      .is("deleted_at", null)
-
-    if (driversError) throw new Error("Unable to load payroll drivers")
+    const client = await createClient()
+    const { data: driverRows, error: driversError } = await client.rpc("payroll_calculation_drivers", { p_year: periodYear, p_month: periodMonth })
+    if (driversError) throw new Error(driversError.message)
+    if (!Array.isArray(driverRows) || driverRows.some(row => !row || typeof row.id !== "string")) throw new Error("Unable to load reviewed payroll participants")
+    const drivers = driverRows as { id: string }[]
     if (!drivers?.length) {
-      return { success: false, error: "No active drivers found for this tenant." }
+      return { success: false, error: "No reviewed payroll participants found for this period." }
     }
 
     let calculated = 0
+    let totalAmountMinor = 0
     const errors: string[] = []
     for (const d of drivers as { id: string }[]) {
       try {
-        await calculateDriverPayroll({ driverId: d.id, periodYear, periodMonth })
+        const result = await calculateDriverPayroll({ driverId: d.id, periodYear, periodMonth })
+        totalAmountMinor += Math.round(result.net_payroll * 100)
         calculated++
       } catch (e) {
         errors.push(`${d.id}: ${errorMessage(e)}`)
@@ -107,13 +107,14 @@ export async function calculatePayrollForPeriod(
       },
     })
 
-    emit("payroll.calculated", currentUser.tenantId, {
+    if (calculated > 0) emit("payroll.calculated", currentUser.tenantId, {
       id: currentUser.tenantId,
       period: `${periodYear}-${String(periodMonth).padStart(2, "0")}`,
-      totalAmount: 0,
+      totalAmount: totalAmountMinor / 100,
       driverCount: calculated,
     })
 
+    logPerformance("calculatePayrollForPeriod", Date.now() - t0, { calculated, failed: errors.length })
     revalidatePath("/payroll")
     return {
       success: errors.length === 0,

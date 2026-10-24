@@ -11,10 +11,12 @@
 // failed_login_attempts and last_login_ip are never exposed to the browser.
 
 import { requirePermission, getCurrentUser } from "@/lib/auth/authorization"
+import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
 import type { UserStatus } from "./user-utils"
 
 export type UserListItem = {
+  version: number
   id: string
   employee_code: string | null
   full_name_ar: string | null
@@ -31,6 +33,10 @@ export type UserListItem = {
 
 export type UsersPageData = {
   users: UserListItem[]
+  total: number
+  page: number
+  pageSize: number
+  isOwner: boolean
   kpis: {
     total: number
     active: number
@@ -41,87 +47,26 @@ export type UsersPageData = {
   }
 }
 
-function toListItem(row: Record<string, unknown>): UserListItem {
-  return {
-    id: row.id as string,
-    employee_code: (row.employee_code as string | null) ?? null,
-    full_name_ar: (row.full_name_ar as string | null) ?? null,
-    full_name_en: (row.full_name_en as string | null) ?? null,
-    email: row.email as string,
-    phone: (row.phone as string | null) ?? null,
-    role: row.role as string,
-    status: row.status as UserStatus,
-    two_factor_enabled: (row.two_factor_enabled as boolean) ?? false,
-    invited_at: (row.invited_at as string | null) ?? null,
-    last_login_at: (row.last_login_at as string | null) ?? null,
-    created_at: row.created_at as string,
-  }
-}
+
 
 /**
  * Fetch the tenant's user roster + KPI counts for the /users dashboard page.
  * Requires `users.read`. Empty KPI shares stay null (never fabricated).
  */
-export async function fetchUsersPageData(): Promise<UsersPageData> {
-  await requirePermission("users", "read")
-
-  const currentUser = await getCurrentUser()
-  if (!currentUser) return { users: [], kpis: emptyKpis() }
-
-  const admin = createAdminClient()
-  const { data, error } = await admin
-    .from("users")
-    .select(
-      "id, employee_code, full_name_ar, full_name_en, email, phone, role, status, two_factor_enabled, invited_at, last_login_at, created_at"
-    )
-    .eq("tenant_id", currentUser.tenantId)
-    .is("deleted_at", null)
-    .order("created_at", { ascending: false })
-    .limit(200)
-
-  if (error) {
-    console.error("[users] fetchUsersPageData failed:", error)
-    return { users: [], kpis: emptyKpis() }
-  }
-
-  const users = ((data ?? []) as unknown as Record<string, unknown>[]).map(toListItem)
-
-  const total = users.length
-  const active = users.filter((u) => u.status === "active").length
-  const pendingInvite = users.filter((u) => u.status === "pending_invite").length
-  const lockedOrTerminated = users.filter(
-    (u) => u.status === "locked" || u.status === "terminated"
-  ).length
-  const twoFactorEnabled = users.filter((u) => u.two_factor_enabled).length
-  // Saudization KPI: Arabic-language profile share of the roster (live DB
-  // fact — full_name_ar presence), same approach as the drivers KPI chips.
-  const withArabicName = users.filter((u) => (u.full_name_ar ?? "").trim().length > 0).length
-
-  return {
-    users,
-    kpis: {
-      total,
-      active,
-      pendingInvite,
-      lockedOrTerminated,
-      twoFactorEnabled,
-      saudiSharePct: total > 0 ? Math.round((withArabicName / total) * 100) : null,
-    },
-  }
+export async function fetchUsersPageData(options:{page?:number;search?:string;status?:string;role?:string;pageSize?:number}={}):Promise<UsersPageData>{
+ await requirePermission("users","read")
+ if(!await getCurrentUser())throw new Error("Not authenticated.")
+ const client=await createClient()
+ const{data,error}=await client.rpc("list_managed_users",{p_surface:"users",p_search:options.search??"",p_status:options.status??"all",p_role:options.role??"all",p_page:options.page??1,p_page_size:options.pageSize??25})
+ if(error||!data||!Array.isArray(data.users))throw new Error("Could not load users. Try again.")
+ return data as UsersPageData
 }
 
-function emptyKpis(): UsersPageData["kpis"] {
-  return {
-    total: 0,
-    active: 0,
-    pendingInvite: 0,
-    lockedOrTerminated: 0,
-    twoFactorEnabled: 0,
-    saudiSharePct: null,
-  }
-}
+
 
 export type UserDetail = {
+  version: number
+  isOwner: boolean
   id: string
   auth_user_id: string
   employee_code: string | null
@@ -160,7 +105,7 @@ export async function fetchUserDetail(userId: string): Promise<UserDetail | null
   const { data, error } = await admin
     .from("users")
     .select(
-      "id, auth_user_id, employee_code, full_name_ar, full_name_en, preferred_name, email, phone, role, status, avatar_url, two_factor_enabled, must_change_password, invited_at, accepted_invite_at, last_login_at, created_at, updated_at"
+      "id, version, auth_user_id, employee_code, full_name_ar, full_name_en, preferred_name, email, phone, role, status, avatar_url, two_factor_enabled, must_change_password, invited_at, accepted_invite_at, last_login_at, created_at, updated_at"
     )
     .eq("id", userId)
     .eq("tenant_id", currentUser.tenantId)
@@ -168,8 +113,7 @@ export async function fetchUserDetail(userId: string): Promise<UserDetail | null
     .maybeSingle<Record<string, unknown>>()
 
   if (error) {
-    console.error("[users] fetchUserDetail failed:", error)
-    return null
+    throw new Error("Could not load the user profile. Try again.")
   }
   if (!data) return null
 
@@ -182,5 +126,5 @@ export async function fetchUserDetail(userId: string): Promise<UserDetail | null
     pdplConsent = null
   }
 
-  return { ...(data as unknown as UserDetail), pdplConsent }
+  return { ...(data as unknown as UserDetail),phone:pdplConsent===true?data.phone as string|null:null, pdplConsent,isOwner:currentUser.role==="general_manager" }
 }

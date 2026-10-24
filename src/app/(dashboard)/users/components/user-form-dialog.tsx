@@ -61,14 +61,14 @@ export function InviteUserDialog({
       setSubmitting(false)
       if (result.success) {
         toast.success(
-          isAr ? "تم إرسال الدعوة بنجاح" : "Invite sent successfully"
+          result.delivery==="queued"?(isAr ? "أُنشئت الدعوة وقُبل البريد للإرسال" : "Invitation created; email queued for sending"):(isAr?"أُنشئت الدعوة، لكن تعذر تأكيد إرسال البريد. تحقق من الإعدادات ووصول الدعوة قبل إلغائها وإعادة إرسالها.":"Invitation created, but sending could not be confirmed. Check email configuration and receipt before revoking and resending.")
         )
         setEmail("")
         setRole("readonly_auditor")
         onOpenChange(false)
         onInvited()
       } else {
-        toast.error(result.error ?? (isAr ? "حدث خطأ" : "Something went wrong"))
+        toast.error(isAr ? result.errorAr ?? "تعذر إنشاء الدعوة. تحقق من البيانات والصلاحيات وحاول مجدداً." : result.error ?? "Something went wrong")
       }
     })
   }
@@ -105,7 +105,7 @@ export function InviteUserDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {USER_ROLES.map((r) => (
+                {USER_ROLES.filter(r=>r!=="general_manager").map((r) => (
                   <SelectItem key={r} value={r}>
                     {isAr ? ROLE_META[r].ar : ROLE_META[r].en}
                   </SelectItem>

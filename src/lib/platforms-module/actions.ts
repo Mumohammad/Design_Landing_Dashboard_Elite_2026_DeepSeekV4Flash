@@ -15,13 +15,14 @@
 // Orders & Platforms as Module 10 — see src/lib/orders/actions.ts).
 
 import { revalidatePath } from "next/cache"
-import { createAdminClient } from "@/lib/supabase/admin"
+import { createClient } from "@/lib/supabase/server"
+import { createOrderEntry } from "@/lib/orders/actions"
+import { z } from "zod"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
 import { writeAuditLog } from "@/lib/auth/sessions"
-import { rateLimitOrders, rateLimitVehicles } from "@/lib/auth/rate-limit"
+import { rateLimitOrders } from "@/lib/auth/rate-limit"
 import { toCsv } from "@/lib/accounting/csv-utils"
 import {
-  dailyEntryCreateSchema,
   dailyEntryImportRowSchema,
   deliveryPlatformCreateSchema,
   deliveryPlatformUpdateSchema,
@@ -31,7 +32,6 @@ import {
   type DeliveryPlatformUpdateInput,
   type PlatformPaymentRecordInput,
 } from "@/types/platforms-module"
-import { paymentBalance } from "./module-utils"
 
 export type PlatformActionResult = { success: boolean; error?: string; id?: string }
 export type ImportResult = {
@@ -49,256 +49,50 @@ function errorMessage(e: unknown): string {
 
 // ── Platforms CRUD ──────────────────────────────────────────────────────────
 
-export async function upsertPlatform(
-  input: DeliveryPlatformCreateInput | DeliveryPlatformUpdateInput
-): Promise<PlatformActionResult> {
-  try {
-    const isUpdate = "id" in input && typeof (input as { id?: string }).id === "string"
-    await requirePermission("platforms", isUpdate ? "update" : "create")
-    const currentUser = await getCurrentUser()
-    if (!currentUser) return { success: false, error: "Not authenticated." }
-    const rl = await rateLimitOrders(currentUser.id)
-    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
-
-    const admin = createAdminClient()
-
-    if (isUpdate) {
-      const parsed = deliveryPlatformUpdateSchema.parse(input)
-      const { data, error } = await admin
-        .from("delivery_platforms")
-        .update({
-          code: parsed.code,
-          name_ar: parsed.name_ar,
-          name_en: parsed.name_en?.trim() || null,
-          brand_color: parsed.brand_color?.trim() || null,
-          rate_type: parsed.rate_type,
-          rate_per_order: parsed.rate_per_order ?? null,
-          api_base_url: parsed.api_base_url?.trim() || null,
-          sort_order: parsed.sort_order ?? 100,
-          is_active: parsed.is_active ?? true,
-          updated_by: currentUser.authUserId,
-        })
-        .eq("id", parsed.id)
-        .eq("tenant_id", currentUser.tenantId)
-        .is("deleted_at", null)
-        .select("id")
-        .single()
-      if (error) {
-        if (error.message.includes("idx_delivery_platforms_unique_code") || error.message.includes("duplicate key")) {
-          return { success: false, error: "A platform with this code already exists." }
-        }
-        return { success: false, error: error.message }
-      }
-      if (!data) return { success: false, error: "Platform not found." }
-
-      await writeAuditLog({
-        tenantId: currentUser.tenantId,
-        actorId: currentUser.authUserId,
-        module: "platforms",
-        action: "platform_updated",
-        entityType: "delivery_platform",
-        entityId: parsed.id,
-        newValues: { code: parsed.code, name_ar: parsed.name_ar, is_active: parsed.is_active ?? true },
-      })
-      revalidatePath("/platforms")
-      revalidatePath(`/platforms/${parsed.id}`)
-      return { success: true, id: parsed.id }
-    }
-
-    const parsed = deliveryPlatformCreateSchema.parse(input)
-    const { data, error } = await admin
-      .from("delivery_platforms")
-      .insert({
-        tenant_id: currentUser.tenantId,
-        created_by: currentUser.authUserId,
-        code: parsed.code,
-        name_ar: parsed.name_ar,
-        name_en: parsed.name_en?.trim() || null,
-        brand_color: parsed.brand_color?.trim() || null,
-        rate_type: parsed.rate_type,
-        rate_per_order: parsed.rate_per_order ?? null,
-        api_base_url: parsed.api_base_url?.trim() || null,
-        sort_order: parsed.sort_order ?? 100,
-        is_active: true,
-      })
-      .select("id")
-      .single()
-    if (error) {
-      if (error.message.includes("idx_delivery_platforms_unique_code") || error.message.includes("duplicate key")) {
-        return { success: false, error: "A platform with this code already exists." }
-      }
-      return { success: false, error: error.message }
-    }
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "platforms",
-      action: "platform_created",
-      entityType: "delivery_platform",
-      entityId: data.id,
-      newValues: { code: parsed.code, name_ar: parsed.name_ar, rate_type: parsed.rate_type },
-    })
-    revalidatePath("/platforms")
-    return { success: true, id: data.id }
-  } catch (e) {
-    return { success: false, error: errorMessage(e) }
-  }
+export async function upsertPlatform(input: DeliveryPlatformCreateInput | DeliveryPlatformUpdateInput): Promise<PlatformActionResult> {
+ try {
+  const updating="id" in input
+  await requirePermission("platforms",updating?"update":"create")
+  const user=await getCurrentUser(); if(!user) throw new Error("Not authenticated.")
+  if(!(await rateLimitOrders(user.id)).success) throw new Error("Rate limit exceeded. Try again later.")
+  const parsed=updating?deliveryPlatformUpdateSchema.parse(input):deliveryPlatformCreateSchema.parse(input)
+  const db=await createClient(), current=parsed as DeliveryPlatformUpdateInput
+  const {data,error}=await db.rpc("save_delivery_platform",{p_input:parsed,p_id:updating?current.id:null,p_expected_updated_at:updating?current.expected_updated_at:null})
+  if(error) throw new Error(error.code==="23505"?"A platform with this code already exists.":error.message)
+  if(!data?.id) throw new Error("The platform was not saved. Reload and try again.")
+  revalidatePath("/platforms");revalidatePath("/platforms/"+data.id)
+  return {success:true,id:data.id}
+ }catch(error){return {success:false,error:errorMessage(error)}}
 }
-
-/**
- * Deactivate (soft-delete) a platform. FK usage is checked first — platforms
- * referenced by drivers/daily entries/payments are deactivated, never
- * hard-deleted (the 4-policy pattern: no DELETE policies exist anyway).
- */
-export async function deactivatePlatform(id: string): Promise<PlatformActionResult> {
-  try {
-    await requirePermission("platforms", "update")
-    const currentUser = await getCurrentUser()
-    if (!currentUser) return { success: false, error: "Not authenticated." }
-    const rl = await rateLimitOrders(currentUser.id)
-    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
-
-    const admin = createAdminClient()
-    const { data, error } = await admin
-      .from("delivery_platforms")
-      .update({ is_active: false, deleted_at: new Date().toISOString(), updated_by: currentUser.authUserId })
-      .eq("id", id)
-      .eq("tenant_id", currentUser.tenantId)
-      .is("deleted_at", null)
-      .select("id")
-      .single()
-    if (error) return { success: false, error: error.message }
-    if (!data) return { success: false, error: "Platform not found." }
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "platforms",
-      action: "platform_deactivated",
-      entityType: "delivery_platform",
-      entityId: id,
-      newValues: { is_active: false, deleted_at: "set" },
-    })
-    revalidatePath("/platforms")
-    return { success: true, id }
-  } catch (e) {
-    return { success: false, error: errorMessage(e) }
-  }
+/** Keep inactive master data and all linked history readable. */
+export async function deactivatePlatform(id: string, expectedUpdatedAt: string): Promise<PlatformActionResult> {
+ try {
+  await requirePermission("platforms","update")
+  const user=await getCurrentUser();if(!user)throw new Error("Not authenticated.")
+  if(!(await rateLimitOrders(user.id)).success)throw new Error("Rate limit exceeded. Try again later.")
+  z.object({id:z.uuid(),expectedUpdatedAt:z.iso.datetime({offset:true})}).parse({id,expectedUpdatedAt})
+  const db=await createClient(),{data,error}=await db.rpc("save_delivery_platform",{p_input:{},p_id:id,p_expected_updated_at:expectedUpdatedAt,p_deactivate:true})
+  if(error)throw new Error(error.message)
+  if(!data?.id)throw new Error("Platform not found.")
+  revalidatePath("/platforms");revalidatePath("/platforms/"+id)
+  return {success:true,id}
+ }catch(error){return {success:false,error:errorMessage(error)}}
 }
 
 // ── Payments ledger (balance = invoiced − paid) ─────────────────────────────
 
-export async function recordPlatformPayment(
-  input: PlatformPaymentRecordInput
-): Promise<PlatformActionResult> {
-  try {
-    await requirePermission("platforms", "update")
-    const currentUser = await getCurrentUser()
-    if (!currentUser) return { success: false, error: "Not authenticated." }
-    const rl = await rateLimitVehicles(currentUser.id)
-    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
-
-    const parsed = platformPaymentRecordSchema.parse(input)
-    const admin = createAdminClient()
-
-    // Platform must be a tenant platform.
-    const { data: platform } = await admin
-      .from("delivery_platforms")
-      .select("id, name_ar")
-      .eq("id", parsed.platform_id)
-      .eq("tenant_id", currentUser.tenantId)
-      .is("deleted_at", null)
-      .maybeSingle()
-    if (!platform) return { success: false, error: "Platform not found in your tenant." }
-
-    const { outstanding, status } = paymentBalance(parsed.expected_amount, parsed.received_amount, parsed.payment_status)
-
-    // One row per (tenant, platform, year, month) — partial unique index
-    // idx_platform_payments_unique_period (WHERE deleted_at IS NULL).
-    // supabase-js .upsert() cannot target a PARTIAL index (ON CONFLICT needs
-    // the index predicate, which the client cannot express), so this is a
-    // read-then-write with one retry: a concurrent insert that wins the race
-    // surfaces as 23505 and the loser re-reads and updates instead.
-    const rowValues = {
-      expected_amount: parsed.expected_amount,
-      received_amount: parsed.received_amount,
-      outstanding_amount: outstanding,
-      payment_status: status,
-      payment_date: parsed.payment_date?.trim() || null,
-      payment_ref: parsed.payment_ref?.trim() || null,
-      notes: parsed.notes?.trim() || null,
-      updated_by: currentUser.authUserId,
-    }
-    const findExisting = () =>
-      admin
-        .from("platform_payments")
-        .select("id")
-        .eq("tenant_id", currentUser.tenantId)
-        .eq("platform_id", parsed.platform_id)
-        .eq("period_year", parsed.period_year)
-        .eq("period_month", parsed.period_month)
-        .is("deleted_at", null)
-        .maybeSingle<{ id: string }>()
-
-    let paymentId: string | null = null
-    for (let attempt = 0; attempt < 2 && !paymentId; attempt++) {
-      const { data: existing } = await findExisting()
-      if (existing) {
-        const { error } = await admin
-          .from("platform_payments")
-          .update(rowValues)
-          .eq("id", existing.id)
-          .eq("tenant_id", currentUser.tenantId)
-          .is("deleted_at", null)
-          .select("id")
-          .single()
-        if (error) return { success: false, error: error.message }
-        paymentId = existing.id
-      } else {
-        const { data: inserted, error } = await admin
-          .from("platform_payments")
-          .insert({
-            tenant_id: currentUser.tenantId,
-            platform_id: parsed.platform_id,
-            period_year: parsed.period_year,
-            period_month: parsed.period_month,
-            created_by: currentUser.authUserId,
-            ...rowValues,
-          })
-          .select("id")
-          .single()
-        if (error) {
-          if (error.code === "23505" && attempt === 0) continue // concurrent insert won — update instead
-          return { success: false, error: error.message }
-        }
-        paymentId = inserted.id
-      }
-    }
-    if (!paymentId) return { success: false, error: "Could not record the payment (concurrent update)." }
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "platforms",
-      action: "platform_payment_recorded",
-      entityType: "platform_payments",
-      entityId: paymentId,
-      newValues: {
-        platform_id: parsed.platform_id,
-        period: `${parsed.period_year}-${String(parsed.period_month).padStart(2, "0")}`,
-        expected_amount: parsed.expected_amount,
-        received_amount: parsed.received_amount,
-        outstanding_amount: outstanding,
-        payment_status: status,
-      },
-    })
-    revalidatePath("/platforms")
-    revalidatePath(`/platforms/${parsed.platform_id}`)
-    return { success: true, id: paymentId }
-  } catch (e) {
-    return { success: false, error: errorMessage(e) }
-  }
+export async function recordPlatformPayment(input: PlatformPaymentRecordInput): Promise<PlatformActionResult> {
+ try{
+  await requirePermission("platforms","update")
+  const user=await getCurrentUser();if(!user)throw new Error("Not authenticated.")
+  if(!(await rateLimitOrders(user.id)).success)throw new Error("Rate limit exceeded. Try again later.")
+  const parsed=platformPaymentRecordSchema.parse(input),db=await createClient()
+  const {data,error}=await db.rpc("save_platform_payment",{p_input:parsed})
+  if(error)throw new Error(error.message)
+  if(!data?.id)throw new Error("The payment period was not saved. Reload and try again.")
+  revalidatePath("/platforms");revalidatePath("/platforms/"+parsed.platform_id)
+  return {success:true,id:data.id}
+ }catch(error){return{success:false,error:errorMessage(error)}}
 }
 
 // ── Daily-entry import (manual add + CSV paste, partial-failure report) ─────
@@ -319,7 +113,7 @@ export async function importDailyEntries(
     if (!Array.isArray(rows) || rows.length === 0) return { success: false, error: "No rows to import." }
     if (rows.length > 500) return { success: false, error: "Import is capped at 500 rows per batch." }
 
-    const admin = createAdminClient()
+    const admin = await createClient()
 
     // Platform must be a tenant platform.
     const { data: platform } = await admin
@@ -327,6 +121,7 @@ export async function importDailyEntries(
       .select("id")
       .eq("id", platformId)
       .eq("tenant_id", currentUser.tenantId)
+      .eq("is_active", true)
       .is("deleted_at", null)
       .maybeSingle()
     if (!platform) return { success: false, error: "Platform not found in your tenant." }
@@ -397,7 +192,7 @@ export async function importDailyEntries(
 
     let inserted = 0
     for (const { rowNumber, values } of toInsert) {
-      const { error: insErr } = await admin.from("daily_order_entries").insert(values)
+      const { error: insErr } = await admin.rpc("save_order_entry",{p_input:values})
       if (insErr) {
         failures.push({
           rowNumber,
@@ -431,81 +226,8 @@ export async function importDailyEntries(
 
 /** Manual single entry — resolves an explicit driver id, no code lookup. */
 export async function createDailyEntry(input: DailyEntryCreateInput): Promise<ImportResult> {
-  try {
-    await requirePermission("platforms", "create")
-    const currentUser = await getCurrentUser()
-    if (!currentUser) return { success: false, error: "Not authenticated." }
-    const rl = await rateLimitOrders(currentUser.id)
-    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
-
-    const parsed = dailyEntryCreateSchema.parse(input)
-    const admin = createAdminClient()
-
-    // Platform AND driver must both belong to the caller's tenant.
-    const [platRes, drvRes] = await Promise.all([
-      admin
-        .from("delivery_platforms")
-        .select("id")
-        .eq("id", parsed.platform_id)
-        .eq("tenant_id", currentUser.tenantId)
-        .is("deleted_at", null)
-        .maybeSingle(),
-      admin
-        .from("drivers")
-        .select("id")
-        .eq("id", parsed.driver_id)
-        .eq("tenant_id", currentUser.tenantId)
-        .is("deleted_at", null)
-        .maybeSingle(),
-    ])
-    if (!platRes.data) return { success: false, error: "Platform not found in your tenant." }
-    if (!drvRes.data) return { success: false, error: "Driver not found in your tenant." }
-
-    const { error: insErr } = await admin.from("daily_order_entries").insert({
-      tenant_id: currentUser.tenantId,
-      created_by: currentUser.authUserId,
-      driver_id: parsed.driver_id,
-      platform_id: parsed.platform_id,
-      entry_date: parsed.entry_date,
-      shift_label: parsed.shift_label?.trim() || null,
-      orders_delivered: parsed.orders_delivered ?? 0,
-      orders_failed: parsed.orders_failed ?? 0,
-      orders_returned: parsed.orders_returned ?? 0,
-      orders_cancelled: parsed.orders_cancelled ?? 0,
-      gross_revenue: parsed.gross_revenue ?? 0,
-      platform_reported_revenue: parsed.platform_reported_revenue ?? null,
-      total_distance_km: parsed.total_distance_km ?? null,
-      notes: parsed.notes?.trim() || null,
-      entry_source: "manual",
-    })
-    if (insErr) {
-      if (insErr.message.includes("idx_daily_order_entries_unique")) {
-        return { success: false, error: "duplicate entry for this driver/date/shift (already recorded)" }
-      }
-      return { success: false, error: insErr.message }
-    }
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "platforms",
-      action: "daily_entry_created",
-      entityType: "daily_order_entries",
-      entityId: null,
-      newValues: {
-        platform_id: parsed.platform_id,
-        driver_id: parsed.driver_id,
-        entry_date: parsed.entry_date,
-        shift_label: parsed.shift_label ?? null,
-      },
-    })
-    revalidatePath("/platforms")
-    revalidatePath(`/platforms/${parsed.platform_id}`)
-    revalidatePath("/orders")
-    return { success: true, inserted: 1, failures: [] }
-  } catch (e) {
-    return { success: false, error: errorMessage(e) }
-  }
+ const result=await createOrderEntry(input)
+ return result.success?{success:true,inserted:1,failures:[]}:{success:false,error:result.error}
 }
 
 // ── CSV export (BOM) ────────────────────────────────────────────────────────
@@ -540,28 +262,9 @@ export async function exportPlatformsCsv(): Promise<PlatformExportResult> {
     const rl = await rateLimitOrders(currentUser.id)
     if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
 
-    const admin = createAdminClient()
-    const [platRes, payRes] = await Promise.all([
-      admin
-        .from("delivery_platforms")
-        .select("id,code,name_ar,name_en,is_active,rate_type,rate_per_order,sort_order")
-        .eq("tenant_id", currentUser.tenantId)
-        .is("deleted_at", null)
-        .order("sort_order", { ascending: true }),
-      admin
-        .from("platform_payments")
-        .select("period_year,period_month,expected_amount,received_amount,outstanding_amount,payment_status,payment_date,platform:delivery_platforms(name_ar,name_en)")
-        .eq("tenant_id", currentUser.tenantId)
-        .is("deleted_at", null)
-        .order("period_year", { ascending: false })
-        .order("period_month", { ascending: false })
-        .limit(5000),
-    ])
-    if (platRes.error) return { success: false, error: platRes.error.message }
-    if (payRes.error) return { success: false, error: payRes.error.message }
-
-    const platforms = (platRes.data as unknown as PlatformListRow[] | null) ?? []
-    const payments = (payRes.data as unknown as PaymentRow[] | null) ?? []
+    const db=await createClient(),{data,error}=await db.rpc("export_delivery_platform_data",{})
+    if(error)throw new Error(error.message)
+    const platforms=data.platforms as PlatformListRow[],payments=data.payments as PaymentRow[]
 
     const csv =
       "\uFEFF" +
@@ -595,4 +298,20 @@ export async function exportPlatformsCsv(): Promise<PlatformExportResult> {
   } catch (e) {
     return { success: false, error: errorMessage(e) }
   }
+}
+
+export async function exportPlatformOrdersCsv(platformId: string, month: string): Promise<PlatformExportResult> {
+ try {
+  await requirePermission("platforms","export")
+  const user=await getCurrentUser();if(!user)throw new Error("Not authenticated.")
+  if(!(await rateLimitOrders(user.id)).success)throw new Error("Rate limit exceeded. Try again later.")
+  z.object({platformId:z.uuid(),month:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/)}).parse({platformId,month})
+  const db=await createClient(),{data,error}=await db.rpc("export_delivery_platform_data",{p_id:platformId,p_month:month})
+  if(error)throw new Error(error.message)
+  type Row={entry_date:string;driver:{full_name_ar:string|null;full_name_en:string|null};orders_delivered:number;orders_failed:number;orders_returned:number;orders_cancelled:number;gross_revenue:number}
+  const rows=data.entries as Row[]
+  const csv="\uFEFF"+toCsv(["Date","Driver","Delivered","Failed","Returned","Cancelled","Revenue"],rows.map(r=>[r.entry_date,r.driver.full_name_en??r.driver.full_name_ar??"",r.orders_delivered,r.orders_failed,r.orders_returned,r.orders_cancelled,r.gross_revenue]))
+  await writeAuditLog({tenantId:user.tenantId,actorId:user.authUserId,module:"platforms",action:"platform_orders_exported",entityType:"delivery_platform",entityId:platformId,newValues:{month,rows:rows.length}})
+  return{success:true,csv}
+ }catch(error){return{success:false,error:errorMessage(error)}}
 }

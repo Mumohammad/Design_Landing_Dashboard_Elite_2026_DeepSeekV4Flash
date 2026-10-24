@@ -26,9 +26,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { createVehicle } from "@/lib/vehicles/actions"
+import { createVehicle, updateVehicle } from "@/lib/vehicles/actions"
 import { useTranslation } from "@/hooks/use-translation"
-import type { VehicleStatus, VehicleCondition, FuelType } from "@/types/vehicles"
+import type { VehicleCreateInput, VehicleStatus, VehicleCondition, FuelType } from "@/types/vehicles"
 
 const SAUDI_PLATE_HINT = "أ ب ج 1234 / ABC 1234 / 1234567"
 
@@ -93,8 +93,6 @@ function toNumberNullable(v: string | undefined): number | null {
 
 const STATUSES: { value: VehicleStatus; ar: string; en: string }[] = [
   { value: "available", ar: "متاحة", en: "Available" },
-  { value: "assigned", ar: "مُعيّنة", en: "Assigned" },
-  { value: "in_maintenance", ar: "في الصيانة", en: "In Maintenance" },
   { value: "off_road", ar: "خارج الخدمة", en: "Off Road" },
   { value: "retired", ar: "مُتقاعدة", en: "Retired" },
 ]
@@ -142,9 +140,13 @@ function Field({
 export function CreateVehicleDialog({
   open,
   onOpenChange,
+  initialVehicle,
+  onSaved,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  initialVehicle?: VehicleCreateInput & {id:string;version:number}
+  onSaved?: () => void
 }) {
   const { locale } = useTranslation()
   const isAr = locale === "ar"
@@ -162,12 +164,13 @@ export function CreateVehicleDialog({
     defaultValues: {
       status: "available",
       condition_status: "good",
+      ...(initialVehicle ? Object.fromEntries(Object.entries(initialVehicle).map(([key,value])=>[key,value==null?"":typeof value==="number"?String(value):value])) : {}),
     },
   })
 
   async function onSubmit(values: FormValues) {
     setSubmitting(true)
-    const result = await createVehicle({
+    const input: VehicleCreateInput = {
       vehicle_code: toNullable(values.vehicle_code),
       plate_number: values.plate_number.trim(),
       plate_type: toNullable(values.plate_type),
@@ -189,15 +192,17 @@ export function CreateVehicleDialog({
       inspection_expiry: toNullable(values.inspection_expiry),
       operating_card_expiry: toNullable(values.operating_card_expiry),
       notes: toNullable(values.notes),
-    })
+    }
+    const result = initialVehicle ? await updateVehicle(initialVehicle.id,initialVehicle.version,input) : await createVehicle(input)
     setSubmitting(false)
 
     if (result.success) {
-      toast.success(isAr ? "تم إنشاء المركبة بنجاح" : "Vehicle created successfully")
+      toast.success(isAr ? "تم حفظ المركبة" : "Vehicle saved")
       reset()
       onOpenChange(false)
       router.refresh()
-      if (result.id) router.push(`/vehicles/${result.id}`)
+      onSaved?.()
+      if (!initialVehicle && result.id) router.push(`/vehicles/${result.id}`)
     } else {
       toast.error(result.error ?? (isAr ? "حدث خطأ" : "Something went wrong"))
     }
@@ -210,11 +215,11 @@ export function CreateVehicleDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto rounded-2xl">
         <DialogHeader>
-          <DialogTitle>{isAr ? "إنشاء مركبة جديدة" : "Create New Vehicle"}</DialogTitle>
+          <DialogTitle>{initialVehicle ? (isAr ? "تعديل المركبة" : "Edit vehicle") : (isAr ? "إنشاء مركبة جديدة" : "Create New Vehicle")}</DialogTitle>
           <DialogDescription>
             {isAr
-              ? "املأ بيانات المركبة الأساسية — تُعاد التحقق من الحقول على الخادم."
-              : "Fill in the vehicle's core details — fields are re-validated on the server."}
+              ? "أدخل بيانات المركبة. تتحكم التعيينات والصيانة في إتاحة المركبة."
+              : "Enter the vehicle details. Assignments and maintenance control availability."}
           </DialogDescription>
         </DialogHeader>
 
@@ -303,7 +308,7 @@ export function CreateVehicleDialog({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {STATUSES.map((s) => (
+                      {(initialVehicle && !STATUSES.some(s=>s.value===initialVehicle.status) ? [...STATUSES,{value:initialVehicle.status!,ar:"تديرها العمليات",en:"Managed by operations"}] : STATUSES).map((s) => (
                         <SelectItem key={s.value} value={s.value}>
                           {isAr ? s.ar : s.en}
                         </SelectItem>
@@ -390,7 +395,7 @@ export function CreateVehicleDialog({
               className="bg-gradient-to-r from-elite-blue-500 to-elite-blue-700 text-white hover:from-elite-blue-600 hover:to-elite-blue-800"
             >
               {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-              {isAr ? "إنشاء المركبة" : "Create vehicle"}
+              {initialVehicle ? (isAr?"حفظ التغييرات":"Save changes") : (isAr ? "إنشاء المركبة" : "Create vehicle")}
             </Button>
           </div>
         </form>

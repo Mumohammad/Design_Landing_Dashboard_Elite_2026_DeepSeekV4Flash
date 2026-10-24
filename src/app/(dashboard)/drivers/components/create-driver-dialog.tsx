@@ -101,6 +101,7 @@ const formSchema = z
     job_title: z.string().optional(),
     department: z.string().optional(),
     hire_date: z.string().optional(),
+    termination_date: z.string().optional(),
     contract_start: z.string().optional(),
     contract_end: z.string().optional(),
 
@@ -124,6 +125,8 @@ const formSchema = z
       path: ["contract_end"],
     },
   )
+
+  .refine(data=>["terminated","blacklisted"].includes(data.status)?!!data.hire_date&&!!data.termination_date&&data.termination_date>=data.hire_date:!data.termination_date,{message:"Termination date must match employment status and be on or after hire date",path:["termination_date"]})
 
 type FormValues = z.infer<typeof formSchema>
 
@@ -249,6 +252,7 @@ export function CreateDriverDialog({
       job_title: toNullable(values.job_title),
       department: toNullable(values.department),
       hire_date: toNullable(values.hire_date),
+      termination_date: toNullable(values.termination_date),
       contract_start: toNullable(values.contract_start),
       contract_end: toNullable(values.contract_end),
       basic_salary: toNumberNullable(values.basic_salary),
@@ -469,6 +473,7 @@ export function CreateDriverDialog({
             <Field label={isAr ? "تاريخ التعيين" : "Hire date"}>
               <Input {...register("hire_date")} type="date" className={inputClass} />
             </Field>
+            <Field label={isAr ? "تاريخ انتهاء العمل" : "Termination date"} error={errors.termination_date?.message}><Input {...register("termination_date")} type="date" className={inputClass}/><p className="text-xs text-muted-foreground">{isAr?"للسجلات المنهية أو المحظورة فقط.":"For terminated or blacklisted employment records."}</p></Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label={isAr ? "بداية العقد" : "Contract start"}>
                 <Input {...register("contract_start")} type="date" className={inputClass} />

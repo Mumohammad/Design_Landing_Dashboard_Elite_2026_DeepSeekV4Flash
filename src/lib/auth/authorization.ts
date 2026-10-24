@@ -203,6 +203,8 @@ export const getCurrentUser = cache(async () => {
   const profile = await getCurrentUserForMfa()
   if (!profile) return null
   const supabase = await createClient()
-  const { data, error } = await supabase.rpc("has_required_assurance")
-  return !error && data === true ? profile : null
+  // The caller-derived tenant boundary includes account state, tenant state,
+  // and MFA. Assurance alone must not unlock service-role business actions.
+  const { data, error } = await supabase.rpc("get_my_tenant_id")
+  return !error && data === profile.tenantId ? profile : null
 })

@@ -12,12 +12,29 @@ interface ColorPickerProps {
   onChange: (cssVar: string, value: string) => void
 }
 
-export function ColorPicker({ label, cssVar, value, onChange }: ColorPickerProps) {
-  const [localValue, setLocalValue] = React.useState(value)
+function subscribeToDocumentColors(onChange: () => void) {
+  const observer = new MutationObserver(onChange)
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style"] })
+  return () => observer.disconnect()
+}
 
-  React.useEffect(() => {
-    setLocalValue(value)
-  }, [value])
+function getServerColorSnapshot() {
+  return ""
+}
+
+export function ColorPicker(props: ColorPickerProps) {
+  // Theme changes replace the draft; editing still works when onChange only
+  // updates the document's CSS variable rather than echoing a new value prop.
+  return <ColorPickerInput key={JSON.stringify([props.cssVar, props.value])} {...props} />
+}
+
+function ColorPickerInput({ label, cssVar, value, onChange }: ColorPickerProps) {
+  const [localValue, setLocalValue] = React.useState(value)
+  const getColorSnapshot = React.useCallback(
+    () => window.getComputedStyle(document.documentElement).getPropertyValue(cssVar).trim(),
+    [cssVar]
+  )
+  const computedColor = React.useSyncExternalStore(subscribeToDocumentColors, getColorSnapshot, getServerColorSnapshot)
 
   const handleColorChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newColor = e.target.value
@@ -31,20 +48,9 @@ export function ColorPicker({ label, cssVar, value, onChange }: ColorPickerProps
     onChange(cssVar, newValue)
   }
 
-  // Get current computed color for display
-  const displayColor = React.useMemo(() => {
-    if (localValue && localValue.startsWith('#')) {
-      return localValue
-    }
-
-    // Try to get computed value from CSS
-    const computed = getComputedStyle(document.documentElement).getPropertyValue(cssVar).trim()
-    if (computed && computed.startsWith('#')) {
-      return computed
-    }
-
-    return '#000000'
-  }, [localValue, cssVar])
+  const displayColor = localValue.startsWith("#")
+    ? localValue
+    : computedColor.startsWith("#") ? computedColor : "#000000"
 
   return (
     <div className="space-y-2">

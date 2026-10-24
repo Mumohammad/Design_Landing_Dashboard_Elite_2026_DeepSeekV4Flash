@@ -54,7 +54,7 @@ export function buildCsp({ isDev, supabaseUrl }: CspOptions): string {
     // Honor the configured API origin in every build, including custom domains
     // and production-build verification against an isolated local stack.
     // Only development adds the default local origin as a convenience.
-    `connect-src 'self' ${supabaseOrigin} ${supabaseWebSocketOrigin} https://*.supabase.co` +
+    `connect-src 'self' ${supabaseOrigin} ${supabaseWebSocketOrigin}` +
       (isDev ? ` ${LOCAL_SUPABASE_ORIGIN} ws://127.0.0.1:54321` : "") +
       " https://api.resend.com https://api.emailjs.com https://zatca.gov.sa https://*.ingest.sentry.io",
     "frame-ancestors 'none'",

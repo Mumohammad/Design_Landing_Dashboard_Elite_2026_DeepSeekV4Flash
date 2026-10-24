@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
+import { fetchFleetRows } from "@/lib/vehicles/query-pages"
 import { createClient } from "@/lib/supabase/client"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -28,6 +29,7 @@ import {
 import { Car, ExternalLink, Loader2, Unlink, UserCheck } from "lucide-react"
 
 type CurrentAssignment = {
+  version: number
   id: string
   driver_id: string
   assigned_at: string | null
@@ -52,13 +54,16 @@ export function AssignDriverCard({
   vehicleId,
   vehicleStatus,
   isAr,
+  onChanged,
 }: {
   vehicleId: string
   vehicleStatus: string
   isAr: boolean
+  onChanged?:()=>void
 }) {
   const [assignment, setAssignment] = useState<CurrentAssignment | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [loadError,setLoadError]=useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [drivers, setDrivers] = useState<DriverOption[]>([])
   const [driverId, setDriverId] = useState<string>("")
@@ -69,10 +74,10 @@ export function AssignDriverCard({
   const load = useCallback(async (silent = false) => {
     if (!silent) setIsLoading(true)
     const supabase = createClient()
-    const { data } = await supabase
+    const { data,error } = await supabase
       .from("vehicle_assignments")
       .select(
-        "id, driver_id, assigned_at, assignment_reason, drivers(full_name_ar, full_name_en, driver_code, status)",
+        "id, version, driver_id, assigned_at, assignment_reason, drivers(full_name_ar, full_name_en, driver_code, status)",
       )
       .eq("vehicle_id", vehicleId)
       .eq("is_current", true)
@@ -80,6 +85,7 @@ export function AssignDriverCard({
       .order("assigned_at", { ascending: false })
       .limit(1)
       .maybeSingle()
+    setLoadError(!!error)
     setAssignment((data as unknown as CurrentAssignment | null) ?? null)
     setIsLoading(false)
   }, [vehicleId])
@@ -98,14 +104,15 @@ export function AssignDriverCard({
     setDialogOpen(true)
     // Employable drivers only — the shared action enforces the same guard
     // server-side; this keeps the picker honest.
-    const { data } = await createClient()
+    const { data,error } = await fetchFleetRows<DriverOption>(()=>createClient()
       .from("drivers")
       .select("id, full_name_ar, full_name_en, driver_code, status")
       .in("status", ["active", "on_leave"])
       .is("deleted_at", null)
       .is("current_vehicle_id", null)
       .order("driver_code", { ascending: true })
-      .limit(100)
+      .order("id"))
+    if(error)return toast.error(isAr?"تعذر تحميل الخيارات. أعد المحاولة.":"Could not load assignment options. Try again.")
     setDrivers((data as DriverOption[]) ?? [])
   }
 
@@ -122,6 +129,7 @@ export function AssignDriverCard({
       toast.success(isAr ? "تم تعيين السائق للمركبة" : "Driver assigned to vehicle")
       setDialogOpen(false)
       await load()
+      onChanged?.()
     } else {
       toast.error(res.error ?? "Failed to assign driver")
     }
@@ -131,6 +139,7 @@ export function AssignDriverCard({
     if (unassigning || !assignment) return
     setUnassigning(true)
     const res = await unassignVehicleFromDriver({
+      expectedVersion: assignment.version,
       vehicleId,
       driverId: assignment.driver_id,
     })
@@ -142,6 +151,8 @@ export function AssignDriverCard({
       toast.error(res.error ?? "Failed to unassign driver")
     }
   }
+
+  if(loadError)return <div role="alert" className="rounded-xl border p-4"><p>{isAr?"تعذر تحميل التعيين. أعد المحاولة.":"Could not load the current assignment. Try again."}</p><Button variant="outline" onClick={()=>void load()}>{isAr?"إعادة المحاولة":"Retry"}</Button></div>
 
   if (isLoading) {
     return <Skeleton className="h-40 rounded-2xl lg:col-span-2" />

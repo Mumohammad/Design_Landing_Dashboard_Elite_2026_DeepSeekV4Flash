@@ -13,6 +13,9 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { emitDriverChanged } from "@/lib/drivers/driver-events"
+import { useTablePage } from "@/hooks/use-table-page"
+import { DriverHistoryToolbar } from "./driver-history-toolbar"
 import { CreditCard, Eye, Printer } from "lucide-react"
 
 const cardStatusCls: Record<string, string> = {
@@ -29,53 +32,70 @@ const cardStatusLabels: Record<string, { en: string; ar: string }> = {
   expired: { en: "Expired", ar: "منتهية" },
 }
 
+type PersonSnapshot=DriverCardPerson&{profileVersion:number}
 const str = (v: unknown): string | null => (typeof v === "string" && v.trim() !== "" ? v.trim() : null)
 
 export function DriverCardPanel({ driverId, isAr }: { driverId: string; isAr: boolean }) {
+  return <DriverCardPanelContent key={driverId} driverId={driverId} isAr={isAr} />
+}
+
+function DriverCardPanelContent({ driverId, isAr }: { driverId: string; isAr: boolean }) {
   const [card, setCard] = useState<DriverCard | null>(null)
-  const [prints, setPrints] = useState<DriverCardPrint[]>([])
-  const [person, setPerson] = useState<DriverCardPerson | null>(null)
+  const [person, setPerson] = useState<PersonSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
+  const [readFailed,setReadFailed]=useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [revokeOpen, setRevokeOpen] = useState(false)
   const [revokeReason, setRevokeReason] = useState("")
   const [previewOpen, setPreviewOpen] = useState(false)
-  const [format, setFormat] = useState<"pvc" | "a4" | "screen">("pvc")
+  const [format, setFormat] = useState<"pvc" | "a4">("pvc")
+  const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    if (card?.status !== "active" || !card.expires_at) return
+    const expiresAt = Date.parse(card.expires_at)
+    if (!Number.isFinite(expiresAt)) return
+    const updateClock = () => setNow(Date.now())
+    const interval = window.setInterval(updateClock, 60_000)
+    const expiryTimer = window.setTimeout(updateClock, Math.max(0, Math.min(2_147_483_647, expiresAt - Date.now())))
+    window.addEventListener("focus", updateClock)
+    return () => {
+      window.clearInterval(interval)
+      window.clearTimeout(expiryTimer)
+      window.removeEventListener("focus", updateClock)
+    }
+  }, [card?.status, card?.expires_at])
 
   // Pure queries: no setState here (react-hooks set-state-in-effect rule).
   const fetchCard = useCallback(async (): Promise<DriverCard | null> => {
     const supabase = createClient()
-    const { data } = await supabase
+    const { data,error:readError } = await supabase
       .from("driver_cards")
-      .select("id, driver_id, card_serial, status, issued_at, expires_at, reprint_count")
+      .select("id, workflow_version, driver_id, card_serial, status, issued_at, expires_at, reprint_count")
       .eq("driver_id", driverId)
       .is("deleted_at", null)
       .order("issued_at", { ascending: false })
       .limit(1)
+    if(readError)throw Error("Card read failed")
     return (data?.[0] as DriverCard | undefined) ?? null
   }, [driverId])
 
-  const fetchPrints = useCallback(async (cardId: string | null): Promise<DriverCardPrint[]> => {
-    if (!cardId) return []
-    const supabase = createClient()
-    const { data } = await supabase
-      .from("driver_card_prints")
-      .select("id, card_id, format, printed_at, batch_ref")
-      .eq("card_id", cardId)
-      .order("printed_at", { ascending: false })
-      .limit(20)
-    return (data ?? []) as DriverCardPrint[]
-  }, [])
+  const printQuery=useCallback((search:string)=>{
+    let query=createClient().from("driver_card_prints").select("id,card_id,format,printed_at,batch_ref",{count:"exact"}).eq("card_id",card?.id??"").order("printed_at",{ascending:false}).order("id",{ascending:false})
+    if(search)query=query.ilike("format","%"+search.replace(/[\\%_]/g,value=>"\\"+value)+"%")
+    return query
+  },[card?.id])
+  const printHistory=useTablePage<DriverCardPrint>(card?.id?printQuery:null)
 
   // Card fields (name / mobile / id number) with tolerant fallbacks:
   // driver column naming varies, so read the row and pick what exists.
   // The photo is NOT signed here — useDriverPhoto (layout provider) owns
   // signing so the card always shows the latest uploaded photo.
-  const fetchPerson = useCallback(async (): Promise<DriverCardPerson | null> => {
+  const fetchPerson = useCallback(async (): Promise<PersonSnapshot | null> => {
     const supabase = createClient()
-    const { data } = await supabase.from("drivers").select("*").eq("id", driverId).maybeSingle()
-    if (!data) return null
+    const { data,error:readError } = await supabase.from("drivers").select("*").eq("id", driverId).maybeSingle()
+    if (readError||!data||!Number.isSafeInteger(data.profile_version)||data.profile_version<1)throw Error("Card person read failed")
     const row = data as Record<string, unknown>
 
     return {
@@ -83,6 +103,7 @@ export function DriverCardPanel({ driverId, isAr }: { driverId: string; isAr: bo
       phone: str(row.phone) ?? str(row.mobile) ?? str(row.primary_mobile) ?? str(row.secondary_mobile) ?? str(row.mobile_number),
       idNumber: str(row.identity_number) ?? str(row.national_id) ?? str(row.id_number) ?? str(row.iqama_number),
       photoUrl: null,
+      profileVersion:data.profile_version,
     }
   }, [driverId])
 
@@ -95,27 +116,17 @@ export function DriverCardPanel({ driverId, isAr }: { driverId: string; isAr: bo
   useEffect(() => {
     let cancelled = false
     const refresh = async () => {
-      const [c, p] = await Promise.all([fetchCard(), fetchPerson()])
-      const pr = await fetchPrints(c?.id ?? null)
-      if (cancelled) return
-      setCard(c)
-      setPerson(p)
-      setPrints(pr)
-      setLoading(false)
+      try{const [c,p]=await Promise.all([fetchCard(),fetchPerson()]);if(cancelled)return;setCard(c);setPerson(p);setReadFailed(false)}catch{if(!cancelled)setReadFailed(true)}finally{if(!cancelled)setLoading(false)}
     }
     void refresh()
     return () => {
       cancelled = true
     }
-  }, [fetchCard, fetchPerson, fetchPrints])
+  }, [fetchCard, fetchPerson])
 
 
   const refreshAll = async () => {
-    const [c, p] = await Promise.all([fetchCard(), fetchPerson()])
-    const pr = await fetchPrints(c?.id ?? null)
-    setCard(c)
-    setPerson(p)
-    setPrints(pr)
+    try{const [c,p]=await Promise.all([fetchCard(),fetchPerson()]);setCard(c);setPerson(p);setReadFailed(false);printHistory.reload();return c}catch{setReadFailed(true);return null}
   }
 
   // Always re-fetch before previewing so the card reflects the latest photo
@@ -127,71 +138,64 @@ export function DriverCardPanel({ driverId, isAr }: { driverId: string; isAr: bo
       const [c, p] = await Promise.all([fetchCard(), fetchPerson()])
       setCard(c)
       setPerson(p)
-      setPreviewOpen(true)
-    } finally {
+      if(c?.status==="active"&&(!c.expires_at||new Date(c.expires_at).getTime()>Date.now()))setPreviewOpen(true);else setError(isAr?"البطاقة غير سارية.":"The card is not current.")
+    } catch {setReadFailed(true)} finally {
       setBusy(false)
     }
   }
 
   const onIssue = async () => {
-    setBusy(true)
-    setError(null)
-    const res = await issueDriverCard({ driverId })
-    setBusy(false)
-    if (!res.ok) {
-      setError(res.error)
-      return
-    }
-    await refreshAll()
-    setPreviewOpen(true) // show the printable card right after issuing
+    if(busy||!person)return
+    setBusy(true);setError(null)
+    try{const res=await issueDriverCard({driverId,expectedDriverVersion:person.profileVersion})
+      if(!res.ok){setError(isAr?res.errorAr:res.error);return}
+      await refreshAll();emitDriverChanged({driverId,action:"document"})
+    }catch{setError(isAr?"تعذر تأكيد إصدار البطاقة. أعد التحميل قبل المحاولة مجدداً.":"Card issuance could not be confirmed. Reload before retrying.")}finally{setBusy(false)}
   }
 
   const onRevoke = async () => {
-    if (!card) return
-    setBusy(true)
-    const res = await revokeDriverCard({ cardId: card.id, reason: revokeReason })
-    setBusy(false)
-    if (!res.ok) {
-      setError(res.error)
-      return
-    }
-    setRevokeOpen(false)
-    setRevokeReason("")
-    await refreshAll()
+    if(busy||!card||!person)return
+    setBusy(true);setError(null)
+    try{const res=await revokeDriverCard({driverId,expectedDriverVersion:person.profileVersion,cardId:card.id,expectedVersion:card.workflow_version,reason:revokeReason})
+      if(!res.ok){setError(isAr?res.errorAr:res.error);return}
+      setRevokeOpen(false);setRevokeReason("");await refreshAll();emitDriverChanged({driverId,action:"document"})
+    }catch{setError(isAr?"تعذر تأكيد إلغاء البطاقة. أعد التحميل قبل المحاولة مجدداً.":"Card revocation could not be confirmed. Reload before retrying.")}finally{setBusy(false)}
   }
 
   const onPrintCard = async () => {
-    if (!card) return
-    setBusy(true)
-    setError(null)
-    const res = await recordCardPrint({ cardId: card.id, format })
-    setBusy(false)
-    if (!res.ok) {
-      setError(res.error)
-      return
-    }
-    const w = window.open("", "_blank", "width=760,height=620")
-    if (w) {
-      const personForPrint: DriverCardPerson | null = person
-        ? { ...person, photoUrl: sharedPhotoUrl }
-        : { name: "—", phone: null, idNumber: null, photoUrl: sharedPhotoUrl }
-      w.document.write(buildCardPrintHtml(card, personForPrint))
-      w.document.close()
-      w.focus()
-    }
-    await refreshAll()
+    if(busy||!card||!person)return
+    const popup=window.open("","_blank","width=760,height=620")
+    if(!popup){setError(isAr?"اسمح بالنوافذ المنبثقة ثم أعد طلب الطباعة.":"Allow popups and request the print again.");return}
+    let saved=false
+    setBusy(true);setError(null)
+    try{
+      const res=await recordCardPrint({driverId,expectedDriverVersion:person.profileVersion,cardId:card.id,expectedVersion:card.workflow_version,format})
+      if(!res.ok){popup.close();setError(isAr?res.errorAr:res.error);return}
+      saved=true
+      popup.document.write(buildCardPrintHtml(card,{...person,photoUrl:sharedPhotoUrl},format));popup.document.close()
+      let timeout:number|undefined
+      try{await Promise.race([Promise.all([popup.document.fonts.ready,...Array.from(popup.document.images,image=>image.decode())]),new Promise<never>((_,reject)=>{timeout=window.setTimeout(()=>reject(Error("Print assets unavailable")),8000)})])}finally{if(timeout!==undefined)window.clearTimeout(timeout)}
+      popup.focus();popup.print()
+      await refreshAll();emitDriverChanged({driverId,action:"document"})
+    }catch{
+      popup.close()
+      if(saved)await refreshAll()
+      setError(saved?(isAr?"سُجل طلب الطباعة، لكن تعذر تجهيز المعاينة. أعد تحميل البطاقة قبل الطباعة.":"The print request was recorded, but the preview could not be prepared. Reload the card before printing."):(isAr?"تعذر تأكيد طلب الطباعة. أعد التحميل قبل المحاولة مجدداً.":"The print request could not be confirmed. Reload before retrying."))
+    }finally{setBusy(false)}
   }
 
-  const statusLbl = card ? cardStatusLabels[card.status] : undefined
+  const currentCard=card?.status==="active"&&(!card.expires_at||new Date(card.expires_at).getTime()>now)
+  const effectiveStatus=card?.status==="active"&&!currentCard?"expired":card?.status
+  const statusLbl = effectiveStatus ? cardStatusLabels[effectiveStatus] : undefined
 
   return (
-    <div className="mt-5 border-t border-border/40 pt-4">
+    <div className="mt-5 border-t border-border/40 pt-4" data-testid="driver-card-panel">
       <h4 className="flex items-center gap-2 text-sm font-semibold text-foreground">
         <CreditCard className="h-4 w-4 text-elite-blue-500" />
         {isAr ? "بطاقة السائق" : "Driver card"}
       </h4>
 
-      {loading ? (
+      {readFailed?<div role="alert" className="mt-3 space-y-2"><p className="text-sm text-destructive">{isAr?"تعذر تحميل البطاقة وبياناتها. أعد المحاولة.":"Could not load the card and its evidence. Try again."}</p><Button variant="outline" size="sm" onClick={()=>void refreshAll()}>{isAr?"أعد المحاولة":"Try again"}</Button></div>:loading ? (
         <div className="mt-3 space-y-2">
           <Skeleton className="h-5 w-48" />
           <Skeleton className="h-4 w-full" />
@@ -205,12 +209,12 @@ export function DriverCardPanel({ driverId, isAr }: { driverId: string; isAr: bo
                   {card.card_serial}
                 </span>
                 {statusLbl && (
-                  <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold", cardStatusCls[card.status])}>
+                  <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold", cardStatusCls[effectiveStatus??card.status])}>
                     {isAr ? statusLbl.ar : statusLbl.en}
                   </span>
                 )}
                 <span className="text-[11px] text-muted-foreground tabular-nums">
-                  {isAr ? "إعادة طباعة" : "reprints"}: {card.reprint_count}
+                  {isAr ? "طلبات الطباعة" : "print requests"}: {card.reprint_count}
                 </span>
               </div>
               <p className="text-[11px] text-muted-foreground tabular-nums">
@@ -223,7 +227,7 @@ export function DriverCardPanel({ driverId, isAr }: { driverId: string; isAr: bo
                 )}
               </p>
 
-              {card.status === "active" && (
+              {currentCard && (
                 <div className="flex flex-wrap items-center gap-2 pt-1">
                   <Button size="sm" variant="outline" onClick={() => void onPreview()} disabled={busy}>
                     <Eye className="h-3.5 w-3.5" />
@@ -241,33 +245,20 @@ export function DriverCardPanel({ driverId, isAr }: { driverId: string; isAr: bo
             </p>
           )}
 
-          {(!card || card.status !== "active") && (
-            <Button size="sm" onClick={onIssue} disabled={busy} className="mt-3">
+          {!currentCard && (
+            <Button size="sm" onClick={onIssue} disabled={busy||!person} className="mt-3">
               {busy ? (isAr ? "جارٍ الإصدار…" : "Issuing…") : isAr ? "إصدار بطاقة" : "Issue card"}
             </Button>
           )}
 
-          {prints.length > 0 && (
-            <div className="mt-3">
-              <p className="text-[11px] font-semibold text-muted-foreground">
-                {isAr ? "سجل الطباعة" : "Print history"}
-              </p>
-              <ul className="mt-1 space-y-1 text-[11px] tabular-nums text-muted-foreground">
-                {prints.map((p) => (
-                  <li key={p.id}>
-                    {p.format.toUpperCase()} — {new Date(p.printed_at).toLocaleString(isAr ? "ar-SA" : "en-GB")}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+          {card&&<div className="mt-3 space-y-2"><p className="text-xs font-semibold text-muted-foreground">{isAr?"سجل طلبات الطباعة":"Print request history"}</p><DriverHistoryToolbar search={printHistory.search} onSearchChange={printHistory.setSearch} pagination={printHistory.pagination} loading={printHistory.loading} error={printHistory.error} onRefresh={printHistory.reload} isAr={isAr}/>{printHistory.error?<p role="alert" className="text-sm text-destructive">{isAr?"تعذر تحميل سجل الطباعة. أعد المحاولة.":"Could not load print request history. Try again."}</p>:<ul className="space-y-1 text-xs tabular-nums text-muted-foreground">{printHistory.rows.map(p=><li key={p.id}>{p.format.toUpperCase()} — {new Date(p.printed_at).toLocaleString(isAr?"ar-SA":"en-GB")}</li>)}</ul>}</div>}
         </>
       )}
 
-      {error && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{error}</p>}
+      {error&&!revokeOpen&&!previewOpen&&<p role="alert" className="mt-2 text-sm text-destructive">{error}</p>}
 
-      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className="sm:max-w-2xl">
+      <Dialog open={previewOpen} onOpenChange={next=>{if(!busy)setPreviewOpen(next)}}>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{isAr ? "معاينة بطاقة السائق" : "Driver card preview"}</DialogTitle>
           </DialogHeader>
@@ -281,19 +272,19 @@ export function DriverCardPanel({ driverId, isAr }: { driverId: string; isAr: bo
               }
             />
           )}
+          {error&&<p role="alert" className="text-sm text-destructive">{error}</p>}
           <DialogFooter>
             <div className="flex w-full items-center justify-between gap-2">
-              <Select value={format} onValueChange={(v) => setFormat(v as "pvc" | "a4" | "screen")}>
+              <Select value={format} onValueChange={(v) => setFormat(v as "pvc" | "a4")} disabled={busy}>
                 <SelectTrigger className="h-9 w-28 text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="pvc">PVC</SelectItem>
                   <SelectItem value="a4">A4</SelectItem>
-                  <SelectItem value="screen">{isAr ? "شاشة" : "Screen"}</SelectItem>
                 </SelectContent>
               </Select>
-              <Button onClick={() => void onPrintCard()} disabled={busy}>
+              <Button onClick={() => void onPrintCard()} disabled={busy||!currentCard||!person}>
                 <Printer className="h-3.5 w-3.5" />
                 {busy ? (isAr ? "جارٍ التجهيز…" : "Preparing…") : isAr ? "طباعة" : "Print"}
               </Button>
@@ -302,8 +293,8 @@ export function DriverCardPanel({ driverId, isAr }: { driverId: string; isAr: bo
         </DialogContent>
       </Dialog>
 
-      <Dialog open={revokeOpen} onOpenChange={setRevokeOpen}>
-        <DialogContent>
+      <Dialog open={revokeOpen} onOpenChange={next=>{if(!busy)setRevokeOpen(next)}}>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{isAr ? "إلغاء بطاقة السائق" : "Revoke driver card"}</DialogTitle>
           </DialogHeader>
@@ -315,6 +306,7 @@ export function DriverCardPanel({ driverId, isAr }: { driverId: string; isAr: bo
               <Label htmlFor="revoke-reason">{isAr ? "سبب الإلغاء (إلزامي)" : "Revoke reason (required)"}</Label>
               <Textarea
                 id="revoke-reason"
+                disabled={busy}
                 value={revokeReason}
                 onChange={(e) => setRevokeReason(e.target.value)}
                 rows={3}
@@ -323,6 +315,7 @@ export function DriverCardPanel({ driverId, isAr }: { driverId: string; isAr: bo
               />
             </div>
           </div>
+          {error&&<p role="alert" className="text-sm text-destructive">{error}</p>}
           <DialogFooter>
             <Button variant="outline" onClick={() => setRevokeOpen(false)} disabled={busy}>
               {isAr ? "تراجع" : "Cancel"}

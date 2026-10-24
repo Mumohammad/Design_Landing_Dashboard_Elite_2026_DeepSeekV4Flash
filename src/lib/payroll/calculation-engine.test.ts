@@ -222,7 +222,7 @@ describe("minimum net floor + Saudi minimum-wage advisory", () => {
       nationality_code: "SA",
     })
     expect(r.below_minimum_wage).toBe(true)
-    expect(r.warnings.join(" ")).toContain("BELOW_SAUDI_MINIMUM_WAGE")
+    expect(r.warnings.join(" ")).toContain("BELOW_CONFIGURED_PAYROLL_ADVISORY")
   })
 
   it("does not flag non-Saudi nationals", () => {
@@ -235,5 +235,18 @@ describe("minimum net floor + Saudi minimum-wage advisory", () => {
       nationality_code: "EG",
     })
     expect(r.below_minimum_wage).toBe(false)
+  })
+})
+
+
+describe("configured payroll advisory", () => {
+  it("uses the configured threshold without changing remuneration", () => {
+    const input = { category: "freelancer" as const, rule: {base_salary: 3000}, orders_achieved: 0, working_days_actual: 26, deductions: [], nationality_code: "SA" }
+    const low = calculateDriverPayrollFormula({...input, advisory_minimum_net: 2500})
+    const high = calculateDriverPayrollFormula({...input, advisory_minimum_net: 3500})
+    expect(low.net_payroll).toBe(high.net_payroll)
+    expect(low.below_minimum_wage).toBe(false)
+    expect(high.below_minimum_wage).toBe(true)
+    expect(high.warnings[0]).toContain("3500")
   })
 })

@@ -6,6 +6,7 @@
 // CSV export, row actions, bilingual AR/EN.
 
 import { useCallback, useEffect, useMemo, useState } from "react"
+import {toast} from "sonner"
 import { useRouter } from "next/navigation"
 import {
   EnterpriseModulePage,
@@ -15,6 +16,7 @@ import {
 import { fetchUsersPageData, type UserListItem } from "@/lib/users/queries"
 import {
   ROLE_META,
+  USER_ROLES,
   STATUS_META,
   userInitial,
   usersToCsv,
@@ -65,6 +67,9 @@ export default function UsersPage() {
   const router = useRouter()
   const isAr = locale === "ar"
 
+  const [page,setPage]=useState(1)
+  const [total,setTotal]=useState(0)
+  const [owner,setOwner]=useState(false)
   const [users, setUsers] = useState<UserListItem[]>([])
   const [kpis, setKpis] = useState({
     total: 0,
@@ -85,7 +90,9 @@ export default function UsersPage() {
   const load = useCallback(async (silent = false) => {
     if (!silent) setIsLoading(true)
     try {
-      const result = await fetchUsersPageData()
+      const result = await fetchUsersPageData({page,search,status:statusFilter,role:roleFilter})
+      setTotal(result.total)
+      setOwner(result.isOwner)
       setUsers(result.users)
       setKpis(result.kpis)
       setLoadFailed(false)
@@ -104,14 +111,14 @@ export default function UsersPage() {
       }
     }
     if (!silent) setIsLoading(false)
-  }, [])
+  }, [page,search,statusFilter,roleFilter])
 
   useEffect(() => {
     const id = setTimeout(() => void load(), 0)
     return () => clearTimeout(id)
   }, [load])
 
-  const roles = useMemo(() => Array.from(new Set(users.map((u) => u.role))), [users])
+  const roles = USER_ROLES
 
   const filtered = useMemo(() => {
     let rows = users
@@ -159,10 +166,13 @@ export default function UsersPage() {
     },
   ]
 
-  const exportCsv = () => {
+  const exportCsv = async () => {
+    try{
+    const exported:UserListItem[]=[]
+    for(let n=1;;n++){const result=await fetchUsersPageData({page:n,pageSize:100,search,status:statusFilter,role:roleFilter});exported.push(...result.users);if(exported.length>=result.total)break;if(!result.users.length)throw new Error("Incomplete user export")}
     const csv = usersToCsv(
       ["Code", "Name (AR)", "Name (EN)", "Email", "Role", "Status", "2FA", "Last login"],
-      filtered.map((u) => [
+      exported.map((u) => [
         u.employee_code,
         u.full_name_ar,
         u.full_name_en,
@@ -180,6 +190,7 @@ export default function UsersPage() {
     a.download = `users-${new Date().toISOString().slice(0, 10)}.csv`
     a.click()
     URL.revokeObjectURL(url)
+    }catch{toast.error(isAr?"تعذر تصدير المستخدمين. أعد المحاولة.":"Could not export users. Try again.")}
   }
 
   const columns: TableColumn<UserListItem>[] = [
@@ -282,7 +293,7 @@ export default function UsersPage() {
 
       {/* Filter + export toolbar */}
       <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-border/50 bg-card/60 px-4 py-3 backdrop-blur-sm">
-        <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as "all" | UserStatus)}>
+        <Select value={statusFilter} onValueChange={(v) => {setPage(1);setStatusFilter(v as "all" | UserStatus)}}>
           <SelectTrigger className="h-9 w-36 rounded-xl bg-muted/30 text-xs">
             <SelectValue placeholder={t.common.status} />
           </SelectTrigger>
@@ -295,7 +306,7 @@ export default function UsersPage() {
             ))}
           </SelectContent>
         </Select>
-        <Select value={roleFilter} onValueChange={setRoleFilter}>
+        <Select value={roleFilter} onValueChange={(v)=>{setPage(1);setRoleFilter(v)}}>
           <SelectTrigger className="h-9 w-44 rounded-xl bg-muted/30 text-xs">
             <SelectValue placeholder={isAr ? "الدور" : "Role"} />
           </SelectTrigger>
@@ -310,7 +321,7 @@ export default function UsersPage() {
         </Select>
         <div className="ms-auto flex items-center gap-3">
           <span className="text-xs tabular-nums text-muted-foreground">
-            {isAr ? `${filtered.length} من ${users.length}` : `${filtered.length} of ${users.length}`}
+            {isAr ? `${total} مستخدم` : `${total} users`}
           </span>
           <Button
             variant="outline"
@@ -332,14 +343,18 @@ export default function UsersPage() {
             ? "إدارة حسابات الفريق والأدوار وحالات الحساب"
             : "Manage team accounts, roles, and account status"
         }
-        primaryCtaLabel={isAr ? "دعوة مستخدم" : "Invite user"}
+        primaryCtaLabel={owner?(isAr ? "دعوة مستخدم" : "Invite user"):undefined}
         onPrimaryCta={() => setInviteOpen(true)}
-        kpiCards={kpiCards}
+        kpiCards={loadFailed?kpiCards.map(card=>({...card,value:"—"})):kpiCards}
         searchPlaceholder={t.common.searchPlaceholder}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value)=>{setPage(1);setSearch(value)}}
         columns={columns}
         data={filtered}
+        pagination={{totalRecords:total,currentPage:page,totalPages:Math.max(1,Math.ceil(total/25)),onPageChange:setPage}}
+        loadError={loadFailed?(isAr?"تعذر تحميل المستخدمين. أعد المحاولة.":"Could not load users. Try again."):undefined}
+        onRetry={()=>void load()}
+        retryLabel={t.common.retry}
         isLoading={isLoading}
         onRowClick={(u) => router.push(`/users/${u.id}`)}
         rowActions={(u) => {
@@ -410,6 +425,7 @@ export default function UsersPage() {
         />
         <UserStatusDialog
           userId={statusTarget?.user.id ?? null}
+          expectedVersion={statusTarget?.user.version??null}
           userName={
             statusTarget
               ? statusTarget.user.full_name_ar ??

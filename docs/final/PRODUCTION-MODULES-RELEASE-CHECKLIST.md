@@ -1,0 +1,49 @@
+# Production modules release checklist
+
+This is the verification map for the coordinated completion branch. A local build, a completed implementation row, or a baseline branch on GitHub is not a production release certificate. Record the exact candidate/merge SHA, CI results, Supabase migration versions, immutable deployment and production alias in the final PR/release record.
+
+## User workflows and acceptance entry points
+
+Run `scripts/verify-production-modules.mjs` against the approved staging Supabase project and an exact-commit, healthy, isolated Vercel deployment. It creates only synthetic identities/companies, performs real MFA/password flows, verifies persisted data and retires its test access. The target guard must pass before fixture creation.
+
+| Surface | Required behavior | Acceptance entry point |
+| --- | --- | --- |
+| Landing, authentication, locale | Existing sessions survive landing/legacy entry points; MFA/password requirements stay enforced; all 22 active business routes load in English and Arabic; language changes synchronize between tabs. | `verify-production-modules.mjs`, `verify-module-locales.mjs`, `e2e/locale-session.spec.ts` |
+| Driver profile and operational records | Versioned profile/status/archive and attendance, violations, training/performance histories; paged reads, stale conflicts, audit rollback. | `verify-local-driver-profile-operations.mjs`, SQL132 |
+| Driver evidence | Current versus retained documents; owned immutable Storage uploads; reviewed verification/overrides/cards/photos; source, derived compliance and audit commit together. | SQL144, `verify-driver-evidence-concurrency.mjs`; hosted evidence lifecycle must also pass |
+| Driver card printing | Selected PVC/A4 format changes actual output; retained card layout, correct physical page/face sizes and no clipping. | `verify-driver-card-print.mjs` |
+| Driver leave | Request/edit/cancel/restore/review, reviewed dates/versions, overlap/allowance controls, historical cancellation visibility, current-day status changes. | `verify-driver-leave-lifecycle.mjs`, SQL141 |
+| Applications and approval inbox | Reviewed source versions, immutable final decisions, no fabricated approval or stale overwrite, complete paged queues. | `verify-application-reviews.mjs`, `verify-local-approvals.mjs`, SQL140 |
+| Fleet, assignment and maintenance | Atomic create/correct/archive/restore and assignment/event lifecycle, coherent driver/vehicle summaries, retained history. | `verify-fleet-operations.mjs`, SQL133 |
+| Orders and platforms | Natural-key protection, versioned correction/archive/restore, exact values, complete summaries and payment history. | `verify-local-orders-platforms.mjs`, SQL135 |
+| Payroll | Prepared/reviewed inputs, period-specific basis, reservation integrity, immutable calculation revisions, guarded payment status; no guessed attendance or historical postings. | `verify-payroll-preparation.mjs`, SQL095–098, SQL079 |
+| Expenses | Pending correction/cancel/restore, versioned approval/rejection, one payable/event/audit and rollback on failed audit. | `verify-expense-corrections.mjs`, `verify-local-expenses.mjs`, approval/rejection concurrency helpers, SQL086–087/139 |
+| Accounting and payments | Complete paged journals, options, allocations, statements and exports; exact cents, sign-preserving balances, source-backed posting/reversal, no read failure disguised as zero. | `verify-accounting-pages.mjs`, `verify-financial-statements.mjs`, journal/bank/receivable helpers, SQL134/136 |
+| Invoices | Draft CRUD, lifecycle safeguards, correct totals/source data, clean PDF response with private licensed fonts, retained generated documents. | `verify-local-invoices.mjs`, `verify-invoice-print.mjs`, `verify-invoice-pdf-bundle.mjs` |
+| VAT | Classification backed by processed expense source, audited adjustment journal, exact VAT recovery, immutable resolution, explicit rejection of ambiguous/imported sources. | `verify-vat-review-posting.mjs`, `verify-local-vat-position.mjs`, SQL142 |
+| Users, roles and invitations | Versioned lifecycle, active-role and last-owner controls, synchronized assignments/membership, durable bound invitation identity, truthful delivery status. | `verify-user-role-management.mjs`, SQL138 |
+| Platform administration | Global administrator authority is independently checked; global user operations preserve tenant management invariants, reviewed versions, owner access and atomic audit. | Platform-admin API/SQL146 tests and hosted UI acceptance; ordinary tenant permissions must not grant platform authority |
+| Company/payroll/WPS settings | Versioned atomic settings, preserved omitted logo, exact reference values and bank identity validation; no full bank values in audit payloads. | `verify-settings-crud.mjs`, SQL137 |
+| Audit | Caller-bound safe metadata, independent financial/export permissions, no personal directory/consent lookup, retained forensic source rows, visible failure/retry and safe CSV. | `verify-audit-privacy.mjs`, SQL062/143 and audit unit tests |
+| Shared access controls | Active undeleted tenant, active/unlocked user, required MFA, same-tenant and actual role permissions at SQL and server boundaries; bootstrap MFA profile remains available. | SQL010/077/130/145 and authorization units |
+
+Retired template/demo routes are redirect checks; they must not be presented as implemented business CRUD modules. Report any active route outside this map before declaring complete coverage.
+
+## Release gates, in order
+
+1. Capture the exact source and migration hashes. Run the full unit suite, lint, TypeScript, production build, dependency audit, API/deployment guards, migration archive checks and secret/sensitive-file scan. Licensed fonts, credentials, backups and verification output stay out of Git.
+2. Run every rollback-only SQL suite on canonical synthetic fixtures, with before/after table fingerprints. Separately restore the approved production backup into a new isolated local database, apply all forward migrations from source, and compare every original business value. A schema-only test snapshot is not a fresh migration replay.
+3. Review the accumulated diff and concrete high-risk changes. Fix findings and repeat affected checks; any final source change invalidates earlier exact-source evidence.
+4. Configure branch-specific Vercel Preview variables for the approved staging database. Generic Preview settings in this project can inherit production configuration; the build-time preview guard must reject that combination. Disable external mail, ZATCA submission and shared production service dependencies during synthetic acceptance.
+5. Provision the owner-supplied licensed Tahoma files into the clean private deployment package; verify both traced files and the actual Linux PDF route. Compare the sample geometry/typography, multipage item coverage, totals and visual output. A Windows-only comparison does not establish production identity.
+6. Apply tested forward migrations to staging without replaying archived historical migrations, deploy the exact tested source to staging, and run the complete browser → API → database → UI acceptance. Verify deployment metadata, `/api/health.version` and CSP before fixtures.
+7. Push the tested feature commits, open/attach the PR and inspect exact-head CI/review. Reconcile PRs67/68 through the tested forward implementation; close them as superseded only with that evidence. Do not merge stale trees or bypass branch protections.
+8. Before production cutover, verify current production migration/configuration state and the scoped backup/rehearsal evidence. Do not repair historical examples or change live business records, permissions or secrets outside the owner's explicit scope.
+9. Merge only with passing required checks and no unresolved launch blocker. Deploy the merged SHA to the intended production project with domain assignment held, verify it, then promote. Verify the production alias, exact commit and key flows after promotion. Publish the actual URL/results and any limitations.
+
+## Claims that remain separate from CRUD release evidence
+
+- The current invoice QR is generated by the application from invoice information. It is not evidence of official ZATCA Phase2 issuance, clearance or reporting. Keep transport/production gates closed until the application signer, genuine authorized onboarding/submission and authority acceptance are verified; see `../financial/ZATCA-ENV.md`.
+- A valid WPS bank identity or generated export is not bank acceptance. Provider-specific acceptance and external webhook/payment behavior require their own verified evidence.
+- Supabase leaked-password protection is unavailable on the retained organization plan. The owner chose to retain that plan; do not silently upgrade billing or claim that control is enabled.
+- Historical confirmed test/imported finance examples stay retained. Do not invent original postings or change their accounting meaning to make a dashboard appear complete.

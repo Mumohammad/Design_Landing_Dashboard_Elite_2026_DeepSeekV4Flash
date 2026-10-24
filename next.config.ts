@@ -1,4 +1,8 @@
 import type { NextConfig } from "next"
+import { verifyNativePreviewEnvironment } from "./scripts/preview-safety.mjs"
+
+// Validate before Next embeds public values or compiles a hosted preview.
+verifyNativePreviewEnvironment(process.env)
 import { withSentryConfig } from "@sentry/nextjs"
 import { buildCsp } from "./src/lib/security/csp"
 import { realpathSync } from "node:fs"
@@ -40,6 +44,9 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/invoices/*/pdf": [
       `${packagePath("@sparticuz/chromium")}/bin/*.br`,
+      // Optional licensed server fonts stay private and out of browser assets.
+      "./private/invoice-fonts/regular.ttf",
+      "./private/invoice-fonts/bold.ttf",
       // Playwright loads metadata/injected resources dynamically; tracing its
       // JS entry alone omits browsers.json in the deployed function.
       `${packagePath("playwright-core")}/**/*`,

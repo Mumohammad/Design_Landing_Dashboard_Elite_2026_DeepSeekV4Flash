@@ -22,7 +22,7 @@ const { mocks } = vi.hoisted(() => ({
     })),
 /* eslint-disable @typescript-eslint/no-unused-vars -- mock-fn params document the mocked signature */
     rpc: vi.fn(async (fn: string, args: Record<string, unknown>) => {
-      return { data: (fn === "reject_expense_atomic" ? {expense_id:args.p_expense_id,decision:"rejected"} : {}) as unknown, error: null } as { data: unknown; error: { message: string } | null }
+      return { data: (fn === "decide_expense_reviewed_atomic" ? {expense_id:args.p_id,decision:"rejected"} : {}) as unknown, error: null } as { data: unknown; error: { message: string } | null }
     }),
     updateChain: {
       eq: vi.fn().mockReturnThis(),
@@ -31,6 +31,8 @@ const { mocks } = vi.hoisted(() => ({
     },
     auditInserts: [] as Record<string, unknown>[],
     emit: vi.fn(),
+    leaveDecision: vi.fn(),
+    applicationDecision: vi.fn(),
     rateLimitExpenses: vi.fn(async () => ({ success: true, remaining: 9, resetAt: Date.now() + 60_000 })),
     revalidatePath: vi.fn(),
     approveExpense: vi.fn(async (_input: unknown):Promise<{success:boolean;alreadyApproved?:boolean;alreadyDecided?:boolean;error?:string;errorAr?:string;postingPending?:boolean}>=>({success:true,postingPending:false})),
@@ -41,7 +43,11 @@ vi.mock("@/lib/auth/authorization", () => ({
   requirePermission: mocks.requirePermission,
   getCurrentUser: mocks.getCurrentUser,
 }))
+vi.mock("@/lib/drivers/leave-actions",()=>({mutateDriverLeave:mocks.leaveDecision}))
+vi.mock("@/lib/applications/review-actions",()=>({mutateApplicationReview:mocks.applicationDecision}))
 vi.mock("@/lib/expenses/actions",()=>({approveExpense:mocks.approveExpense}))
+
+vi.mock("@/lib/supabase/server", () => ({ createClient: async () => ({ rpc: mocks.rpc }) }))
 
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({
@@ -86,10 +92,12 @@ beforeEach(() => {
   mocks.updateChain.is.mockReturnThis()
   mocks.updateChain.select.mockResolvedValue({ data: [{ id: "exp-1" }], error: null })
   mocks.rpc.mockImplementation(async (fn,args) =>
-    ({ data: (fn === "reject_expense_atomic" ? {expense_id:args.p_expense_id,decision:"rejected"} : {}) as unknown, error: null }) as unknown as ReturnType<typeof mocks.rpc>
+    ({ data: (fn === "decide_expense_reviewed_atomic" ? {expense_id:args.p_id,decision:"rejected"} : {}) as unknown, error: null }) as unknown as ReturnType<typeof mocks.rpc>
   )
   mocks.auditInserts.length = 0
   mocks.approveExpense.mockResolvedValue({success:true,postingPending:false})
+  mocks.leaveDecision.mockResolvedValue({success:true})
+  mocks.applicationDecision.mockResolvedValue({success:true})
 })
 
 describe("input validation (zod, server-side)", () => {
@@ -106,13 +114,13 @@ describe("input validation (zod, server-side)", () => {
   })
 
   it("rejects reasons shorter than 5 chars (mandatory-reason contract)", async () => {
-    const res = await decideExpense({ expenseId: UUID, decision: "rejected", reason: "no" })
+    const res = await decideExpense({ expectedVersion: 1, expenseId: UUID, decision: "rejected", reason: "no" })
     expect(res.success).toBe(false)
     expect(mocks.rpc).not.toHaveBeenCalled()
   })
 
   it("rejects VAT rates outside 0–100", async () => {
-    const res = await decideExpense({ expenseId: UUID, decision: "approved", reason: "ok reason", vat_rate: 150 })
+    const res = await decideExpense({ expectedVersion: 1, expenseId: UUID, decision: "approved", reason: "ok reason", vat_rate: 150 })
     expect(res.success).toBe(false)
     expect(mocks.rpc).not.toHaveBeenCalled()
   })
@@ -120,10 +128,10 @@ describe("input validation (zod, server-side)", () => {
 
 describe("expense decisions (FX-06 RPC reuse)", () => {
   it("delegates approval and its reason to the shared transaction path", async () => {
-    const res = await decideExpense({ expenseId: UUID, decision: "approved", reason: "receipts verified" })
+    const res = await decideExpense({ expectedVersion: 1, expenseId: UUID, decision: "approved", reason: "receipts verified" })
     expect(res.success).toBe(true)
     expect(mocks.approveExpense).toHaveBeenCalledWith({
-      id: UUID,vat_rate:undefined,approvalReason:"receipts verified",surface:"approvals_inbox",
+      id: UUID,expectedVersion:1,vat_rate:undefined,approvalReason:"receipts verified",surface:"approvals_inbox",
     })
     expect(mocks.auditInserts).toHaveLength(0)
     expect(mocks.rpc).not.toHaveBeenCalled()
@@ -131,121 +139,76 @@ describe("expense decisions (FX-06 RPC reuse)", () => {
 
   it("surfaces EXP002 as alreadyDecided, not a 500", async () => {
     mocks.approveExpense.mockResolvedValueOnce({success:false,alreadyApproved:true,error:'This expense is already approved.'})
-    const res = await decideExpense({ expenseId: UUID, decision: "approved", reason: "receipts verified" })
+    const res = await decideExpense({ expectedVersion: 1, expenseId: UUID, decision: "approved", reason: "receipts verified" })
     expect(res.success).toBe(false)
     expect(res.alreadyDecided).toBe(true)
   })
   it('retains the accounting-posting warning from shared approval',async()=>{
     mocks.approveExpense.mockResolvedValueOnce({success:true,postingPending:true})
-    expect((await decideExpense({expenseId:UUID,decision:'approved',reason:'receipts verified'})).postingPending).toBe(true)
+    expect((await decideExpense({ expectedVersion: 1,expenseId:UUID,decision:'approved',reason:'receipts verified'})).postingPending).toBe(true)
     expect(mocks.auditInserts).toHaveLength(0)
   })
 
   it("delegates rejection and its reason/audit to one private transaction", async () => {
-    const res = await decideExpense({ expenseId: UUID, decision: "rejected", reason: "duplicate receipt" })
+    const res = await decideExpense({ expectedVersion: 1, expenseId: UUID, decision: "rejected", reason: "duplicate receipt" })
     expect(res.success).toBe(true)
-    expect(mocks.rpc).toHaveBeenCalledWith("reject_expense_atomic",{
-      p_tenant_id:"tenant-1",p_expense_id:UUID,p_reason:"duplicate receipt",p_actor:"auth-user-1",
+    expect(mocks.rpc).toHaveBeenCalledWith("decide_expense_reviewed_atomic",{
+      p_id:UUID,p_expected_version:1,p_decision:"rejected",p_vat_rate:null,p_recoverability:null,p_reason:"duplicate receipt",p_surface:"approvals_inbox",
     })
     expect(mocks.auditInserts).toHaveLength(0)
   })
 
   it.each(["EXP002: expense already approved","EXP_REJECTED: expense already rejected"])("surfaces %s as an existing decision", async message => {
     mocks.rpc.mockResolvedValueOnce({data:null,error:{message}})
-    const res = await decideExpense({ expenseId: UUID, decision: "rejected", reason: "duplicate receipt" })
+    const res = await decideExpense({ expectedVersion: 1, expenseId: UUID, decision: "rejected", reason: "duplicate receipt" })
     expect(res.alreadyDecided).toBe(true)
     expect(mocks.auditInserts).toHaveLength(0)
   })
   it('retains rejected state when a stale inbox attempts approval',async()=>{
     mocks.approveExpense.mockResolvedValueOnce({success:false,alreadyDecided:true,error:'Expense was rejected.'})
-    expect((await decideExpense({expenseId:UUID,decision:'approved',reason:'Receipts checked'})).alreadyDecided).toBe(true)
+    expect((await decideExpense({ expectedVersion: 1,expenseId:UUID,decision:'approved',reason:'Receipts checked'})).alreadyDecided).toBe(true)
   })
   it('rate limits rejection before its transaction',async()=>{
     mocks.rateLimitExpenses.mockResolvedValueOnce({success:false,remaining:0,resetAt:Date.now()})
-    expect((await decideExpense({expenseId:UUID,decision:'rejected',reason:'Duplicate receipt'})).success).toBe(false)
+    expect((await decideExpense({ expectedVersion: 1,expenseId:UUID,decision:'rejected',reason:'Duplicate receipt'})).success).toBe(false)
     expect(mocks.rpc).not.toHaveBeenCalled()
   })
   it('does not expose private rejection diagnostics',async()=>{
     mocks.rpc.mockResolvedValueOnce({data:null,error:{message:'private database diagnostic'}})
-    const result=await decideExpense({expenseId:UUID,decision:'rejected',reason:'Duplicate receipt'})
+    const result=await decideExpense({ expectedVersion: 1,expenseId:UUID,decision:'rejected',reason:'Duplicate receipt'})
     expect(result.success).toBe(false);expect(result.error).toMatch(/Reload and review/)
     expect(JSON.stringify(result)).not.toContain('private')
   })
   it('does not report an unrelated receipt as a confirmed rejection',async()=>{
     mocks.rpc.mockResolvedValueOnce({data:{expense_id:'another-expense',decision:'rejected'},error:null})
-    expect((await decideExpense({expenseId:UUID,decision:'rejected',reason:'Duplicate receipt'})).success).toBe(false)
+    expect((await decideExpense({ expectedVersion: 1,expenseId:UUID,decision:'rejected',reason:'Duplicate receipt'})).success).toBe(false)
   })
   it('retains a confirmed rejection despite a cache refresh failure',async()=>{
     mocks.revalidatePath.mockImplementationOnce(()=>{throw Error('cache unavailable')})
-    expect((await decideExpense({expenseId:UUID,decision:'rejected',reason:'Duplicate receipt'})).success).toBe(true)
+    expect((await decideExpense({ expectedVersion: 1,expenseId:UUID,decision:'rejected',reason:'Duplicate receipt'})).success).toBe(true)
   })
 })
 
-describe("leave decisions (atomic RPC)", () => {
-  it("calls decide_leave_request_atomic with tenant + reviewer + reason", async () => {
-    const res = await decideLeaveRequest({ requestId: UUID, decision: "rejected", reason: "staffing freeze" })
-    expect(res.success).toBe(true)
-    expect(mocks.rpc).toHaveBeenCalledWith("decide_leave_request_atomic", {
-      p_tenant_id: "tenant-1",
-      p_request_id: UUID,
-      p_decision: "rejected",
-      p_reason: "staffing freeze",
-      p_reviewer: "auth-user-1",
-    })
-    expect(mocks.auditInserts[0]).toMatchObject({
-      module: "attendance",
-      action: "leave_reviewed",
-      entityType: "leave_request",
-      newValues: expect.objectContaining({ to: "rejected", reason: "staffing freeze" }),
-    })
-  })
-
-  it("surfaces LVE002 as alreadyDecided with no audit row", async () => {
-    mocks.rpc.mockImplementation(async () => ({
-      data: null,
-      error: { message: "LVE002: leave request already decided" },
-    }))
-    const res = await decideLeaveRequest({ requestId: UUID, decision: "approved", reason: "ok reason" })
-    expect(res.alreadyDecided).toBe(true)
-    expect(mocks.auditInserts).toHaveLength(0)
-  })
-})
-
-describe("application decisions (atomic RPC)", () => {
-  it("calls decide_application_atomic with the users.id reviewer (030 convention)", async () => {
-    const res = await decideApplication({ applicationId: UUID, decision: "approved", reason: "docs complete" })
-    expect(res.success).toBe(true)
-    expect(mocks.rpc).toHaveBeenCalledWith("decide_application_atomic", {
-      p_tenant_id: "tenant-1",
-      p_application_id: UUID,
-      p_decision: "approved",
-      p_note: "docs complete",
-      p_reviewer: "user-row-1",
-    })
-    expect(mocks.auditInserts[0]).toMatchObject({
-      module: "hr",
-      action: "application_reviewed",
-      entityType: "driver_application",
-      newValues: expect.objectContaining({ to: "approved" }),
-    })
-  })
-
-  it("surfaces APP002 as alreadyDecided with no audit row", async () => {
-    mocks.rpc.mockImplementation(async () => ({
-      data: null,
-      error: { message: "APP002: application already decided" },
-    }))
-    const res = await decideApplication({ applicationId: UUID, decision: "rejected", reason: "incomplete docs" })
-    expect(res.alreadyDecided).toBe(true)
-    expect(mocks.auditInserts).toHaveLength(0)
-  })
-})
-
-describe("permission gating", () => {
-  it("runs requirePermission before any DB access", async () => {
-    mocks.requirePermission.mockRejectedValueOnce(new Error("AUTH007"))
-    const res = await decideLeaveRequest({ requestId: UUID, decision: "approved", reason: "ok reason" })
-    expect(res.success).toBe(false)
-    expect(mocks.rpc).not.toHaveBeenCalled()
-  })
+describe("reviewed leave and application decisions",()=>{
+ it("forwards the exact leave revision and review reason to the shared caller workflow",async()=>{
+  expect(await decideLeaveRequest({requestId:UUID,expectedVersion:3,decision:"rejected",reason:"staffing review"})).toEqual({success:true})
+  expect(mocks.leaveDecision).toHaveBeenCalledWith({action:"rejected",requestId:UUID,expectedVersion:3,reason:"staffing review",surface:"approvals_inbox"})
+  expect(mocks.rpc).not.toHaveBeenCalled();expect(mocks.auditInserts).toHaveLength(0)
+ })
+ it("forwards the exact application revision to the same workflow as its detail screen",async()=>{
+  expect(await decideApplication({applicationId:UUID,expectedVersion:4,decision:"approved",reason:"documents reviewed"})).toEqual({success:true})
+  expect(mocks.applicationDecision).toHaveBeenCalledWith({applicationId:UUID,expectedVersion:4,action:"approved",reason:"documents reviewed",surface:"approvals_inbox"})
+  expect(mocks.rpc).not.toHaveBeenCalled();expect(mocks.auditInserts).toHaveLength(0)
+ })
+ it("preserves existing decision and authentication errors from the guarded workflows",async()=>{
+  const denied={success:false,error:"Review denied",errorAr:"المراجعة غير مسموحة",alreadyDecided:true}
+  mocks.leaveDecision.mockResolvedValue(denied);mocks.applicationDecision.mockResolvedValue(denied)
+  expect(await decideLeaveRequest({requestId:UUID,expectedVersion:1,decision:"approved",reason:"review reason"})).toEqual(denied)
+  expect(await decideApplication({applicationId:UUID,expectedVersion:1,decision:"approved",reason:"review reason"})).toEqual(denied)
+ })
+ it("rejects old dialogs without a reviewed version before invoking either workflow",async()=>{
+  expect((await decideLeaveRequest({requestId:UUID,decision:"approved",reason:"review reason"})).success).toBe(false)
+  expect((await decideApplication({applicationId:UUID,decision:"approved",reason:"review reason"})).success).toBe(false)
+  expect(mocks.leaveDecision).not.toHaveBeenCalled();expect(mocks.applicationDecision).not.toHaveBeenCalled()
+ })
 })

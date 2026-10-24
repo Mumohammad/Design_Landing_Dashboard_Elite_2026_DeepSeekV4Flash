@@ -3,14 +3,14 @@ import { createHash } from "node:crypto"
 const mocks = vi.hoisted(() => ({ permission: vi.fn(), user: vi.fn(), from: vi.fn(), storage: vi.fn(),
   upload: vi.fn(), sign: vi.fn(), audit: vi.fn(), read: vi.fn(), render: vi.fn(), queries: [] as Array<{table:string; builder:Record<string, ReturnType<typeof vi.fn>>}>,
   results: {} as Record<string, {data:unknown;error:unknown}>, existing: null as unknown, existingError: null as unknown,
-  saveError: null as unknown,
+  saveError: null as unknown, fonts: vi.fn(),
 }))
 vi.mock("server-only", () => ({}))
 vi.mock("@/lib/auth/authorization", () => ({ requirePermission: mocks.permission, getCurrentUser: mocks.user }))
 vi.mock("@/lib/auth/sessions", () => ({ writeAuditLog: mocks.audit }))
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => ({ from: mocks.from, storage: { from: mocks.storage } }) }))
 vi.mock("node:fs/promises", () => ({ readFile: mocks.read }))
-vi.mock("./invoice-pdf", () => ({ renderInvoicePdf: mocks.render }))
+vi.mock("./invoice-pdf", () => ({ renderInvoicePdf: mocks.render, loadInvoiceReferenceFonts: mocks.fonts }))
 vi.mock("./invoice-qr", () => ({ buildTaxQrPayload: vi.fn(), qrPngDataUrl: async () => "data:image/png;base64,AAAA" }))
 import { generateInvoiceDocument } from "./invoice-docs"
 const invoiceId="80111111-1111-4111-8111-111111111111"
@@ -22,6 +22,7 @@ beforeEach(() => {
   mocks.user.mockResolvedValue({tenantId:"tenant-a",authUserId:"auth-a"})
   mocks.read.mockResolvedValue(Buffer.from("asset"))
   mocks.render.mockResolvedValue(pdf)
+  mocks.fonts.mockResolvedValue({})
   mocks.upload.mockResolvedValue({error:null})
   mocks.sign.mockResolvedValue({data:{signedUrl:"https://example.test/private.pdf"},error:null})
   mocks.storage.mockReturnValue({upload:mocks.upload,createSignedUrl:mocks.sign})
@@ -62,10 +63,21 @@ describe("retained invoice PDFs",()=>{
     const record=mocks.queries.find(query=>query.table==="generated_documents"&&query.builder.insert.mock.calls.length)
     expect(record?.builder.insert).toHaveBeenCalledWith(expect.objectContaining({
       tenant_id:"tenant-a",file_url:"https://example.test/private.pdf",
-      generated_data:expect.objectContaining({file_format:"pdf",pdf_sha256:hash,qr_kind:"internal_unvalidated"}),
+      generated_data:expect.objectContaining({file_format:"pdf",layout_version:"reference-letter-1",font_source:"system_or_cairo",pdf_sha256:hash,qr_kind:"internal_unvalidated"}),
     }))
     expect(mocks.render.mock.calls[0][0]).toContain('aria-label="SAR 0.30"')
     expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({tenantId:"tenant-a",entityId:"document-a"}))
+  })
+  it("uses only operator-loaded reference fonts and fails before rendering when configured fonts are invalid",async()=>{
+    mocks.fonts.mockResolvedValueOnce({referenceFontDataUrl:"data:font/ttf;base64,AAAA",referenceBoldFontDataUrl:"data:font/ttf;base64,BBBB"})
+    expect((await generateInvoiceDocument(invoiceId)).success).toBe(true)
+    expect(mocks.render.mock.calls[0][0]).toContain('format("truetype"); font-weight: 400')
+    const record=mocks.queries.find(query=>query.table==="generated_documents"&&query.builder.insert.mock.calls.length)
+    expect(record?.builder.insert).toHaveBeenCalledWith(expect.objectContaining({generated_data:expect.objectContaining({font_source:"protected_reference"})}))
+    mocks.render.mockClear();mocks.upload.mockClear()
+    mocks.fonts.mockRejectedValueOnce(new Error("Invoice reference fonts are unavailable or invalid"))
+    expect((await generateInvoiceDocument(invoiceId)).success).toBe(false)
+    expect(mocks.render).not.toHaveBeenCalled();expect(mocks.upload).not.toHaveBeenCalled()
   })
   it("never renders or uploads without permission and an assured current user",async()=>{
     mocks.permission.mockRejectedValueOnce(new Error("Forbidden"))

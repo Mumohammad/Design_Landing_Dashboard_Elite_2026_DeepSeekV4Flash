@@ -1,27 +1,10 @@
 "use server"
 
-// Read queries for the Audit-Trail surface (Prompt D) — the /audit-log page.
-//
-// Server-side only: audit_log is a Phase-A core table with SELECT-only RLS
-// for end users (ADR-007 append-only; INSERT is service-role-only via
-// writeAuditLog()). Reads flow through the cookie-bound client after
-// requirePermission(); the RPC independently enforces the same permission —
-// the same pattern as src/lib/auth/user-reads.ts, whose
-// fetchAuditLog() this module supersedes for the audit surface (the stub page
-// it fed did no server-side filtering). READ-ONLY module: nothing here
-// writes any table.
-//
-// Filtering happens server-side (RPC) so pagination caps stay honest: the
-// client only ever sees one capped page of the filtered set.
-
-import { requirePermission, getCurrentUser } from "@/lib/auth/authorization"
-import { createAdminClient } from "@/lib/supabase/admin"
+// Reads use the caller-bound, tenant-filtered projection. Actor labels are
+// identifiers already on this page, never a privileged user directory.
+import { can, requirePermission, getCurrentUser } from "@/lib/auth/authorization"
 import { createClient } from "@/lib/supabase/server"
-import {
-  AUDIT_PAGE_SIZE_DEFAULT,
-  AUDIT_PAGE_SIZE_MAX,
-  dateRangeBounds,
-} from "./audit-utils"
+import { AUDIT_PAGE_SIZE_DEFAULT, AUDIT_PAGE_SIZE_MAX, dateRangeBounds } from "./audit-utils"
 
 export type AuditTrailRow = {
   id: string
@@ -37,154 +20,124 @@ export type AuditTrailRow = {
   new_values: Record<string, unknown> | null
 }
 
-export type AuditActor = {
-  id: string // custom users row id (stable join key for audit_log.actor_id)
-  name: string
-}
+export type AuditActor = { id: string; name: string }
 
 export type AuditTrailPageData = {
   rows: AuditTrailRow[]
   actorOptions: AuditActor[]
-  actorsConsented: Record<string, boolean> // users.id -> has PDPL terms consent
+  actorsConsented: Record<string, boolean>
   kpis: { total: number; distinctActors: number; distinctEntities: number }
   pageSize: number
-  actorNames: Record<string, string> // auth.users UUID -> display name
+  actorNames: Record<string, string>
+  canExport: boolean
 }
 
 export type AuditTrailFilters = {
   from?: string
   to?: string
-  actor?: string // users.id | "all"
+  actor?: string // auth actor UUID from the returned page, or "all"
   action?: string
   module?: string
   entityType?: string
   entityId?: string
 }
 
+const READ_ERROR = "Could not load the audit trail. Refresh and try again."
+
 function isUuid(v: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
 }
 
-/**
- * Fetch one capped page of audit events with server-side filters applied.
- * Requires `audit_log.read` (GM bypasses). Returns actor display names,
- * actor picker options, and per-actor PDPL consent so the UI can mask
- * metadata rendered for consent-absent actors.
- */
+function isMetadata(v: unknown): v is Record<string, unknown> | null {
+  return v === null || (typeof v === "object" && !Array.isArray(v))
+}
+
+function projectRow(value: unknown): AuditTrailRow {
+  if (!value || typeof value !== "object") throw new Error(READ_ERROR)
+  const r = value as Record<string, unknown>
+  const nullableText = ["entity_type", "entity_id", "actor_id", "ip_address", "reason"]
+  if (typeof r.id !== "string" || !isUuid(r.id) ||
+      typeof r.created_at !== "string" || !Number.isFinite(Date.parse(r.created_at)) ||
+      typeof r.module !== "string" || typeof r.action !== "string" ||
+      nullableText.some((key) => r[key] !== null && typeof r[key] !== "string") ||
+      (r.actor_id !== null && !isUuid(r.actor_id as string)) ||
+      !isMetadata(r.old_values) || !isMetadata(r.new_values)) throw new Error(READ_ERROR)
+  return {
+    id: r.id, created_at: r.created_at, module: r.module, action: r.action,
+    entity_type: r.entity_type as string | null, entity_id: r.entity_id as string | null,
+    actor_id: r.actor_id as string | null, ip_address: r.ip_address as string | null,
+    reason: r.reason as string | null, old_values: r.old_values, new_values: r.new_values,
+  }
+}
+
+async function readPage(
+  filters: AuditTrailFilters,
+  pageSize: number,
+  canExport: boolean
+): Promise<AuditTrailPageData> {
+  const currentUser = await getCurrentUser()
+  if (!currentUser) throw new Error(READ_ERROR)
+  // Never silently broaden an invalid actor/entity filter for a read or export.
+  if ((filters.actor && filters.actor !== "all" && !isUuid(filters.actor)) ||
+      (filters.entityId && !isUuid(filters.entityId))) throw new Error(READ_ERROR)
+  const cap = Number.isFinite(pageSize)
+    ? Math.min(Math.max(1, Math.floor(pageSize)), AUDIT_PAGE_SIZE_MAX)
+    : AUDIT_PAGE_SIZE_DEFAULT
+  const { fromIso, toIso } = dateRangeBounds(filters.from ?? "", filters.to ?? "")
+  let rows: AuditTrailRow[]
+  try {
+    const supabase = await createClient()
+    const { data, error } = await supabase.rpc("fetch_audit_trail_page", {
+      p_tenant_id: currentUser.tenantId,
+      p_from: fromIso, p_to: toIso,
+      p_actor_user_id: filters.actor && filters.actor !== "all" ? filters.actor : null,
+      p_action: filters.action && filters.action !== "all" ? filters.action : null,
+      p_module: filters.module && filters.module !== "all" ? filters.module : null,
+      p_entity_type: filters.entityType && filters.entityType !== "all" ? filters.entityType : null,
+      p_entity_id: filters.entityId || null,
+      p_limit: cap,
+    })
+    if (error || !Array.isArray(data) || data.length > cap) throw new Error(READ_ERROR)
+    rows = data.map(projectRow)
+    if (new Set(rows.map((row) => row.id)).size !== rows.length) throw new Error(READ_ERROR)
+  } catch {
+    // Provider diagnostics can contain raw audit payloads; do not expose or log them.
+    throw new Error(READ_ERROR)
+  }
+
+  const actors = Array.from(new Set(rows.flatMap((row) => row.actor_id ? [row.actor_id] : [])))
+  const actorNames: Record<string, string> = {}
+  for (const id of actors) actorNames[id] = id
+  const distinctEntities = new Set(rows.flatMap((row) =>
+    row.entity_type && row.entity_id ? [row.entity_type + ":" + row.entity_id] : []
+  )).size
+  return {
+    rows,
+    actorOptions: actors.map((id) => ({ id, name: actorNames[id] })),
+    // SQL already provides a minimal projection. Keep client masking conservative
+    // without fetching consent decisions or identities from a user directory.
+    actorsConsented: {},
+    kpis: { total: rows.length, distinctActors: actors.length, distinctEntities },
+    pageSize: cap, actorNames, canExport,
+  }
+}
+
+/** One capped, filtered page; read access never implies export access. */
 export async function fetchAuditTrailPage(
   filters: AuditTrailFilters = {},
   pageSize = AUDIT_PAGE_SIZE_DEFAULT
 ): Promise<AuditTrailPageData> {
   await requirePermission("audit_log", "read")
+  const canExport = await can("audit_log", "export").then((permission) => permission.allowed).catch(() => false)
+  return readPage(filters, pageSize, canExport)
+}
 
-  const currentUser = await getCurrentUser()
-  if (!currentUser) {
-    return { rows: [], actorOptions: [], actorsConsented: {}, kpis: { total: 0, distinctActors: 0, distinctEntities: 0 }, pageSize: AUDIT_PAGE_SIZE_DEFAULT, actorNames: {} }
-  }
-
-  const cap = Math.min(Math.max(1, Math.floor(pageSize)), AUDIT_PAGE_SIZE_MAX)
-  const admin = createAdminClient()
-  const supabase = await createClient()
-
-  const actorId =
-    filters.actor && filters.actor !== "all" && isUuid(filters.actor) ? filters.actor : null
-  const entityType =
-    filters.entityType && filters.entityType !== "all" ? filters.entityType : null
-  const { fromIso, toIso } = dateRangeBounds(filters.from ?? "", filters.to ?? "")
-
-  // Server-side filtered page (the definer RPC binds auth.uid() to its tenant
-  // and audit_log:read permission; caps are applied in SQL).
-  let rows: AuditTrailRow[] = []
-  try {
-    const { data, error } = await supabase.rpc("fetch_audit_trail_page", {
-      p_tenant_id: currentUser.tenantId,
-      p_from: fromIso,
-      p_to: toIso,
-      p_actor_user_id: actorId,
-      p_action: filters.action && filters.action !== "all" ? filters.action : null,
-      p_module: filters.module && filters.module !== "all" ? filters.module : null,
-      p_entity_type: entityType,
-      p_entity_id:
-        filters.entityId && isUuid(filters.entityId) ? filters.entityId : null,
-      p_limit: cap,
-    })
-    if (error) throw error
-    rows = (data ?? []) as unknown as AuditTrailRow[]
-  } catch (e) {
-    console.error("[audit-trail] fetchAuditTrailPage failed:", e)
-    return { rows: [], actorOptions: [], actorsConsented: {}, kpis: { total: 0, distinctActors: 0, distinctEntities: 0 }, pageSize: cap, actorNames: {} }
-  }
-
-  // Actor picker: everyone who ever audited in this tenant (also drives the
-  // masking consent batch). Display names resolve through users.auth_user_id.
-  const { data: actorRows } = await admin
-    .from("users")
-    .select("id, auth_user_id, full_name_ar, full_name_en, email")
-    .eq("tenant_id", currentUser.tenantId)
-    .is("deleted_at", null)
-    .order("created_at", { ascending: false })
-
-  const allActors: AuditActor[] = (actorRows ?? []).map((u) => {
-    const r = u as Record<string, unknown>
-    return {
-      id: r.id as string,
-      name:
-        (r.full_name_ar as string | null) ??
-        (r.full_name_en as string | null) ??
-        (r.email as string),
-    }
-  })
-
-  // auth.users UUID -> display name (audit_log.actor_id is an auth.users FK).
-  const actorNames: Record<string, string> = {}
-  // Join maps between the two id spaces: audit rows carry auth.users UUIDs,
-  // the consent RPC and picker options work on custom users.id values.
-  const usersIdByAuthId = new Map<string, string>()
-  const authIdByUsersId = new Map<string, string>()
-  for (const u of actorRows ?? []) {
-    const r = u as Record<string, unknown>
-    actorNames[r.auth_user_id as string] =
-      (r.full_name_ar as string | null) ?? (r.full_name_en as string | null) ?? (r.email as string)
-    usersIdByAuthId.set(r.auth_user_id as string, r.id as string)
-    authIdByUsersId.set(r.id as string, r.auth_user_id as string)
-  }
-
-  // Batch PDPL consent (avoids per-actor RPC round trips on the page).
-  const consented: Record<string, boolean> = {}
-  const relevantAuthIds = new Set<string>()
-  for (const row of rows) if (row.actor_id) relevantAuthIds.add(row.actor_id)
-  for (const a of allActors) {
-    const authId = authIdByUsersId.get(a.id)
-    if (authId) relevantAuthIds.add(authId)
-  }
-  for (const authId of relevantAuthIds) {
-    const pUserId = usersIdByAuthId.get(authId)
-    if (!pUserId) {
-      consented[authId] = false
-      continue
-    }
-    try {
-      const { data: consent, error: consentError } = await admin.rpc("has_user_pdpl_consent", {
-        p_user_id: pUserId,
-        p_consent_type: "terms",
-      })
-      consented[authId] = !consentError && consent === true
-    } catch {
-      consented[authId] = false
-    }
-  }
-
-  const distinctActors = new Set(rows.map((r) => r.actor_id).filter(Boolean)).size
-  const distinctEntities = new Set(
-    rows.map((r) => (r.entity_type && r.entity_id ? `${r.entity_type}:${r.entity_id}` : "")).filter(Boolean)
-  ).size
-
-  return {
-    rows,
-    actorOptions: allActors,
-    actorsConsented: consented,
-    kpis: { total: rows.length, distinctActors, distinctEntities },
-    pageSize: cap,
-    actorNames,
-  }
+/** Reauthorize every product export, using the same safe filtered page RPC. */
+export async function exportAuditTrailPage(
+  filters: AuditTrailFilters = {},
+  pageSize = AUDIT_PAGE_SIZE_DEFAULT
+): Promise<AuditTrailPageData> {
+  await requirePermission("audit_log", "export")
+  await requirePermission("audit_log", "read")
+  return readPage(filters, pageSize, true)
 }

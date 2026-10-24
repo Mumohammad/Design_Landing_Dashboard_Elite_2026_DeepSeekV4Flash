@@ -34,6 +34,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { fetchUserDetail, type UserDetail } from "@/lib/users/queries"
+import { UserManagementControls } from "../components/user-management-controls"
 import { assignEmployeeCode } from "@/lib/users/actions"
 import {
   ALLOWED_STATUS_TRANSITIONS,
@@ -89,7 +90,7 @@ export default function UserDetailPage() {
   async function handleAssignCode() {
     if (!userId) return
     setAssigningCode(true)
-    const result = await assignEmployeeCode({ userId })
+    const result = await assignEmployeeCode({ userId,expectedVersion:user?.version })
     setAssigningCode(false)
     if (result.success) {
       toast.success(isAr ? "تم تعيين الرمز الوظيفي" : "Employee code assigned")
@@ -149,6 +150,7 @@ export default function UserDetailPage() {
 
   return (
     <div className="space-y-6 p-4 lg:p-6">
+      <UserManagementControls user={user} onSaved={()=>void load()}/>
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
@@ -372,6 +374,7 @@ export default function UserDetailPage() {
 
       <UserStatusDialog
         userId={user.id}
+        expectedVersion={user.version}
         userName={displayName}
         target={statusTarget}
         open={statusOpen}

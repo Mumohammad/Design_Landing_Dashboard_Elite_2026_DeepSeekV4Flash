@@ -8,6 +8,7 @@ import { createRequire } from "node:module"
 import ts from "typescript"
 import QRCode from "qrcode"
 import { X509 } from "jsrsasign"
+import { auditPublicSdkSignature } from "./audit-zatca-sdk-signature.mjs"
 
 const sdk = path.resolve(process.env.ZATCA_SDK_ROOT || process.argv[2] || "")
 if (!process.env.ZATCA_SDK_ROOT && !process.argv[2]) throw new Error("Provide the official SDK folder through ZATCA_SDK_ROOT or the first argument")
@@ -125,6 +126,7 @@ for(const [label,xml] of Object.entries(variants)) {
 }
 const signedSample=fs.readFileSync(path.join(output,version==="3.0.8"?"simplified-invoice-sdk-signed.xml":"simplified-utc-invoice-sdk-signed.xml"),"utf8")
 const signature=signedSample.match(/<ds:SignatureValue>([^<]+)<\/ds:SignatureValue>/)?.[1]
+if(version!=="3.0.8") evidence.signedInfoAudit=auditPublicSdkSignature(signedSample)
 // Independent QR audit: SDK validation is not evidence that its own generated
 // tag assignments match the published standard. The supplied 3.0.8 sample puts
 // SPKI in tag 7 and signature r/s in tags 8/9. Preserve this finding rather than

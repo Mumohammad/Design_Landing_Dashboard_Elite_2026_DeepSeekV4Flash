@@ -9,6 +9,7 @@ import {
 } from '@/lib/auth/rate-limit';
 import { ERROR_CODES } from '@/lib/errors/error-codes';
 import { isValidNewPassword, newPasswordHint } from '@/lib/auth/password-policy';
+import { authCallbackUrlWithReturn } from '@/lib/redirects';
 
 // FX-08: public registration password policy — min 10 chars, at least one
 // letter and one digit (password "a" was previously accepted).
@@ -97,6 +98,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid registration details' }, { status: 400 });
     }
 
+    let confirmationRedirect: string;
+    try { confirmationRedirect = authCallbackUrlWithReturn(); } catch {
+      return NextResponse.json({ error: 'Registration temporarily unavailable' }, { status: 503 });
+    }
+
     const slug = company_name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
     const { data: existing } = await supabase.from('tenants').select('id').eq('domain', domain).maybeSingle();
@@ -180,6 +186,7 @@ export async function POST(req: NextRequest) {
         type: 'signup',
         email,
         password,
+        options: { redirectTo: confirmationRedirect },
       });
 
       if (linkError || !linkData?.properties?.action_link) {

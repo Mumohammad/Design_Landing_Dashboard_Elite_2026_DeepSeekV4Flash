@@ -288,7 +288,7 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
         .from(DRIVER_PHOTO_BUCKET)
         .upload(path, file, {
           cacheControl: "3600",
-          upsert: true,
+          upsert: false,
           contentType: meta.contentType,
         })
       if (uploadError) {
@@ -300,6 +300,7 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
       }
       const result = await updateDriverPhoto({
         driverId: driver.id,
+        expectedDriverVersion: driver.profile_version,
         filePath: path,
         contentType: meta.contentType,
         size: file.size,
@@ -307,7 +308,7 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
       if (!result.ok) {
         // DB update failed: the action already removed the orphaned object;
         // here we only restore the previous photo in the UI.
-        toast.error(result.error)
+        toast.error(isAr ? result.errorAr : result.error)
         rollbackPreview()
         return
       }
@@ -317,7 +318,7 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
       }
       setLocalPhotoUrl(null)
       refreshProviderPhoto()
-      setDriver((prev) => (prev ? { ...prev, photo_url: result.filePath } : prev))
+      setDriver((prev) => (prev ? { ...prev, photo_url: result.filePath, profile_version: result.profileVersion } : prev))
       toast.success(isAr ? "تم تحديث الصورة" : "Photo updated")
       // Tell every other surface (list rows, compliance card, card panel)
       // to re-read the persisted photo.
@@ -334,7 +335,7 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
     if (!driver) return
     setPhotoRemoving(true)
     try {
-      const result = await removeDriverPhoto({ driverId: driver.id })
+      const result = await removeDriverPhoto({ driverId: driver.id, expectedDriverVersion: driver.profile_version })
       if (!result.ok) {
         toast.error(result.error)
         return
@@ -346,7 +347,7 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
       setLocalPhotoUrl(null)
       refreshProviderPhoto()
       setDriver((prev) =>
-        prev ? { ...prev, photo_url: null as Driver["photo_url"] } : prev,
+        prev ? { ...prev, photo_url: null as Driver["photo_url"], profile_version: result.profileVersion } : prev,
       )
       setPhotoPreviewOpen(false)
       toast.success(isAr ? "تمت إزالة الصورة" : "Photo removed")

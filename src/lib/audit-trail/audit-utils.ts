@@ -1,3 +1,4 @@
+import {escapeCsvCell} from "@/lib/csv-cell"
 // Pure helpers for the Audit-Trail module (read-only surface over audit_log).
 //
 // No Supabase / React imports — unit-testable per the drivers/users-module
@@ -214,11 +215,7 @@ export type CsvCell = string | number | boolean | null | undefined
 
 /** RFC-4180-safe CSV line builder with a UTF-8 BOM (Excel + Arabic safe). */
 export function auditToCsv(header: string[], rows: CsvCell[][]): string {
-  const escape = (v: CsvCell) => {
-    const s = v === null || v === undefined ? "" : String(v)
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-  }
-  return "\uFEFF" + [header, ...rows].map((r) => r.map(escape).join(",")).join("\n")
+  return "\uFEFF" + [header, ...rows].map((r) => r.map(escapeCsvCell).join(",")).join("\n")
 }
 
 export type AuditFilterState = {

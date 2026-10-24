@@ -25,6 +25,7 @@ import { useTranslation } from "@/hooks/use-translation"
 
 export function UserStatusDialog({
   userId,
+  expectedVersion,
   userName,
   target,
   open,
@@ -32,6 +33,7 @@ export function UserStatusDialog({
   onDone,
 }: {
   userId: string | null
+  expectedVersion: number | null
   userName: string
   target: UserStatus | null
   open: boolean
@@ -64,7 +66,7 @@ export function UserStatusDialog({
       return
     }
     setSubmitting(true)
-    const result = await updateUserStatus({ userId, status: target, reason: reason.trim() })
+    const result = await updateUserStatus({ userId,expectedVersion, status: target, reason: reason.trim() })
     setSubmitting(false)
     if (result.success) {
       toast.success(isAr ? "تم تحديث حالة المستخدم" : "User status updated")

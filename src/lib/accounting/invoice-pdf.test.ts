@@ -1,14 +1,20 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import path from "node:path"
 const mocks = vi.hoisted(() => ({ launch: vi.fn(), executable: vi.fn(), context: vi.fn(), close: vi.fn(),
-  route: vi.fn(), newPage: vi.fn(), timeout: vi.fn(), content: vi.fn(), evaluate: vi.fn(), media: vi.fn(), pdf: vi.fn() }))
+  route: vi.fn(), newPage: vi.fn(), timeout: vi.fn(), content: vi.fn(), evaluate: vi.fn(), media: vi.fn(), pdf: vi.fn(), read: vi.fn(), realpath: vi.fn(), stat: vi.fn() }))
 vi.mock("server-only", () => ({}))
+vi.mock("node:fs/promises", () => ({ readFile: mocks.read, realpath: mocks.realpath, stat: mocks.stat }))
 vi.mock("@sparticuz/chromium", () => ({ default: { args: ["--fixture"], executablePath: mocks.executable } }))
 vi.mock("playwright-core", () => ({ chromium: { launch: mocks.launch } }))
-import { InvoicePdfBusyError, renderInvoicePdf } from "./invoice-pdf"
+import { InvoicePdfBusyError, loadInvoiceReferenceFonts, renderInvoicePdf } from "./invoice-pdf"
 const html = "<!DOCTYPE html><html><body>Invoice</body></html>"
 const pdf = Buffer.from("%PDF-1.7\nfixture")
 beforeEach(() => {
   vi.resetAllMocks()
+  vi.stubEnv("INVOICE_REFERENCE_FONT_DIR", undefined)
+  mocks.realpath.mockImplementation(async (value: string) => path.resolve(value))
+  mocks.stat.mockResolvedValue({ isFile: () => true, size: 12 })
+  mocks.read.mockResolvedValue(Buffer.from([0,1,0,0,0,0,0,0,0,0,0,0]))
   mocks.executable.mockResolvedValue("/fixture/chromium")
   mocks.launch.mockResolvedValue({ newContext: mocks.context, close: mocks.close })
   mocks.context.mockResolvedValue({ route: mocks.route, newPage: mocks.newPage })
@@ -16,6 +22,8 @@ beforeEach(() => {
     evaluate: mocks.evaluate, emulateMedia: mocks.media, pdf: mocks.pdf })
   mocks.pdf.mockResolvedValue(pdf)
 })
+afterEach(() => vi.unstubAllEnvs())
+
 describe("bounded invoice PDF rendering", () => {
   it("renders without browser headers, scripts or shared browser state, then closes the browser", async () => {
     expect(await renderInvoicePdf(html)).toEqual(Uint8Array.from(pdf))
@@ -65,5 +73,47 @@ describe("bounded invoice PDF rendering", () => {
     for (const resolve of finish) resolve(pdf)
     await Promise.all([first, second])
     expect(mocks.close).toHaveBeenCalledTimes(2)
+  })
+})
+
+
+describe("protected invoice reference fonts", () => {
+  it("leaves the reference font optional unless configured by the operator", async () => {
+    expect(await loadInvoiceReferenceFonts()).toEqual({})
+    expect(mocks.read).not.toHaveBeenCalled()
+  })
+  it("reads only fixed regular/bold filenames within the private configured directory", async () => {
+    const root=path.resolve("private-invoice-fonts")
+    vi.stubEnv("INVOICE_REFERENCE_FONT_DIR", root)
+    expect(await loadInvoiceReferenceFonts()).toEqual({
+      referenceFontDataUrl:"data:font/ttf;base64,AAEAAAAAAAAAAAAA",
+      referenceBoldFontDataUrl:"data:font/ttf;base64,AAEAAAAAAAAAAAAA",
+    })
+    expect(mocks.read.mock.calls.map(call=>call[0]).sort()).toEqual([path.join(root,"bold.ttf"),path.join(root,"regular.ttf")].sort())
+  })
+  it("resolves the bundled operator mode to fixed private project files", async () => {
+    vi.stubEnv("INVOICE_REFERENCE_FONT_DIR", "bundled")
+    await loadInvoiceReferenceFonts()
+    const root=path.join(process.cwd(),"private","invoice-fonts")
+    expect(mocks.read.mock.calls.map(call=>call[0]).sort()).toEqual([path.join(root,"bold.ttf"),path.join(root,"regular.ttf")].sort())
+  })
+  it.each(["relative-fonts", "https://untrusted.test/fonts", path.resolve("public", "fonts")])("rejects unsafe font location %s", async configured => {
+    vi.stubEnv("INVOICE_REFERENCE_FONT_DIR", configured)
+    await expect(loadInvoiceReferenceFonts()).rejects.toThrow("Invoice reference fonts are unavailable or invalid")
+    expect(mocks.read).not.toHaveBeenCalled()
+  })
+  it("rejects symlink escapes before reading and rejects invalid/oversized font bytes", async () => {
+    const root=path.resolve("private-invoice-fonts")
+    vi.stubEnv("INVOICE_REFERENCE_FONT_DIR",root)
+    mocks.realpath.mockImplementation(async (value:string)=>value.endsWith(".ttf") ? path.resolve("outside-fonts",path.basename(value)) : path.resolve(value))
+    await expect(loadInvoiceReferenceFonts()).rejects.toThrow("Invoice reference fonts are unavailable or invalid")
+    expect(mocks.read).not.toHaveBeenCalled()
+    mocks.realpath.mockImplementation(async (value:string)=>path.resolve(value))
+    mocks.read.mockResolvedValue(Buffer.from("untrusted-font-file"))
+    await expect(loadInvoiceReferenceFonts()).rejects.toThrow("Invoice reference fonts are unavailable or invalid")
+    mocks.read.mockClear()
+    mocks.stat.mockResolvedValue({isFile:()=>true,size:2*1024*1024+1})
+    await expect(loadInvoiceReferenceFonts()).rejects.toThrow("Invoice reference fonts are unavailable or invalid")
+    expect(mocks.read).not.toHaveBeenCalled()
   })
 })

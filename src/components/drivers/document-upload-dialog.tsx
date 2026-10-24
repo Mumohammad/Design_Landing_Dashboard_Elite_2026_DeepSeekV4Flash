@@ -1,286 +1,63 @@
-"use client";
-
-import { LocalizedText, useUiText } from "@/components/localized-text"
-import { useTranslation } from "@/hooks/use-translation"
-import { useEffect, useMemo, useState } from "react";
-
-import { FileUp, Loader2, Upload } from "lucide-react";
-import { toast } from "sonner";
-
-import { OVERRIDABLE_REQUIREMENTS } from "@/lib/drivers/compliance";
-import { emitDriverChanged } from "@/lib/drivers/driver-events";
-import { createClient } from "@/lib/supabase/client";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-
-// Bilingual labels for the compliance document keys. The keys come from the
-// compliance engine (OVERRIDABLE_REQUIREMENTS); unknown keys fall back to a
-// humanized version of the key itself.
-const DOC_TYPE_LABELS: Record<string, { en: string; ar: string }> = {
-  identity: { en: "Identity document", ar: "الهوية" },
-  driving_license: { en: "Driving license", ar: "رخصة القيادة" },
-  health_certificate: { en: "Health certificate", ar: "الشهادة الصحية" },
-  home_delivery_permit: { en: "Home delivery permit", ar: "تصريح التوصيل المنزلي" },
-  ajeer_permit: { en: "Ajeer permit", ar: "تصريح أجير" },
-};
-
-function docTypeLabel(docType: string): { en: string; ar: string } {
-  const known = DOC_TYPE_LABELS[docType];
-  if (known) return known;
-  return { en: docType.replace(/_/g, " "), ar: "" };
+"use client"
+import {useEffect,useState} from "react"
+import {useTranslation} from "@/hooks/use-translation"
+import {registerDriverDocument} from "@/app/actions/drivers/documents"
+import {DOC_UPLOAD_TYPES,DOC_REGISTER_TYPES} from "@/lib/drivers/documents"
+import {DRIVER_PHOTO_MIME_TYPES,driverPhotoImageMeta} from "@/lib/drivers/photo"
+import {emitDriverChanged} from "@/lib/drivers/driver-events"
+import {createClient} from "@/lib/supabase/client"
+import {toast} from "sonner"
+import {FileUp,Loader2,Upload} from "lucide-react"
+import {Button} from "@/components/ui/button"
+import {Dialog,DialogContent,DialogDescription,DialogFooter,DialogHeader,DialogTitle} from "@/components/ui/dialog"
+import {Input} from "@/components/ui/input"
+import {Label} from "@/components/ui/label"
+import {Select,SelectContent,SelectItem,SelectTrigger,SelectValue} from "@/components/ui/select"
+const labels:Record<string,[string,string]>={national_id:["National ID","الهوية الوطنية"],iqama:["Iqama","الإقامة"],passport:["Passport","جواز السفر"],driving_license:["Driving licence","رخصة القيادة"],vehicle_license:["Vehicle licence","رخصة المركبة"],medical_certificate:["Medical certificate","الشهادة الطبية"],health_certificate:["Health certificate","الشهادة الصحية"],police_clearance:["Police clearance","صحيفة الحالة الجنائية"],employment_contract:["Employment contract","عقد العمل"],bank_letter:["Bank letter","خطاب البنك"],photo:["Photo","الصورة"],other:["Other document","مستند آخر"],home_delivery_permit:["Home delivery permit","تصريح التوصيل"],ajeer_permit:["Ajeer permit","تصريح أجير"],food_handling_certificate:["Food handling certificate","شهادة تداول الأغذية"],vehicle_lease_agreement:["Vehicle lease agreement","عقد إيجار المركبة"],driver_card:["Driver card","بطاقة السائق"],work_permit:["Work permit","تصريح العمل"],authorization_letter:["Authorization letter","خطاب التفويض"],training_certificate:["Training certificate","شهادة التدريب"]}
+type Props={open:boolean;onOpenChange:(open:boolean)=>void;driverId:string;expectedDriverVersion:number;driverType?:string;isAr?:boolean;defaultDocType?:string|null;onUploaded?:()=>void}
+export function DocumentUploadDialog(props:Props){
+ if(!props.open)return null
+ return <DocumentUploadForm key={JSON.stringify([props.driverId,props.expectedDriverVersion,props.defaultDocType])} {...props}/>
 }
-
-/**
- * Map compliance requirement keys onto the live driver_document_type enum.
- * 'identity' covers national ID (Saudi) / iqama (expat) — stored as 'iqama'
- * which is the enum's identity-document value.
- */
-function complianceKeyToDocType(key: string): string {
-  switch (key) {
-    case "identity":
-      return "iqama";
-    case "driving_license":
-      return "driving_license";
-    case "health_certificate":
-      return "medical_certificate";
-    case "home_delivery_permit":
-      return "home_delivery_permit";
-    case "ajeer_permit":
-      return "ajeer_permit";
-    default:
-      return "other";
+function DocumentUploadForm({open,onOpenChange,driverId,expectedDriverVersion,defaultDocType=null,onUploaded}:Props){
+ const {locale}=useTranslation(),ar=locale==="ar",initial=defaultDocType??DOC_UPLOAD_TYPES[0]
+ const allowed=defaultDocType?[defaultDocType]:[...DOC_UPLOAD_TYPES]
+ const [docType,setDocType]=useState(initial),[docNumber,setDocNumber]=useState(""),[expiryDate,setExpiryDate]=useState(""),[file,setFile]=useState<File|null>(null),[uploading,setUploading]=useState(false),[revision,setRevision]=useState(0)
+ const [readResult,setReadResult]=useState<{docType:string;revision:number;tenantId:string|null;existing:boolean;failed:boolean}|null>(null)
+ const current=readResult?.docType===docType&&readResult.revision===revision?readResult:null
+ const loading=current===null,tenantId=current?.tenantId??null,existing=current?.existing??false,readFailed=current?.failed??false
+ useEffect(()=>{
+  if(!open)return
+  let cancelled=false
+  const load=async()=>{
+   try{
+    const client=createClient(),driver=await client.from("drivers").select("tenant_id,profile_version").eq("id",driverId).is("deleted_at",null).single()
+    if(driver.error||!driver.data||driver.data.profile_version!==expectedDriverVersion||expectedDriverVersion<1)throw Error("Reviewed driver changed")
+    const current=await client.from("driver_documents").select("id",{count:"exact"}).eq("driver_id",driverId).eq("doc_type",docType).eq("is_active",true).is("deleted_at",null).limit(1)
+    if(current.error||current.count===null)throw Error("Document read failed")
+    if(!cancelled)setReadResult({docType,revision,tenantId:driver.data.tenant_id,existing:current.count>0,failed:false})
+   }catch{if(!cancelled)setReadResult({docType,revision,tenantId:null,existing:false,failed:true})}
   }
-}
-
-type DocumentUploadDialogProps = {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  driverId: string;
-  /** Kept for caller compatibility; document types are requirement keys, not driver-type derived. */
-  driverType?: string;
-  /** RTL flag passed by some callers; labels are bilingual so no branching needed. */
-  isAr?: boolean;
-  /** When provided (from the card panel), the type is locked to the requirement being uploaded. */
-  defaultDocType?: string | null;
-  onUploaded?: () => void;
-};
-
-export function DocumentUploadDialog({
-  open,
-  onOpenChange,
-  driverId,
-  defaultDocType = null,
-  onUploaded,
-}: DocumentUploadDialogProps) {
-  const ui = useUiText()
-  const { locale } = useTranslation()
-  const supabase = createClient();
-
-  const allowedTypes = useMemo<string[]>(() => {
-    if (defaultDocType) return [defaultDocType];
-    return [...OVERRIDABLE_REQUIREMENTS];
-  }, [defaultDocType]);
-
-  const [docType, setDocType] = useState<string>(defaultDocType ?? allowedTypes[0] ?? "identity");
-  const [docNumber, setDocNumber] = useState("");
-  const [expiryDate, setExpiryDate] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [existingPath, setExistingPath] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    const nextType = defaultDocType ?? allowedTypes[0] ?? "identity";
-    setDocType(nextType);
-    setDocNumber("");
-    setExpiryDate("");
-    setFile(null);
-
-    let cancelled = false;
-    const loadExisting = async () => {
-      const { data } = await supabase
-        .from("driver_documents")
-        .select("id, file_url")
-        .eq("driver_id", driverId)
-        .eq("doc_type", complianceKeyToDocType(nextType))
-        .is("deleted_at", null)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (cancelled) return;
-      setExistingPath((data?.file_url as string | null) ?? null);
-    };
-    void loadExisting();
-    return () => {
-      cancelled = true;
-    };
-  }, [open, driverId, defaultDocType, allowedTypes, supabase]);
-
-  const upload = async () => {
-    if (uploading) return;
-    if (!file) {
-      toast.error("Choose a file to upload");
-      return;
-    }
-
-    setUploading(true);
-    try {
-      const { data: driverRow, error: driverError } = await supabase
-        .from("drivers")
-        .select("tenant_id")
-        .eq("id", driverId)
-        .single();
-      if (driverError) throw driverError;
-
-      const tenantId = driverRow?.tenant_id as string | undefined;
-      if (!tenantId) throw new Error("Driver tenant not found");
-
-      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-      const path = `${tenantId}/${driverId}/${docType}/${Date.now()}-${safeName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from("driver-documents")
-        .upload(path, file, { upsert: true, contentType: file.type || undefined });
-      if (uploadError) throw uploadError;
-
-      // Live schema shape: file_url (NOT NULL) carries the storage path, and
-      // doc_type is the driver_document_type enum (compliance requirement keys
-      // map onto it via complianceKeyToDocType). The (driver_id, doc_type)
-      // pair has a unique partial index (061) — replace-then-soft-delete keeps
-      // exactly one active row per pair (partial indexes cannot back onConflict).
-      const storagePath = path;
-      const { data: existingRow } = await supabase
-        .from("driver_documents")
-        .select("id")
-        .eq("driver_id", driverId)
-        .eq("doc_type", complianceKeyToDocType(docType))
-        .is("deleted_at", null)
-        .maybeSingle();
-      if (existingRow) {
-        const { error: softDeleteError } = await supabase
-          .from("driver_documents")
-          .update({ deleted_at: new Date().toISOString(), is_active: false })
-          .eq("id", existingRow.id);
-        if (softDeleteError) throw softDeleteError;
-      }
-      const { error: insertError } = await supabase.from("driver_documents").insert({
-        driver_id: driverId,
-        tenant_id: tenantId,
-        doc_type: complianceKeyToDocType(docType),
-        doc_number: docNumber.trim() || null,
-        file_url: storagePath,
-        file_size_bytes: file.size,
-        mime_type: file.type || null,
-        expiry_date: expiryDate || null,
-      });
-      if (insertError) throw insertError;
-
-      toast.success(`${docTypeLabel(docType).en} uploaded`);
-      onOpenChange(false);
-      onUploaded?.();
-      emitDriverChanged({ driverId, action: "document" });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Upload failed";
-      toast.error(message);
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <FileUp className="size-5 text-primary" /><LocalizedText text="Upload Document" /></DialogTitle>
-          <DialogDescription><LocalizedText text="Upload a compliance document for this driver. Uploading the same type again replaces the previous file." /></DialogDescription>
-        </DialogHeader>
-
-        {existingPath ? (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-950/30">
-            <p className="text-sm font-medium text-amber-900 dark:text-amber-200"><LocalizedText text="Existing file will be replaced" /></p>
-            <p className="text-xs text-amber-800 dark:text-amber-300/80"><LocalizedText text="A" />{docTypeLabel(docType).en}<LocalizedText text="file is already on record for this driver." /></p>
-          </div>
-        ) : null}
-
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="doc-type"><LocalizedText text="Document type" /></Label>
-            <Select
-              value={docType}
-              onValueChange={setDocType}
-              disabled={allowedTypes.length <= 1}
-            >
-              <SelectTrigger id="doc-type">
-                <SelectValue placeholder={ui("Select document type")} />
-              </SelectTrigger>
-              <SelectContent>
-                {allowedTypes.map((type) => {
-                  const label = docTypeLabel(type);
-                  return (
-                    <SelectItem key={type} value={type}>
-                      {locale === "ar" ? (label.ar || label.en) : label.en}
-                    </SelectItem>
-                  );
-                })}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <Label htmlFor="doc-number"><LocalizedText text="Document number (optional)" /></Label>
-              <Input
-                id="doc-number"
-                value={docNumber}
-                onChange={(event) => setDocNumber(event.target.value)}
-                placeholder={ui("e.g. 2456…")}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="doc-expiry"><LocalizedText text="Expiry date (optional)" /></Label>
-              <Input
-                id="doc-expiry"
-                type="date"
-                value={expiryDate}
-                onChange={(event) => setExpiryDate(event.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="doc-file"><LocalizedText text="File" /></Label>
-            <Input
-              id="doc-file"
-              type="file"
-              accept="image/*,application/pdf"
-              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-            />
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={uploading}><LocalizedText text="Cancel" /></Button>
-          <Button onClick={() => void upload()} disabled={uploading || !file}>
-            {uploading ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}<LocalizedText text="Upload" /></Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
+  void load();return()=>{cancelled=true}
+ },[open,driverId,expectedDriverVersion,docType,revision])
+ const upload=async()=>{
+  if(uploading||!file||!tenantId||loading||readFailed)return
+  if(!(DOC_REGISTER_TYPES as readonly string[]).includes(docType)||file.size<1||file.size>20971520){toast.error(ar?"اختر ملفاً صالحاً بحجم لا يتجاوز 20 ميجابايت.":"Choose a valid file no larger than 20 MB.");return}
+  const image=driverPhotoImageMeta(file),mime=file.type==="application/pdf"||!file.type&&file.name.toLowerCase().endsWith(".pdf")?"application/pdf":image.ok?image.contentType:""
+  if(mime!=="application/pdf"&&!DRIVER_PHOTO_MIME_TYPES.has(mime)){toast.error(ar?"يسمح بملفات PDF والصور المدعومة فقط.":"Use a PDF or supported image file.");return}
+  setUploading(true)
+  try{
+   const extension=(file.name.split(".").pop()??"bin").toLowerCase().replace(/[^a-z0-9]/g,"")||"bin",path=tenantId+"/"+driverId+"/"+docType+"-"+crypto.randomUUID()+"."+extension
+   const uploaded=await createClient().storage.from("driver-documents").upload(path,file,{upsert:false,contentType:mime})
+   if(uploaded.error)throw Error("Upload not confirmed")
+   const result=await registerDriverDocument({driverId,expectedDriverVersion,docType,filePath:path,...(docNumber.trim()?{docNumber:docNumber.trim()}:{}),...(expiryDate?{expiryDate}:{}),fileSize:file.size,mimeType:mime})
+   if(!result.ok){toast.error(ar?result.errorAr:result.error);return}
+   toast.success(ar?"تم حفظ المستند مع الاحتفاظ بالسجل السابق.":"Document saved; prior evidence is retained.");onOpenChange(false);onUploaded?.();emitDriverChanged({driverId,action:"document"})
+  }catch{toast.error(ar?"تعذر تأكيد رفع المستند. أعد تحميل الملف قبل المحاولة مجدداً؛ لن تُحذف الملفات المرفوعة.":"The document upload could not be confirmed. Reload the profile before retrying; uploaded files are retained.")}finally{setUploading(false)}
+ }
+ return <Dialog open={open} onOpenChange={value=>{if(!uploading)onOpenChange(value)}}><DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-md"><DialogHeader><DialogTitle className="flex items-center gap-2"><FileUp className="size-5 text-primary"/>{ar?"رفع مستند":"Upload Document"}</DialogTitle><DialogDescription>{ar?"يُحفظ الملف الجديد بشكل مستقل. تبقى المستندات السابقة محفوظة في سجل الاستبدال.":"The new file is stored separately. Previous documents remain in replacement history."}</DialogDescription></DialogHeader>
+ {readFailed?<div role="alert" className="space-y-2"><p className="text-sm text-destructive">{ar?"تعذر تحميل المستندات أو تغير ملف السائق. أعد تحميل الملف وراجع حالته قبل الرفع.":"Could not load the evidence, or the driver changed. Reload and review the profile before uploading."}</p><Button variant="outline" onClick={()=>setRevision(v=>v+1)}>{ar?"أعد المحاولة":"Try again"}</Button></div>:null}
+ {existing&&!readFailed?<p className="rounded-lg border bg-muted p-3 text-sm">{ar?"يوجد مستند سارٍ من هذا النوع؛ سيُنقل إلى سجل الاستبدال.":"A current document of this type will move to replacement history."}</p>:null}
+ <div className="space-y-4"><div className="space-y-2"><Label htmlFor="doc-type">{ar?"نوع المستند":"Document type"}</Label><Select value={docType} onValueChange={setDocType} disabled={uploading||allowed.length<=1}><SelectTrigger id="doc-type"><SelectValue/></SelectTrigger><SelectContent>{allowed.map(type=><SelectItem key={type} value={type}>{labels[type]?.[ar?1:0]??(ar?"مستند":"Document")}</SelectItem>)}</SelectContent></Select></div><div className="grid grid-cols-2 gap-3"><div className="space-y-2"><Label htmlFor="doc-number">{ar?"رقم المستند (اختياري)":"Document number (optional)"}</Label><Input id="doc-number" value={docNumber} onChange={e=>setDocNumber(e.target.value)} maxLength={100} disabled={uploading}/></div><div className="space-y-2"><Label htmlFor="doc-expiry">{ar?"تاريخ الانتهاء (اختياري)":"Expiry date (optional)"}</Label><Input id="doc-expiry" type="date" value={expiryDate} onChange={e=>setExpiryDate(e.target.value)} disabled={uploading}/></div></div><div className="space-y-2"><Label htmlFor="doc-file">{ar?"الملف (20 ميجابايت كحد أقصى)":"File (max 20 MB)"}</Label><Input id="doc-file" type="file" accept="image/*,application/pdf" onChange={e=>setFile(e.target.files?.[0]??null)} disabled={uploading}/></div></div>
+ <DialogFooter><Button variant="outline" onClick={()=>onOpenChange(false)} disabled={uploading}>{ar?"إلغاء":"Cancel"}</Button><Button onClick={()=>void upload()} disabled={uploading||!file||loading||readFailed||!tenantId}>{uploading?<Loader2 className="size-4 animate-spin"/>:<Upload className="size-4"/>}{ar?"رفع":"Upload"}</Button></DialogFooter></DialogContent></Dialog>
 }

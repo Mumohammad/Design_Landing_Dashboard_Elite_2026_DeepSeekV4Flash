@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
+import { fetchFleetRows } from "@/lib/vehicles/query-pages"
 import { createClient } from "@/lib/supabase/client"
 import { toast } from "sonner"
 import {
@@ -31,6 +32,7 @@ import { emitDriverChanged } from "@/lib/drivers/driver-events"
 import { Car, ExternalLink, Loader2, Unlink } from "lucide-react"
 
 type CurrentAssignment = {
+  version: number
   id: string
   vehicle_id: string
   assigned_at: string | null
@@ -50,6 +52,7 @@ type VehicleOption = {
 export function VehicleAssignmentCard({ driverId, isAr }: { driverId: string; isAr: boolean }) {
   const [assignment, setAssignment] = useState<CurrentAssignment | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [loadError,setLoadError]=useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [vehicles, setVehicles] = useState<VehicleOption[]>([])
   const [vehicleId, setVehicleId] = useState<string>("")
@@ -60,10 +63,10 @@ export function VehicleAssignmentCard({ driverId, isAr }: { driverId: string; is
   const load = useCallback(async (silent = false) => {
     if (!silent) setIsLoading(true)
     const supabase = createClient()
-    const { data } = await supabase
+    const { data,error } = await supabase
       .from("vehicle_assignments")
       .select(
-        "id, vehicle_id, assigned_at, assignment_reason, vehicles(plate_number, make, model)",
+        "id, version, vehicle_id, assigned_at, assignment_reason, vehicles(id, plate_number, make, model)",
       )
       .eq("driver_id", driverId)
       .eq("is_current", true)
@@ -71,6 +74,7 @@ export function VehicleAssignmentCard({ driverId, isAr }: { driverId: string; is
       .order("assigned_at", { ascending: false })
       .limit(1)
       .maybeSingle()
+    setLoadError(!!error)
     setAssignment((data as CurrentAssignment | null) ?? null)
     setIsLoading(false)
   }, [driverId])
@@ -87,13 +91,14 @@ export function VehicleAssignmentCard({ driverId, isAr }: { driverId: string; is
     setVehicleId("")
     setReason("")
     setDialogOpen(true)
-    const { data } = await createClient()
+    const { data,error } = await fetchFleetRows<VehicleOption>(()=>createClient()
       .from("vehicles")
       .select("id, vehicle_code, plate_number, make, model")
       .eq("status", "available")
       .is("deleted_at", null)
       .order("vehicle_code", { ascending: true })
-      .limit(100)
+      .order("id"))
+    if(error)return toast.error(isAr?"تعذر تحميل الخيارات. أعد المحاولة.":"Could not load assignment options. Try again.")
     setVehicles((data as VehicleOption[]) ?? [])
   }
 
@@ -123,6 +128,7 @@ export function VehicleAssignmentCard({ driverId, isAr }: { driverId: string; is
     if (unassigning || !assignment) return
     setUnassigning(true)
     const res = await unassignVehicleFromDriver({
+      expectedVersion: assignment.version,
       vehicleId: assignment.vehicle_id,
       driverId,
     })
@@ -135,6 +141,8 @@ export function VehicleAssignmentCard({ driverId, isAr }: { driverId: string; is
       toast.error(res.error ?? (isAr ? "فشل إلغاء التعيين" : "Failed to unassign vehicle"))
     }
   }
+
+  if(loadError)return <div role="alert" className="rounded-xl border p-4"><p>{isAr?"تعذر تحميل التعيين. أعد المحاولة.":"Could not load the current assignment. Try again."}</p><Button variant="outline" onClick={()=>void load()}>{isAr?"إعادة المحاولة":"Retry"}</Button></div>
 
   if (isLoading) {
     return <Skeleton className="h-40 rounded-2xl lg:col-span-2" />

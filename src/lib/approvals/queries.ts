@@ -23,6 +23,8 @@ const rowSchema = z.object({
   item_type: z.enum(APPROVAL_ITEM_TYPES), item_id: z.uuid(), subject: z.string(),
   requester: z.string(), requested_at: z.iso.datetime({ offset: true }),
   subject_meta: z.object({
+    workflow_version: z.number().int().positive().optional(),
+    correction_version: z.number().int().positive().optional(),
     amount: z.union([z.number().finite(), z.string()]).nullable().optional(),
     currency: optionalText, expense_type: optionalText, category: optionalText,
     vendor: optionalText, expense_date: optionalText, driver_id: z.uuid().nullable().optional(),
@@ -80,7 +82,7 @@ export async function fetchApprovalsPage(
       ? { ...row, id: `${row.item_type}:${row.item_id}`, requester: "", subject_meta: {
         full_name: maskRequesterName("application", "", row.subject_meta.full_name ?? null, false),
         city: row.subject_meta.city, work_type: row.subject_meta.work_type,
-        driver_category: row.subject_meta.driver_category, status: row.subject_meta.status,
+        driver_category: row.subject_meta.driver_category, status: row.subject_meta.status, workflow_version: row.subject_meta.workflow_version,
       } }
       : { ...row, id: `${row.item_type}:${row.item_id}` }) }
   } catch {

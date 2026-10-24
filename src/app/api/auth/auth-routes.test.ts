@@ -11,7 +11,7 @@ import { NextRequest } from "next/server"
 
 // ── Mocks (hoisted) ────────────────────────────────────────────────────────
 
-const { limiterState, ssrState, resetPasswordMock } = vi.hoisted(() => {
+const { limiterState, ssrState, resetPasswordMock, emailCallbackMock } = vi.hoisted(() => {
   const limiterState = {
     signInResult: { success: true, remaining: 9, resetAt: Date.now() + 60_000 },
     forgotResult: { success: true, remaining: 2, resetAt: Date.now() + 3_600_000 },
@@ -19,7 +19,7 @@ const { limiterState, ssrState, resetPasswordMock } = vi.hoisted(() => {
   }
   const ssrState = { succeed: true }
   const resetPasswordMock = vi.fn()
-  return { limiterState, ssrState, resetPasswordMock }
+  return { limiterState, ssrState, resetPasswordMock, emailCallbackMock: vi.fn() }
 })
 
 vi.mock("@/lib/auth/rate-limit", () => {
@@ -87,7 +87,7 @@ vi.mock("@/lib/supabase/server", () => ({
 }))
 
 vi.mock("@/lib/redirects", () => ({
-  authCallbackUrlWithReturn: () => "https://dashboard.example.test/auth/confirm",
+  authCallbackUrlWithReturn: emailCallbackMock,
 }))
 
 vi.mock("@/lib/errors", () => ({
@@ -127,6 +127,7 @@ beforeEach(() => {
   limiterState.forgotResult = { success: true, remaining: 2, resetAt: Date.now() + 3_600_000 }
   limiterState.throwUnavailable = false
   ssrState.succeed = true
+  emailCallbackMock.mockReset().mockReturnValue("https://dashboard.example.test/auth/confirm")
   resetPasswordMock.mockReset().mockResolvedValue({ error: null })
 })
 
@@ -205,6 +206,14 @@ describe("POST /api/auth/forgot-password", () => {
       "user@example.com",
       { redirectTo: "https://dashboard.example.test/auth/confirm" }
     )
+  })
+
+  it("503 when the configured email origin is invalid, before sending a recovery request", async () => {
+    emailCallbackMock.mockImplementation(() => { throw new Error("Invalid email origin: private config") })
+    const res = await forgot(jsonPost("/api/auth/forgot-password", { email: "user@example.com" }))
+    expect(res.status).toBe(503)
+    expect(await res.json()).toEqual({ error: "Password recovery temporarily unavailable" })
+    expect(resetPasswordMock).not.toHaveBeenCalled()
   })
 
   it("200 even when Supabase errors (no account enumeration in the response)", async () => {

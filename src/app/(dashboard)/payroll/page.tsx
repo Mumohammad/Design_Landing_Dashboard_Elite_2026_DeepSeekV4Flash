@@ -1,8 +1,9 @@
 "use client"
 
+import Link from "next/link"
 import { LocalizedText, useUiText } from "@/components/localized-text"
 import { integrationAvailable } from "@/lib/release/integrations"
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
 import { EnterpriseModulePage, type KpiCardData, type TableColumn } from "@/components/dashboard/enterprise-module-page"
@@ -41,31 +42,6 @@ interface PayrollRow {
 }
 
 // Per-driver live reads wiring payroll to the orders + COD surfaces (Prompt F).
-interface OrdersRollupRow {
-  driver_id: string
-  total_delivered: number | null
-  total_failed: number | null
-  total_returned: number | null
-  total_revenue: number | null
-}
-interface CodRollupRow {
-  driver_id: string
-  cod_collected: number | null
-  cod_submitted: number | null
-  cod_variance: number | null
-  status: string
-}
-
-const STATUS_META: Record<string, { ar: string; en: string; className: string }> = {
-  draft: { ar: "مسودة", en: "Draft", className: "bg-gray-500/15 text-gray-600 border-gray-500/20" },
-  calculated: { ar: "محسوبة", en: "Calculated", className: "bg-blue-500/15 text-blue-600 border-blue-500/20" },
-  in_review: { ar: "مراجعة", en: "In Review", className: "bg-amber-500/15 text-amber-600 border-amber-500/20" },
-  approved: { ar: "معتمدة", en: "Approved", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/20" },
-  paid: { ar: "مدفوعة", en: "Paid", className: "bg-purple-500/15 text-purple-600 border-purple-500/20" },
-  locked: { ar: "مقفلة", en: "Locked", className: "bg-gray-500/15 text-gray-600 border-gray-500/20" },
-  cancelled: { ar: "ملغاة", en: "Cancelled", className: "bg-red-500/15 text-red-600 border-red-500/20" },
-}
-
 function fmtMoney(n: number | null | undefined): string {
   return (n ?? 0).toFixed(2) + " SAR"
 }
@@ -73,97 +49,67 @@ function fmtMoney(n: number | null | undefined): string {
 const MONTH_NAMES_AR = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"]
 const MONTH_NAMES_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
+const STATUS_META: Record<string, { ar: string; en: string; className: string }> = {
+  draft: { ar: "مسودة", en: "Draft", className: "border-border bg-muted text-muted-foreground" },
+  calculated: { ar: "محتسبة", en: "Calculated", className: "border-blue-300 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-200" },
+  in_review: { ar: "قيد المراجعة", en: "In review", className: "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200" },
+  approved: { ar: "معتمدة", en: "Approved", className: "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200" },
+  paid: { ar: "مدفوعة", en: "Paid", className: "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200" },
+  locked: { ar: "مقفلة", en: "Locked", className: "border-border bg-muted text-muted-foreground" },
+  cancelled: { ar: "ملغاة", en: "Cancelled", className: "border-destructive/40 bg-destructive/5 text-destructive" },
+}
+
 export default function PayrollPage() {
   const ui = useUiText()
   const { t } = useTranslation()
   const ar = t.common.status === "الحالة"
   const [data, setData] = useState<PayrollRow[]>([])
-  const [ordersByDriver, setOrdersByDriver] = useState<Map<string, { delivered: number; revenue: number }>>(new Map())
   const [codByDriver, setCodByDriver] = useState<Map<string, { sessions: number; variance: number; pending: number }>>(new Map())
-  const [isLoading, setIsLoading] = useState(true)
-  const [search, setSearch] = useState("")
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
+  const [request, setRequest] = useState({ year: new Date().getFullYear(), page: 1, search: "" })
+  const { year: selectedYear, page, search } = request
+  const [totalRecords, setTotalRecords] = useState(0)
+  const [yearStats, setYearStats] = useState({net:0,approved:0,delivered:0})
+  const [loadError, setLoadError] = useState("")
+  const [loadedRequest, setLoadedRequest] = useState<typeof request | null>(null)
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1)
   const [isCalculating, setIsCalculating] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
   const [transitioningId, setTransitioningId] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<{ type: "ok" | "err"; text: string } | null>(null)
 
-  async function load() {
-    setIsLoading(true)
-    const supabase = createClient()
-    const { data: result, error } = await supabase
-      .from("driver_payroll_periods")
-      .select(`
-        id,driver_id,period_year,period_month,status,net_payroll,base_amount,orders_bonus,
-        total_deductions,cod_deduction,orders_achieved,orders_prorated_target,orders_variance,
-        below_minimum_wage,minimum_floor_applied,manual_override,
-        driver:drivers(full_name_ar,driver_code)
-      `)
-      .eq("period_year", selectedYear)
-      .is("deleted_at", null)
-      .order("period_month", { ascending: false })
-      .order("created_at", { ascending: false })
-      .limit(200)
-    if (error) { console.error(error); setData([]) }
-    else { setData((result as unknown as PayrollRow[]) ?? []) }
+  const loadSequence = useRef(0)
+  const mounted = useRef(false)
+  const isLoading = loadedRequest !== request
 
-    // ── Live orders rollup (monthly_driver_orders) for the loaded rows ──
-    // One query for the whole page: per-platform rows keyed by (driver,
-    // period) then aggregated client-side (pure rollup in payroll-utils).
-    const rowSet = (result as unknown as PayrollRow[]) ?? []
-    if (rowSet.length > 0) {
-      // Rollup per (driver_id, period) — map by `${driver_id}:${year}:${month}`.
-      const { data: orderRows } = await supabase
-        .from("monthly_driver_orders")
-        .select("driver_id, period_year, period_month, total_delivered, total_failed, total_returned, total_revenue")
-        .eq("period_year", selectedYear)
-        .in("period_month", [...new Set(rowSet.map((r) => r.period_month))])
-        .is("deleted_at", null)
-        .limit(2000)
-      const ordersMap = new Map<string, { delivered: number; revenue: number }>()
-      for (const r of (orderRows as unknown as (OrdersRollupRow & { period_year: number; period_month: number })[]) ?? []) {
-        const key = `${r.driver_id}:${r.period_year}:${r.period_month}`
-        const agg = ordersMap.get(key) ?? { delivered: 0, revenue: 0 }
-        agg.delivered += r.total_delivered ?? 0
-        agg.revenue += Number(r.total_revenue ?? 0)
-        ordersMap.set(key, agg)
-      }
-      setOrdersByDriver(ordersMap)
-
-      // ── COD sessions rollup per driver for the loaded rows' periods ──
-      // session_date spans the whole month, so filter by range per distinct
-      // period in the rowset (the pure rollup lives in payroll-utils).
-      const monthStarts = [...new Set(rowSet.map((r) => periodKey(r.period_year, r.period_month)))]
-      const { data: codRows } = await supabase
-        .from("driver_cod_sessions")
-        .select("driver_id, cod_collected, cod_submitted, cod_variance, status, session_date")
-        .in("session_date", monthStarts.map((k) => `${k}-01`))
-        .is("deleted_at", null)
-        .limit(2000)
-      // session_date is a DATE not a month key; group by driver + month prefix.
-      const codMap = new Map<string, { sessions: number; variance: number; pending: number }>()
-      for (const r of (codRows as unknown as (CodRollupRow & { session_date: string })[]) ?? []) {
-        const monthKey = `${r.session_date.slice(0, 7)}`
-        const key = `${r.driver_id}:${monthKey}`
-        const agg = codMap.get(key) ?? { sessions: 0, variance: 0, pending: 0 }
-        agg.sessions += 1
-        agg.variance += Number(r.cod_variance ?? 0)
-        if (r.status === "pending") agg.pending += 1
-        codMap.set(key, agg)
-      }
-      setCodByDriver(codMap)
-    } else {
-      setOrdersByDriver(new Map())
-      setCodByDriver(new Map())
+  const load = useCallback(() => {
+    const sequence = ++loadSequence.current
+    const fail = (error: unknown) => {
+      if (sequence !== loadSequence.current) return
+      setLoadError(error instanceof Error ? error.message : "Unable to load payroll")
+      setData([]); setTotalRecords(0); setYearStats({net:0,approved:0,delivered:0}); setCodByDriver(new Map())
+      setLoadedRequest(request)
     }
-    setIsLoading(false)
-  }
+    const supabase = createClient()
+    return supabase.rpc("payroll_periods_page", {p_year:request.year,p_page:request.page-1,p_search:request.search.trim()}).then(({ data: result, error }) => {
+      if (sequence !== loadSequence.current) return
+      if (error || !result) { fail(new Error(error?.message ?? "Unable to load payroll")); return }
+      setLoadError("")
+      const response=result as {rows:(PayrollRow & {live_delivered:number;live_cod:{sessions:number;variance:number;pending:number}})[];total:number;stats:{net:number;approved:number;delivered:number}}
+      setData(response.rows);setTotalRecords(response.total);setYearStats(response.stats)
+      setCodByDriver(new Map(response.rows.map(r => [`${r.driver_id}:${periodKey(r.period_year,r.period_month)}`,r.live_cod])))
+      setLoadedRequest(request)
+    }, fail)
+  }, [request])
 
   useEffect(() => {
+    mounted.current = true
     void load()
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload on year change
-  }, [selectedYear])
+    return () => { mounted.current = false; loadSequence.current += 1 }
+  }, [load])
+
+  function requestReload() {
+    if (mounted.current) setRequest(current => ({ ...current }))
+  }
 
   /** Guarded status transition through the shared server action. */
   async function handleTransition(row: PayrollRow, to: PayrollStatus) {
@@ -175,18 +121,24 @@ export default function PayrollPage() {
       if (!reason || reason.trim().length < 5) return
     }
     setTransitioningId(row.id)
-    const res = await transitionPayrollStatus({
-      periodId: row.id,
-      to,
-      reason,
-      surface: "payroll",
-    })
-    setTransitioningId(null)
-    if (res.success) {
-      toast.success(ar ? `تم تحديث الحالة إلى ${STATUS_META[to]?.ar ?? to}` : `Status changed to ${to}`)
-      await load()
-    } else {
-      toast.error(res.error ?? "Error")
+    try {
+      const res = await transitionPayrollStatus({
+        periodId: row.id,
+        to,
+        reason,
+        surface: "payroll",
+      })
+      if (!mounted.current) return
+      if (res.success) {
+        toast.success(ar ? `تم تحديث الحالة إلى ${STATUS_META[to]?.ar ?? to}` : `Status changed to ${to}`)
+        requestReload()
+      } else {
+        toast.error(res.error ?? (ar ? "تعذر تحديث الحالة." : "Unable to update status."))
+      }
+    } catch {
+      if (mounted.current) toast.error(ar ? "تعذر تأكيد تحديث الحالة. حدّث الرواتب قبل إعادة المحاولة." : "Could not confirm the status update. Refresh payroll before retrying.")
+    } finally {
+      if (mounted.current) setTransitioningId(current => current === row.id ? null : current)
     }
   }
 
@@ -224,39 +176,54 @@ export default function PayrollPage() {
   async function handleCalculate() {
     setIsCalculating(true)
     setFeedback(null)
-    const res = await calculatePayrollForPeriod(selectedYear, selectedMonth)
-    setIsCalculating(false)
-    if (res.success) {
-      setFeedback({
-        type: "ok",
-        text: ar
-          ? `تم احتساب رواتب ${res.calculated} سائق${res.error ? ` (${res.error})` : ""}.`
-          : `${res.calculated} driver(s) calculated${res.error ? ` (${res.error})` : ""}.`,
-      })
-      await load()
-    } else {
-      setFeedback({ type: "err", text: res.error ?? "Error" })
+    try {
+      const res = await calculatePayrollForPeriod(selectedYear, selectedMonth)
+      if (!mounted.current) return
+      if (res.success) {
+        setFeedback({
+          type: "ok",
+          text: ar
+            ? `تم احتساب رواتب ${res.calculated} سائق${res.error ? ` (${res.error})` : ""}.`
+            : `${res.calculated} driver(s) calculated${res.error ? ` (${res.error})` : ""}.`,
+        })
+        requestReload()
+      } else {
+        setFeedback({ type: "err", text: res.error ?? (ar ? "تعذر احتساب الرواتب." : "Unable to calculate payroll.") })
+      }
+    } catch {
+      if (mounted.current) setFeedback({ type: "err", text: ar ? "تعذر تأكيد احتساب الرواتب. حدّث الرواتب قبل إعادة المحاولة." : "Could not confirm the payroll calculation. Refresh payroll before retrying." })
+    } finally {
+      if (mounted.current) setIsCalculating(false)
     }
   }
 
   async function handleDownloadWps() {
     setIsDownloading(true)
     setFeedback(null)
-    const res = await generateWpsFile(selectedYear, selectedMonth)
-    setIsDownloading(false)
-    if (res.success && res.content && res.filename) {
-      const blob = new Blob([res.content], { type: "text/plain;charset=utf-8" })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = res.filename
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
-      setFeedback({ type: "ok", text: ar ? "تم إنشاء ملف WPS بنجاح." : "WPS SIF file generated." })
-    } else {
-      setFeedback({ type: "err", text: res.error ?? "Error" })
+    try {
+      const res = await generateWpsFile(selectedYear, selectedMonth)
+      if (!mounted.current) return
+      if (res.success && res.content && res.filename) {
+        const blob = new Blob([res.content], { type: "text/plain;charset=utf-8" })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement("a")
+        a.href = url
+        a.download = res.filename
+        try {
+          document.body.appendChild(a)
+          a.click()
+        } finally {
+          a.remove()
+          URL.revokeObjectURL(url)
+        }
+        setFeedback({ type: "ok", text: ar ? "تم إنشاء ملف WPS بنجاح." : "WPS SIF file generated." })
+      } else {
+        setFeedback({ type: "err", text: res.error ?? (ar ? "تعذر إنشاء ملف WPS." : "Unable to generate the WPS file.") })
+      }
+    } catch {
+      if (mounted.current) setFeedback({ type: "err", text: ar ? "تعذر تأكيد تنزيل ملف WPS. أعد المحاولة." : "Could not confirm the WPS download. Try again." })
+    } finally {
+      if (mounted.current) setIsDownloading(false)
     }
   }
 
@@ -264,20 +231,18 @@ export default function PayrollPage() {
   // with to=cancelled) — cancelPayrollPeriodAction (M4 rollback chain) remains
   // available for the disbursement-execution backlog.
 
-  const filtered = search
-    ? data.filter(r => r.driver?.full_name_ar?.includes(search) || r.driver?.driver_code?.includes(search))
-    : data
+  const filtered = data
 
-  const totalNet = data.reduce((s, r) => s + (r.net_payroll ?? 0), 0)
-  const approvedCount = data.filter(r => r.status === "approved" || r.status === "paid").length
+  const totalNet = yearStats.net
+  const approvedCount = yearStats.approved
   // Live orders/COD KPI (Prompt F): aggregated across the loaded rows' drivers.
-  const totalDelivered = [...ordersByDriver.values()].reduce((s, v) => s + v.delivered, 0)
+  const totalDelivered = yearStats.delivered
 
   const kpiCards: KpiCardData[] = [
-    { label: t.nav.payroll, value: data.length, icon: CreditCard, color: "#1E5A99" },
+    { label: t.nav.payroll, value: totalRecords, icon: CreditCard, color: "#1E5A99" },
     { label: t.common.approved, value: approvedCount, icon: FileCheck, color: "#10B981" },
-    { label: ar ? "طلبات مُسلَّمة (مباشر)" : "Delivered orders (live)", value: totalDelivered.toLocaleString("en-US"), icon: PackageCheck, color: "#F59E0B" },
-    { label: "Net Total (SAR)", value: totalNet.toFixed(0), icon: DollarSign, color: "#8B5CF6" },
+    { label: ar ? "طلبات مسلّمة (محتسبة، السنة المصفاة)" : "Delivered orders (calculated, filtered year)", value: totalDelivered.toLocaleString("en-US"), icon: PackageCheck, color: "#F59E0B" },
+    { label: ar ? "صافي الإجمالي (ر.س)" : "Net Total (SAR)", value: totalNet.toFixed(0), icon: DollarSign, color: "#8B5CF6" },
   ]
 
   const columns: TableColumn<PayrollRow>[] = [
@@ -338,7 +303,7 @@ export default function PayrollPage() {
         <div className="flex items-center gap-2">
           <span dir="ltr" className="tabular-nums font-bold">{fmtMoney(r.net_payroll)}</span>
           {r.below_minimum_wage && (
-            <span className="inline-flex items-center rounded-full bg-red-500/15 text-red-600 border border-red-500/20 px-1.5 py-0.5 text-[10px] font-medium" title={ui("Below Saudi minimum wage")}>
+            <span className="inline-flex items-center rounded-full bg-red-500/15 text-red-600 border border-red-500/20 px-1.5 py-0.5 text-[10px] font-medium" title={ar ? "أقل من الحد المرجعي المضبوط للرواتب" : "Below configured payroll advisory"}>
               <AlertTriangle className="h-3 w-3 ml-0.5" /><LocalizedText text="MW" /></span>
           )}
           {r.minimum_floor_applied && (
@@ -401,10 +366,12 @@ export default function PayrollPage() {
         kpiCards={kpiCards}
         searchPlaceholder={t.common.searchPlaceholder}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={search => setRequest(current => ({ ...current, search, page: 1 }))}
         toolbarActions={
           <div className="flex flex-wrap items-center gap-2">
+            <Link href="/payroll/preparation" className="inline-flex h-9 items-center rounded-xl border border-border px-3.5 text-sm font-medium hover:bg-muted">{ar ? "تحضير البيانات والسلف" : "Prepare inputs and advances"}</Link>
             <select
+              aria-label={ar ? "شهر الراتب" : "Payroll month"}
               value={selectedMonth}
               onChange={(e) => setSelectedMonth(Number(e.target.value))}
               className="h-9 rounded-xl border border-border/50 bg-muted/30 px-3 text-sm"
@@ -413,15 +380,12 @@ export default function PayrollPage() {
                 <option key={i} value={i + 1}>{m}</option>
               ))}
             </select>
-            <select
+            <input
+              type="number" min="2000" max="2100" aria-label={ar ? "سنة الراتب" : "Payroll year"}
               value={selectedYear}
-              onChange={(e) => setSelectedYear(Number(e.target.value))}
-              className="h-9 rounded-xl border border-border/50 bg-muted/30 px-3 text-sm"
-            >
-              {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map(year => (
-                <option key={year} value={year}>{year}</option>
-              ))}
-            </select>
+              onChange={event => { const year = Number(event.target.value); setRequest(current => ({ ...current, year, page: 1 })) }}
+              className="h-9 w-28 rounded-xl border border-border/50 bg-muted/30 px-3 text-sm"
+            />
             <button
               onClick={handleCalculate}
               disabled={isCalculating}
@@ -432,11 +396,11 @@ export default function PayrollPage() {
             </button>
             <button
               onClick={exportCsv}
-              disabled={filtered.length === 0}
+              disabled={isLoading || filtered.length === 0}
               className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-border/50 bg-muted/30 px-3.5 text-sm font-medium text-foreground transition-colors hover:bg-muted/50 disabled:opacity-50"
             >
               <Download className="h-4 w-4" />
-              CSV
+              {ar ? "CSV — الصفحة الحالية" : "CSV — current page"}
             </button>
             <button
               onClick={handleDownloadWps}
@@ -455,6 +419,9 @@ export default function PayrollPage() {
         }
         columns={columns}
         data={filtered}
+        loadError={isLoading ? "" : loadError}
+        onRetry={requestReload}
+        pagination={{totalRecords,currentPage:page,totalPages:Math.max(1,Math.ceil(totalRecords/50)),onPageChange:page => setRequest(current => ({ ...current, page }))}}
         isLoading={isLoading}
         emptyStateMessage={t.common.noData}
       />

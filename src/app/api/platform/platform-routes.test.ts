@@ -11,6 +11,8 @@ import { NextRequest } from "next/server"
 
 const { authState, rlState } = vi.hoisted(() => ({
   authState: {
+    createUserCalls: 0,
+    generateLinkInputs: [] as unknown[],
     createUserError: null as { message: string; code?: string } | null,
     tenantsInsertError: null as { message: string; code?: string } | null,
   },
@@ -24,15 +26,17 @@ vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
     auth: {
       admin: {
-        createUser: async () =>
-          authState.createUserError
+        createUser: async () => {
+          authState.createUserCalls++
+          return authState.createUserError
             ? { data: { user: null }, error: authState.createUserError }
-            : { data: { user: { id: "au1" } }, error: null },
+            : { data: { user: { id: "au1" } }, error: null }
+        },
         deleteUser: vi.fn(async () => ({ error: null })),
-        generateLink: async () => ({
-          data: { properties: { action_link: "https://confirm.example.test" } },
-          error: null,
-        }),
+        generateLink: async (input: unknown) => {
+          authState.generateLinkInputs.push(input)
+          return { data: { properties: { action_link: "https://confirm.example.test" } }, error: null }
+        },
       },
     },
     rpc: async () => ({ data: { id: "t1", slug: "acme" }, error: authState.tenantsInsertError }),
@@ -127,6 +131,9 @@ function jsonPost(path: string, rawBody: string): NextRequest {
 // Supabase auth settings fetch → fails → route keeps default
 // emailConfirmationEnabled = true (deterministic responses).
 beforeEach(() => {
+  vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://workspace.example.test")
+  authState.createUserCalls = 0
+  authState.generateLinkInputs = []
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => ({ ok: false, json: async () => ({}) }))
@@ -139,6 +146,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
 })
 
 // ── POST /api/platform/register ────────────────────────────────────────────
@@ -160,6 +168,23 @@ describe("POST /api/platform/register (FX-07)", () => {
     expect(existing.status).toBe(fresh.status)
     expect(await existing.text()).toBe(await fresh.text())
     expect(existing.status).toBe(200)
+  })
+
+  it("uses the configured absolute confirmation destination instead of the request host", async () => {
+    const response = await registerPost(jsonPost("/api/platform/register", payload))
+    expect(response.status).toBe(200)
+    expect(authState.generateLinkInputs).toEqual([expect.objectContaining({
+      type: "signup", options: { redirectTo: "https://workspace.example.test/auth/confirm" },
+    })])
+  })
+
+  it("fails closed on unsafe email configuration before creating an account", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "http://untrusted.example.test")
+    const response = await registerPost(jsonPost("/api/platform/register", payload))
+    expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({ error: "Registration temporarily unavailable" })
+    expect(authState.createUserCalls).toBe(0)
+    expect(authState.generateLinkInputs).toEqual([])
   })
 
   it("DB failure mid-registration → 503 with NO PostgREST text, table, or column names", async () => {

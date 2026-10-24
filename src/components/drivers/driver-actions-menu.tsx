@@ -152,6 +152,7 @@ const EDIT_SECTIONS: SectionDef[] = [
       { key: "job_title", en: "Job title", ar: "المسمى الوظيفي" },
       { key: "department", en: "Department", ar: "القسم" },
       { key: "hire_date", en: "Hire date", ar: "تاريخ التعيين", type: "date" },
+      { key: "termination_date", en: "Termination date", ar: "تاريخ انتهاء العمل", type: "date" },
       { key: "contract_start", en: "Contract start", ar: "بداية العقد", type: "date" },
       { key: "contract_end", en: "Contract end", ar: "نهاية العقد", type: "date" },
     ],
@@ -270,11 +271,11 @@ export default function DriverActionsMenu({
   const [pending, setPending] = useState<PendingAction | null>(null)
   const [reason, setReason] = useState("")
   const [note, setNote] = useState("")
+  const [terminationDate,setTerminationDate]=useState("")
   const [acting, setActing] = useState(false)
   const [busy, setBusy] = useState(false)
 
   const ensureRecord = async (): Promise<Driver | null> => {
-    if (record) return record
     setBusy(true)
     try {
       const supabase = createClient()
@@ -316,6 +317,7 @@ export default function DriverActionsMenu({
     if (!full) return
     setReason("")
     setNote("")
+    setTerminationDate("")
     setPending(action)
   }
 
@@ -348,7 +350,7 @@ export default function DriverActionsMenu({
           }
         }
       }
-      const res = await updateDriver(driverId, payload as DriverUpdateInput)
+      const res = await updateDriver(driverId, payload as DriverUpdateInput, record?.profile_version ?? 0)
       if (!res.success) {
         toast.error(res.error ?? (isAr ? "فشل الحفظ" : "Save failed"))
         return
@@ -366,7 +368,7 @@ export default function DriverActionsMenu({
     setActing(true)
     try {
       if (pending.kind === "archive") {
-        const res = await archiveDriver({ driverId, reason: reason.trim() })
+        const res = await archiveDriver({ driverId, reason: reason.trim(), expectedVersion:record?.profile_version??0 })
         if (!res.success) {
           toast.error(res.error ?? (isAr ? "فشل الأرشفة" : "Archive failed"))
           return
@@ -380,8 +382,10 @@ export default function DriverActionsMenu({
       const res = await setDriverStatus({
         driverId,
         status: pending.def.status,
+        expectedVersion:record?.profile_version??0,
         reason: reason.trim() || undefined,
         note: note.trim() || undefined,
+        terminationDate:terminationDate||undefined,
       })
       if (!res.success) {
         toast.error(res.error ?? (isAr ? "فشل تغيير الحالة" : "Status change failed"))
@@ -389,7 +393,7 @@ export default function DriverActionsMenu({
       }
       toast.success(isAr ? "تم تحديث الحالة" : "Status updated")
       setPending(null)
-      setRecord((prev) => (prev ? { ...prev, status: pending.def.status } : prev))
+      setRecord((prev) => (prev ? { ...prev, status: pending.def.status, profile_version:res.profile_version??prev.profile_version, termination_date:terminationDate||prev.termination_date } : prev))
       notifyChanged()
     } finally {
       setActing(false)
@@ -416,12 +420,13 @@ export default function DriverActionsMenu({
   const pendingReasonRequired =
     pending?.kind === "archive" ||
     (pending?.kind === "status" && pending.def.reasonRequired === true)
+  const terminalChange=pending?.kind==="status" && ["terminated","blacklisted"].includes(pending.def.status)
   const confirmDisabled =
-    acting || (pendingReasonRequired && reason.trim().length < 5)
+    acting || (pendingReasonRequired && reason.trim().length < 5) || (terminalChange && !terminationDate)
 
   return (
     <>
-      <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+      <DropdownMenu open={menuOpen} onOpenChange={(next)=>{setMenuOpen(next);if(next)void ensureRecord()}}>
         <DropdownMenuTrigger asChild>
           {variant === "icon" ? (
             <Button
@@ -608,6 +613,7 @@ export default function DriverActionsMenu({
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
+            {terminalChange && <div className="space-y-1.5"><Label htmlFor={`action-date-${driverId}`}>{isAr?"تاريخ انتهاء العمل *":"Termination date *"}</Label><Input id={`action-date-${driverId}`} type="date" value={terminationDate} onChange={event=>setTerminationDate(event.target.value)} min={record?.hire_date??undefined}/><p className="text-xs text-muted-foreground">{isAr?"أدخل تاريخ العمل الفعلي. لن يتم افتراض تاريخ تلقائي.":"Enter the actual employment end date."}</p></div>}
             <div className="space-y-1.5">
               <Label htmlFor={`action-reason-${driverId}`} className="text-xs">
                 {isAr ? "السبب" : "Reason"}

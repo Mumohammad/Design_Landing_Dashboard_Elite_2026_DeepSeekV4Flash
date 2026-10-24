@@ -61,6 +61,7 @@ export const OVERRIDABLE_REQUIREMENTS = [
 export type OverridableRequirement = (typeof OVERRIDABLE_REQUIREMENTS)[number]
 
 export interface ComplianceOverride {
+  workflow_version: number
   id: string
   driver_id: string
   requirement: string

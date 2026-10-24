@@ -37,6 +37,8 @@ export interface PayrollCalculationInput {
   deductions: DeductionLine[]
   absence_deduction?: number
   nationality_code?: string | null
+  /** Tenant-configured review threshold; advisory only. */
+  advisory_minimum_net?: number
 }
 
 export interface PayrollCalculationResult {
@@ -182,10 +184,11 @@ export function calculateDriverPayrollFormula(
 
   // ── STEP 6: SAUDI MINIMUM WAGE ADVISORY (v2.0 M4) ──────────────
   // Advisory only — never blocks payroll, but flags for review.
-  const below_minimum_wage = input.nationality_code === "SA" && net_payroll < SAUDI_MINIMUM_WAGE
+  const advisoryThreshold = input.advisory_minimum_net ?? SAUDI_MINIMUM_WAGE
+  const below_minimum_wage = input.nationality_code === "SA" && net_payroll < advisoryThreshold
   if (below_minimum_wage) {
     warnings.push(
-      `BELOW_SAUDI_MINIMUM_WAGE: net ${net_payroll} < ${SAUDI_MINIMUM_WAGE} SAR`
+      `BELOW_CONFIGURED_PAYROLL_ADVISORY: net ${net_payroll} < ${advisoryThreshold} SAR`
     )
   }
 

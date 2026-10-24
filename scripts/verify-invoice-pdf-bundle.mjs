@@ -12,6 +12,7 @@ for (const file of files) {
 }
 const physicalFiles = new Set([...files].map(file => realpathSync(file)))
 const required = [resolve('public/logo.png'), resolve('src/assets/fonts/cairo.woff2'), resolve('node_modules/playwright-core/browsers.json')]
+if(process.env.INVOICE_REFERENCE_FONT_DIR==='bundled')required.push(resolve('private/invoice-fonts/regular.ttf'),resolve('private/invoice-fonts/bold.ttf'))
 function packageFiles(folder) {
   for (const entry of readdirSync(folder, { withFileTypes: true })) {
     const file = resolve(folder, entry.name)

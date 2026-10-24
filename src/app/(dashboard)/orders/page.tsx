@@ -1,9 +1,8 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { PackageCheck, PackageX, DollarSign, TrendingUp, Plus, Trash2, Download } from "lucide-react"
+import { PackageCheck, PackageX, DollarSign, TrendingUp, Plus, Trash2, Download, Pencil } from "lucide-react"
 import { toast } from "sonner"
-import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
 import {
   EnterpriseModulePage,
@@ -12,12 +11,17 @@ import {
 } from "@/components/dashboard/enterprise-module-page"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { deleteOrderEntry, exportOrdersCsv } from "@/lib/orders/actions"
-import { monthBounds } from "@/lib/orders/month-boundaries"
+import { deleteOrderEntry, exportOrdersCsv, listOrderEntries } from "@/lib/orders/actions"
 import { CreateOrderEntryDialog } from "./components/create-order-entry-dialog"
 
 interface OrderRow {
   id: string
+  updated_at: string
+  driver_id: string
+  platform_id: string
+  notes: string | null
+  multi_order_batches: number
+  avg_order_distance_km: number | null
   entry_date: string
   shift_label: string | null
   orders_delivered: number
@@ -29,7 +33,7 @@ interface OrderRow {
   platform_reported_revenue: number | null
   revenue_variance: number
   is_locked: boolean
-  driver: { full_name_ar: string | null; driver_code: string | null } | null
+  driver: { full_name_ar: string | null; full_name_en: string | null; driver_code: string | null } | null
   platform: { name_ar: string | null; name_en: string | null } | null
 }
 
@@ -51,6 +55,11 @@ export default function OrdersPage() {
   const [search, setSearch] = useState("")
   const [month, setMonth] = useState(currentMonth())
   const [addOpen, setAddOpen] = useState(false)
+  const [editing, setEditing] = useState<OrderRow | null>(null)
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
+  const [summary, setSummary] = useState({delivered:0,failed:0,revenue:0})
+  const [loadError, setLoadError] = useState<string>()
   const [reloadKey, setReloadKey] = useState(0)
   const [isDeletingId, setIsDeletingId] = useState<string | null>(null)
 
@@ -58,34 +67,19 @@ export default function OrdersPage() {
     let active = true
     async function load() {
       setIsLoading(true)
-      const supabase = createClient()
-      const [y, m] = month.split("-")
-      const { start, end } = monthBounds(Number(y), Number(m))
-      const { data, error } = await supabase
-        .from("daily_order_entries")
-        .select(
-          "id,entry_date,shift_label,orders_delivered,orders_failed,orders_returned,orders_cancelled,total_distance_km,gross_revenue,platform_reported_revenue,revenue_variance,is_locked," +
-            "driver:drivers(full_name_ar,driver_code),platform:delivery_platforms(name_ar,name_en)"
-        )
-        .gte("entry_date", start)
-        .lte("entry_date", end)
-        .is("deleted_at", null)
-        .order("entry_date", { ascending: false })
-        .limit(200)
+      const result = await listOrderEntries(month,search,page,50)
       if (!active) return
-      if (error) {
-        setRows([])
-        toast.error(error.message)
-      } else {
-        setRows((data as unknown as OrderRow[] | null) ?? [])
-      }
+      setRows(result.rows)
+      setTotal(result.total)
+      setSummary(result.summary)
+      setLoadError(result.error)
       setIsLoading(false)
     }
     load()
     return () => {
       active = false
     }
-  }, [month, reloadKey])
+  }, [month, search, page, reloadKey])
 
   const shiftLabel = (s: string | null): string => {
     if (!s) return t.orders.fullDay
@@ -95,20 +89,8 @@ export default function OrdersPage() {
     return s
   }
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) return rows
-    return rows.filter((r) =>
-      [r.driver?.full_name_ar, r.driver?.driver_code, r.platform?.name_ar, r.platform?.name_en]
-        .filter((f): f is string => Boolean(f))
-        .some((f) => f.toLowerCase().includes(q))
-    )
-  }, [rows, search])
-
   const kpiCards: KpiCardData[] = useMemo(() => {
-    const delivered = rows.reduce((n, r) => n + r.orders_delivered, 0)
-    const failed = rows.reduce((n, r) => n + r.orders_failed, 0)
-    const revenue = rows.reduce((n, r) => n + Number(r.gross_revenue ?? 0), 0)
+    const {delivered,failed,revenue} = summary
     const total = delivered + failed
     const completion = total > 0 ? Math.round((delivered / total) * 100) : 0
     return [
@@ -117,7 +99,7 @@ export default function OrdersPage() {
       { label: t.orders.kpiRevenue, value: `${revenue.toLocaleString("en-US", { maximumFractionDigits: 0 })}`, icon: DollarSign, color: "#1E5A99" },
       { label: t.orders.kpiCompletion, value: `${completion}%`, icon: TrendingUp, color: "#8B5CF6" },
     ]
-  }, [rows, t])
+  }, [summary, t])
 
   const columns: TableColumn<OrderRow>[] = [
     {
@@ -130,7 +112,7 @@ export default function OrdersPage() {
       header: t.orders.colDriver,
       render: (r) => (
         <div className="flex flex-col">
-          <span className="font-medium">{r.driver?.full_name_ar ?? "—"}</span>
+          <span className="font-medium">{(isAr ? r.driver?.full_name_ar : r.driver?.full_name_en) ?? r.driver?.full_name_ar ?? "—"}</span>
           {r.driver?.driver_code && <span dir="ltr" className="font-mono text-[11px] text-muted-foreground">{r.driver.driver_code}</span>}
         </div>
       ),
@@ -138,7 +120,7 @@ export default function OrdersPage() {
     {
       key: "platform",
       header: t.orders.colPlatform,
-      render: (r) => <span>{r.platform?.name_ar ?? r.platform?.name_en ?? "—"}</span>,
+      render: (r) => <span>{(isAr ? r.platform?.name_ar : r.platform?.name_en) ?? r.platform?.name_ar ?? "—"}</span>,
     },
     {
       key: "shift_label",
@@ -205,13 +187,13 @@ export default function OrdersPage() {
     },
   ]
 
-  async function handleDelete(id: string) {
-    if (!window.confirm(isAr ? "حذف هذا السجل؟" : "Delete this entry?")) return
-    setIsDeletingId(id)
-    const res = await deleteOrderEntry(id)
+  async function handleDelete(row: OrderRow) {
+    if (!window.confirm(isAr ? "أرشفة هذا السجل؟" : "Archive this entry?")) return
+    setIsDeletingId(row.id)
+    const res = await deleteOrderEntry(row.id, row.updated_at)
     setIsDeletingId(null)
     if (res.success) {
-      toast.success(isAr ? "تم حذف السجل" : "Entry deleted")
+      toast.success(isAr ? "تمت أرشفة السجل" : "Entry archived")
       setReloadKey((k) => k + 1)
     } else {
       toast.error(res.error ?? (isAr ? "حدث خطأ" : "Something went wrong"))
@@ -241,23 +223,26 @@ export default function OrdersPage() {
         subtitle={t.orders.subtitle}
         primaryCtaLabel={t.orders.addOrder}
         primaryCtaIcon={Plus}
-        onPrimaryCta={() => setAddOpen(true)}
-        kpiCards={kpiCards}
+        onPrimaryCta={() => { setEditing(null); setAddOpen(true) }}
+        kpiCards={loadError?undefined:kpiCards}
         searchPlaceholder={t.orders.searchPlaceholder}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {setSearch(value);setPage(1)}}
         columns={columns}
-        data={filtered}
+        data={rows}
         onRowClick={() => {}}
         emptyStateMessage={t.orders.emptyMessage}
-        emptyStateAction={{ label: t.orders.addOrder, onClick: () => setAddOpen(true) }}
+        emptyStateAction={{ label: t.orders.addOrder, onClick: () => {setEditing(null);setAddOpen(true)} }}
         isLoading={isLoading}
+        loadError={loadError}
+        onRetry={() => setReloadKey(k => k + 1)}
+        pagination={{totalRecords:total,currentPage:page,totalPages:Math.max(1,Math.ceil(total/50)),onPageChange:setPage}}
         toolbarActions={
           <div className="flex items-center gap-2">
             <input
               type="month"
               value={month}
-              onChange={(e) => e.target.value && setMonth(e.target.value)}
+              onChange={(e) => {if(e.target.value){setMonth(e.target.value);setPage(1)}}}
               aria-label={t.orders.monthLabel}
               className="h-9 rounded-xl border border-border bg-muted/30 px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30"
             />
@@ -269,25 +254,28 @@ export default function OrdersPage() {
         }
         rowActions={(row) => (
           <div className="flex items-center justify-end gap-1">
-            {!row.is_locked && (
+            {!row.is_locked && <>
+              <Button variant="ghost" size="sm" aria-label={isAr ? "تعديل" : "Edit"} onClick={(event) => {event.stopPropagation();setEditing(row);setAddOpen(true)}}><Pencil className="h-4 w-4" /></Button>
+
               <Button
                 variant="ghost"
                 size="sm"
                 className="h-8 w-8 rounded-lg text-destructive"
                 onClick={(e) => {
                   e.stopPropagation()
-                  handleDelete(row.id)
+                  handleDelete(row)
                 }}
                 disabled={isDeletingId === row.id}
-                title={isAr ? "حذف" : "Delete"}
+                aria-label={isAr ? "أرشفة" : "Archive"}
+                title={isAr ? "أرشفة" : "Archive"}
               >
                 <Trash2 className="h-4 w-4" />
               </Button>
-            )}
+            </>}
           </div>
         )}
       >
-        <CreateOrderEntryDialog open={addOpen} onOpenChange={setAddOpen} onCreated={() => setReloadKey((k) => k + 1)} />
+        <CreateOrderEntryDialog key={editing?.id ?? "create"} entry={editing} open={addOpen} onOpenChange={setAddOpen} onCreated={() => setReloadKey((k) => k + 1)} />
       </EnterpriseModulePage>
     </div>
   )

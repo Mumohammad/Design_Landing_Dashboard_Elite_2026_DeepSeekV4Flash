@@ -1,6 +1,8 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import { useTablePage } from "@/hooks/use-table-page"
+import { DriverHistoryToolbar } from "./driver-history-toolbar"
 import { createClient } from "@/lib/supabase/client"
 import { subscribeDriverChanged } from "@/lib/drivers/driver-events"
 import { Pencil, Plus } from "lucide-react"
@@ -8,6 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
+import { businessTimeInput } from "@/lib/driver-profile-operations/schema"
 import { DriverTabsFormDialog } from "./driver-tabs-form-dialog"
 
 type AttendanceTabProps = { driverId: string; isAr: boolean }
@@ -92,45 +95,27 @@ function fmtMinutes(min: number | null | undefined): string {
 }
 
 export function AttendanceTab({ driverId, isAr }: AttendanceTabProps) {
-  const [rows, setRows] = useState<Record<string, unknown>[] | null>(null)
   const [summary, setSummary] = useState<Summary | null>(null)
   const [formOpen, setFormOpen] = useState(false)
+  const [summaryError, setSummaryError] = useState(false)
   const [editing, setEditing] = useState<Record<string, unknown> | null>(null)
 
-  const load = useCallback(async () => {
-    const supabase = createClient()
-    const [days, sum] = await Promise.all([
-      supabase
-        .from("driver_attendance")
-        .select(
-          "id, attendance_date, status, check_in_time, check_out_time, late_minutes, overtime_minutes, entry_method, notes",
-        )
-        .eq("driver_id", driverId)
-        .is("deleted_at", null)
-        .order("attendance_date", { ascending: false })
-        .limit(60),
-      supabase
-        .from("driver_attendance_summary")
-        .select(
-          "period_year, period_month, days_present, days_late, days_absent_excused, days_absent_unexcused, days_on_leave, total_overtime_minutes",
-        )
-        .eq("driver_id", driverId)
-        .is("deleted_at", null)
-        .order("period_year", { ascending: false })
-        .order("period_month", { ascending: false })
-        .limit(1),
-    ])
-    setRows(days.error ? [] : (days.data as Record<string, unknown>[]))
-    const sumRows = (sum.data ?? []) as unknown as Summary[]
-    setSummary(!sum.error && sumRows.length > 0 ? sumRows[0] : null)
-  }, [driverId])
-
-  useEffect(() => {
-    // Defer to a task boundary — the react-hooks compiler flags sync setState
-    // traced through the async load body.
-    const id = setTimeout(() => void load(), 0)
-    return () => clearTimeout(id)
-  }, [load])
+  const history=useTablePage<Record<string,unknown>>(useCallback((search: string)=>{
+    let query=createClient().from("driver_attendance").select("id,attendance_date,status,check_in_time,check_out_time,late_minutes,overtime_minutes,entry_method,notes,is_locked,updated_at",{count:"exact"}).eq("driver_id",driverId).is("deleted_at",null).order("attendance_date",{ascending:false}).order("id")
+    if(/^\d{4}-\d{2}-\d{2}$/.test(search))query=query.eq("attendance_date",search)
+    else if(search.trim())query=query.ilike("notes","%"+search.replace(/[\\%_]/g,"\\$&")+"%")
+    return query
+  },[driverId]))
+  const rows=history.loading?null:history.rows
+  const loadError=history.error||summaryError
+  const readSummary=useCallback(async()=>{
+    const {data,error}=await createClient().from("driver_attendance_summary").select("period_year,period_month,days_present,days_late,days_absent_excused,days_absent_unexcused,days_on_leave,total_overtime_minutes").eq("driver_id",driverId).is("deleted_at",null).order("period_year",{ascending:false}).order("period_month",{ascending:false}).limit(1)
+    setSummaryError(!!error);setSummary(error?null:((data?.[0] as Summary|undefined)??null))
+  },[driverId])
+  const reloadHistory=history.reload
+  const load=useCallback(()=>{reloadHistory();void readSummary()},[reloadHistory,readSummary])
+  useEffect(()=>{const timer=setTimeout(()=>void readSummary(),0);return()=>clearTimeout(timer)},[readSummary])
+  const historyToolbar=<DriverHistoryToolbar search={history.search} onSearchChange={history.setSearch} pagination={history.pagination} loading={history.loading} error={loadError} onRefresh={load} isAr={isAr}/>
 
   // HR/other surfaces may also write attendance rows.
   useEffect(() => {
@@ -142,6 +127,7 @@ export function AttendanceTab({ driverId, isAr }: AttendanceTabProps) {
   if (rows === null) {
     return (
       <div className="space-y-3">
+        {historyToolbar}
         <Skeleton className="h-10 w-full rounded-xl" />
         <Skeleton className="h-10 w-full rounded-xl" />
       </div>
@@ -180,9 +166,11 @@ export function AttendanceTab({ driverId, isAr }: AttendanceTabProps) {
 
   return (
     <div className="space-y-4">
+      {historyToolbar}
+      {loadError ? <p role="alert" className="text-sm text-destructive">{isAr ? "تعذر تحميل الحضور أو الملخص." : "Could not load attendance or its summary."} <Button variant="link" onClick={() => void load()}>{isAr ? "إعادة المحاولة" : "Retry"}</Button></p> : null}
       <div className="flex items-center justify-between gap-3">
         <span className="text-xs text-muted-foreground">
-          {isAr ? `${rows.length} سجل حضور` : `${rows.length} attendance day${rows.length === 1 ? "" : "s"}`}
+          {isAr ? `${history.count} سجل حضور` : `${history.count} attendance day${history.count === 1 ? "" : "s"}`}
         </span>
         <Button
           size="sm"
@@ -256,10 +244,10 @@ export function AttendanceTab({ driverId, isAr }: AttendanceTabProps) {
                       <AttendanceStatusBadge status={String(r.status ?? "present")} isAr={isAr} />
                     </td>
                     <td className="px-4 py-3 tabular-nums text-muted-foreground" dir="ltr">
-                      {r.check_in_time ? String(r.check_in_time).slice(0, 5) : "—"}
+                      {r.check_in_time ? businessTimeInput(r.check_in_time) : "—"}
                     </td>
                     <td className="px-4 py-3 tabular-nums text-muted-foreground" dir="ltr">
-                      {r.check_out_time ? String(r.check_out_time).slice(0, 5) : "—"}
+                      {r.check_out_time ? businessTimeInput(r.check_out_time) : "—"}
                     </td>
                     <td
                       className={cn(

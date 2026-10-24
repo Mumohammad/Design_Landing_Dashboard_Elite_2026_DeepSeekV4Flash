@@ -10,6 +10,19 @@ import { useDriverRegistration } from "@/contexts/driver-registration-context"
 
 const PRINT_ONLY = "print-only"
 
+function subscribeToOrigin() {
+  // An origin change loads a new document, so there is no in-page event.
+  return () => {}
+}
+
+function getOriginSnapshot() {
+  return window.location.origin
+}
+
+function getServerOriginSnapshot() {
+  return ""
+}
+
 export function SuccessScreen({
   applicationNumber,
   statusToken,
@@ -23,10 +36,7 @@ export function SuccessScreen({
   const [qrDataUrl, setQrDataUrl] = React.useState<string | null>(null)
   const [copied, setCopied] = React.useState(false)
 
-  const [origin, setOrigin] = React.useState("")
-  React.useEffect(() => {
-    setOrigin(window.location.origin)
-  }, [])
+  const origin = React.useSyncExternalStore(subscribeToOrigin, getOriginSnapshot, getServerOriginSnapshot)
 
   const statusUrl = `${origin}/driver-application-status/${encodeURIComponent(statusToken)}`
 

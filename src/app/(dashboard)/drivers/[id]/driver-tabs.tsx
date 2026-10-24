@@ -1,5 +1,8 @@
 "use client"
 
+import { useTablePage } from "@/hooks/use-table-page"
+import { DriverHistoryToolbar } from "@/components/drivers/driver-history-toolbar"
+
 import { LocalizedText } from "@/components/localized-text"
 import { useCallback, useEffect, useState } from "react"
 import type { ReactNode } from "react"
@@ -18,7 +21,7 @@ import { PerformanceTab } from "@/components/drivers/performance-tab"
 import { TrainingTab } from "@/components/drivers/training-tab"
 import { DocumentUploadDialog } from "@/components/drivers/document-upload-dialog"
 import { DocumentsDeleteDialog } from "@/components/drivers/documents-delete-dialog"
-import { emitDriverChanged, subscribeDriverChanged } from "@/lib/drivers/driver-events"
+import { subscribeDriverChanged } from "@/lib/drivers/driver-events"
 import type { Driver } from "@/types/drivers"
 import {
   AlertTriangle,
@@ -189,43 +192,21 @@ function OdometerSourceLabel({ source, isAr }: { source: string; isAr: boolean }
 
 /* ──────────────────────── tab components ──────────────────────── */
 
-type DocumentsTabProps = { driverId: string; isAr: boolean }
+type DocumentsTabProps = { driverId: string; driverVersion:number; isAr: boolean }
 
-function DocumentsTab({ driverId, isAr }: DocumentsTabProps) {
-  const [rows, setRows] = useState<Record<string, unknown>[] | null>(null)
+function DocumentsTab({ driverId,driverVersion, isAr }: DocumentsTabProps) {
+  const [showHistory,setShowHistory]=useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [replaceTarget, setReplaceTarget] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Record<string, unknown> | null>(null)
 
-  const load = useCallback(async () => {
-    const supabase = createClient()
-    const { data, error } = await supabase
-      .from("driver_documents")
-      .select("id, doc_type, doc_number, issue_date, expiry_date, issuing_authority, is_verified, notes, file_url")
-      .eq("driver_id", driverId)
-      .is("deleted_at", null)
-      .order("expiry_date", { ascending: true, nullsFirst: false })
-      .limit(50)
-    setRows(error ? [] : (data as Record<string, unknown>[]))
-  }, [driverId])
-
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      const supabase = createClient()
-      const { data, error } = await supabase
-        .from("driver_documents")
-        .select("id, doc_type, doc_number, issue_date, expiry_date, issuing_authority, is_verified, notes, file_url")
-        .eq("driver_id", driverId)
-        .is("deleted_at", null)
-        .order("expiry_date", { ascending: true, nullsFirst: false })
-        .limit(50)
-      if (!cancelled) setRows(error ? [] : (data as Record<string, unknown>[]))
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [driverId])
+  const query=useCallback((search:string)=>{
+    let request=createClient().from("driver_documents").select("id,workflow_version,doc_type,doc_number,issue_date,expiry_date,issuing_authority,is_verified,notes,file_url",{count:"exact"}).eq("driver_id",driverId).eq("is_active",!showHistory).is("deleted_at",null).order("created_at",{ascending:false}).order("id",{ascending:false})
+    if(search)request=request.ilike("doc_number","%"+search.replace(/[\\%_]/g,value=>"\\"+value)+"%")
+    return request
+  },[driverId,showHistory])
+  const history=useTablePage<Record<string,unknown>>(query),rows=history.loading?null:history.rows,load=history.reload
+  const toolbar=<div className="space-y-3"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={showHistory} onChange={event=>{setShowHistory(event.target.checked);history.pagination.onPageChange(1)}}/>{isAr?"سجل الاستبدال":"Replacement history"}</label><DriverHistoryToolbar search={history.search} onSearchChange={history.setSearch} pagination={history.pagination} loading={history.loading} error={history.error} onRefresh={load} isAr={isAr}/></div>
 
   // Other surfaces (compliance engine uploads, card panel) also write documents.
   useEffect(() => {
@@ -246,9 +227,11 @@ function DocumentsTab({ driverId, isAr }: DocumentsTabProps) {
     window.open(data.signedUrl, "_blank", "noopener,noreferrer")
   }
 
+  if(history.error)return <div className="space-y-3">{toolbar}<div role="alert" className="space-y-2"><p className="text-sm text-destructive">{isAr?"تعذر تحميل المستندات. أعد المحاولة.":"Could not load documents. Try again."}</p><Button variant="outline" onClick={load}>{isAr?"أعد المحاولة":"Try again"}</Button></div></div>
+
   if (rows === null) {
     return (
-      <div className="space-y-3">
+      <div className="space-y-3">{toolbar}
         <Skeleton className="h-10 w-full rounded-xl" />
         <Skeleton className="h-10 w-full rounded-xl" />
         <Skeleton className="h-10 w-full rounded-xl" />
@@ -258,13 +241,14 @@ function DocumentsTab({ driverId, isAr }: DocumentsTabProps) {
 
   return (
     <div className="space-y-4">
+      {toolbar}
       <div className="flex items-center justify-between gap-3">
         <span className="text-xs text-muted-foreground">
           {isAr
-            ? `${rows.length} مستند`
-            : `${rows.length} document${rows.length === 1 ? "" : "s"}`}
+            ? `${history.pagination.totalRecords} مستند`
+            : `${history.pagination.totalRecords} document${history.pagination.totalRecords === 1 ? "" : "s"}`}
         </span>
-        <Button size="sm" className="h-9 gap-1.5 rounded-xl" onClick={() => { setReplaceTarget(null); setDialogOpen(true) }}>
+        <Button size="sm" className="h-9 gap-1.5 rounded-xl" disabled={!driverVersion} onClick={() => { setReplaceTarget(null); setDialogOpen(true) }}>
           <Upload className="h-3.5 w-3.5" />
           {isAr ? "رفع مستند" : "Upload document"}
         </Button>
@@ -288,7 +272,7 @@ function DocumentsTab({ driverId, isAr }: DocumentsTabProps) {
             </thead>
             <tbody>
               {rows.map((r, i) => (
-                <tr key={String(r.id ?? i)} className="border-b border-border/40 last:border-0 hover:bg-muted/30">
+                <tr key={String(r.id ?? i)} data-testid="driver-document-record" data-document-id={String(r.id)} className="border-b border-border/40 last:border-0 hover:bg-muted/30">
                   <td className="px-4 py-3 font-medium text-foreground">
                     <DocTypeLabel type={String(r.doc_type ?? "other")} isAr={isAr} />
                   </td>
@@ -323,7 +307,7 @@ function DocumentsTab({ driverId, isAr }: DocumentsTabProps) {
                           {isAr ? "عرض" : "View"}
                         </button>
                       ) : null}
-                      <button
+                      {!showHistory&&<button
                         type="button"
                         onClick={() => { setReplaceTarget(String(r.doc_type ?? "")); setDialogOpen(true) }}
                         className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
@@ -331,8 +315,8 @@ function DocumentsTab({ driverId, isAr }: DocumentsTabProps) {
                       >
                         <RefreshCw className="h-3 w-3" />
                         {isAr ? "استبدال" : "Replace"}
-                      </button>
-                      <button
+                      </button>}
+                      {!showHistory&&<button
                         type="button"
                         onClick={() => setDeleteTarget(r)}
                         className="inline-flex items-center gap-1 text-xs font-medium text-red-600 hover:underline dark:text-red-400"
@@ -340,7 +324,7 @@ function DocumentsTab({ driverId, isAr }: DocumentsTabProps) {
                       >
                         <Trash2 className="h-3 w-3" />
                         {isAr ? "حذف" : "Delete"}
-                      </button>
+                      </button>}
                     </div>
                   </td>
                 </tr>
@@ -354,6 +338,7 @@ function DocumentsTab({ driverId, isAr }: DocumentsTabProps) {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         driverId={driverId}
+        expectedDriverVersion={driverVersion}
         defaultDocType={replaceTarget}
         isAr={isAr}
         onUploaded={() => void load()}
@@ -367,6 +352,8 @@ function DocumentsTab({ driverId, isAr }: DocumentsTabProps) {
             ? {
                 id: String(deleteTarget.id ?? ""),
                 docType: String(deleteTarget.doc_type ?? ""),
+                workflowVersion:Number(deleteTarget.workflow_version),
+                profileVersion:driverVersion,
                 label:
                   (deleteTarget.doc_number as string | null)?.trim() ||
                   String(deleteTarget.doc_type ?? "document"),
@@ -1158,7 +1145,7 @@ export function DriverTabs({
         {overview}
       </TabsContent>
       <TabsContent value="documents" className="mt-4">
-        <DocumentsTab driverId={driver.id} isAr={isAr} />
+        <DocumentsTab driverId={driver.id} driverVersion={driver.profile_version??0} isAr={isAr} />
       </TabsContent>
       <TabsContent value="attendance" className="mt-4">
         <AttendanceTab driverId={driver.id} isAr={isAr} />
@@ -1184,7 +1171,7 @@ export function DriverTabs({
                   >
                     <XCircle className="h-3 w-3" /><LocalizedText text="Cancel" /></button>
                 </>
-              ) : row.status === "cancelled" ? (
+              ) : row.status === "cancelled" && !row.reviewed_at ? (
                 <button
                   type="button"
                   disabled={actions.disabled}

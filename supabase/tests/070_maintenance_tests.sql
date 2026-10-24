@@ -222,62 +222,12 @@ SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claims',
   '{"sub": "07000000-0000-0000-0000-000000000006", "role": "authenticated"}', true);
 
--- The UI create path: insert event with the columns the action writes.
-SELECT lives_ok(
-  $$INSERT INTO public.vehicle_maintenance_events
-      (tenant_id, vehicle_id, maintenance_type, reported_by_driver_id, fault_description, status)
-    SELECT '07000000-0000-0000-0000-000000000001', '07000000-0000-0000-0000-000000000004',
-           'repair', '07000000-0000-0000-0000-000000000003', 'behavioral round-trip event', 'open'$$,
-  'authenticated insert of a maintenance event rides RLS (create path)'
-);
-
--- The odometer auto-log path: forward reading inserted as the fixture user.
-SELECT lives_ok(
-  $$INSERT INTO public.vehicle_odometer_logs (tenant_id, vehicle_id, reading, recorded_at, source)
-    SELECT '07000000-0000-0000-0000-000000000001', '07000000-0000-0000-0000-000000000004',
-           2000, now(), 'manual'$$,
-  'authenticated insert of a forward odometer reading rides RLS'
-);
-
--- The complete path: conditional claim flips open → completed. pgTAP lives
--- inside a scalar SELECT, and a data-modifying CTE must sit at top level, so
--- the CTE returns the count through a second (side-effect-free) query:
-WITH claim AS (
-  UPDATE public.vehicle_maintenance_events
-  SET status = 'completed', date_out = now(), cost = 250
-  WHERE vehicle_id = '07000000-0000-0000-0000-000000000004'
-    AND status = 'open'
-  RETURNING 1
-)
-SELECT is(
-  (SELECT count(*) FROM claim),
-  2::bigint,
-  'conditional UPDATE completes both open events (complete-path claim semantics)'
-);
-
--- The vehicle claim: only flips from available/assigned (start path).
-WITH claim AS (
-  UPDATE public.vehicles SET status = 'in_maintenance'
-  WHERE id = '07000000-0000-0000-0000-000000000004' AND status IN ('available','assigned')
-  RETURNING 1
-)
-SELECT is(
-  (SELECT count(*) FROM claim),
-  1::bigint,
-  'vehicle can be claimed into in_maintenance from available/assigned (start path)'
-);
-
--- The vehicle release claim: only flips while still in_maintenance.
-WITH release AS (
-  UPDATE public.vehicles SET status = 'available'
-  WHERE id = '07000000-0000-0000-0000-000000000004' AND status = 'in_maintenance'
-  RETURNING 1
-)
-SELECT is(
-  (SELECT count(*) FROM release),
-  1::bigint,
-  'vehicle is released from in_maintenance (complete-path release semantics)'
-);
+-- All app writes now use caller-bound atomic RPCs (complete lifecycle in133).
+SELECT throws_ok($$INSERT INTO public.vehicle_maintenance_events(tenant_id,vehicle_id,maintenance_type) VALUES('07000000-0000-0000-0000-000000000001','07000000-0000-0000-0000-000000000004','repair')$$,'42501',NULL,'direct event insertion cannot bypass atomic workflow');
+SELECT throws_ok($$INSERT INTO public.vehicle_odometer_logs(tenant_id,vehicle_id,reading) VALUES('07000000-0000-0000-0000-000000000001','07000000-0000-0000-0000-000000000004',2000)$$,'42501',NULL,'direct odometer insertion cannot bypass parent synchronization');
+SELECT throws_ok($$UPDATE public.vehicle_maintenance_events SET status='completed',date_out=now(),cost=250 WHERE vehicle_id='07000000-0000-0000-0000-000000000004'$$,'42501',NULL,'direct completion cannot skip audit, cost and release invariants');
+SELECT throws_ok($$UPDATE public.vehicles SET status='in_maintenance' WHERE id='07000000-0000-0000-0000-000000000004'$$,'42501',NULL,'direct vehicle claim cannot bypass atomic maintenance start');
+SELECT throws_ok($$UPDATE public.vehicles SET status='available' WHERE id='07000000-0000-0000-0000-000000000004'$$,'42501',NULL,'direct release cannot bypass remaining maintenance holds');
 
 RESET ROLE;
 

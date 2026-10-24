@@ -2,7 +2,7 @@
 // When framer-motion is installed, replace with <motion.div> + containerVariants/itemVariants per Design DNA.
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useSyncExternalStore } from "react"
 import { useRouter } from "next/navigation"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
@@ -38,6 +38,19 @@ const loginFormSchema = z.object({
 
 type LoginFormValues = z.infer<typeof loginFormSchema>
 
+function subscribeToSearch(onChange: () => void) {
+  window.addEventListener("popstate", onChange)
+  return () => window.removeEventListener("popstate", onChange)
+}
+
+function getSearchSnapshot() {
+  return window.location.search
+}
+
+function getServerSearchSnapshot() {
+  return ""
+}
+
 export function LoginForm1({
   className,
   ...props
@@ -46,26 +59,19 @@ export function LoginForm1({
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [submissionError, setErrorMessage] = useState<string | null | undefined>(undefined)
+  const search = useSyncExternalStore(subscribeToSearch, getSearchSnapshot, getServerSearchSnapshot)
+  const params = new URLSearchParams(search)
   // ?registered=1 → the user just finished company registration (step 2→4 of
   // the product flow) — show a success banner above the form.
-  const [registered, setRegistered] = useState(false)
-
-  // Surface auth-flow redirect params set by the middleware (locked/inactive).
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    if (params.get("registered") === "1") {
-      setRegistered(true)
-    }
-    const code = params.get("error")
-    if (code === "AUTH_ACCOUNT_LOCKED") {
-      setErrorMessage(t.auth.accountLocked)
-    } else if (code === "AUTH_ACCOUNT_INACTIVE") {
-      setErrorMessage(t.auth.accountInactive)
-    } else if (code === "AUTH_PROFILE_NOT_FOUND") {
-      setErrorMessage(t.auth.profileNotFound)
-    }
-  }, [t])
+  const registered = params.get("registered") === "1"
+  // Translate middleware notices during render so changing locale keeps the
+  // current notice without overwriting a later sign-in response.
+  const code = params.get("error")
+  const redirectError = code === "AUTH_ACCOUNT_LOCKED" ? t.auth.accountLocked
+    : code === "AUTH_ACCOUNT_INACTIVE" ? t.auth.accountInactive
+      : code === "AUTH_PROFILE_NOT_FOUND" ? t.auth.profileNotFound : null
+  const errorMessage = submissionError === undefined ? redirectError : submissionError
 
   // Already signed in (session cookie lives on this deployment)? Go straight
   // to the dashboard instead of showing a redundant login form (req. E).

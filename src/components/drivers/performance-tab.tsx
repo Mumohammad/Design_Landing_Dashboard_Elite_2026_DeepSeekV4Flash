@@ -1,6 +1,8 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import { useTablePage } from "@/hooks/use-table-page"
+import { DriverHistoryToolbar } from "./driver-history-toolbar"
 import { createClient } from "@/lib/supabase/client"
 import { subscribeDriverChanged } from "@/lib/drivers/driver-events"
 import { Badge } from "@/components/ui/badge"
@@ -23,28 +25,29 @@ type Review = {
   strengths: string | null
   improvements: string | null
   goals: string | null
+  updated_at: string
   status: string | null
 }
 
 const STATUS_STYLES: Record<string, { ar: string; en: string; className: string }> = {
-  draft: {
-    ar: "مسودة",
-    en: "Draft",
+  pending: {
+    ar: "معلقة",
+    en: "Pending",
     className: "bg-gray-500/15 text-gray-700 dark:text-gray-300",
   },
-  submitted: {
-    ar: "مُرسلة",
-    en: "Submitted",
+  in_progress: {
+    ar: "جارية",
+    en: "In progress",
     className: "bg-elite-blue-500/15 text-elite-blue-700 dark:text-elite-blue-300",
   },
-  approved: {
-    ar: "معتمدة",
-    en: "Approved",
+  completed: {
+    ar: "مكتملة",
+    en: "Completed",
     className: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
   },
-  final: {
-    ar: "نهائية",
-    en: "Final",
+  cancelled: {
+    ar: "ملغاة",
+    en: "Cancelled",
     className: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
   },
 }
@@ -57,30 +60,18 @@ function scoreColor(v: number | null): string {
 }
 
 export function PerformanceTab({ driverId, isAr }: PerformanceTabProps) {
-  const [rows, setRows] = useState<Review[] | null>(null)
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<Review | null>(null)
 
-  const load = useCallback(async () => {
-    const supabase = createClient()
-    const { data, error } = await supabase
-      .from("performance_reviews")
-      .select(
-        "id, review_period, review_date, attendance_score, violations_score, platform_kpi_score, overall_score, strengths, improvements, goals, status",
-      )
-      .eq("driver_id", driverId)
-      .is("deleted_at", null)
-      .order("review_date", { ascending: false })
-      .limit(12)
-    setRows(error ? [] : ((data ?? []) as unknown as Review[]))
-  }, [driverId])
-
-  useEffect(() => {
-    // Defer to a task boundary — the react-hooks compiler flags sync setState
-    // traced through the async load body.
-    const id = setTimeout(() => void load(), 0)
-    return () => clearTimeout(id)
-  }, [load])
+  const history=useTablePage<Review>(useCallback((search: string)=>{
+    let query=createClient().from("performance_reviews").select("id, review_period, review_date, attendance_score, violations_score, platform_kpi_score, overall_score, strengths, improvements, goals, status, updated_at",{count:"exact"}).eq("driver_id",driverId).is("deleted_at",null).order("review_date",{ascending:false}).order("id")
+    if(search.trim())query=query.ilike("review_period","%"+search.replace(/[\\%_]/g,"\\$&")+"%")
+    return query
+  },[driverId]))
+  const rows=history.loading?null:history.rows
+  const loadError=history.error
+  const load=history.reload
+  const historyToolbar=<DriverHistoryToolbar search={history.search} onSearchChange={history.setSearch} pagination={history.pagination} loading={history.loading} error={history.error} onRefresh={load} isAr={isAr}/>
 
   // Other surfaces (HR console) may also write performance reviews.
   useEffect(() => {
@@ -92,6 +83,7 @@ export function PerformanceTab({ driverId, isAr }: PerformanceTabProps) {
   if (rows === null) {
     return (
       <div className="space-y-3">
+        {historyToolbar}
         <Skeleton className="h-24 w-full rounded-2xl" />
         <Skeleton className="h-10 w-full rounded-xl" />
       </div>
@@ -101,6 +93,8 @@ export function PerformanceTab({ driverId, isAr }: PerformanceTabProps) {
   if (rows.length === 0) {
     return (
       <div className="space-y-4">
+      {historyToolbar}
+        {loadError ? <p role="alert" className="text-sm text-destructive">{isAr ? "تعذر تحميل التقييمات." : "Could not load reviews."} <Button variant="link" onClick={() => void load()}>{isAr ? "إعادة المحاولة" : "Retry"}</Button></p> : null}
         <div className="flex items-center justify-end">
           <Button
             size="sm"
@@ -159,6 +153,7 @@ export function PerformanceTab({ driverId, isAr }: PerformanceTabProps) {
 
   return (
     <div className="space-y-4">
+      {historyToolbar}
       <div className="flex items-center justify-end gap-2">
         <Button
           size="sm"
@@ -171,7 +166,7 @@ export function PerformanceTab({ driverId, isAr }: PerformanceTabProps) {
           }}
         >
           <Pencil className="h-3.5 w-3.5" />
-          {isAr ? "تعديل الأحدث" : "Edit latest"}
+          {isAr ? "تعديل لقطة التقييم" : "Edit review snapshot"}
         </Button>
         <Button
           size="sm"
@@ -190,7 +185,7 @@ export function PerformanceTab({ driverId, isAr }: PerformanceTabProps) {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <div className="text-xs text-muted-foreground">
-              {isAr ? "أحدث تقييم" : "Latest review"}
+              {isAr ? "لقطة التقييم" : "Review snapshot"}
             </div>
             <div className="text-sm font-semibold text-foreground" dir="ltr">
               {latest.review_period ?? latest.review_date ?? "—"}

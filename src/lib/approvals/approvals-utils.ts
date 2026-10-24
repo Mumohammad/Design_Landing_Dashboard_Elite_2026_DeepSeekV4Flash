@@ -86,6 +86,8 @@ export function decisionErrorText(message: string, isAr: boolean): string {
 }
 
 export type ApprovalSubjectMeta = {
+  workflow_version?: number
+  correction_version?: number
   amount?: number | string | null
   currency?: string | null
   expense_type?: string | null

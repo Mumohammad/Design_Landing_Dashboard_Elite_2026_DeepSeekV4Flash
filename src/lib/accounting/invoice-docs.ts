@@ -4,7 +4,7 @@ import "server-only"
 //
 // generateInvoiceDocument(invoiceId): loads the invoice + lines + party +
 // tenant, builds the tax-QR payload (verification QR — NOT a ZATCA tax QR),
-// renders a bilingual A4 PDF without browser metadata, uploads it to the tenant's
+// renders a bilingual reference-layout Letter PDF without browser metadata, uploads it to the tenant's
 // `invoice-documents` bucket, and records the document in
 // `generated_documents` (verify_url → /verify-document/[docNumber]).
 //
@@ -21,7 +21,7 @@ import { createHash, randomBytes } from "crypto"
 import { readFile } from "node:fs/promises"
 import path from "node:path"
 import { sumMoney } from "./decimal"
-import { renderInvoicePdf } from "./invoice-pdf"
+import { loadInvoiceReferenceFonts, renderInvoicePdf } from "./invoice-pdf"
 
 type ActionResult = {
   success: boolean
@@ -165,9 +165,10 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
       if (result.error || !result.data) return { success: false, error: "Select an active bank account in the invoice currency." }
       bank = result.data
     }
-    const [logoBytes, fontBytes] = await Promise.all([
+    const [logoBytes, fontBytes, referenceFonts] = await Promise.all([
       readFile(path.join(process.cwd(), "public", "logo.png")),
       readFile(path.join(process.cwd(), "src", "assets", "fonts", "cairo.woff2")),
+      loadInvoiceReferenceFonts(),
     ])
     const logoDataUrl = `data:image/png;base64,${logoBytes.toString("base64")}`
 
@@ -196,6 +197,7 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
 
     const doc: InvoiceDocData = {
       kind: "invoice",
+      ...referenceFonts,
       docTypeAr: docType.ar,
       docTypeEn: docType.en,
       invoiceNumber: inv.invoice_number,
@@ -259,7 +261,8 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
     const generatedData = {
       kind: "invoice",
       file_format: "pdf",
-      layout_version: "modern-a4-1",
+      layout_version: "reference-letter-1",
+      font_source: referenceFonts.referenceFontDataUrl ? "protected_reference" : "system_or_cairo",
       pdf_sha256: pdfHash,
       invoice_number: inv.invoice_number,
       invoice_type: inv.invoice_type,

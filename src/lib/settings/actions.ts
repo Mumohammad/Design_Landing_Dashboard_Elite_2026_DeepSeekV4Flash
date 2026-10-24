@@ -1,345 +1,59 @@
 "use server"
-
-// Server Actions for the /settings/* module pages.
-//
-// - updateCompanyProfile  — settings.manage → updates the tenant row
-// - updateSystemSettings  — settings.manage → updates system_settings rows
-//
-// Every mutation writes an immutable audit_log entry (ADR-007) via the
-// service-role admin client. Authorization is enforced server-side with
-// requirePermission() — UI hiding is never the boundary.
-
 import { revalidatePath } from "next/cache"
-import { createAdminClient } from "@/lib/supabase/admin"
+import { createClient } from "@/lib/supabase/server"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
-import { writeAuditLog } from "@/lib/auth/sessions"
 import { rateLimitSettings } from "@/lib/auth/rate-limit"
+import { companySettingsSchema,payrollSettingsSchema,wpsSettingsSchema,settingsMessage,type SettingsCode } from "./schema"
 
-type ActionResult = { success: boolean; error?: string }
-
-function errorMessage(e: unknown): string {
-  if (e instanceof Error) return e.message
-  return "Unknown error"
+export type SettingsActionResult={success:boolean;error?:string;code?:SettingsCode;configuration_version?:number}
+type ActionResult=SettingsActionResult
+export type CompanyProfile={id:string;name_ar:string;name_en:string;legal_name:string|null;cr_number:string|null;vat_number:string|null;address:string|null;city:string|null;region:string|null;country:string|null;phone:string|null;email:string|null;logo_url:string|null;timezone:string|null;default_locale:string|null;mol_reference:string;wps_iban:string;configuration_version:number;can_manage:boolean}
+export type CompanyProfileInput={name_ar:string;name_en:string;legal_name?:string|null;cr_number?:string|null;vat_number?:string|null;address?:string|null;city?:string|null;region?:string|null;country?:string;phone?:string|null;email?:string|null;logo_url?:string|null;timezone?:string;default_locale?:string}
+export type PayrollSetting={id:string;key:string;value:string;is_public:boolean}
+export type PayrollDefaults={rows:PayrollSetting[];configuration_version:number;can_manage:boolean}
+function failure(code:SettingsCode):ActionResult{return{success:false,code,error:settingsMessage(code,"en")}}
+function classify(error:unknown):SettingsCode {
+ const value=error&&typeof error==="object"&&"message"in error?String(error.message):""
+ if(value==="SETTINGS_INVALID"||value==="SETTINGS_STALE"||value==="SETTINGS_FORBIDDEN")return value
+ if(error&&typeof error==="object"&&"code"in error){if(error.code==="AUTH007")return"SETTINGS_FORBIDDEN";if(error.code==="23505")return"SETTINGS_INVALID"}
+ return"SETTINGS_UNAVAILABLE"
 }
-
-// ─── Read Actions ───────────────────────────────────────────────────────
-
-export type CompanyProfile = {
-  id: string
-  name_ar: string
-  name_en: string
-  legal_name: string | null
-  cr_number: string | null
-  vat_number: string | null
-  address: string | null
-  city: string | null
-  region: string | null
-  country: string | null
-  phone: string | null
-  email: string | null
-  logo_url: string | null
-  timezone: string | null
-  default_locale: string | null
-  mol_reference: string
-  wps_iban: string
+export async function fetchCompanyProfile():Promise<CompanyProfile|null>{
+ await requirePermission("settings","read")
+ if(!await getCurrentUser())return null
+ const caller=await createClient();const {data,error}=await caller.rpc("read_my_settings_bundle",{p_surface:"company"})
+ if(error||!data||!Number.isSafeInteger(data.configuration_version))throw new Error("SETTINGS_UNAVAILABLE")
+ return data as CompanyProfile
 }
-
-/**
- * Fetch the current tenant's company profile + WPS settings.
- * Requires settings.read permission. Uses admin client with tenant filter.
- */
-export async function fetchCompanyProfile(): Promise<CompanyProfile | null> {
-  await requirePermission("settings", "read")
-  const currentUser = await getCurrentUser()
-  if (!currentUser) return null
-
-  const admin = createAdminClient()
-  const { data, error } = await admin
-    .from("tenants")
-    .select(
-      "id, name_ar, name_en, legal_name, cr_number, vat_number, address, city, region, country, phone, email, logo_url, timezone, default_locale"
-    )
-    .eq("id", currentUser.tenantId)
-    .is("deleted_at", null)
-    .maybeSingle<Record<string, unknown>>()
-
-  if (error || !data) return null
-
-  // Fetch WPS settings
-  const { data: wpsRows } = await admin
-    .from("system_settings")
-    .select("key, value")
-    .eq("tenant_id", currentUser.tenantId)
-    .in("key", ["company.mol_reference", "company.wps_iban"])
-    .is("deleted_at", null)
-
-  const wpsMap = new Map(
-    ((wpsRows as { key: string; value: string }[] | null) ?? []).map((r) => [r.key, r.value])
-  )
-
-  return {
-    id: data.id as string,
-    name_ar: (data.name_ar as string) ?? "",
-    name_en: (data.name_en as string) ?? "",
-    legal_name: data.legal_name as string | null,
-    cr_number: data.cr_number as string | null,
-    vat_number: data.vat_number as string | null,
-    address: data.address as string | null,
-    city: data.city as string | null,
-    region: data.region as string | null,
-    country: data.country as string | null,
-    phone: data.phone as string | null,
-    email: data.email as string | null,
-    logo_url: data.logo_url as string | null,
-    timezone: data.timezone as string | null,
-    default_locale: data.default_locale as string | null,
-    mol_reference: wpsMap.get("company.mol_reference") ?? "",
-    wps_iban: wpsMap.get("company.wps_iban") ?? "",
-  }
+export async function fetchPayrollDefaults():Promise<PayrollDefaults>{
+ await requirePermission("settings","read")
+ if(!await getCurrentUser())throw new Error("SETTINGS_FORBIDDEN")
+ const caller=await createClient();const{data,error}=await caller.rpc("read_my_settings_bundle",{p_surface:"payroll"})
+ if(error||!Array.isArray(data?.rows)||!Number.isSafeInteger(data.configuration_version))throw new Error("SETTINGS_UNAVAILABLE")
+ return data as PayrollDefaults
 }
-
-export type PayrollSetting = {
-  id: string
-  key: string
-  value: string
-  is_public: boolean
+async function save(surface:"company"|"payroll"|"wps",payload:unknown,version:number):Promise<ActionResult>{
+ try{
+  await requirePermission("settings","manage")
+  const user=await getCurrentUser();if(!user)return failure("SETTINGS_FORBIDDEN")
+  if(!Number.isSafeInteger(version)||version<1)return failure("SETTINGS_STALE")
+  const limit=await rateLimitSettings(user.id);if(!limit.success)return failure("SETTINGS_RATE_LIMIT")
+  const caller=await createClient();const{data,error}=await caller.rpc("save_my_settings",{p_surface:surface,p_payload:payload,p_expected_version:version})
+  if(error)return failure(classify(error))
+  if(!Number.isSafeInteger(data?.configuration_version))return failure("SETTINGS_UNAVAILABLE")
+  revalidatePath("/settings/company");revalidatePath("/settings/payroll-defaults")
+  return{success:true,configuration_version:data.configuration_version}
+ }catch(error){return failure(classify(error))}
 }
-
-/**
- * Fetch payroll default settings for the /settings/payroll-defaults page.
- * Requires settings.read permission.
- */
-export async function fetchPayrollDefaults(): Promise<PayrollSetting[]> {
-  await requirePermission("settings", "read")
-  const currentUser = await getCurrentUser()
-  if (!currentUser) return []
-
-  const admin = createAdminClient()
-  const { data, error } = await admin
-    .from("system_settings")
-    .select("id, key, value, is_public")
-    .eq("tenant_id", currentUser.tenantId)
-    .in("key", [
-      "payroll.default_working_days",
-      "payroll.saudi_minimum_wage",
-      "payroll.min_net_floor",
-      "payroll.waiver_threshold_admin",
-    ])
-    .is("deleted_at", null)
-    .order("key", { ascending: true })
-
-  if (error) return []
-  return (data ?? []) as PayrollSetting[]
+export async function updateCompanyProfile(input:CompanyProfileInput,expectedVersion:number):Promise<ActionResult>{
+ const result=companySettingsSchema.safeParse(input);if(!result.success)return failure("SETTINGS_INVALID")
+ return save("company",result.data,expectedVersion)
 }
-
-export interface CompanyProfileInput {
-  name_ar: string
-  name_en: string
-  legal_name?: string | null
-  cr_number?: string | null
-  vat_number?: string | null
-  address?: string | null
-  city?: string | null
-  region?: string | null
-  country?: string | null
-  phone?: string | null
-  email?: string | null
-  logo_url?: string | null
-  timezone?: string | null
-  default_locale?: string | null
+export async function updateSystemSettings(updates:{key:string;value:string}[],expectedVersion:number):Promise<ActionResult>{
+ const result=payrollSettingsSchema.safeParse(updates);if(!result.success)return failure("SETTINGS_INVALID")
+ return save("payroll",Object.fromEntries(result.data.map(row=>[row.key,row.value])),expectedVersion)
 }
-
-/**
- * Update the current tenant's company profile. GM / settings.manage only.
- * Writes an audit_log entry with the new values (no sensitive fields here —
- * CR/VAT/contact are company data, safe to log).
- */
-export async function updateCompanyProfile(
-  input: CompanyProfileInput
-): Promise<ActionResult> {
-  try {
-    await requirePermission("settings", "manage")
-    const currentUser = await getCurrentUser()
-    if (!currentUser) {
-      return { success: false, error: "Not authenticated." }
-    }
-    const rl = await rateLimitSettings(currentUser.id)
-    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
-
-    const admin = createAdminClient()
-    const { error } = await admin
-      .from("tenants")
-      .update({
-        name_ar: input.name_ar,
-        name_en: input.name_en,
-        legal_name: input.legal_name ?? null,
-        cr_number: input.cr_number ?? null,
-        vat_number: input.vat_number ?? null,
-        address: input.address ?? null,
-        city: input.city ?? null,
-        region: input.region ?? null,
-        country: input.country ?? null,
-        phone: input.phone ?? null,
-        email: input.email ?? null,
-        logo_url: input.logo_url ?? null,
-        timezone: input.timezone ?? null,
-        default_locale: input.default_locale ?? null,
-      })
-      .eq("id", currentUser.tenantId)
-      .is("deleted_at", null)
-
-    if (error) return { success: false, error: error.message }
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "settings",
-      action: "updated",
-      entityType: "tenant",
-      entityId: currentUser.tenantId,
-      newValues: { ...input },
-    })
-
-    revalidatePath("/settings/company")
-    return { success: true }
-  } catch (e) {
-    return { success: false, error: errorMessage(e) }
-  }
-}
-
-/**
- * Batch-update system_settings values (e.g. the payroll defaults form).
- * GM / settings.manage only. Each key/value pair is upserted for the current
- * tenant (idempotent — ON CONFLICT (tenant_id, key) WHERE deleted_at IS NULL).
- */
-export async function updateSystemSettings(
-  updates: { key: string; value: string }[]
-): Promise<ActionResult> {
-  try {
-    await requirePermission("settings", "manage")
-    const currentUser = await getCurrentUser()
-    if (!currentUser) {
-      return { success: false, error: "Not authenticated." }
-    }
-    const rl = await rateLimitSettings(currentUser.id)
-    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
-
-    const admin = createAdminClient()
-
-    for (const u of updates) {
-      const { data: existing } = await admin
-        .from("system_settings")
-        .select("id")
-        .eq("tenant_id", currentUser.tenantId)
-        .eq("key", u.key)
-        .is("deleted_at", null)
-        .maybeSingle()
-
-      const payload = {
-        tenant_id: currentUser.tenantId,
-        key: u.key,
-        value: u.value,
-        category: u.key.split(".")[0] ?? "system",
-      }
-
-      if (existing?.id) {
-        const { error } = await admin
-          .from("system_settings")
-          .update({ value: u.value })
-          .eq("id", existing.id)
-        if (error) return { success: false, error: error.message }
-      } else {
-        const { error } = await admin.from("system_settings").insert(payload)
-        if (error) return { success: false, error: error.message }
-      }
-    }
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "settings",
-      action: "updated",
-      entityType: "system_settings",
-      newValues: Object.fromEntries(updates.map((u) => [u.key, u.value])),
-    })
-
-    revalidatePath("/settings/payroll-defaults")
-    return { success: true }
-  } catch (e) {
-    return { success: false, error: errorMessage(e) }
-  }
-}
-
-/**
- * Save the company WPS (Saudi Wage Protection System) configuration: the
- * Ministry of Labour reference and the company IBAN used in SIF files.
- * GM / settings.manage only. Upserts the two system_settings keys.
- */
-export async function updateCompanyWpsSettings(input: {
-  molReference: string
-  wpsIban: string
-}): Promise<ActionResult> {
-  try {
-    await requirePermission("settings", "manage")
-    const currentUser = await getCurrentUser()
-    if (!currentUser) {
-      return { success: false, error: "Not authenticated." }
-    }
-    const rl = await rateLimitSettings(currentUser.id)
-    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
-
-    const molReference = input.molReference.trim()
-    const wpsIban = input.wpsIban.trim().toUpperCase()
-    if (!molReference) {
-      return { success: false, error: "MOL reference is required." }
-    }
-    if (!/^SA\d{22}$/.test(wpsIban.replace(/\s/g, ""))) {
-      return { success: false, error: "WPS IBAN must be a Saudi IBAN (SA + 22 digits)." }
-    }
-
-    const admin = createAdminClient()
-    for (const [key, value] of [
-      ["company.mol_reference", molReference],
-      ["company.wps_iban", wpsIban],
-    ] as const) {
-      const { data: existing } = await admin
-        .from("system_settings")
-        .select("id")
-        .eq("tenant_id", currentUser.tenantId)
-        .eq("key", key)
-        .is("deleted_at", null)
-        .maybeSingle()
-
-      if (existing?.id) {
-        const { error } = await admin
-          .from("system_settings")
-          .update({ value })
-          .eq("id", existing.id)
-        if (error) return { success: false, error: error.message }
-      } else {
-        const { error } = await admin.from("system_settings").insert({
-          tenant_id: currentUser.tenantId,
-          key,
-          value,
-          category: "company",
-          is_public: false,
-        })
-        if (error) return { success: false, error: error.message }
-      }
-    }
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "settings",
-      action: "updated",
-      entityType: "system_settings",
-      newValues: { "company.mol_reference": molReference, "company.wps_iban": "****" + wpsIban.slice(-4) },
-    })
-
-    revalidatePath("/settings/company")
-    return { success: true }
-  } catch (e) {
-    return { success: false, error: errorMessage(e) }
-  }
+export async function updateCompanyWpsSettings(input:{molReference:string;wpsIban:string},expectedVersion:number):Promise<ActionResult>{
+ const result=wpsSettingsSchema.safeParse(input);if(!result.success)return failure("SETTINGS_INVALID")
+ return save("wps",{"company.mol_reference":result.data.molReference,"company.wps_iban":result.data.wpsIban},expectedVersion)
 }

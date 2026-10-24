@@ -4,7 +4,7 @@
 
 BEGIN;
 
-SELECT plan(26);
+SELECT plan(31);
 
 -- Fixed IDs keep failures reproducible while the surrounding transaction
 -- guarantees the fixtures never persist.
@@ -179,8 +179,8 @@ SELECT throws_ok(
     '00000000-0000-4000-8000-000000000099'
   )$$,
   '42501'::char(5),
-  'AUTH006: cross-tenant driver access denied',
-  'set_driver_status rejects a cross-tenant driver mutation'
+  NULL::text,
+  'retired set_driver_status rejects a cross-tenant driver mutation'
 );
 
 -- A same-tenant caller without drivers:update must also be rejected.
@@ -195,8 +195,8 @@ SELECT throws_ok(
     '76888888-8888-4888-8888-888888888888', 'suspended', 'no permission', NULL
   )$$,
   '42501'::char(5),
-  'AUTH007: drivers:update permission required',
-  'set_driver_status requires drivers:update'
+  NULL::text,
+  'retired set_driver_status requires drivers:update'
 );
 
 SELECT is(
@@ -224,10 +224,9 @@ SELECT set_config(
   '{"sub":"76333333-3333-4333-8333-333333333333","role":"authenticated","aal":"aal2"}',
   true
 );
-SELECT public.set_driver_status(
-  '76888888-8888-4888-8888-888888888888', 'suspended', 'allowed',
-  '00000000-0000-4000-8000-000000000099'
-);
+SELECT public.mutate_driver_profile('status','{"status":"suspended","reason":"allowed fixture"}',
+ '76888888-8888-4888-8888-888888888888',(SELECT profile_version FROM public.drivers WHERE id='76888888-8888-4888-8888-888888888888'));
+
 SELECT is(
   (SELECT updated_by FROM public.drivers WHERE id = '76888888-8888-4888-8888-888888888888'),
   '76333333-3333-4333-8333-333333333333'::uuid,
@@ -241,32 +240,29 @@ SELECT set_config(
   true
 );
 
-UPDATE public.drivers SET preferred_name = 'forbidden'
-WHERE id = '76888888-8888-4888-8888-888888888888';
+SELECT throws_ok($$UPDATE public.drivers SET preferred_name = 'forbidden'
+WHERE id = '76888888-8888-4888-8888-888888888888';$$,'42501',NULL,'readonly direct driver mutation is denied at atomic RPC boundary');
 SELECT is(
   (SELECT preferred_name FROM public.drivers WHERE id = '76888888-8888-4888-8888-888888888888'),
   NULL::text,
   'readonly role cannot update drivers'
 );
 
-UPDATE public.vehicles SET notes = 'forbidden'
-WHERE id = '76aaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+SELECT throws_ok($$UPDATE public.vehicles SET notes='forbidden' WHERE id='76aaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'$$,'42501',NULL,'readonly direct vehicle write is explicitly denied');
 SELECT is(
   (SELECT notes FROM public.vehicles WHERE id = '76aaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
   NULL::text,
   'readonly role cannot update vehicles'
 );
 
-UPDATE public.violations SET review_notes = 'forbidden'
-WHERE id = '76bbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+SELECT throws_ok($$UPDATE public.violations SET review_notes = 'forbidden' WHERE id = '76bbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'$$,'42501',NULL,'readonly direct violation write is explicitly denied');
 SELECT is(
   (SELECT review_notes FROM public.violations WHERE id = '76bbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'),
   NULL::text,
   'readonly role cannot update violations'
 );
 
-UPDATE public.driver_payroll_periods SET notes = 'forbidden'
-WHERE id = '76cccccc-cccc-4ccc-8ccc-cccccccccccc';
+SELECT throws_ok($$UPDATE public.driver_payroll_periods SET notes = 'forbidden' WHERE id = '76cccccc-cccc-4ccc-8ccc-cccccccccccc'$$,'42501',NULL,'readonly direct payroll write is explicitly denied');
 SELECT is(
   (SELECT notes FROM public.driver_payroll_periods WHERE id = '76cccccc-cccc-4ccc-8ccc-cccccccccccc'),
   NULL::text,
@@ -278,8 +274,8 @@ SELECT throws_ok(
   '42501', NULL, 'readonly role cannot write invoices outside the atomic RPC'
 );
 
-UPDATE public.expenses SET description = 'forbidden'
-WHERE id = '76eeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+SELECT throws_ok($$UPDATE public.expenses SET description = 'forbidden'
+WHERE id = '76eeeeee-eeee-4eee-8eee-eeeeeeeeeeee'$$,'42501',NULL,'Direct browser expense updates require the controlled correction workflow');
 SELECT is(
   (SELECT description FROM public.expenses WHERE id = '76eeeeee-eeee-4eee-8eee-eeeeeeeeeeee'),
   'Tenant A launch fixture'::text,

@@ -77,6 +77,7 @@ export const codStatusSchema = z.enum([
 ])
 
 export interface Driver {
+  profile_version?: number
   id: string
   tenant_id: string
   driver_code: string | null
@@ -299,13 +300,13 @@ const driverCreateBaseSchema = z.object({
   job_title: z.string().nullable().optional(),
   department: z.string().nullable().optional(),
   cost_center: z.string().nullable().optional(),
-  hire_date: z.string().nullable().optional(),
+  hire_date: z.iso.date().or(z.literal("")).nullable().transform(value=>value===""?null:value).optional(),
   onboarding_date: z.string().nullable().optional(),
   probation_start: z.string().nullable().optional(),
   probation_end: z.string().nullable().optional(),
   contract_start: z.string().nullable().optional(),
   contract_end: z.string().nullable().optional(),
-  termination_date: z.string().nullable().optional(),
+  termination_date: z.iso.date().or(z.literal("")).nullable().transform(value=>value===""?null:value).optional(),
   termination_reason: z.string().nullable().optional(),
   rehire_eligible: z.boolean().optional(),
   supervisor_id: z.string().nullable().optional(),
@@ -347,20 +348,22 @@ const contractDateRefine = (data: {
   return true
 }
 
+const employmentDateRefine=(data:{hire_date?:string|null;termination_date?:string|null})=>!data.termination_date || !data.hire_date || data.termination_date>=data.hire_date
+
 export const driverCreateSchema = driverCreateBaseSchema.refine(
   contractDateRefine,
   {
     message: "contract_end must be after contract_start",
     path: ["contract_end"],
   },
-)
+).refine(employmentDateRefine,{message:"Termination date must be on or after hire date",path:["termination_date"]})
 
 export const driverUpdateSchema = driverCreateBaseSchema
   .partial()
   .refine(contractDateRefine, {
     message: "contract_end must be after contract_start",
     path: ["contract_end"],
-  })
+  }).refine(employmentDateRefine,{message:"Termination date must be on or after hire date",path:["termination_date"]})
 
 export const codSessionSchema = z.object({
   driver_id: z.string().min(1),

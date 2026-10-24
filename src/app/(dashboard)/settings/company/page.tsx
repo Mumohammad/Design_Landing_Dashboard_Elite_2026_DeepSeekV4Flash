@@ -3,8 +3,9 @@
 import { LocalizedText } from "@/components/localized-text"
 import { useEffect, useState } from "react"
 import { useActionState } from "react"
+import { settingsMessage } from "@/lib/settings/schema"
 import { useTranslation } from "@/hooks/use-translation"
-import { updateCompanyProfile, updateCompanyWpsSettings, fetchCompanyProfile, type CompanyProfileInput, type CompanyProfile } from "@/lib/settings/actions"
+import { updateCompanyProfile, updateCompanyWpsSettings, fetchCompanyProfile, type CompanyProfileInput, type CompanyProfile, type SettingsActionResult } from "@/lib/settings/actions"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -102,8 +103,8 @@ export default function CompanySettingsPage() {
     load()
   }, [])
 
-  const [state, formAction, isPending] = useActionState(
-    async (_prev: { success: boolean; error?: string } | null, _form: FormData) => {
+  const [state, formAction, isPending] = useActionState<SettingsActionResult | null, FormData>(
+    async () => {
       const input: CompanyProfileInput = {
         name_ar: nameAr.trim(),
         name_en: nameEn.trim(),
@@ -113,20 +114,25 @@ export default function CompanySettingsPage() {
         address: address.trim() || null,
         city: city.trim() || null,
         region: region.trim() || null,
-        country: country.trim() || null,
+        country: country.trim(),
         phone: phone.trim() || null,
         email: email.trim() || null,
-        timezone: timezone.trim() || null,
-        default_locale: defaultLocale || null,
+        timezone: timezone.trim(),
+        default_locale: defaultLocale,
       }
-      return updateCompanyProfile(input)
+      const result = await updateCompanyProfile(input, tenant?.configuration_version ?? 0)
+      if (result.success && result.configuration_version) setTenant(previous => previous ? { ...previous, configuration_version: result.configuration_version! } : previous)
+      return result
     },
     null
   )
 
-  const [wpsState, wpsAction, isSavingWps] = useActionState(
-    async (_prev: { success: boolean; error?: string } | null, _form: FormData) =>
-      updateCompanyWpsSettings({ molReference, wpsIban }),
+  const [wpsState, wpsAction, isSavingWps] = useActionState<SettingsActionResult | null, FormData>(
+    async () => {
+      const result = await updateCompanyWpsSettings({ molReference, wpsIban }, tenant?.configuration_version ?? 0)
+      if (result.success && result.configuration_version) setTenant(previous => previous ? { ...previous, configuration_version: result.configuration_version! } : previous)
+      return result
+    },
     null
   )
 
@@ -177,7 +183,7 @@ export default function CompanySettingsPage() {
         </div>
       )}
 
-      <form action={formAction}>
+      <form action={formAction}><fieldset disabled={!tenant?.can_manage || isPending || loadError} className="min-w-0">
         <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm">
           <CardHeader className="pb-4">
             <div className="flex items-center gap-3">
@@ -254,12 +260,12 @@ export default function CompanySettingsPage() {
             </span>
           )}
           {state?.error && (
-            <span className="text-sm text-red-500">{state.error}</span>
+            <span className="text-sm text-red-500">{state.code ? settingsMessage(state.code, locale) : state.error}</span>
           )}
         </div>
-      </form>
+      </fieldset></form>
 
-      <form action={wpsAction}>
+      <form action={wpsAction}><fieldset disabled={!tenant?.can_manage || isSavingWps || loadError} className="min-w-0">
         <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm">
           <CardHeader className="pb-4">
             <div className="flex items-center gap-3">
@@ -315,7 +321,7 @@ export default function CompanySettingsPage() {
                   <CheckCircle2 className="h-4 w-4" /> {t.common.saved}
                 </span>
               )}
-              {wpsState?.error && <span className="text-sm text-red-500">{wpsState.error}</span>}
+              {wpsState?.error && <span className="text-sm text-red-500">{wpsState.code ? settingsMessage(wpsState.code, locale) : wpsState.error}</span>}
             </div>
             <p className="mt-3 text-xs text-muted-foreground">
               {ar
@@ -324,7 +330,7 @@ export default function CompanySettingsPage() {
             </p>
           </CardContent>
         </Card>
-      </form>
+      </fieldset></form>
     </div>
   )
 }

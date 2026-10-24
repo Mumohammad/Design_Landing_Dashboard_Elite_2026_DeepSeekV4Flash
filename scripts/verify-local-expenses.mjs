@@ -48,6 +48,20 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
       await route.abort('failed')
     }else await route.continue()
   }
+  const rejectElsewhere=async(code,reason,language='en')=>{
+    const other=await page.context().newPage()
+    try{
+      await other.goto(appUrl+'/approvals?lang='+language)
+      await other.getByRole('textbox').first().fill(code)
+      const row=other.locator('tbody tr').filter({hasText:code})
+      await expect(row).toHaveCount(1)
+      await row.getByRole('button',{name:language==='ar'?'رفض':'Reject',exact:true}).click()
+      const decisionDialog=other.getByRole('dialog')
+      await decisionDialog.locator('#decision-reason').fill(reason)
+      await decisionDialog.getByRole('button',{name:language==='ar'?'تأكيد الرفض':'Confirm rejection',exact:true}).click()
+      await expect(decisionDialog).toBeHidden();await expect(row).toHaveCount(0)
+    }finally{await other.close()}
+  }
   let stage = 'fixtures'
   try {
     const defaults=await admin.from('expense_category_mappings').select('expense_type,coa_account_code').eq('tenant_id',tenantId)
@@ -96,7 +110,7 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
     await page.getByRole('button',{name:/^(Retry|Try again)$/}).click()
     await expect(page.getByTestId('module-empty-state')).toBeVisible()
     stage = 'failed summary stays unknown and recovers'
-    const failSummary = route => new URL(route.request().url()).searchParams.get('select') === 'id,amount,vat_amount,currency,is_approved,rejected_at'
+    const failSummary = route => new URL(route.request().url()).searchParams.get('select') === 'id,amount,vat_amount,currency,is_approved,rejected_at,cancelled_at'
       ? route.fulfill({status:503,contentType:'application/json',body:'{"message":"Synthetic summary unavailable"}'}) : route.continue()
     await page.route(pattern,failSummary)
     await page.reload()
@@ -303,8 +317,7 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
     await search.fill(stale.data.expense_code);await expect(rows).toHaveCount(1)
     await rows.getByRole('button',{name:'Approve expense',exact:true}).click()
     retainedSeeds.push(ids[2])
-    const otherDecision=await admin.rpc('reject_expense_atomic',{p_tenant_id:tenantId,p_expense_id:ids[2],p_reason:'Reviewed elsewhere before approval',p_actor:decision.data.rejected_by})
-    if(otherDecision.error)throw Error('Competing rejection failed')
+    await rejectElsewhere(stale.data.expense_code,'Reviewed elsewhere before approval')
     await dialog.getByRole('button',{name:'Approve',exact:true}).click()
     await expect(dialog).toBeHidden()
     await expect(page.getByText('This expense was already rejected. Review the refreshed decision.',{exact:true})).toBeVisible()
@@ -327,8 +340,7 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
     await arabicQueueRow.getByRole('button',{name:'موافقة',exact:true}).click()
     await dialog.locator('#decision-reason').fill('Reviewed before another decision')
     retainedSeeds.push(ids[3])
-    const arabicDecision=await admin.rpc('reject_expense_atomic',{p_tenant_id:tenantId,p_expense_id:ids[3],p_reason:'Duplicate Arabic review fixture',p_actor:decision.data.rejected_by})
-    if(arabicDecision.error)throw Error('Arabic competing rejection failed')
+    await rejectElsewhere(arabicStale.data.expense_code,'Duplicate Arabic review fixture','ar')
     await dialog.getByRole('button',{name:'تأكيد الموافقة',exact:true}).click()
     await expect(dialog).toBeHidden();await expect(arabicQueueRow).toHaveCount(0)
     await expect(page.locator('[data-sonner-toast]').filter({hasText:'تم اتخاذ القرار مسبقاً. راجع القائمة بعد تحديثها.'})).toBeVisible()
@@ -374,11 +386,11 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
     throw Error('Expense overview verification failed: ' + stage)
   } finally {
     await page.unrouteAll({behavior:'ignoreErrors'})
-    const retired = await admin.from('expenses').update({deleted_at:new Date().toISOString()}).eq('tenant_id',tenantId).in('vendor',managedVendors)
-    const retiredSeeds = retainedSeeds.length ? await admin.from('expenses').update({deleted_at:new Date().toISOString()}).eq('tenant_id',tenantId).in('id',retainedSeeds) : {error:null}
-    const removed = await admin.from('expenses').delete().eq('tenant_id',tenantId).in('id',ids.filter(id=>!retainedSeeds.includes(id)))
-    const removedDrivers = await admin.from('drivers').delete().eq('tenant_id',tenantId).in('id',drivers)
-    if (retired.error || retiredSeeds.error || removed.error || removedDrivers.error) throw Error('Synthetic expense cleanup failed')
+    // Final decisions are immutable financial history, including synthetic data.
+    // Keep their sources/driver links in this dedicated test tenant; remove only
+    // never-decided, never-corrected seed rows rather than retiring final evidence.
+    const removed = await admin.from('expenses').delete().eq('tenant_id',tenantId).in('id',ids.filter(id=>!retainedSeeds.includes(id))).eq('is_approved',false).is('rejected_at',null).is('cancelled_at',null)
+    if(removed.error)throw Error('Undecided synthetic expense cleanup failed')
     if (viewport) await page.setViewportSize(viewport)
     await page.goto(appUrl + '/dashboard?lang=' + locale)
   }

@@ -5,7 +5,7 @@
 // platform_payments (month) for KPIs; platform CRUD and deactivation ride
 // the server actions; rows link into /platforms/[id] drill-downs.
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { LayoutTemplate, CheckCircle2, DollarSign, Plus, Download, Pencil, PowerOff, ChevronRight, AlertCircle } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
@@ -28,6 +28,12 @@ export default function PlatformsPage() {
   const [outstanding, setOutstanding] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   const [search, setSearch] = useState("")
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
+  const [activeCount, setActiveCount] = useState(0)
+  const [loadError, setLoadError] = useState<string>()
+  const requestRef = useRef(0)
+  const invalidateRequests=useCallback(()=>{requestRef.current++},[])
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<PlatformRow | null>(null)
@@ -38,60 +44,27 @@ export default function PlatformsPage() {
   // so calling it from an effect cannot cascade renders. The initial spinner
   // is the useState(true) default; refetches after mutations refresh silently.
   const loadData = useCallback(async () => {
+    const request=++requestRef.current
+    setIsLoading(true)
     const supabase = createClient()
-    const now = new Date()
-    const todayIso = now.toISOString().slice(0, 10)
-    const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`
-
-    const [platRes, todayRes, revenueRes, outstandingRes] = await Promise.all([
-      supabase
-        .from("delivery_platforms")
-        .select("id,code,name_ar,name_en,brand_color,is_active,rate_type,rate_per_order,api_base_url,sort_order")
-        .is("deleted_at", null)
-        .order("sort_order", { ascending: true }),
-      supabase
-        .from("daily_order_entries")
-        .select("orders_delivered")
-        .gte("entry_date", todayIso)
-        .lte("entry_date", todayIso)
-        .is("deleted_at", null),
-      supabase
-        .from("daily_order_entries")
-        .select("gross_revenue")
-        .gte("entry_date", monthStart)
-        .lte("entry_date", todayIso)
-        .is("deleted_at", null),
-      supabase
-        .from("platform_payments")
-        .select("outstanding_amount")
-        .in("payment_status", ["pending", "partial", "overdue"])
-        .is("deleted_at", null),
-    ])
-    setRows((platRes.data as PlatformRow[]) ?? [])
-    setTodayOrders((todayRes.data as { orders_delivered: number }[] | null)?.reduce((s, r) => s + Number(r.orders_delivered ?? 0), 0) ?? 0)
-    setMonthRevenue((revenueRes.data as { gross_revenue: number }[] | null)?.reduce((s, r) => s + Number(r.gross_revenue ?? 0), 0) ?? 0)
-    setOutstanding((outstandingRes.data as { outstanding_amount: number }[] | null)?.reduce((s, r) => s + Number(r.outstanding_amount ?? 0), 0) ?? 0)
+    const {data,error}=await supabase.rpc("list_delivery_platforms",{p_search:search,p_page:page,p_page_size:50})
+    if(request!==requestRef.current)return
+    if(error){setLoadError(error.message);setRows([])}
+    else{
+      setRows(data.rows);setTotal(data.total);setActiveCount(data.summary.active)
+      setTodayOrders(data.summary.todayOrders);setMonthRevenue(data.summary.monthRevenue);setOutstanding(data.summary.outstanding);setLoadError(undefined)
+    }
     setIsLoading(false)
-  }, [])
+  }, [page,search])
 
   useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      await loadData()
-      void cancelled
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [loadData])
+    const timer=setTimeout(()=>void loadData(),0)
+    return()=>{clearTimeout(timer);invalidateRequests()}
 
-  const filtered = useMemo(
-    () => rows.filter((r) => !search || `${r.name_ar} ${r.name_en ?? ""} ${r.code}`.toLowerCase().includes(search.toLowerCase())),
-    [rows, search]
-  )
+  }, [loadData,invalidateRequests])
 
   const kpiCards: KpiCardData[] = [
-    { label: pm.kpiActive, value: rows.filter((r) => r.is_active).length, icon: CheckCircle2, color: "#10B981" },
+    { label: pm.kpiActive, value: activeCount, icon: CheckCircle2, color: "#10B981" },
     { label: pm.kpiTodayOrders, value: todayOrders, icon: LayoutTemplate, color: "#1E5A99" },
     { label: pm.kpiMonthRevenue, value: monthRevenue.toFixed(0), icon: DollarSign, color: "#8B5CF6" },
     { label: pm.kpiOutstanding, value: outstanding.toFixed(0), icon: AlertCircle, color: "#EF4444" },
@@ -153,7 +126,7 @@ export default function PlatformsPage() {
               title={pm.deactivatePlatform}
               onClick={async () => {
                 if (!confirm(pm.deactivateConfirm)) return
-                const res = await deactivatePlatform(r.id)
+                const res = await deactivatePlatform(r.id,r.updated_at)
                 if (res.success) {
                   toast.success(t.common.saved)
                   await loadData()
@@ -191,10 +164,10 @@ export default function PlatformsPage() {
       <EnterpriseModulePage
         title={t.nav.platforms}
         subtitle={pm.subtitle}
-        kpiCards={kpiCards}
+        kpiCards={loadError?undefined:kpiCards}
         searchPlaceholder={t.common.searchPlaceholder}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={value=>{setSearch(value);setPage(1)}}
         primaryCtaLabel={pm.addPlatform}
         primaryCtaIcon={Plus}
         onPrimaryCta={() => { setEditing(null); setDialogOpen(true) }}
@@ -205,8 +178,11 @@ export default function PlatformsPage() {
           </Button>
         }
         columns={columns}
-        data={filtered}
+        data={rows}
         isLoading={isLoading}
+        loadError={loadError}
+        onRetry={loadData}
+        pagination={{totalRecords:total,currentPage:page,totalPages:Math.max(1,Math.ceil(total/50)),onPageChange:setPage}}
         emptyStateMessage={t.common.noData}
       />
 

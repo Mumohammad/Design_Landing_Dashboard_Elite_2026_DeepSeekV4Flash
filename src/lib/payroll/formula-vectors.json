@@ -1,0 +1,334 @@
+[
+  {
+    "name": "type1 above target",
+    "rule": {
+      "working_days_target": 26,
+      "target_orders": 450,
+      "minimum_net_floor": 0,
+      "category": "sponsored_type1",
+      "base_salary": 2000,
+      "bonus_rate": 9,
+      "deduction_rate": 7
+    },
+    "orders": 500,
+    "days": 26,
+    "other": 0,
+    "absence": 0,
+    "sa": true,
+    "advisory": 4000,
+    "expected": {
+      "base_amount": 2000,
+      "orders_bonus": 450,
+      "orders_deduction": 0,
+      "package_deduction": 0,
+      "orders_prorated_target": 450,
+      "net_payroll": 2450,
+      "below_minimum_wage": true
+    }
+  },
+  {
+    "name": "type1 half attendance",
+    "rule": {
+      "working_days_target": 26,
+      "target_orders": 450,
+      "minimum_net_floor": 0,
+      "category": "sponsored_type1",
+      "base_salary": 2000,
+      "bonus_rate": 9,
+      "deduction_rate": 7
+    },
+    "orders": 250,
+    "days": 13,
+    "other": 0,
+    "absence": 0,
+    "sa": false,
+    "advisory": 4000,
+    "expected": {
+      "base_amount": 1000,
+      "orders_bonus": 225,
+      "orders_deduction": 0,
+      "package_deduction": 0,
+      "orders_prorated_target": 225,
+      "net_payroll": 1225,
+      "below_minimum_wage": false
+    }
+  },
+  {
+    "name": "type1 below target",
+    "rule": {
+      "working_days_target": 26,
+      "target_orders": 450,
+      "minimum_net_floor": 0,
+      "category": "sponsored_type1",
+      "base_salary": 2000,
+      "bonus_rate": 9,
+      "deduction_rate": 7
+    },
+    "orders": 400,
+    "days": 26,
+    "other": 0,
+    "absence": 0,
+    "sa": false,
+    "advisory": 4000,
+    "expected": {
+      "base_amount": 2000,
+      "orders_bonus": 0,
+      "orders_deduction": 350,
+      "package_deduction": 0,
+      "orders_prorated_target": 450,
+      "net_payroll": 1650,
+      "below_minimum_wage": false
+    }
+  },
+  {
+    "name": "type1 exact cents",
+    "rule": {
+      "working_days_target": 24,
+      "target_orders": 300,
+      "minimum_net_floor": 0,
+      "category": "sponsored_type1",
+      "base_salary": 2700.25,
+      "bonus_rate": 0,
+      "deduction_rate": 0
+    },
+    "orders": 3,
+    "days": 20.5,
+    "other": 18.01,
+    "absence": 112.51,
+    "sa": false,
+    "advisory": 4000,
+    "expected": {
+      "base_amount": 2306.46,
+      "orders_bonus": 0,
+      "orders_deduction": 0,
+      "package_deduction": 0,
+      "orders_prorated_target": 257,
+      "net_payroll": 2175.94,
+      "below_minimum_wage": false
+    }
+  },
+  {
+    "name": "type2 below threshold",
+    "rule": {
+      "working_days_target": 26,
+      "target_orders": 450,
+      "minimum_net_floor": 0,
+      "category": "sponsored_type2",
+      "package_amount": 3200,
+      "threshold_orders": 400,
+      "car_rent_deduction": 1700
+    },
+    "orders": 300,
+    "days": 26,
+    "other": 0,
+    "absence": 0,
+    "sa": true,
+    "advisory": 4000,
+    "expected": {
+      "base_amount": 3200,
+      "orders_bonus": 0,
+      "orders_deduction": 0,
+      "package_deduction": 1700,
+      "orders_prorated_target": 450,
+      "net_payroll": 1500,
+      "below_minimum_wage": true
+    }
+  },
+  {
+    "name": "type2 at threshold",
+    "rule": {
+      "working_days_target": 26,
+      "target_orders": 450,
+      "minimum_net_floor": 0,
+      "category": "sponsored_type2",
+      "package_amount": 3200,
+      "threshold_orders": 400,
+      "car_rent_deduction": 1700
+    },
+    "orders": 400,
+    "days": 13,
+    "other": 0,
+    "absence": 0,
+    "sa": false,
+    "advisory": 4000,
+    "expected": {
+      "base_amount": 3200,
+      "orders_bonus": 0,
+      "orders_deduction": 0,
+      "package_deduction": 0,
+      "orders_prorated_target": 225,
+      "net_payroll": 3200,
+      "below_minimum_wage": false
+    }
+  },
+  {
+    "name": "freelancer capped bonus",
+    "rule": {
+      "working_days_target": 26,
+      "target_orders": 450,
+      "minimum_net_floor": 0,
+      "category": "freelancer",
+      "base_salary": 1500,
+      "bonus_rate": 10,
+      "deduction_rate": 5,
+      "bonus_cap": 500,
+      "deduction_cap": 100
+    },
+    "orders": 560,
+    "days": 26,
+    "other": 0,
+    "absence": 0,
+    "sa": false,
+    "advisory": 4000,
+    "expected": {
+      "base_amount": 1500,
+      "orders_bonus": 500,
+      "orders_deduction": 0,
+      "package_deduction": 0,
+      "orders_prorated_target": 450,
+      "net_payroll": 2000,
+      "below_minimum_wage": false
+    }
+  },
+  {
+    "name": "freelancer capped deduction",
+    "rule": {
+      "working_days_target": 26,
+      "target_orders": 450,
+      "minimum_net_floor": 0,
+      "category": "freelancer",
+      "base_salary": 1500,
+      "bonus_rate": 10,
+      "deduction_rate": 5,
+      "bonus_cap": 500,
+      "deduction_cap": 100
+    },
+    "orders": 400,
+    "days": 26,
+    "other": 0,
+    "absence": 0,
+    "sa": false,
+    "advisory": 4000,
+    "expected": {
+      "base_amount": 1500,
+      "orders_bonus": 0,
+      "orders_deduction": 100,
+      "package_deduction": 0,
+      "orders_prorated_target": 450,
+      "net_payroll": 1400,
+      "below_minimum_wage": false
+    }
+  },
+  {
+    "name": "freelancer explicit zero rates",
+    "rule": {
+      "working_days_target": 26,
+      "target_orders": 450,
+      "minimum_net_floor": 0,
+      "category": "freelancer",
+      "base_salary": 1500,
+      "bonus_rate": 0,
+      "deduction_rate": 0,
+      "bonus_cap": 0,
+      "deduction_cap": 0
+    },
+    "orders": 470,
+    "days": 26,
+    "other": 0,
+    "absence": 0,
+    "sa": true,
+    "advisory": 1000,
+    "expected": {
+      "base_amount": 1500,
+      "orders_bonus": 0,
+      "orders_deduction": 0,
+      "package_deduction": 0,
+      "orders_prorated_target": 450,
+      "net_payroll": 1500,
+      "below_minimum_wage": false
+    }
+  },
+  {
+    "name": "floor prevents negative net",
+    "rule": {
+      "working_days_target": 26,
+      "target_orders": 450,
+      "minimum_net_floor": 200,
+      "category": "sponsored_type1",
+      "base_salary": 2000,
+      "bonus_rate": 9,
+      "deduction_rate": 7
+    },
+    "orders": 0,
+    "days": 26,
+    "other": 1000,
+    "absence": 0,
+    "sa": false,
+    "advisory": 4000,
+    "expected": {
+      "base_amount": 2000,
+      "orders_bonus": 0,
+      "orders_deduction": 3150,
+      "package_deduction": 0,
+      "orders_prorated_target": 450,
+      "net_payroll": 200,
+      "below_minimum_wage": false
+    }
+  },
+  {
+    "name": "zero floor on large recovery",
+    "rule": {
+      "working_days_target": 26,
+      "target_orders": 450,
+      "minimum_net_floor": 0,
+      "category": "sponsored_type1",
+      "base_salary": 2000,
+      "bonus_rate": 9,
+      "deduction_rate": 7
+    },
+    "orders": 0,
+    "days": 26,
+    "other": 1000,
+    "absence": 0,
+    "sa": false,
+    "advisory": 4000,
+    "expected": {
+      "base_amount": 2000,
+      "orders_bonus": 0,
+      "orders_deduction": 3150,
+      "package_deduction": 0,
+      "orders_prorated_target": 450,
+      "net_payroll": 0,
+      "below_minimum_wage": false
+    }
+  },
+  {
+    "name": "half day and zero paid activity",
+    "rule": {
+      "working_days_target": 26,
+      "target_orders": 450,
+      "minimum_net_floor": 0,
+      "category": "freelancer",
+      "base_salary": 1500,
+      "bonus_rate": 10,
+      "deduction_rate": 5,
+      "bonus_cap": 500,
+      "deduction_cap": 100
+    },
+    "orders": 0,
+    "days": 0,
+    "other": 0,
+    "absence": 0,
+    "sa": false,
+    "advisory": 0,
+    "expected": {
+      "base_amount": 0,
+      "orders_bonus": 0,
+      "orders_deduction": 0,
+      "package_deduction": 0,
+      "orders_prorated_target": 0,
+      "net_payroll": 0,
+      "below_minimum_wage": false
+    }
+  }
+]

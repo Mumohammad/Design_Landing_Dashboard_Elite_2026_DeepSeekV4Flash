@@ -1,16 +1,11 @@
 import { expect as baseExpect } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
+import { assertModuleTestTarget } from './assert-module-test-target.mjs'
 const expect = baseExpect.configure({timeout:20_000})
 
 // Read-only browser operations over exact owned synthetic fixtures, never production.
 export async function verifyApprovalsInbox(page,admin,tenantId,appUrl){
-  const target=new URL(appUrl),database=new URL(admin.supabaseUrl)
-  const local=['localhost','127.0.0.1'].includes(target.hostname)&&['3107','3108'].includes(target.port)
-  if(local&&(!['localhost','127.0.0.1'].includes(database.hostname)||database.port!=='58321'))throw Error('Disposable database required')
-  if(!local){
-    const policy=(await fetch(appUrl+'/landing')).headers.get('content-security-policy')??''
-    if(database.origin!=='https://viowrovartosrkqukjxy.supabase.co'||!policy.includes(database.origin)||policy.includes('https://wwfnsbilmyxeawgzicmv.supabase.co'))throw Error('Isolated staging target required')
-  }
+  await assertModuleTestTarget(page,admin.supabaseUrl,appUrl)
   const initialViewport=page.viewportSize(),initialLocale=await page.locator('html').getAttribute('lang')
   const tag=randomUUID().slice(0,8),ids=Array.from({length:105},()=>randomUUID())
   const appId=randomUUID(),driverId=randomUUID(),leaveId=randomUUID()
@@ -36,7 +31,7 @@ export async function verifyApprovalsInbox(page,admin,tenantId,appUrl){
     if(!type.data){type=await admin.from('leave_types').insert({tenant_id:tenantId,code:'annual',name_ar:'سنوية',name_en:'Annual',days_per_year:30}).select('id').single();createdLeaveType=true}
     if(type.error||!type.data?.id)throw Error('Synthetic leave type failed')
     leaveTypeId=type.data.id
-    if((await admin.from('drivers').insert({id:driverId,tenant_id:tenantId,full_name_ar:'سائق اختباري',primary_mobile:'+966500000000',category:'freelancer',status:'active',hire_date:new Date(Date.now()-400*86400000).toISOString().slice(0,10)})).error)throw Error('Synthetic driver failed')
+    if((await admin.from('drivers').insert({id:driverId,tenant_id:tenantId,full_name_ar:'سائق اختباري '+tag,primary_mobile:'+966500000000',category:'freelancer',status:'active',hire_date:new Date(Date.now()-400*86400000).toISOString().slice(0,10)})).error)throw Error('Synthetic driver failed')
     if((await admin.from('driver_leave_requests').insert({id:leaveId,tenant_id:tenantId,driver_id:driverId,leave_type_id:leaveTypeId,start_date:new Date(Date.now()+7*86400000).toISOString().slice(0,10),end_date:new Date(Date.now()+7*86400000).toISOString().slice(0,10),days_requested:1,status:'pending'})).error)throw Error('Synthetic leave failed')
     if((await admin.from('driver_applications').insert({id:appId,tenant_id:tenantId,application_number:appReference,first_name:`HiddenApplicant${tag}`,last_name:'SecretSurname',full_name:hiddenName,mobile:phone,identity_type:'iqama',identity_number:identity,work_type:'full_time',status:'submitted',city:'Riyadh'})).error)throw Error('Synthetic application failed')
     if((await admin.from('expenses').insert(ids.map((id,i)=>({id,tenant_id:tenantId,expense_type:'fuel',amount:0.1,currency:'SAR',expense_date:'2020-01-01',created_at:'2020-01-01T00:00:00Z',vendor:i===104?literal:`Queue vendor ${tag} ${i}`,is_approved:false})))).error)throw Error('Synthetic expenses failed')
@@ -44,6 +39,9 @@ export async function verifyApprovalsInbox(page,admin,tenantId,appUrl){
     await page.goto(appUrl+'/approvals?lang=en')
     const rows=page.locator('tbody tr'),search=page.getByRole('textbox',{name:'Search references and visible details...',exact:true})
     const metrics=page.locator('main div.text-2xl.font-bold')
+    // Scope the complete mixed-source queue to this fixture tag; earlier module
+    // checks retain their immutable synthetic evidence in the same tenant.
+    await search.fill(tag)
     await expect(rows).toHaveCount(50)
     await expect(page.getByText('107 records · Page 1 of 3',{exact:true})).toBeVisible()
     for(const [i,value] of ['107','105','1','1'].entries())await expect(metrics.nth(i)).toHaveText(value)
@@ -171,11 +169,8 @@ export async function verifyApprovalsInbox(page,admin,tenantId,appUrl){
     releaseStale?.();releaseFresh?.()
     for(const handler of patterns)await page.unroute('**/approvals*',handler).catch(()=>{})
     page.off('response',inspect)
-    for(const [table,key,values] of [['expenses','id',ids],['driver_leave_requests','id',[leaveId]],['driver_applications','id',[appId]],['drivers','id',[driverId]]]){
-      const removed=await admin.from(table).delete().eq('tenant_id',tenantId).in(key,values)
-      if(removed.error){console.error(JSON.stringify({check:'approvals synthetic cleanup',table,code:removed.error.code}));throw Error('Owned approval fixture cleanup failed')}
-    }
-    if(createdLeaveType&&leaveTypeId){if((await admin.from('leave_types').delete().eq('tenant_id',tenantId).eq('id',leaveTypeId)).error)throw Error('Owned leave type cleanup failed')}
+    // Preserve source/audit evidence. The outer coordinated runner retires
+    // the synthetic tenant owner; immutable histories must never be deleted.
     await page.setViewportSize(initialViewport)
     await page.goto(appUrl+'/dashboard?lang='+(initialLocale==='ar'?'ar':'en'))
   }

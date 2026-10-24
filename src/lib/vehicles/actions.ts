@@ -1,117 +1,31 @@
 "use server"
-
-// Server Actions for the Vehicles module (Module 2).
-//
-// - createVehicle — vehicles:create → inserts a vehicle record + audit entry
-//
-// Authorization is enforced server-side with requirePermission(); RLS on the
-// vehicles table remains the data boundary. Writes go through the service-role
-// admin client so tenant/actor columns are set explicitly.
-
 import { revalidatePath } from "next/cache"
-import { createAdminClient } from "@/lib/supabase/admin"
-import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
-import { writeAuditLog } from "@/lib/auth/sessions"
+import { z } from "zod"
+import { createClient } from "@/lib/supabase/server"
+import { getCurrentUser,requirePermission } from "@/lib/auth/authorization"
 import { rateLimitVehicles } from "@/lib/auth/rate-limit"
-import { vehicleCreateSchema, type VehicleCreateInput } from "@/types/vehicles"
-
-export type ActionResult = { success: boolean; error?: string; id?: string }
-
-function errorMessage(e: unknown): string {
-  if (e instanceof Error) return e.message
-  return "Unknown error"
+import { vehicleCreateSchema,vehicleUpdateSchema,type VehicleCreateInput,type VehicleUpdateInput } from "@/types/vehicles"
+export type ActionResult={success:boolean;error?:string;id?:string;version?:number;url?:string}
+function message(e:unknown){return e instanceof z.ZodError?e.issues[0]?.message??"Invalid form values":e instanceof Error?e.message:"Could not save the record. Reload and try again."}
+async function save(input:VehicleCreateInput|VehicleUpdateInput,id?:string,expectedVersion?:number,reason?:string):Promise<ActionResult>{
+ try{await requirePermission("vehicles",reason?"delete":id?"update":"create");const me=await getCurrentUser();if(!me)return{success:false,error:"Not authenticated."};if(!(await rateLimitVehicles(me.id)).success)return{success:false,error:"Rate limit exceeded. Try again later."};if(id){z.uuid().parse(id);z.number().int().positive().parse(expectedVersion)}
+ const parsed=id?vehicleUpdateSchema.parse(input):vehicleCreateSchema.parse(input);const{current_driver_id,photo_url,...values}=parsed;if(current_driver_id||photo_url)throw new Error("Use the assignment and file workflows to change linked records.")
+ const client=await createClient();const{data,error}=await client.rpc("save_fleet_vehicle",{p_input:values,p_id:id??null,p_expected_version:expectedVersion??null,p_archive_reason:reason??null});if(error)throw new Error(error.message);if(!data?.id)throw new Error("The vehicle was not saved. Reload and try again.");revalidatePath("/vehicles");revalidatePath("/vehicles/"+data.id);return{success:true,id:data.id,version:data.version}
+ }catch(e){return{success:false,error:message(e)}}
 }
-
-/**
- * Generate a short unique vehicle code when the user leaves the field empty.
- * The DB also enforces tenant-unique (vehicle_code) via a partial unique index.
- */
-function generateVehicleCode(): string {
-  const rand = Math.random().toString(36).slice(2, 8).toUpperCase()
-  return `VEH-${rand}`
+export async function createVehicle(input:VehicleCreateInput){return save(input)}
+export async function updateVehicle(id:string,expectedVersion:number,input:VehicleUpdateInput){return save(input,id,expectedVersion)}
+export async function archiveVehicle(id:string,expectedVersion:number,reason:string){return save({},id,expectedVersion,reason)}
+const documentSchema=z.object({doc_type:z.enum(["registration","insurance","inspection","operating_card","ownership","modification_permit","other"]),doc_number:z.string().trim().max(100).nullable().optional(),issue_date:z.iso.date().nullable().optional(),expiry_date:z.iso.date().nullable().optional(),issuing_authority:z.string().trim().max(200).nullable().optional(),notes:z.string().trim().max(2000).nullable().optional()}).strict()
+export async function saveVehicleDocument(vehicleId:string,input:unknown,form:FormData,id?:string,expectedVersion?:number):Promise<ActionResult>{
+ let uploadedPath:string|null=null
+ try{await requirePermission("vehicles",id?"update":"create");const me=await getCurrentUser();if(!me)return{success:false,error:"Not authenticated."};z.uuid().parse(vehicleId);if(id){z.uuid().parse(id);z.number().int().positive().parse(expectedVersion)}const values=documentSchema.parse(input);const client=await createClient();const file=form.get("file");let path:string|undefined;
+ if(file instanceof File&&file.size>0){if(file.size>20*1024*1024)throw new Error("File must be 20 MB or smaller.");const bytes=new Uint8Array(await file.arrayBuffer());const pdf=Buffer.from(bytes.slice(0,5)).toString()==="%PDF-",png=bytes.slice(0,8).join(",")==="137,80,78,71,13,10,26,10",jpeg=bytes[0]===255&&bytes[1]===216&&bytes[2]===255;const mime=pdf?"application/pdf":png?"image/png":jpeg?"image/jpeg":null;if(!mime||file.type!==mime)throw new Error("Choose a valid PDF, PNG or JPEG file.");path=me.tenantId+"/"+vehicleId+"/"+crypto.randomUUID()+"."+(pdf?"pdf":png?"png":"jpg");const{error}=await client.storage.from("vehicle-documents").upload(path,bytes,{contentType:mime,upsert:false});if(error)throw new Error("Could not upload the document. Try again.");uploadedPath=path}
+ if(!id&&!path)throw new Error("Choose a document file.");const{data,error}=await client.rpc("mutate_fleet_document",{p_action:"save",p_vehicle_id:vehicleId,p_input:{...values,...(path?{file_url:path}:{})},p_id:id??null,p_expected_version:expectedVersion??null});if(error)throw new Error(error.message);if(!data?.id)throw new Error("The document was not saved.");uploadedPath=null;revalidatePath("/vehicles/"+vehicleId);return{success:true,id:data.id,version:data.version}
+ }catch(e){if(uploadedPath){const client=await createClient();await client.storage.from("vehicle-documents").remove([uploadedPath])}return{success:false,error:message(e)}}
 }
+export async function changeVehicleDocument(vehicleId:string,id:string,expectedVersion:number,action:"verify"|"archive",reason?:string):Promise<ActionResult>{try{await requirePermission("vehicles",action==="archive"?"delete":"update");z.uuid().parse(vehicleId);z.uuid().parse(id);z.number().int().positive().parse(expectedVersion);z.enum(["verify","archive"]).parse(action);const client=await createClient();const{data,error}=await client.rpc("mutate_fleet_document",{p_action:action,p_vehicle_id:vehicleId,p_id:id,p_expected_version:expectedVersion,p_input:reason?{reason}:{}});if(error)throw new Error(error.message);if(!data?.id)throw new Error("The document was not changed.");revalidatePath("/vehicles/"+vehicleId);return{success:true,id:data.id}}catch(e){return{success:false,error:message(e)}}}
+export async function getVehicleDocumentUrl(id:string):Promise<ActionResult>{try{await requirePermission("vehicles","read");z.uuid().parse(id);const client=await createClient();const{data:doc,error}=await client.from("vehicle_documents").select("file_url").eq("id",id).is("deleted_at",null).single();if(error||!doc)throw new Error("Document not found.");const{data,error:signedError}=await client.storage.from("vehicle-documents").createSignedUrl(doc.file_url,300);if(signedError||!data)throw new Error("Could not open the document. Try again.");return{success:true,url:data.signedUrl}}catch(e){return{success:false,error:message(e)}}}
+export async function saveVehicleHandover(assignmentId:string,input:Record<string,unknown>,id?:string,expectedVersion?:number):Promise<ActionResult>{try{await requirePermission("assignments",id?"update":"create");z.uuid().parse(assignmentId);if(id){z.uuid().parse(id);z.number().int().positive().parse(expectedVersion)}const client=await createClient();const{data,error}=await client.rpc("save_fleet_handover",{p_assignment_id:assignmentId,p_input:input,p_id:id??null,p_expected_version:expectedVersion??null});if(error)throw new Error(error.message);if(!data?.id)throw new Error("The handover was not saved.");revalidatePath("/vehicles");return{success:true,id:data.id,version:data.version}}catch(e){return{success:false,error:message(e)}}}
 
-/**
- * Create a new vehicle record for the current tenant.
- * vehicles:create only. Validates with the canonical vehicleCreateSchema
- * (Saudi plate format, make/model required, year bounds) and writes an audit row.
- */
-export async function createVehicle(input: VehicleCreateInput): Promise<ActionResult> {
-  try {
-    await requirePermission("vehicles", "create")
-    const currentUser = await getCurrentUser()
-    if (!currentUser) {
-      return { success: false, error: "Not authenticated." }
-    }
-    const rl = await rateLimitVehicles(currentUser.id)
-    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
-
-    // Server-side re-validation — never trust the client.
-    const parsed = vehicleCreateSchema.parse(input)
-
-    const admin = createAdminClient()
-    const { data, error } = await admin
-      .from("vehicles")
-      .insert({
-        tenant_id: currentUser.tenantId,
-        created_by: currentUser.authUserId,
-        vehicle_code: parsed.vehicle_code?.trim() || generateVehicleCode(),
-        plate_number: parsed.plate_number.trim(),
-        plate_type: parsed.plate_type?.trim() || null,
-        make: parsed.make.trim(),
-        model: parsed.model.trim(),
-        year: parsed.year ?? null,
-        color: parsed.color?.trim() || null,
-        chassis_number: parsed.chassis_number?.trim() || null,
-        engine_number: parsed.engine_number?.trim() || null,
-        vin: parsed.vin?.trim() || null,
-        status: parsed.status ?? "available",
-        condition_status: parsed.condition_status ?? "good",
-        fuel_type: parsed.fuel_type ?? null,
-        odometer_current: parsed.odometer_current ?? 0,
-        odometer_last_service: parsed.odometer_last_service ?? null,
-        odometer_unit: parsed.odometer_unit?.trim() || "km",
-        purchase_date: parsed.purchase_date || null,
-        warranty_expiry: parsed.warranty_expiry || null,
-        insurance_expiry: parsed.insurance_expiry || null,
-        insurance_provider: parsed.insurance_provider?.trim() || null,
-        insurance_policy_number: parsed.insurance_policy_number?.trim() || null,
-        inspection_expiry: parsed.inspection_expiry || null,
-        registration_expiry: parsed.registration_expiry || null,
-        operating_card_expiry: parsed.operating_card_expiry || null,
-        current_driver_id: parsed.current_driver_id ?? null,
-        primary_platform_id: parsed.primary_platform_id ?? null,
-        transmission: parsed.transmission?.trim() || null,
-        seats: parsed.seats ?? null,
-        cargo_capacity: parsed.cargo_capacity ?? null,
-        photo_url: parsed.photo_url?.trim() || null,
-        notes: parsed.notes?.trim() || null,
-        tags: parsed.tags && parsed.tags.length > 0 ? parsed.tags.map((s) => s.trim()) : null,
-      })
-      .select("id")
-      .single()
-
-    if (error) return { success: false, error: error.message }
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "vehicles",
-      action: "created",
-      entityType: "vehicle",
-      entityId: data.id,
-      newValues: {
-        vehicle_code: parsed.vehicle_code?.trim() || null,
-        plate_number: parsed.plate_number.trim(),
-        make: parsed.make.trim(),
-        model: parsed.model.trim(),
-        status: parsed.status ?? "available",
-      },
-    })
-
-    revalidatePath("/vehicles")
-    return { success: true, id: data.id }
-  } catch (e) {
-    return { success: false, error: errorMessage(e) }
-  }
-}
+export async function archiveVehicleHandover(id:string,version:number,reason:string):Promise<ActionResult>{try{await requirePermission("assignments","delete");z.uuid().parse(id);z.number().int().positive().parse(version);z.string().trim().min(3).max(500).parse(reason);const client=await createClient();const{data,error}=await client.rpc("archive_fleet_handover",{p_id:id,p_expected_version:version,p_reason:reason});if(error)throw new Error(error.message);if(!data?.id)throw new Error("Handover was not archived.");return{success:true,id:data.id}}catch(e){return{success:false,error:message(e)}}}

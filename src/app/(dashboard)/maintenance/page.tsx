@@ -8,7 +8,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { Wrench, Clock, CheckCircle2, Car, Plus, Download, Gauge, Pencil, Play, XCircle, CheckCheck } from "lucide-react"
+import { Wrench, Clock, CheckCircle2, Car, Plus, Download, Gauge, Pencil, Play, XCircle, CheckCheck, Archive } from "lucide-react"
+import { fetchFleetRows } from "@/lib/vehicles/query-pages"
 import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
 import { toast } from "sonner"
@@ -41,6 +42,8 @@ export default function MaintenancePage() {
   const [drivers, setDrivers] = useState<DriverOption[]>([])
   const [vehiclesInMaintenance, setVehiclesInMaintenance] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
+  const [loadError,setLoadError]=useState(false)
+  const [page,setPage]=useState(1)
 
   // filters
   const [search, setSearch] = useState("")
@@ -51,44 +54,46 @@ export default function MaintenancePage() {
   const [dateTo, setDateTo] = useState("")
 
   // dialogs
-  const [dialogKind, setDialogKind] = useState<"create" | "edit" | "complete" | "cancel" | null>(null)
+  const [dialogKind, setDialogKind] = useState<"create" | "edit" | "complete" | "cancel" | "archive" | null>(null)
   const [activeEvent, setActiveEvent] = useState<MaintenanceEventRow | null>(null)
   const [odometerVehicle, setOdometerVehicle] = useState<{ id: string; label: string } | null>(null)
   const [startingId, setStartingId] = useState<string | null>(null)
 
   const loadData = useCallback(async () => {
     setIsLoading(true)
+    setLoadError(false)
     const supabase = createClient()
     const [eventsRes, vehiclesRes, driversRes, inMaintRes] = await Promise.all([
-      supabase
+      fetchFleetRows<MaintenanceEventRow>(()=>supabase
         .from("vehicle_maintenance_events")
         .select(
-          "id,vehicle_id,maintenance_type,status,reported_at,fault_description,provider,cost,parts_replaced,odometer_at_service,date_in,date_out,next_service_km,next_service_date,notes," +
+          "id,version,vehicle_id,maintenance_type,status,reported_at,fault_description,provider,cost,parts_replaced,odometer_at_service,date_in,date_out,next_service_km,next_service_date,notes," +
             "vehicle:vehicles(plate_number,make,model)," +
             "driver:drivers(full_name_ar,full_name_en)"
         )
         .is("deleted_at", null)
         .order("reported_at", { ascending: false })
-        .limit(500),
-      supabase
+        .order("id")),
+      fetchFleetRows<VehicleOption>(()=>supabase
         .from("vehicles")
         .select("id,plate_number,make,model,odometer_current")
         .is("deleted_at", null)
         .order("plate_number", { ascending: true })
-        .limit(1000),
-      supabase
+        .order("id")),
+      fetchFleetRows<DriverOption>(()=>supabase
         .from("drivers")
         .select("id,full_name_ar,full_name_en")
         .is("deleted_at", null)
         .in("status", ["active", "on_leave"])
         .order("full_name_ar", { ascending: true })
-        .limit(1000),
+        .order("id")),
       supabase
         .from("vehicles")
         .select("id", { count: "exact", head: true })
         .eq("status", "in_maintenance")
         .is("deleted_at", null),
     ])
+    if(eventsRes.error||vehiclesRes.error||driversRes.error||inMaintRes.error){setLoadError(true);setRows([]);setIsLoading(false);return}
     setRows((eventsRes.data as unknown as MaintenanceEventRow[]) ?? [])
     setVehicles((vehiclesRes.data as VehicleOption[]) ?? [])
     setDrivers((driversRes.data as DriverOption[]) ?? [])
@@ -212,6 +217,7 @@ export default function MaintenancePage() {
       header: t.common.actions,
       render: (r) => (
         <div className="flex items-center gap-1">
+          {(r.status === "open" || r.status === "cancelled") && <Button size="sm" variant="ghost" title={isAr?"أرشفة":"Archive"} onClick={()=>{setActiveEvent(r);setDialogKind("archive")}}><Archive className="size-4"/></Button>}
           {(r.status === "open" || r.status === "in_progress") && (
             <>
               {r.status === "open" && (
@@ -222,7 +228,7 @@ export default function MaintenancePage() {
                   disabled={startingId === r.id}
                   onClick={async () => {
                     setStartingId(r.id)
-                    const res = await startMaintenanceEvent(r.id)
+                    const res = await startMaintenanceEvent(r.id,r.version)
                     setStartingId(null)
                     if (res.success) {
                       toast.success(isAr ? "بدأ العمل على الحدث" : "Event started")
@@ -235,9 +241,9 @@ export default function MaintenancePage() {
                   <Play className="h-3.5 w-3.5" />
                 </Button>
               )}
-              <Button size="sm" variant="ghost" title={t.common.edit} onClick={() => { setActiveEvent(r); setDialogKind("edit") }}>
+              {r.status==="open"&&<Button size="sm" variant="ghost" title={t.common.edit} onClick={() => { setActiveEvent(r); setDialogKind("edit") }}>
                 <Pencil className="h-3.5 w-3.5" />
-              </Button>
+              </Button>}
               <Button size="sm" variant="ghost" title={m.completeEvent} onClick={() => { setActiveEvent(r); setDialogKind("complete") }}>
                 <CheckCheck className="h-3.5 w-3.5" />
               </Button>
@@ -296,7 +302,7 @@ export default function MaintenancePage() {
       <EnterpriseModulePage
         title={t.nav.maintenance}
         subtitle={m.subtitle}
-        kpiCards={kpiCards}
+        kpiCards={loadError?kpiCards.map(card=>({...card,value:"—"})):kpiCards}
         searchPlaceholder={t.common.searchPlaceholder}
         searchValue={search}
         onSearchChange={setSearch}
@@ -334,7 +340,11 @@ export default function MaintenancePage() {
           </div>
         }
         columns={columns}
-        data={filtered.slice(0, 200)}
+        data={filtered.slice((Math.min(page,Math.max(1,Math.ceil(filtered.length/PAGE_SIZE)))-1)*PAGE_SIZE,Math.min(page,Math.max(1,Math.ceil(filtered.length/PAGE_SIZE)))*PAGE_SIZE)}
+        pagination={{totalRecords:filtered.length,currentPage:Math.min(page,Math.max(1,Math.ceil(filtered.length/PAGE_SIZE))),totalPages:Math.max(1,Math.ceil(filtered.length/PAGE_SIZE)),onPageChange:setPage}}
+        loadError={loadError?(isAr?"تعذر تحميل الصيانة. أعد المحاولة.":"Could not load maintenance. Try again."):undefined}
+        onRetry={()=>void loadData()}
+        retryLabel={t.common.retry}
         isLoading={isLoading}
         emptyStateMessage={t.common.noData}
         emptyStateAction={filtered.length === 0 && rows.length > 0 ? { label: t.common.clearFilters, onClick: () => { setStatusFilter("all"); setTypeFilter("all"); setVehicleFilter("all"); setDateFrom(""); setDateTo(""); setSearch("") } } : undefined}

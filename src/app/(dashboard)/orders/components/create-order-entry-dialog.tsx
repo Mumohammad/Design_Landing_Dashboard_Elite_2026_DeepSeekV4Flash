@@ -26,23 +26,25 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { createClient } from "@/lib/supabase/client"
-import { createOrderEntry } from "@/lib/orders/actions"
+import { createOrderEntry, updateOrderEntry, type OrderListRow } from "@/lib/orders/actions"
 import { useTranslation } from "@/hooks/use-translation"
 
+const countInput=z.string().optional().refine(value=>!value?.trim() || (Number.isInteger(Number(value)) && Number(value)>=0), "Enter a nonnegative whole number")
+const amountInput=z.string().optional().refine(value=>!value?.trim() || (Number.isFinite(Number(value)) && Number(value)>=0), "Enter a nonnegative amount")
 const formSchema = z.object({
   driver_id: z.string().min(1, "Driver is required"),
   platform_id: z.string().min(1, "Platform is required"),
   entry_date: z.string().min(1, "Date is required"),
   shift_label: z.string().optional(),
-  orders_delivered: z.string().optional(),
-  orders_failed: z.string().optional(),
-  orders_returned: z.string().optional(),
-  orders_cancelled: z.string().optional(),
-  total_distance_km: z.string().optional(),
-  avg_order_distance_km: z.string().optional(),
-  multi_order_batches: z.string().optional(),
-  gross_revenue: z.string().optional(),
-  platform_reported_revenue: z.string().optional(),
+  orders_delivered: countInput,
+  orders_failed: countInput,
+  orders_returned: countInput,
+  orders_cancelled: countInput,
+  total_distance_km: amountInput,
+  avg_order_distance_km: amountInput,
+  multi_order_batches: countInput,
+  gross_revenue: amountInput,
+  platform_reported_revenue: amountInput,
   notes: z.string().optional(),
 })
 
@@ -88,12 +90,14 @@ const SHIFTS = [
 
 function Field({
   label,
+  htmlFor,
   error,
   required,
   children,
   className,
 }: {
   label: string
+  htmlFor?: string
   error?: string
   required?: boolean
   children: React.ReactNode
@@ -101,7 +105,7 @@ function Field({
 }) {
   return (
     <div className={`grid gap-1.5 ${className ?? ""}`}>
-      <Label className="text-xs font-semibold">
+      <Label htmlFor={htmlFor} className="text-xs font-semibold">
         {label}
         {required && <span className="text-destructive"> *</span>}
       </Label>
@@ -115,7 +119,9 @@ export function CreateOrderEntryDialog({
   open,
   onOpenChange,
   onCreated,
+  entry,
 }: {
+  entry?: Partial<OrderListRow> | null
   open: boolean
   onOpenChange: (open: boolean) => void
   onCreated: () => void
@@ -126,6 +132,7 @@ export function CreateOrderEntryDialog({
   const [drivers, setDrivers] = useState<DriverOption[]>([])
   const [platforms, setPlatforms] = useState<PlatformOption[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   const {
     register,
@@ -135,7 +142,10 @@ export function CreateOrderEntryDialog({
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues: {
+    defaultValues: entry ? {
+      driver_id:entry.driver_id,platform_id:entry.platform_id,entry_date:entry.entry_date,shift_label:entry.shift_label ?? "full_day",
+      ...Object.fromEntries(["orders_delivered","orders_failed","orders_returned","orders_cancelled","multi_order_batches","gross_revenue","platform_reported_revenue","total_distance_km","avg_order_distance_km"].map(key=>[key,String(entry[key as keyof OrderListRow] ?? "")])),notes:entry.notes ?? "",
+    } : {
       entry_date: new Date().toISOString().slice(0, 10),
       shift_label: "full_day",
       orders_delivered: "0",
@@ -152,21 +162,34 @@ export function CreateOrderEntryDialog({
     let active = true
     const supabase = createClient()
     ;(async () => {
-      const [drvRes, platRes] = await Promise.all([
-        supabase
-          .from("drivers")
-          .select("id,full_name_ar,driver_code")
-          .in("status", ["active", "on_leave"])
-          .is("deleted_at", null)
-          .order("full_name_ar", { ascending: true })
-          .limit(100),
-        supabase
-          .from("delivery_platforms")
-          .select("id,name_ar,name_en")
-          .eq("is_active", true)
-          .is("deleted_at", null)
-          .order("sort_order", { ascending: true }),
-      ])
+      const driverRows:DriverOption[]=[], platformRows:PlatformOption[]=[]
+      const readDrivers=async()=>{
+        let offset=0,total=Infinity
+        while(offset<total){
+          let query=supabase.from("drivers").select("id,full_name_ar,driver_code",{count:"exact"}).is("deleted_at",null).order("id")
+          query=entry?.driver_id?query.or("status.in.(active,on_leave),id.eq."+entry.driver_id):query.in("status",["active","on_leave"])
+          const result=await query.range(offset,offset+499)
+          if(result.error)return result
+          total=result.count??0
+          if(!result.data.length && offset<total)return{data:null,error:{message:"Driver list changed. Close and reopen the form."}}
+          driverRows.push(...result.data);offset+=result.data.length
+        }
+        return{data:driverRows,error:null}
+      }
+      const readPlatforms=async()=>{
+        let offset=0,total=Infinity
+        while(offset<total){
+          let query=supabase.from("delivery_platforms").select("id,name_ar,name_en",{count:"exact"}).is("deleted_at",null).order("id")
+          query=entry?.platform_id?query.or("is_active.eq.true,id.eq."+entry.platform_id):query.eq("is_active",true)
+          const result=await query.range(offset,offset+499)
+          if(result.error)return result
+          total=result.count??0
+          if(!result.data.length && offset<total)return{data:null,error:{message:"Platform list changed. Close and reopen the form."}}
+          platformRows.push(...result.data);offset+=result.data.length
+        }
+        return{data:platformRows,error:null}
+      }
+      const [drvRes,platRes]=await Promise.all([readDrivers(),readPlatforms()])
       if (!active) return
       if (drvRes.error || platRes.error) {
         setLoadError(drvRes.error?.message ?? platRes.error?.message ?? null)
@@ -179,11 +202,12 @@ export function CreateOrderEntryDialog({
     return () => {
       active = false
     }
-  }, [open])
+  }, [open,entry?.driver_id,entry?.platform_id])
 
   async function onSubmit(values: FormValues) {
     setSubmitting(true)
-    const result = await createOrderEntry({
+    setSaveError(null)
+    const payload = {
       driver_id: values.driver_id,
       platform_id: values.platform_id,
       entry_date: values.entry_date,
@@ -198,7 +222,8 @@ export function CreateOrderEntryDialog({
       gross_revenue: toNum(values.gross_revenue),
       platform_reported_revenue: toNumNullable(values.platform_reported_revenue),
       notes: toNullable(values.notes),
-    })
+    }
+    const result = entry?.id && entry.updated_at ? await updateOrderEntry(entry.id,entry.updated_at,payload) : await createOrderEntry(payload)
     setSubmitting(false)
 
     if (result.success) {
@@ -207,6 +232,7 @@ export function CreateOrderEntryDialog({
       onOpenChange(false)
       onCreated()
     } else {
+      setSaveError(result.error ?? "Could not save the entry. Try again.")
       toast.error(result.error ?? (isAr ? "حدث خطأ" : "Something went wrong"))
     }
   }
@@ -215,14 +241,14 @@ export function CreateOrderEntryDialog({
     "w-full rounded-md border border-border bg-background px-3 py-2 text-sm shadow-xs outline-none transition-[border-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30"
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(next) => {if(!submitting)onOpenChange(next)}}>
       <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto rounded-2xl">
         <DialogHeader>
-          <DialogTitle>{isAr ? "تسجيل طلبات اليوم" : "Record Daily Orders"}</DialogTitle>
+          <DialogTitle>{entry ? (isAr ? "تعديل طلبات اليوم" : "Edit Daily Orders") : (isAr ? "تسجيل طلبات اليوم" : "Record Daily Orders")}</DialogTitle>
           <DialogDescription>
             {isAr
-              ? "اختر السائق والمنصة ثم أدخل أعداد الطلبات والإيرادات — تُعاد التحقق على الخادم."
-              : "Pick the driver and platform, then enter order counts and revenue — re-validated on the server."}
+              ? "اختر السائق والمنصة وأدخل أعداد الطلبات والإيرادات. تصبح البيانات للقراءة فقط بعد إقفال فترة الرواتب."
+              : "Choose the driver and platform, then record order counts and revenue. Entries become read-only after payroll preparation is locked."}
           </DialogDescription>
         </DialogHeader>
 
@@ -232,17 +258,18 @@ export function CreateOrderEntryDialog({
           </div>
         ) : (
           <form onSubmit={handleSubmit(onSubmit)} className="grid gap-6" noValidate>
+            {saveError && <p role="alert" className="text-sm text-destructive">{saveError}</p>}
             <fieldset className="grid gap-4 rounded-2xl border border-border/50 bg-muted/20 p-4 sm:grid-cols-2">
               <legend className="px-2 text-xs font-bold uppercase tracking-wide text-elite-blue-600 dark:text-elite-blue-300">
                 {isAr ? "السائق والمنصة" : "Driver & platform"}
               </legend>
-              <Field label={isAr ? "السائق" : "Driver"} required error={errors.driver_id?.message}>
+              <Field htmlFor="driver_id" label={isAr ? "السائق" : "Driver"} required error={errors.driver_id?.message}>
                 <Controller
                   control={control}
                   name="driver_id"
                   render={({ field }) => (
                     <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger className="w-full">
+                      <SelectTrigger id={field.name} className="w-full">
                         <SelectValue placeholder={isAr ? "اختر السائق" : "Select driver"} />
                       </SelectTrigger>
                       <SelectContent>
@@ -256,7 +283,7 @@ export function CreateOrderEntryDialog({
                   )}
                 />
               </Field>
-              <Field label={isAr ? "المنصة" : "Platform"} required error={errors.platform_id?.message}>
+              <Field htmlFor="platform_id" label={isAr ? "المنصة" : "Platform"} required error={errors.platform_id?.message}>
                 <Controller
                   control={control}
                   name="platform_id"
@@ -276,10 +303,10 @@ export function CreateOrderEntryDialog({
                   )}
                 />
               </Field>
-              <Field label={isAr ? "التاريخ" : "Date"} required error={errors.entry_date?.message}>
-                <Input {...register("entry_date")} type="date" className={inputClass} />
+              <Field htmlFor="entry_date" label={isAr ? "التاريخ" : "Date"} required error={errors.entry_date?.message}>
+                <Input id="entry_date" {...register("entry_date")} type="date" className={inputClass} />
               </Field>
-              <Field label={isAr ? "الوردية" : "Shift"} error={errors.shift_label?.message}>
+              <Field htmlFor="shift_label" label={isAr ? "الوردية" : "Shift"} error={errors.shift_label?.message}>
                 <Controller
                   control={control}
                   name="shift_label"
@@ -305,17 +332,17 @@ export function CreateOrderEntryDialog({
               <legend className="px-2 text-xs font-bold uppercase tracking-wide text-elite-blue-600 dark:text-elite-blue-300">
                 {isAr ? "أعداد الطلبات" : "Order counts"}
               </legend>
-              <Field label={isAr ? "طلبات مُسلّمة" : "Delivered"}>
-                <Input {...register("orders_delivered")} inputMode="numeric" className={inputClass} dir="ltr" />
+              <Field htmlFor="orders_delivered" label={isAr ? "طلبات مُسلّمة" : "Delivered"}>
+                <Input id="orders_delivered" {...register("orders_delivered")} inputMode="numeric" className={inputClass} dir="ltr" />
               </Field>
-              <Field label={isAr ? "طلبات فاشلة" : "Failed"}>
-                <Input {...register("orders_failed")} inputMode="numeric" className={inputClass} dir="ltr" />
+              <Field htmlFor="orders_failed" label={isAr ? "طلبات فاشلة" : "Failed"}>
+                <Input id="orders_failed" {...register("orders_failed")} inputMode="numeric" className={inputClass} dir="ltr" />
               </Field>
-              <Field label={isAr ? "طلبات مُرجَعة" : "Returned"}>
-                <Input {...register("orders_returned")} inputMode="numeric" className={inputClass} dir="ltr" />
+              <Field htmlFor="orders_returned" label={isAr ? "طلبات مُرجَعة" : "Returned"}>
+                <Input id="orders_returned" {...register("orders_returned")} inputMode="numeric" className={inputClass} dir="ltr" />
               </Field>
-              <Field label={isAr ? "طلبات ملغاة" : "Cancelled"}>
-                <Input {...register("orders_cancelled")} inputMode="numeric" className={inputClass} dir="ltr" />
+              <Field htmlFor="orders_cancelled" label={isAr ? "طلبات ملغاة" : "Cancelled"}>
+                <Input id="orders_cancelled" {...register("orders_cancelled")} inputMode="numeric" className={inputClass} dir="ltr" />
               </Field>
             </fieldset>
 
@@ -323,20 +350,20 @@ export function CreateOrderEntryDialog({
               <legend className="px-2 text-xs font-bold uppercase tracking-wide text-elite-blue-600 dark:text-elite-blue-300">
                 {isAr ? "المسافة والإيرادات" : "Distance & revenue"}
               </legend>
-              <Field label={isAr ? "المسافة الإجمالية (كم)" : "Total distance (km)"}>
-                <Input {...register("total_distance_km")} inputMode="decimal" className={inputClass} dir="ltr" />
+              <Field htmlFor="total_distance_km" label={isAr ? "المسافة الإجمالية (كم)" : "Total distance (km)"}>
+                <Input id="total_distance_km" {...register("total_distance_km")} inputMode="decimal" className={inputClass} dir="ltr" />
               </Field>
-              <Field label={isAr ? "متوسط مسافة الطلب (كم)" : "Avg order distance (km)"}>
-                <Input {...register("avg_order_distance_km")} inputMode="decimal" className={inputClass} dir="ltr" />
+              <Field htmlFor="avg_order_distance_km" label={isAr ? "متوسط مسافة الطلب (كم)" : "Avg order distance (km)"}>
+                <Input id="avg_order_distance_km" {...register("avg_order_distance_km")} inputMode="decimal" className={inputClass} dir="ltr" />
               </Field>
-              <Field label={isAr ? "دفعات متعددة الطلبات" : "Multi-order batches"}>
-                <Input {...register("multi_order_batches")} inputMode="numeric" className={inputClass} dir="ltr" />
+              <Field htmlFor="multi_order_batches" label={isAr ? "دفعات متعددة الطلبات" : "Multi-order batches"}>
+                <Input id="multi_order_batches" {...register("multi_order_batches")} inputMode="numeric" className={inputClass} dir="ltr" />
               </Field>
-              <Field label={isAr ? "الإيرادات الإجمالية (ر.س)" : "Gross revenue (SAR)"}>
-                <Input {...register("gross_revenue")} inputMode="decimal" className={inputClass} dir="ltr" />
+              <Field htmlFor="gross_revenue" label={isAr ? "الإيرادات الإجمالية (ر.س)" : "Gross revenue (SAR)"}>
+                <Input id="gross_revenue" {...register("gross_revenue")} inputMode="decimal" className={inputClass} dir="ltr" />
               </Field>
-              <Field label={isAr ? "إيرادات المنصة المبلّغة (ر.س)" : "Platform-reported revenue (SAR)"}>
-                <Input {...register("platform_reported_revenue")} inputMode="decimal" className={inputClass} dir="ltr" />
+              <Field htmlFor="platform_reported_revenue" label={isAr ? "إيرادات المنصة المبلّغة (ر.س)" : "Platform-reported revenue (SAR)"}>
+                <Input id="platform_reported_revenue" {...register("platform_reported_revenue")} inputMode="decimal" className={inputClass} dir="ltr" />
               </Field>
             </fieldset>
 
@@ -344,7 +371,7 @@ export function CreateOrderEntryDialog({
               <legend className="px-2 text-xs font-bold uppercase tracking-wide text-elite-blue-600 dark:text-elite-blue-300">
                 {isAr ? "ملاحظات" : "Notes"}
               </legend>
-              <Textarea {...register("notes")} rows={2} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30" />
+              <Textarea id="notes" {...register("notes")} rows={2} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30" />
             </fieldset>
 
             <div className="flex items-center justify-end gap-3 border-t border-border/50 pt-4">

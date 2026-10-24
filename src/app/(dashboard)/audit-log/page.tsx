@@ -2,15 +2,15 @@
 
 // Audit-Trail surface (Prompt D) — read-only explorer over `audit_log`.
 //
-// Live DB reads via fetchAuditTrailPage() (admin client behind
-// requirePermission("audit_log","read")), newest-first, server-side filters
+// Live DB reads use the caller-bound safe audit projection, newest-first,
+// with server-side permission checks and filters
 // with hard pagination caps (50 default / 100 max — keyset pagination is
 // deferred by prior decision). Per the drivers/users module precedent:
 // EnterpriseModulePage shell, KPI chips, filter toolbar, CSV export,
 // bilingual AR/EN, deferred-load effects. NO write paths — this module never
 // inserts, updates, or deletes anything.
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
+import { Suspense, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import {
   AlertTriangle,
@@ -30,7 +30,7 @@ import {
   type KpiCardData,
   type TableColumn,
 } from "@/components/dashboard/enterprise-module-page"
-import { fetchAuditTrailPage, type AuditTrailPageData, type AuditTrailRow } from "@/lib/audit-trail/queries"
+import { exportAuditTrailPage, fetchAuditTrailPage, type AuditTrailPageData, type AuditTrailRow } from "@/lib/audit-trail/queries"
 import {
   ACTION_META,
   AUDIT_ACTIONS,
@@ -78,6 +78,9 @@ function AuditTrailInner() {
   const [data, setData] = useState<AuditTrailPageData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [loadFailed, setLoadFailed] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const [exportFailed, setExportFailed] = useState(false)
+  const pageRequest = useRef(0)
   const [refreshTick, setRefreshTick] = useState(0)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
@@ -89,27 +92,34 @@ function AuditTrailInner() {
     entityId: searchParams.get("entityId") ?? "",
   }))
 
-  const load = useCallback(
-    async (f: AuditFilterState, silent = false) => {
-      if (!silent) setIsLoading(true)
-      try {
-        const result = await fetchAuditTrailPage({ ...f }, AUDIT_PAGE_SIZE_DEFAULT)
-        setData(result)
-        setLoadFailed(false)
-      } catch {
-        setLoadFailed(true)
-        if (!silent) setData(null)
-      }
-      if (!silent) setIsLoading(false)
-    },
-    []
-  )
-
-  // Deferred load (repo pattern) — refetches whenever filters change.
+  // Ignore replies from a previous filter set or an unmounted page.
   useEffect(() => {
-    const id = setTimeout(() => void load(filters), 0)
-    return () => clearTimeout(id)
-  }, [load, filters, refreshTick])
+    const request = ++pageRequest.current
+    let cancelled = false
+    const id = setTimeout(async () => {
+      setIsLoading(true)
+      setExportFailed(false)
+      try {
+        const result = await fetchAuditTrailPage({ ...filters }, AUDIT_PAGE_SIZE_DEFAULT)
+        if (!cancelled && request === pageRequest.current) {
+          setData(result)
+          setLoadFailed(false)
+        }
+      } catch {
+        if (!cancelled && request === pageRequest.current) {
+          setLoadFailed(true)
+          setData(null)
+        }
+      } finally {
+        if (!cancelled && request === pageRequest.current) setIsLoading(false)
+      }
+    }, 0)
+    return () => {
+      cancelled = true
+      pageRequest.current += 1
+      clearTimeout(id)
+    }
+  }, [filters, refreshTick])
 
   // Keep the drill-down URL (?entityType=…&entityId=…) and filter state in
   // sync when navigation happens (row action → URL → filters → refetch).
@@ -148,12 +158,12 @@ function AuditTrailInner() {
   const rows = data?.rows ?? []
 
   const kpiCards: KpiCardData[] = [
-    { label: isAr ? "أحداث التدقيق" : "Audit events", value: data?.kpis.total ?? 0, icon: FileSearch, color: "#1E5A99" },
-    { label: isAr ? "منفذون مختلفون" : "Distinct actors", value: data?.kpis.distinctActors ?? 0, icon: Users, color: "#10B981" },
-    { label: isAr ? "كيانات مختلفة" : "Distinct entities", value: data?.kpis.distinctEntities ?? 0, icon: Boxes, color: "#F59E0B" },
+    { label: isAr ? "أحداث التدقيق" : "Audit events", value: data?.kpis.total ?? "—", icon: FileSearch, color: "#1E5A99" },
+    { label: isAr ? "منفذون مختلفون" : "Distinct actors", value: data?.kpis.distinctActors ?? "—", icon: Users, color: "#10B981" },
+    { label: isAr ? "كيانات مختلفة" : "Distinct entities", value: data?.kpis.distinctEntities ?? "—", icon: Boxes, color: "#F59E0B" },
     {
       label: isAr ? "إجراءات النظام" : "System actions",
-      value: rows.filter((r) => !r.actor_id).length,
+      value: data ? rows.filter((r) => !r.actor_id).length : "—",
       icon: Bot,
       color: "#64748B",
     },
@@ -162,33 +172,42 @@ function AuditTrailInner() {
   const consentOf = (authId: string | null): boolean =>
     authId ? (data?.actorsConsented[authId] ?? false) : true
 
-  const exportCsv = () => {
-    if (!data || rows.length === 0) return
-    const csv = auditToCsv(
-      ["Timestamp", "Actor", "Module", "Action", "Entity type", "Entity ID", "Reason", "PDPL", "Metadata"],
-      rows.map((r) => {
-        const consent = consentOf(r.actor_id)
-        const meta = r.new_values ?? r.old_values
-        return [
-          r.created_at,
-          r.actor_id ? (data.actorNames[r.actor_id] ?? r.actor_id) : "system",
-          r.module,
-          r.action,
-          r.entity_type,
-          r.entity_id,
-          r.reason,
-          consent ? "granted" : "masked",
-          meta ? JSON.stringify(maskAuditMetadata(meta, consent)) : "",
-        ]
-      })
-    )
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `audit-log-${new Date().toISOString().slice(0, 10)}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
+  const exportCsv = async () => {
+    if (!data?.canExport || rows.length === 0 || isLoading || loadFailed || exporting) return
+    const request = pageRequest.current
+    setExporting(true)
+    setExportFailed(false)
+    try {
+      // Recheck export + read permissions and fetch this filtered page again.
+      const snapshot = await exportAuditTrailPage({ ...filters }, AUDIT_PAGE_SIZE_DEFAULT)
+      if (request !== pageRequest.current) return
+      const csv = auditToCsv(
+        ["Timestamp", "Actor", "Module", "Action", "Entity type", "Entity ID", "Reason", "Metadata"],
+        snapshot.rows.map((r) => {
+          const consent = r.actor_id ? (snapshot.actorsConsented[r.actor_id] ?? false) : true
+          const meta = r.new_values ?? r.old_values
+          return [
+            r.created_at,
+            r.actor_id ? (snapshot.actorNames[r.actor_id] ?? r.actor_id) : "system",
+            r.module, r.action, r.entity_type, r.entity_id, r.reason,
+            meta ? JSON.stringify(maskAuditMetadata(meta, consent)) : "",
+          ]
+        })
+      )
+      const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }))
+      try {
+        const a = document.createElement("a")
+        a.href = url
+        a.download = "audit-log-" + new Date().toISOString().slice(0, 10) + ".csv"
+        a.click()
+      } finally {
+        URL.revokeObjectURL(url)
+      }
+    } catch {
+      if (request === pageRequest.current) setExportFailed(true)
+    } finally {
+      setExporting(false)
+    }
   }
 
   const toggleExpanded = (id: string) =>
@@ -254,12 +273,8 @@ function AuditTrailInner() {
       header: isAr ? "المنفّذ" : "Actor",
       render: (r) =>
         r.actor_id ? (
-          <span className="text-xs text-foreground">
-            {data?.actorNames[r.actor_id] ?? (
-              <span dir="ltr" className="font-mono text-muted-foreground">
-                {r.actor_id.slice(0, 8)}
-              </span>
-            )}
+          <span dir="ltr" title={r.actor_id} className="font-mono text-xs text-foreground">
+            {r.actor_id.slice(0, 8)}…{r.actor_id.slice(-4)}
           </span>
         ) : (
           <span className="text-xs italic text-muted-foreground">{isAr ? "النظام" : "system"}</span>
@@ -284,6 +299,7 @@ function AuditTrailInner() {
               <>
                 <button
                   type="button"
+                  aria-expanded={isOpen}
                   onClick={(e) => {
                     e.stopPropagation()
                     toggleExpanded(r.id)
@@ -295,7 +311,7 @@ function AuditTrailInner() {
                 >
                   {isOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                   {isAr ? "البيانات الوصفية" : "Metadata"}
-                  <span className="text-muted-foreground">({isAr ? "مطوي" : "collapsed"})</span>
+                  <span className="text-muted-foreground">({isOpen ? (isAr ? "موسع" : "expanded") : (isAr ? "مطوي" : "collapsed")})</span>
                 </button>
                 {isOpen && (
                   <pre
@@ -313,12 +329,12 @@ function AuditTrailInner() {
     },
   ]
 
-  const noResults = !isLoading && rows.length === 0
+  const noResults = !isLoading && !loadFailed && rows.length === 0
 
   return (
     <div className="px-4 py-4 lg:px-6">
       {loadFailed && (
-        <div className="mb-4 flex items-center gap-2 rounded-2xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+        <div role="alert" className="mb-4 flex items-center gap-2 rounded-2xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
           <AlertTriangle className="h-4 w-4" />
           {isAr
             ? "تعذر تحميل سجل التدقيق — حاول التحديث."
@@ -351,7 +367,7 @@ function AuditTrailInner() {
               <SelectItem value="all">{isAr ? "كل المنفّذين" : "All actors"}</SelectItem>
               {(data?.actorOptions ?? []).map((a) => (
                 <SelectItem key={a.id} value={a.id}>
-                  {a.name}
+                  <span dir="ltr" title={a.id} className="font-mono text-xs">{a.id.slice(0, 8)}…{a.id.slice(-4)}</span>
                 </SelectItem>
               ))}
             </SelectContent>
@@ -406,7 +422,9 @@ function AuditTrailInner() {
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-xs tabular-nums text-muted-foreground">
-            {isAr ? `${rows.length} حدث (حد الصفحة 50/100)` : `${rows.length} events (page cap 50/100)`}
+            {loadFailed
+              ? (isAr ? "تعذر تحميل عدد الأحداث" : "Event count unavailable")
+              : (isAr ? `${rows.length} حدث في الصفحة الحالية (الحد ${data?.pageSize ?? AUDIT_PAGE_SIZE_DEFAULT})` : `${rows.length} events on this page (limit ${data?.pageSize ?? AUDIT_PAGE_SIZE_DEFAULT})`)}
           </span>
           <div className="ms-auto flex items-center gap-2">
             {filteredActive && (
@@ -432,22 +450,28 @@ function AuditTrailInner() {
               variant="outline"
               size="sm"
               className="h-9 gap-1.5 rounded-xl"
-              onClick={exportCsv}
-              disabled={rows.length === 0}
+              onClick={() => void exportCsv()}
+              disabled={!data?.canExport || rows.length === 0 || isLoading || loadFailed || exporting}
+              title={!data?.canExport ? (isAr ? "يتطلب التصدير صلاحية مستقلة" : "Export permission is required") : undefined}
             >
               <Download className="h-3.5 w-3.5" />
-              {isAr ? "تصدير CSV" : "Export CSV"}
+              {exporting ? (isAr ? "جارٍ التصدير…" : "Exporting…") : (isAr ? "تصدير الصفحة CSV" : "Export page CSV")}
             </Button>
           </div>
         </div>
+        {exportFailed && (
+          <p role="alert" className="text-sm text-destructive">
+            {isAr ? "تعذر تصدير الصفحة. تحقق من صلاحية التصدير وحدّث السجل ثم حاول مجدداً." : "Could not export this page. Check export permission, refresh the log, and try again."}
+          </p>
+        )}
       </div>
 
       <EnterpriseModulePage<AuditTrailRow>
         title={t.nav.auditLog}
         subtitle={
           isAr
-            ? "سجل التدقيق غير القابل للتغيير — قراءة فقط، مع فلاتر وتصدير"
-            : "Immutable audit trail — read-only, with filters and export"
+            ? "سجل تدقيق للقراءة فقط. المنفذون والعدادات من الصفحة الحالية؛ التصدير حسب الصلاحية."
+            : "Read-only audit trail. Actors and counts reflect this page; export requires permission."
         }
         kpiCards={kpiCards}
         searchPlaceholder={t.common.searchPlaceholder}
@@ -475,7 +499,9 @@ function AuditTrailInner() {
           ) : null
         }
         emptyStateMessage={
-          noResults
+          loadFailed
+            ? (isAr ? "سجل التدقيق غير متاح. حدّث الصفحة للمحاولة مجدداً." : "The audit trail is unavailable. Refresh to try again.")
+            : noResults
             ? filteredActive
               ? isAr
                 ? "لا توجد أحداث تدقيق مطابقة لهذه الفلاتر"
