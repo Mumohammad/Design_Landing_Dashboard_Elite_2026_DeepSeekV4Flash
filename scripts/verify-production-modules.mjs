@@ -55,7 +55,9 @@ try {
   if ((await admin.from("users").update({must_change_password:true}).eq("auth_user_id",owner.data.user.id)).error) throw new Error("Required-password fixture failed")
 
   browser = await chromium.launch({ headless: true })
-  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } })
+  // Explicit context permits the stale-tab and shared-session acceptance checks.
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
+  const page = await context.newPage()
   page.setDefaultTimeout(60_000)
   let pageErrors = 0; const pageErrorKinds = []
   page.on("pageerror", error => { pageErrors++; console.log(JSON.stringify({check:"browser runtime event",stage,route:new URL(page.url()).pathname,name:error.name,reactCode:/Minified React error #(\d+)/.exec(error.message)?.[1]})); pageErrorKinds.push({ name:error.name, reactCode:/Minified React error #(\d+)/.exec(error.message)?.[1], kind:/abort/i.test(error.message)?"aborted":/hydration/i.test(error.message)?"hydration":/chunk|load/i.test(error.message)?"loading":/removeChild|insertBefore|not a child/i.test(error.message)?"dom":/undefined|null/i.test(error.message)?"missing-value":"other" }) })
