@@ -115,8 +115,8 @@ export default function PayrollPreparationPage() {
   }
   const ruleFields = selected?.category === "sponsored_type2" ? [["packageAmount","package_amount","Package (SAR)","الباقة (ر.س)"],["thresholdOrders","threshold_orders","Order threshold","حد الطلبات"],["carRentDeduction","car_rent_deduction","Car rent deduction (SAR)","خصم إيجار السيارة (ر.س)"]] : [["baseSalary","base_salary","Base salary (SAR)","الراتب الأساسي (ر.س)"],["bonusRate","bonus_rate","Bonus per extra order (SAR)","مكافأة الطلب الإضافي (ر.س)"],["deductionRate","deduction_rate","Deduction per missing order (SAR)","خصم الطلب الناقص (ر.س)"]]
   const statusLabels: Record<string, [string,string]> = { present:["Present","حاضر"], absent_excused:["Excused absence","غياب بعذر"], absent_unexcused:["Unexcused absence","غياب دون عذر"], late:["Late","متأخر"], half_day:["Half day","نصف يوم"], on_leave:["On leave","إجازة"], public_holiday:["Public holiday","عطلة رسمية"], day_off:["Day off","راحة"] }
-  return <main className="mx-auto max-w-6xl space-y-8 px-4 py-6 lg:px-6" dir={ar ? "rtl" : "ltr"}>
-    <header className="space-y-2"><Link href="/payroll" className="text-sm text-primary underline underline-offset-4">{text("Back to payroll","العودة للرواتب")}</Link><h1 className="text-2xl font-bold">{text("Prepare payroll inputs","تحضير بيانات الرواتب")}</h1><p className="max-w-3xl text-sm text-muted-foreground">{text("Review each driver's explicit pay rule, every employed date, and recorded orders before locking the month. Locked source records and financial history cannot be edited here.","راجع قاعدة أجر كل سائق وجميع أيام التوظيف والطلبات المسجلة قبل إقفال الشهر. لا يمكن تعديل السجلات المقفلة والسجل المالي هنا.")}</p></header>
+  return <section aria-labelledby="payroll-preparation-title" className="mx-auto max-w-6xl space-y-8 px-4 py-6 lg:px-6" dir={ar ? "rtl" : "ltr"}>
+    <header className="space-y-2"><Link href="/payroll" className="text-sm text-primary underline underline-offset-4">{text("Back to payroll","العودة للرواتب")}</Link><h1 id="payroll-preparation-title" className="text-2xl font-bold">{text("Prepare payroll inputs","تحضير بيانات الرواتب")}</h1><p className="max-w-3xl text-sm text-muted-foreground">{text("Review each driver's explicit pay rule, every employed date, and recorded orders before locking the month. Locked source records and financial history cannot be edited here.","راجع قاعدة أجر كل سائق وجميع أيام التوظيف والطلبات المسجلة قبل إقفال الشهر. لا يمكن تعديل السجلات المقفلة والسجل المالي هنا.")}</p></header>
     <fieldset disabled={busy} className="m-0 min-w-0 space-y-8 border-0 p-0" aria-label={text("Prepare payroll inputs","تحضير بيانات الرواتب")}>
     <section className="flex flex-wrap items-end gap-3" aria-label={text("Preparation period","فترة التحضير")}>
       <Field label={text("Year","السنة")}><input aria-label={text("Year","السنة")} className={inputClass} type="number" min="2000" max="2100" value={year} onChange={event => { const year = Number(event.target.value); setRequest(current => ({ ...current, year })) }} /></Field>
@@ -186,5 +186,5 @@ export default function PayrollPreparationPage() {
       </section>}
     </>}
     </fieldset>
-  </main>
+  </section>
 }

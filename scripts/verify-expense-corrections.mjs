@@ -45,7 +45,7 @@ export async function verifyExpenseCorrections(page,admin,tenantId,appUrl){
   const events=await admin.from('financial_events').select('id').eq('tenant_id',tenantId).eq('source_id',id)
   const audit=await admin.from('audit_log').select('action').eq('tenant_id',tenantId).eq('entity_id',id).in('action',['expense_pending_updated','expense_cancelled'])
   if([saved,ap,events,audit].some(r=>r.error)||saved.data.is_approved||saved.data.rejected_at||!saved.data.cancelled_at||saved.data.cancelled_by!==seeded.data.created_by||saved.data.receipt_url!==attachment||ap.data.length||events.data.length||audit.data.length!==2)throw Error('Cancellation generated financial effects or lost durable history')
-  await page.goto(appUrl+'/approvals?lang=en');await page.getByRole('textbox').first().fill(vendor);await expect(page.locator('tbody tr').filter({hasText:vendor})).toHaveCount(0)
+  await page.goto(appUrl+'/approvals?lang=en');await page.getByRole('textbox',{name:'Search references and visible details...',exact:true}).fill(vendor);await expect(page.locator('tbody tr').filter({hasText:vendor})).toHaveCount(0)
   await page.goto(appUrl+'/expenses?lang=ar');await page.getByRole('textbox').first().fill(vendor);await expect(rows.getByText('ملغى',{exact:true})).toBeVisible()
   await page.setViewportSize({width:390,height:844});await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true)
   console.log(JSON.stringify({check:'expense maker correction, response-loss replay, stale approval, cancellation, receipt/audit preservation, Arabic mobile',result:'PASS'}))

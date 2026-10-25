@@ -140,13 +140,18 @@ test("every business module loads in both interface languages", async ({ page })
   }
   await page.goto("/orders?lang=en")
   for (const month of ["2026-02", "2028-02", "2026-04"]) {
+    // Orders now load through the authenticated paged Server Function.
     const loaded = page.waitForResponse(response => {
-      const url = new URL(response.url())
-      return url.pathname === "/rest/v1/daily_order_entries" &&
-        url.searchParams.getAll("entry_date").some(value => value.includes(`${month}-01`))
+      const request = response.request()
+      return new URL(response.url()).pathname === "/orders" && request.method() === "POST" &&
+        Boolean(request.headers()["next-action"]) && Boolean(request.postData()?.includes(JSON.stringify(month)))
     })
-    await page.locator('input[type="month"]').fill(month)
+    const monthInput = page.locator('input[type="month"]')
+    await monthInput.fill(month)
     expect((await loaded).ok()).toBe(true)
+    await expect(monthInput).toHaveValue(month)
+    await expect(page.locator("tbody .animate-pulse")).toHaveCount(0)
+    await expect(page.locator("main").getByRole("alert")).toHaveCount(0)
   }
   expect(failedReads).toEqual([])
   expect(runtimeErrors).toEqual([])

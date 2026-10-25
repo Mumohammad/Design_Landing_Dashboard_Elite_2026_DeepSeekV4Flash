@@ -22,8 +22,15 @@ export async function verifyJournalCrud(page, admin, tenantId, appUrl) {
     await page.getByRole("button", { name: /New entry|قييد جديد/ }).click()
     const dialog = page.getByRole("dialog")
     await dialog.locator("#entryDesc").fill("Browser journal fixture")
-    await dialog.getByLabel(/^(Account|الحساب) 1$/).selectOption(cash)
-    await dialog.getByLabel(/^(Account|الحساب) 2$/).selectOption(income)
+    for (const [number, accountId, code, name] of [[1, cash, "8301", "Test cash"], [2, income, "8302", "Test income"]]) {
+      const picker = dialog.getByTestId(`journal-account-${number}-picker`)
+      await picker.getByRole("searchbox", { name: /^(Search records|البحث في السجلات)$/, exact: true }).fill(code)
+      await expect(picker.getByRole("option", { name: `${code} · ${name}`, exact: true })).toHaveAttribute("value", accountId)
+      const select = picker.getByRole("combobox", { name: new RegExp(`^(Account|الحساب) ${number}$`), exact: true })
+      await expect(select).toBeEnabled()
+      await select.selectOption(accountId)
+      await expect(select).toHaveValue(accountId)
+    }
     await dialog.getByLabel(/^(Debit|مدين) 1$/).fill("12.34")
     await dialog.getByLabel(/^(Credit|دائن) 2$/).fill("12.34")
     await dialog.getByRole("button", { name: /Save draft|حفظ كمسودة/ }).click()

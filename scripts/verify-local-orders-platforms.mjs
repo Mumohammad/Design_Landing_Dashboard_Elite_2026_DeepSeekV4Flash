@@ -6,7 +6,7 @@ export async function verifyOrdersPlatforms(page,admin,tenantId,appUrl){
  await assertModuleTestTarget(page,admin.supabaseUrl,appUrl)
  let stage="driver fixture"
  try{
-  const driverResult=await admin.from("drivers").insert({tenant_id:tenantId,full_name_ar:"Order UI driver fixture",full_name_en:"Order UI driver fixture",primary_mobile:"0501350001",category:"freelancer",status:"active"}).select("id").single()
+  const driverResult=await admin.from("drivers").insert({tenant_id:tenantId,full_name_ar:"سائق اختبار طلبات الواجهة",full_name_en:"Order UI driver fixture",primary_mobile:"0501350001",category:"freelancer",status:"active"}).select("id").single()
   if(driverResult.error)throw Error("Order driver fixture failed")
   const driverId=driverResult.data.id
   const read=async(table,where)=>{let query=admin.from(table).select("*").eq("tenant_id",tenantId);for(const[key,value]of Object.entries(where))query=query.eq(key,value);const result=await query.single();if(result.error)throw Error("Persisted "+table+" row not found");return result.data}
@@ -16,7 +16,7 @@ export async function verifyOrdersPlatforms(page,admin,tenantId,appUrl){
   await page.getByRole("button",{name:"Add platform",exact:true}).click()
   let dialog=page.getByRole("dialog")
   await dialog.getByLabel("Code",{exact:true}).fill("UI_ORDERS_135")
-  await dialog.getByLabel("Name (Arabic)",{exact:true}).fill("Order UI platform fixture")
+  await dialog.getByLabel("Name (Arabic)",{exact:true}).fill("منصة اختبار طلبات الواجهة")
   await dialog.getByLabel("Name (English)",{exact:true}).fill("Order UI platform fixture")
   await dialog.getByRole("button",{name:"Save",exact:true}).click()
   await expect(dialog).toBeHidden()
@@ -33,14 +33,17 @@ export async function verifyOrdersPlatforms(page,admin,tenantId,appUrl){
   await page.locator('input[type="month"]').fill("2098-12")
   await page.getByRole("button",{name:"Add Orders",exact:true}).first().click()
   await dialog.locator("#driver_id").click();await page.getByRole("option",{name:"Order UI driver fixture",exact:true}).click()
-  await dialog.locator("#platform_id").click();await page.getByRole("option",{name:"Order UI platform fixture",exact:true}).click()
+  await dialog.locator("#platform_id").click();await page.getByRole("option",{name:"Order UI platform edited",exact:true}).click()
+  await expect(dialog.getByRole("combobox",{name:/^Platform/})).toHaveAttribute("id","platform_id")
+  await expect(dialog.getByRole("combobox",{name:"Shift",exact:true})).toHaveAttribute("id","shift_label")
+  await dialog.locator("#shift_label").click();await page.getByRole("option",{name:"Morning",exact:true}).click()
   await dialog.locator("#entry_date").fill("2098-12-15")
   await dialog.locator("#orders_delivered").fill("17")
   await dialog.locator("#gross_revenue").fill("42.50")
   await dialog.getByRole("button",{name:"Save orders",exact:true}).click()
   await expect(dialog).toBeHidden()
   let order=await read("daily_order_entries",{driver_id:driverId,entry_date:"2098-12-15"})
-  expect(order.orders_delivered).toBe(17)
+  expect(order.orders_delivered).toBe(17);expect(order.shift_label).toBe("morning")
   let orderRow=page.getByRole("row").filter({hasText:"2098-12-15"})
   stage="order edit and mobile dialog"
   await orderRow.getByRole("button",{name:"Edit",exact:true}).click()

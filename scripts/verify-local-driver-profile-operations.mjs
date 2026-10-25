@@ -19,9 +19,19 @@ export async function verifyDriverProfileOperations(page, admin, tenantId, appUr
     }
     const choose = async (id, name) => { await page.locator(`#${id}`).click(); await page.getByRole("option", { name, exact: true }).click() }
     const save = async (creating = false) => {
+      const selectedTabName = (await page.getByRole("tab", { selected: true }).innerText()).trim()
       const dialog = page.getByRole("dialog")
-      await dialog.getByRole("button", { name: creating ? "Add" : "Save changes", exact: true }).click()
-      await expect(dialog).toBeHidden()
+      await Promise.all([
+        page.waitForResponse(response => {
+          const url = new URL(response.url())
+          return response.request().method() === "GET" && url.pathname === "/rest/v1/drivers" && url.searchParams.get("id") === `eq.${driverId}` && response.status() === 200
+        }),
+        (async () => {
+          await dialog.getByRole("button", { name: creating ? "Add" : "Save changes", exact: true }).click()
+          await expect(dialog).toBeHidden()
+        })(),
+      ])
+      await expect(page.getByRole("tab", { name: selectedTabName, exact: true })).toHaveAttribute("aria-selected", "true")
     }
     await page.evaluate(() => localStorage.setItem("elite-locale", "en"))
     await page.goto(`${appUrl}/drivers/${driverId}`)
@@ -39,11 +49,15 @@ export async function verifyDriverProfileOperations(page, admin, tenantId, appUr
 
     stage = "training edit and result state"
     let row = page.getByRole("row").filter({ hasText: "Browser safety training" })
+    await expect(row).toBeVisible()
+    await expect(page.getByRole("tab", { name: "Training", exact: true })).toHaveAttribute("aria-selected", "true")
     await row.getByRole("button", { name: "Edit", exact: true }).click()
     await dialog.locator("#training-provider").fill("Browser provider edited")
     await choose("training-is_passed", "Passed")
     await save()
     expect(await read("training_records")).toMatchObject({ provider: "Browser provider edited", is_passed: true })
+    await expect(row).toContainText("Browser provider edited")
+    await expect(row).toContainText("Passed")
     stage = "training mobile dialog and archive"
     await page.setViewportSize({ width: 375, height: 812 })
     await row.getByRole("button", { name: "Edit", exact: true }).click()
@@ -134,7 +148,17 @@ export async function verifyDriverProfileOperations(page, admin, tenantId, appUr
     await expect(dialog.getByRole("button", { name: "Archive", exact: true })).toHaveCount(0)
     await page.screenshot({ path: "supabase/.temp/driver-operations-desktop.png" })
     await dialog.getByRole("button", { name: "Cancel", exact: true }).click()
-    console.log("PASS: authenticated driver profile training create/edit/result/archive, Saudi attendance create/edit/lock denial, HR completion/history, violation review/pending deduction/history")
+    stage = "another driver opens its own Overview section"
+    const otherDriverName = `سائق اختبار ملف آخر ${driverId.slice(0, 8)}`
+    const otherDriver = await admin.from("drivers").insert({ tenant_id: tenantId, full_name_ar: otherDriverName, full_name_en: "Second driver section fixture", primary_mobile: "0501320002", category: "freelancer", status: "active" }).select("id").single()
+    if (otherDriver.error) throw new Error("Second driver fixture failed")
+    await page.getByRole("button", { name: "Back", exact: true }).click()
+    await expect(page).toHaveURL(`${appUrl}/drivers`)
+    await page.getByText(otherDriverName, { exact: true }).click()
+    await expect(page).toHaveURL(`${appUrl}/drivers/${otherDriver.data.id}`)
+    await expect(page.getByRole("tab", { name: "Overview", exact: true })).toHaveAttribute("aria-selected", "true")
+    await expect(page.getByRole("tab", { name: "Violations", exact: true })).toHaveAttribute("aria-selected", "false")
+    console.log("PASS: authenticated driver profile training create/edit/result/archive with retained section and fresh rows, Saudi attendance create/edit/lock denial, HR completion/history, violation review/pending deduction/history, isolated next-driver Overview")
   } catch (error) {
     console.error(JSON.stringify({ check: "driver-profile-operations", stage, errorType: error.name }))
     throw new Error(`Driver profile operations browser verification failed: ${stage}`)

@@ -183,6 +183,8 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
   const [photoRemoving, setPhotoRemoving] = useState(false)
   const [photoPreviewOpen, setPhotoPreviewOpen] = useState(false)
   const [reloadToken, setReloadToken] = useState(0)
+  // Keep the selected section while a driver-change refresh remounts its content.
+  const [selectedTab, setSelectedTab] = useState("overview")
   const photoInputRef = useRef<HTMLInputElement>(null)
   const objectUrlRef = useRef<string | null>(null)
 
@@ -638,6 +640,8 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
 
       <DriverTabs
         driver={driver}
+        value={selectedTab}
+        onValueChange={setSelectedTab}
         overview={
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <VehicleAssignmentCard driverId={driver.id} isAr={isAr} />

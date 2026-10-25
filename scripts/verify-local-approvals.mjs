@@ -24,11 +24,13 @@ export async function verifyApprovalsInbox(page,admin,tenantId,appUrl){
   }
   page.on('response',inspect)
   try{
-    const initial=await admin.from('expenses').select('id',{count:'exact',head:true}).eq('tenant_id',tenantId).is('deleted_at',null).eq('is_approved',false).is('rejected_at',null)
+    const initial=await admin.from('expenses').select('id',{count:'exact',head:true}).eq('tenant_id',tenantId).is('deleted_at',null).eq('is_approved',false).is('rejected_at',null).is('cancelled_at',null)
     if(initial.error||initial.count!==0)throw Error('Fresh disposable queue required')
-    let type=await admin.from('leave_types').select('id').eq('tenant_id',tenantId).eq('code','annual').is('deleted_at',null).maybeSingle()
+    // Tag a visible leave reference; private driver names remain outside search.
+    const typeCode='queue_'+tag
+    let type=await admin.from('leave_types').select('id').eq('tenant_id',tenantId).eq('code',typeCode).is('deleted_at',null).maybeSingle()
     if(type.error)throw Error('Synthetic leave type lookup failed')
-    if(!type.data){type=await admin.from('leave_types').insert({tenant_id:tenantId,code:'annual',name_ar:'سنوية',name_en:'Annual',days_per_year:30}).select('id').single();createdLeaveType=true}
+    if(!type.data){type=await admin.from('leave_types').insert({tenant_id:tenantId,code:typeCode,name_ar:'سنوية '+tag,name_en:'Annual '+tag,days_per_year:30}).select('id').single();createdLeaveType=true}
     if(type.error||!type.data?.id)throw Error('Synthetic leave type failed')
     leaveTypeId=type.data.id
     if((await admin.from('drivers').insert({id:driverId,tenant_id:tenantId,full_name_ar:'سائق اختباري '+tag,primary_mobile:'+966500000000',category:'freelancer',status:'active',hire_date:new Date(Date.now()-400*86400000).toISOString().slice(0,10)})).error)throw Error('Synthetic driver failed')

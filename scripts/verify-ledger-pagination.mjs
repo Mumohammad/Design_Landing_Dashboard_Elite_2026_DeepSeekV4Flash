@@ -75,14 +75,30 @@ export async function verifyLedgerPagination(page, admin, tenantId, appUrl, acco
       }
 
       stage = `${tab}: empty-success page with a positive count must fail`
-      const pattern = `**/rest/v1/${table}?**`
-      const truncated = route => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'content-range': '0-24/106' }, body: '[]' })
+      const direct = table === 'journal_entries'
+      const pattern = direct ? `**/rest/v1/${table}?**` : '**/rest/v1/rpc/read_my_accounting_page'
+      let intercepted = 0
+      const truncated = async route => {
+        const request = direct ? null : route.request().postDataJSON()
+        if (!direct && request?.p_kind !== table) return route.continue()
+        intercepted++
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          ...(direct ? { headers: { 'content-range': `0-24/${totals[table]}` } } : {}),
+          body: direct ? '[]' : JSON.stringify({ rows: [], total: totals[table], page: request.p_page, page_size: request.p_page_size, summary: null }),
+        })
+      }
       await page.route(pattern, truncated)
       await search.fill(`unavailable-${tag}`)
       const error = page.getByTestId('accounting-load-error')
       await expect(error).toBeVisible()
+      expect(intercepted).toBeGreaterThan(0)
+      await expect(page.getByRole('tabpanel')).toHaveCount(0)
       await page.unroute(pattern, truncated)
       await error.getByRole('button', { name: 'Try again', exact: true }).click()
+      await expect(error).toHaveCount(0)
+      await expect(page.getByRole('tabpanel', { name: tab, exact: true })).toBeVisible()
       await search.fill(needle)
       await expect(rows).toHaveCount(1)
       await expect(rows.first()).toContainText(needle)

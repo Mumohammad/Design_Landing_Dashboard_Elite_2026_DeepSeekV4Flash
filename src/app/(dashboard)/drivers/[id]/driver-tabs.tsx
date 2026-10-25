@@ -1073,15 +1073,19 @@ function OdometerTab({ driverId, isAr }: OdometerTabProps) {
 export function DriverTabs({
   driver,
   overview,
+  value,
+  onValueChange,
 }: {
   driver: Driver
   overview?: ReactNode
+  value: string
+  onValueChange: (value: string) => void
 }) {
   const { locale } = useTranslation()
   const isAr = locale === "ar"
 
   return (
-    <Tabs defaultValue="overview" className="w-full">
+    <Tabs value={value} onValueChange={onValueChange} className="w-full">
       <TabsList className="h-auto flex-wrap">
         <TabsTrigger value="overview">
           <Briefcase className="h-3.5 w-3.5" />

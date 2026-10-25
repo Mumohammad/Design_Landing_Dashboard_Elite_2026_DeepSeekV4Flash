@@ -72,6 +72,7 @@ function toNullable(v: string | undefined): string | null {
 interface DriverOption {
   id: string
   full_name_ar: string | null
+  full_name_en: string | null
   driver_code: string | null
 }
 
@@ -166,7 +167,7 @@ export function CreateOrderEntryDialog({
       const readDrivers=async()=>{
         let offset=0,total=Infinity
         while(offset<total){
-          let query=supabase.from("drivers").select("id,full_name_ar,driver_code",{count:"exact"}).is("deleted_at",null).order("id")
+          let query=supabase.from("drivers").select("id,full_name_ar,full_name_en,driver_code",{count:"exact"}).is("deleted_at",null).order("id")
           query=entry?.driver_id?query.or("status.in.(active,on_leave),id.eq."+entry.driver_id):query.in("status",["active","on_leave"])
           const result=await query.range(offset,offset+499)
           if(result.error)return result
@@ -275,7 +276,7 @@ export function CreateOrderEntryDialog({
                       <SelectContent>
                         {drivers.map((d) => (
                           <SelectItem key={d.id} value={d.id}>
-                            {d.full_name_ar ?? d.driver_code ?? d.id.slice(0, 8)}
+                            {(isAr ? d.full_name_ar || d.full_name_en : d.full_name_en || d.full_name_ar) || d.driver_code || d.id.slice(0, 8)}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -289,13 +290,13 @@ export function CreateOrderEntryDialog({
                   name="platform_id"
                   render={({ field }) => (
                     <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger className="w-full">
+                      <SelectTrigger id={field.name} className="w-full">
                         <SelectValue placeholder={isAr ? "اختر المنصة" : "Select platform"} />
                       </SelectTrigger>
                       <SelectContent>
                         {platforms.map((p) => (
                           <SelectItem key={p.id} value={p.id}>
-                            {p.name_ar ?? p.name_en ?? p.id.slice(0, 8)}
+                            {(isAr ? p.name_ar || p.name_en : p.name_en || p.name_ar) || p.id.slice(0, 8)}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -312,7 +313,7 @@ export function CreateOrderEntryDialog({
                   name="shift_label"
                   render={({ field }) => (
                     <Select value={field.value || "full_day"} onValueChange={field.onChange}>
-                      <SelectTrigger className="w-full">
+                      <SelectTrigger id={field.name} className="w-full">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>

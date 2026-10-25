@@ -84,10 +84,10 @@ export async function verifyUserRoleManagement(page,admin,tenantId,appUrl){
    const handler=route=>route.request().method()==="POST"&&route.request().headers()["next-action"]?route.fulfill({status:503,contentType:"text/plain",body:"Synthetic read unavailable"}):route.continue()
    await page.route(target,handler)
    await page.goto(appUrl+path+"?lang=en")
-   await expect(page.getByRole("alert")).toContainText(path==="/users"?"Could not load users":"Could not load security overview")
+   await expect(page.locator("main").getByRole("alert").filter({hasText:path==="/users"?"Could not load users":"Could not load security overview"})).toContainText(path==="/users"?"Could not load users":"Could not load security overview")
    await page.unroute(target,handler)
    await page.getByRole("button",{name:"Retry",exact:true}).click()
-   await expect(page.getByRole("alert")).toHaveCount(0)
+   await expect(page.locator("main").getByRole("alert")).toHaveCount(0)
    await expect(page.getByRole("heading",{name:path==="/users"?"Users":"Security",exact:true})).toBeVisible()
   }
   console.log("PASS: authenticated user profile/code/phone masking, role assignment/history, status/archive, catalog-grant edit, protected GM role and responsive forms")
