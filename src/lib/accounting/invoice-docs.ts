@@ -62,6 +62,7 @@ type InvoiceRow = {
   supplier_id: string | null
   issue_date: string
   due_date: string | null
+  show_due_date: boolean
   currency: string
   subtotal: number
   discount: number
@@ -72,6 +73,7 @@ type InvoiceRow = {
 }
 
 type LineRow = {
+  item_name?: string | null
   line_no: number
   description: string
   quantity: number
@@ -114,7 +116,7 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
 
     const { data: inv, error: invErr } = await admin
       .from("invoices")
-      .select("id,invoice_number,invoice_type,status,customer_id,supplier_id,issue_date,due_date,currency,subtotal,discount,vat_amount,total,vat_rate,notes")
+      .select("id,invoice_number,invoice_type,status,customer_id,supplier_id,issue_date,due_date,show_due_date,currency,subtotal,discount,vat_amount,total,vat_rate,notes")
       .eq("id", invoiceId)
       .eq("tenant_id", currentUser.tenantId)
       .is("deleted_at", null)
@@ -123,7 +125,7 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
 
     const { data: lines, error: linesErr } = await admin
       .from("invoice_lines")
-      .select("line_no,description,quantity,unit_price,discount,amount,vat_rate,vat_amount")
+      .select("line_no,item_name,description,quantity,unit_price,discount,amount,vat_rate,vat_amount")
       .eq("invoice_id", invoiceId)
       .eq("tenant_id", currentUser.tenantId)
       .order("line_no", { ascending: true })
@@ -216,9 +218,9 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
       partyAddress: party?.address ?? "",
       partyPhone: party?.phone ?? "",
       issueDate: fmtDate(inv.issue_date),
-      dueDate: inv.due_date ? fmtDate(inv.due_date) : null,
+      dueDate: inv.show_due_date && inv.due_date ? fmtDate(inv.due_date) : null,
       currency: inv.currency ?? "SAR",
-      lines: (lines ?? []) as LineRow[],
+      lines: (lines as LineRow[]).map(line => ({ ...line, itemName: line.item_name ?? undefined })),
       subtotal: Number(inv.subtotal),
       discount: Number(inv.discount),
       vatAmount: Number(inv.vat_amount),
@@ -261,7 +263,7 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
     const generatedData = {
       kind: "invoice",
       file_format: "pdf",
-      layout_version: "reference-letter-1",
+      layout_version: "reference-letter-2",
       font_source: referenceFonts.referenceFontDataUrl ? "protected_reference" : "system_or_cairo",
       pdf_sha256: pdfHash,
       invoice_number: inv.invoice_number,

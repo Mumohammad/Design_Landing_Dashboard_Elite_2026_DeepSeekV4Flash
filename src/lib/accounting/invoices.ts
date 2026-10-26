@@ -37,19 +37,25 @@ import { runEventDispatcher } from "@/lib/accounting/dispatcher"
 import { runZatcaAdapter } from "@/lib/accounting/zatca"
 import { rateLimitAccounting } from "@/lib/auth/rate-limit"
 import { getErrorDefinition } from "@/lib/errors/error-codes"
+import {isMasterId,isMasterTimestamp} from "./master-contract"
+import {readInvoicePage,InvoiceReadError} from "./invoice-pages"
 
 export type { InvoiceLineInput } from "@/lib/accounting/invoice-math"
 
-type ActionResult = { success: boolean; error?: string }
+type ActionResult = { success: boolean; error?: string; errorAr?: string; replayed?:boolean }
 
 export type InvoiceType = "sales" | "purchase"
 
 export type InvoiceDraftInput = {
+  /** Stable intent for application retries; not a document identifier. */
+  request_id?: string
   invoice_type: InvoiceType
   customer_id?: string | null
   supplier_id?: string | null
   issue_date: string
   due_date: string
+  /** Presentation only; the financial due date is always required. */
+  show_due_date?: boolean
   currency?: string
   /** Default VAT % applied to lines that don't set their own. */
   vat_rate?: number
@@ -66,25 +72,27 @@ function errorMessage(e: unknown): string {
 // Draft writes use the caller's authenticated session. The database validates
 // tenant, permission, version, party and money, then commits header/lines/audit
 // together. A failed edit leaves the previous draft intact.
-async function saveDraft(input: InvoiceDraftInput, id?: string, expectedUpdatedAt?: string)
-  : Promise<ActionResult & { id?: string }> {
-  try {
-    await requirePermission("invoices", id ? "update" : "create")
-    if ((input.currency ?? "SAR") !== "SAR") return { success: false, error: "Accounting supports SAR only; existing foreign-currency invoices require review." }
-    computeInvoiceTotals(input.lines, input.vat_rate ?? 15)
-    const client = await createClient()
-    const { data, error } = await client.rpc("save_invoice_draft", {
-      p_input: input,
-      p_invoice_id: id ?? null,
-      p_expected_updated_at: expectedUpdatedAt ?? null,
-    })
-    if (error) return { success: false, error: mapFinancialError(error.message) }
-    revalidatePath("/invoices")
-    revalidatePath("/accounting")
-    return { success: true, id: data.id }
-  } catch (e) {
-    return { success: false, error: mapFinancialError(errorMessage(e)) }
-  }
+function draftFailure(raw:string):ActionResult {
+  const definition=getErrorDefinition(raw.split(":")[0]?.trim())
+  if(definition.code!=="ERR_INTERNAL")return {success:false,error:definition.messageEn,errorAr:definition.messageAr}
+  return {success:false,error:"Unable to confirm the invoice save. Retry with unchanged details.",errorAr:"تعذر تأكيد حفظ الفاتورة. أعد المحاولة بالتفاصيل نفسها."}
+}
+async function saveDraft(input:InvoiceDraftInput,id?:string,expectedUpdatedAt?:string):Promise<ActionResult&{id?:string}>{
+ try{
+  await requirePermission("invoices",id?"update":"create")
+  if(!input||!isMasterId(input.request_id)||(id!==undefined&&(!isMasterId(id)||!isMasterTimestamp(expectedUpdatedAt))))return draftFailure("INV002: invalid draft request")
+  if((input.currency??"SAR")!=="SAR")return draftFailure("INV012: SAR accounting only")
+  if(input.show_due_date!==undefined&&typeof input.show_due_date!=="boolean")return draftFailure("INV002: invalid due-date visibility")
+  const computed=computeInvoiceTotals(input.lines,input.vat_rate??15)
+  const {request_id,...draft}=input,client=await createClient()
+  draft.lines=computed.lines.map(line=>({item_name:line.item_name??null,description:line.description,quantity:line.quantity,unit_price:line.unit_price,discount:line.discount,vat_rate:line.vat_rate}))
+  const {data,error}=await client.rpc("save_my_invoice_draft",{p_input:draft,p_invoice_id:id??null,p_expected_updated_at:expectedUpdatedAt??null,p_request_id:request_id})
+  if(error)return draftFailure(error.message)
+  if(!data||!isMasterId(data.id)||!isMasterTimestamp(data.updated_at)||(id!==undefined&&data.id!==id)||typeof data.total!=="number"||!Number.isFinite(data.total)||data.total<0||data.total>9999999999.99||data.total!==computed.total||typeof data.replayed!=="boolean")return draftFailure("")
+  // The receipt confirms commit; an ancillary refresh cannot undo that result.
+  try{revalidatePath("/invoices");revalidatePath("/accounting")}catch{/* a fresh read is authoritative */}
+  return {success:true,id:data.id,replayed:data.replayed}
+ }catch(error){return draftFailure(errorMessage(error))}
 }
 
 export async function createInvoiceDraft(input: InvoiceDraftInput): Promise<ActionResult & { id?: string }> {
@@ -281,7 +289,7 @@ async function createInvoiceNote(kind: "credit" | "debit", input: CreditNoteInpu
     if (kind === "debit") {
       const debit = input as DebitNoteInput
       const rate = debit.vat_rate === undefined ? 15 : debit.vat_rate
-      if (typeof debit.amount !== "number" || debit.amount <= 0 || debit.amount > 99_999_999.99
+      if (typeof debit.amount !== "number" || debit.amount <= 0 || debit.amount > 99_999_999.99 || !/^\d+(?:\.\d{1,2})?$/.test(String(debit.amount))
         || typeof rate !== "number" || (debit.description !== undefined && typeof debit.description !== "string")) return invalid
       const description = debit.description?.trim() || payload.reason as string
       try {
@@ -330,204 +338,21 @@ export async function issueDebitNote(input: DebitNoteInput): Promise<NoteResult>
 
 // ── CSV export (BOM-prefixed so Excel renders Arabic) ─────────────────────
 
-export async function exportInvoicesCsv(): Promise<{ success: boolean; csv?: string; error?: string }> {
-  try {
-    await requirePermission("invoices", "export")
-    const currentUser = await getCurrentUser()
-    if (!currentUser) return { success: false, error: "Not authenticated." }
-
-    const admin = createAdminClient()
-
-    // Cursor-based pagination: fetch in batches of 500 using id > cursor
-    // to avoid OFFSET degradation on large datasets.
-    const allRows: (string | number | boolean | null)[][] = []
-    let cursor: string | null = null
-    const PAGE_SIZE = 500
-    const MAX_ROWS = 10_000 // Safety cap for CSV export
-
-    type InvoiceRow = {
-      id: string
-      invoice_number: string
-      invoice_type: string
-      issue_date: string
-      due_date: string
-      status: string
-      subtotal: number
-      discount: number
-      vat_amount: number
-      total: number
-      currency: string
-      customers?: { name_ar: string | null } | null
-      suppliers?: { name_ar: string | null } | null
-    }
-
-    while (allRows.length < MAX_ROWS) {
-      let query = admin
-        .from("invoices")
-        .select("id,invoice_number,invoice_type,issue_date,due_date,status,subtotal,discount,vat_amount,total,currency,customers(name_ar),suppliers(name_ar)")
-        .eq("tenant_id", currentUser.tenantId)
-        .is("deleted_at", null)
-        .order("issue_date", { ascending: false })
-        .order("id", { ascending: false })
-        .limit(PAGE_SIZE + 1)
-
-      if (cursor) {
-        query = query.lt("id", cursor)
-      }
-
-      const { data, error } = await query
-      if (error) return { success: false, error: error.message }
-      if (!data || data.length === 0) break
-
-      const hasMore = data.length > PAGE_SIZE
-      const batch = hasMore ? data.slice(0, PAGE_SIZE) : data
-      cursor = String(batch[batch.length - 1].id)
-
-      for (const r of batch) {
-        const row = r as unknown as InvoiceRow
-        allRows.push([
-          row.invoice_number,
-          row.invoice_type,
-          row.issue_date,
-          row.due_date,
-          row.status,
-          row.subtotal,
-          row.discount,
-          row.vat_amount,
-          row.total,
-          row.currency,
-          row.customers?.name_ar ?? row.suppliers?.name_ar ?? "",
-        ])
-      }
-
-      if (!hasMore) break
-    }
-
-    const csv = "\uFEFF" + toCsv(
-      ["invoice_number", "invoice_type", "issue_date", "due_date", "status", "subtotal", "discount", "vat_amount", "total", "currency", "party"],
-      allRows
-    )
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "invoices",
-      action: "invoices_list_exported",
-      entityType: "invoices",
-      newValues: { rows: allRows.length },
-    })
-
-    return { success: true, csv }
-  } catch (e) {
-    return { success: false, error: errorMessage(e) }
-  }
-}
-
-// ── Paginated invoice list ───────────────────────────────────────────────────
-
-export type InvoiceListResult = {
-  success: boolean
-  error?: string
-  data?: InvoiceRow[]
-  nextCursor?: string | null
-  totalEstimate?: number
-  hasMore?: boolean
-}
-
-type InvoiceRow = {
-  id: string
-  invoice_number: string
-  invoice_type: string
-  issue_date: string
-  due_date: string
-  status: string
-  subtotal: number
-  discount: number
-  vat_amount: number
-  total: number
-  currency: string
-  customer_name: string | null
-  supplier_name: string | null
-}
-
-/**
- * Paginated invoice list using cursor-based pagination.
- * Pass `cursor` from the previous page's `nextCursor` for the next page.
- * First page: omit cursor.
- */
-export async function listInvoices(input: {
-  cursor?: string | null
-  pageSize?: number
-}): Promise<InvoiceListResult> {
-  try {
-    await requirePermission("invoices", "read")
-    const currentUser = await getCurrentUser()
-    if (!currentUser) return { success: false, error: "Not authenticated." }
-
-    const pageSize = Math.min(Math.max(1, input.pageSize ?? 25), 100)
-    const admin = createAdminClient()
-
-    let query = admin
-      .from("invoices")
-      .select("id,invoice_number,invoice_type,issue_date,due_date,status,subtotal,discount,vat_amount,total,currency,customers(name_ar),suppliers(name_ar)")
-      .eq("tenant_id", currentUser.tenantId)
-      .is("deleted_at", null)
-      .order("issue_date", { ascending: false })
-      .order("id", { ascending: false })
-      .limit(pageSize + 1)
-
-    if (input.cursor) {
-      query = query.lt("id", input.cursor)
-    }
-
-    const { data, error } = await query
-    if (error) return { success: false, error: error.message }
-    if (!data) return { success: true, data: [], nextCursor: null, totalEstimate: 0, hasMore: false }
-
-    const hasMore = data.length > pageSize
-    const rows = (hasMore ? data.slice(0, pageSize) : data).map((r) => {
-      const row = r as unknown as {
-        id: string; invoice_number: string; invoice_type: string
-        issue_date: string; due_date: string; status: string
-        subtotal: number; discount: number; vat_amount: number; total: number
-        currency: string
-        customers?: { name_ar: string | null } | null
-        suppliers?: { name_ar: string | null } | null
-      }
-      return {
-        id: row.id,
-        invoice_number: row.invoice_number,
-        invoice_type: row.invoice_type,
-        issue_date: row.issue_date,
-        due_date: row.due_date,
-        status: row.status,
-        subtotal: Number(row.subtotal),
-        discount: Number(row.discount),
-        vat_amount: Number(row.vat_amount),
-        total: Number(row.total),
-        currency: row.currency,
-        customer_name: row.customers?.name_ar ?? null,
-        supplier_name: row.suppliers?.name_ar ?? null,
-      }
-    })
-
-    const nextCursor = hasMore ? String(rows[rows.length - 1].id) : null
-
-    // Approximate total count (cached from the count query)
-    const { count } = await admin
-      .from("invoices")
-      .select("id", { count: "exact", head: true })
-      .eq("tenant_id", currentUser.tenantId)
-      .is("deleted_at", null)
-
-    return {
-      success: true,
-      data: rows,
-      nextCursor,
-      totalEstimate: count ?? rows.length,
-      hasMore,
-    }
-  } catch (e) {
-    return { success: false, error: errorMessage(e) }
-  }
+export async function exportInvoicesCsv(filters:{search?:string;status?:string;locale?:string}={}):Promise<{success:boolean;csv?:string;error?:string;errorAr?:string}>{
+ try{
+  await requirePermission("invoices","export")
+  const currentUser=await getCurrentUser();if(!currentUser)return {success:false,error:"Not authenticated.",errorAr:"يرجى تسجيل الدخول."}
+  if(!filters||typeof filters!=="object"||Array.isArray(filters)||(filters.locale!==undefined&&!["ar","en"].includes(filters.locale)))throw new InvoiceReadError()
+  const page=await readInvoicePage(await createClient(),"invoices",{search:filters.search??"",status:filters.status??"all",pageSize:100,exporting:true})
+  const csv="\uFEFF"+toCsv(["invoice_number","invoice_type","issue_date","due_date","status","subtotal","discount","vat_amount","total","currency","party"],page.rows.map(row=>[
+   row.invoice_number,row.invoice_type,row.issue_date,row.due_date,row.status,row.subtotal,row.discount,row.vat_amount,row.total,row.currency,
+   (filters.locale==="en"?(row.customer_name_en||row.customer_name||row.supplier_name_en||row.supplier_name):(row.customer_name||row.customer_name_en||row.supplier_name||row.supplier_name_en))??"",
+  ]))
+  if(Buffer.byteLength(csv,"utf8")>524288)throw new InvoiceReadError(true)
+  await writeAuditLog({tenantId:currentUser.tenantId,actorId:currentUser.authUserId,module:"invoices",action:"invoices_list_exported",entityType:"invoices",newValues:{rows:page.total}})
+  return {success:true,csv}
+ }catch(error){
+  if(error instanceof InvoiceReadError&&error.exportLimit)return {success:false,error:"The export is too large. Narrow the search and export again.",errorAr:"حجم التصدير كبير. ضيّق البحث ثم أعد التصدير."}
+  return {success:false,error:"Unable to export complete invoice records. Retry.",errorAr:"تعذر تصدير جميع سجلات الفواتير. أعد المحاولة."}
+ }
 }

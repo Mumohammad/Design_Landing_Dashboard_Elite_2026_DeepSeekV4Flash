@@ -63,7 +63,7 @@ describe("retained invoice PDFs",()=>{
     const record=mocks.queries.find(query=>query.table==="generated_documents"&&query.builder.insert.mock.calls.length)
     expect(record?.builder.insert).toHaveBeenCalledWith(expect.objectContaining({
       tenant_id:"tenant-a",file_url:"https://example.test/private.pdf",
-      generated_data:expect.objectContaining({file_format:"pdf",layout_version:"reference-letter-1",font_source:"system_or_cairo",pdf_sha256:hash,qr_kind:"internal_unvalidated"}),
+      generated_data:expect.objectContaining({file_format:"pdf",layout_version:"reference-letter-2",font_source:"system_or_cairo",pdf_sha256:hash,qr_kind:"internal_unvalidated"}),
     }))
     expect(mocks.render.mock.calls[0][0]).toContain('aria-label="SAR 0.30"')
     expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({tenantId:"tenant-a",entityId:"document-a"}))
@@ -128,5 +128,24 @@ describe("retained invoice PDFs",()=>{
     mocks.saveError={message:"Save failed"}
     expect((await generateInvoiceDocument(invoiceId)).success).toBe(false)
     expect(mocks.audit).not.toHaveBeenCalled()
+  })
+})
+
+describe("reference fields from persisted invoice records",()=>{
+  it("hydrates the distinct item name and full price while hiding the financial due date by default",async()=>{
+    mocks.results.invoice_lines={data:[{line_no:1,item_name:"Item & name",description:"Separate description",quantity:1,unit_price:72225.2082,amount:72225.21,discount:0,vat_rate:15,vat_amount:10833.78}],error:null}
+    expect((await generateInvoiceDocument(invoiceId)).success).toBe(true)
+    const html=mocks.render.mock.calls[0][0]
+    expect(html).toContain('class="item" dir="auto">Item &amp; name')
+    expect(html).toContain('class="description" dir="auto">Separate description')
+    expect(html).toContain('72,225.2082')
+    expect(html).not.toContain('Due Date')
+    expect(mocks.queries.find(query=>query.table==='invoice_lines')?.builder.select).toHaveBeenCalledWith(expect.stringContaining('item_name'))
+  })
+  it("prints the persisted due date only when explicitly enabled",async()=>{
+    mocks.results.invoices.data={...(mocks.results.invoices.data as object),show_due_date:true}
+    expect((await generateInvoiceDocument(invoiceId)).success).toBe(true)
+    expect(mocks.render.mock.calls[0][0]).toContain('Due Date')
+    expect(mocks.render.mock.calls[0][0]).toContain('20/10/2026')
   })
 })

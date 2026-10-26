@@ -6,7 +6,10 @@
 // financial managers. Rendered from the /invoices page.
 
 import { LocalizedText } from "@/components/localized-text"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
+import {useInvoicePage} from "@/hooks/use-invoice-page"
+import {formatInvoiceSummary,type InvoiceListRow} from "@/lib/accounting/invoice-pages"
+import {InvoicePartyPicker} from "@/components/accounting/invoice-party-picker"
 import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
 import {
@@ -43,29 +46,11 @@ import { BankAccountPicker } from "@/components/accounting/bank-account-picker"
 
 // ── Row shapes ────────────────────────────────────────────────────────────
 
-interface InvoiceRow {
-  id: string
-  invoice_number: string
-  invoice_type: InvoiceType
-  issue_date: string
-  due_date: string
-  status: string
-  subtotal: number
-  discount: number
-  vat_amount: number
-  total: number
-  currency: string
-  customer_name: string | null
-  supplier_name: string | null
-  updated_at: string
-  customer_id: string | null
-  supplier_id: string | null
-  vat_rate: number
-  notes: string | null
-}
+type InvoiceRow = InvoiceListRow
 
 interface InvoiceLineRow {
   line_no: number
+  item_name: string | null
   description: string
   quantity: number
   unit_price: number
@@ -73,12 +58,6 @@ interface InvoiceLineRow {
   amount: number
   vat_rate: number
   vat_amount: number
-}
-
-interface PartyOption {
-  id: string
-  name: string
-  code: string
 }
 
 const STATUS_META: Record<string, { ar: string; en: string; className: string }> = {
@@ -96,10 +75,14 @@ function fmtMoney(n: number | null | undefined): string {
   return (n ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+function fmtUnitPrice(n: number): string {
+  return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 })
+}
+
 function fmtDate(d: string | null | undefined): string {
   if (!d) return "—"
   try {
-    return new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
+    return new Date(d).toLocaleDateString("en-GB", { timeZone: "UTC", day: "2-digit", month: "short", year: "numeric" })
   } catch {
     return d
   }
@@ -109,6 +92,7 @@ function fmtDate(d: string | null | undefined): string {
 
 interface LineDraft {
   key: number
+  item_name: string
   description: string
   quantity: string
   unit_price: string
@@ -117,11 +101,12 @@ interface LineDraft {
 }
 
 function emptyLine(key: number): LineDraft {
-  return { key, description: "", quantity: "1", unit_price: "", discount: "0", vat_rate: "15" }
+  return { key, item_name: "", description: "", quantity: "1", unit_price: "", discount: "0", vat_rate: "15" }
 }
 
 function lineInputs(lines: LineDraft[], defaultVatRate = "15") {
   return lines.map((l) => ({
+    item_name: l.item_name.trim() || null,
     description: l.description.trim(), quantity: Number(l.quantity || NaN),
     unit_price: Number(l.unit_price || NaN), discount: Number(l.discount || 0),
     vat_rate: Number(l.vat_rate || defaultVatRate),
@@ -140,17 +125,13 @@ export function InvoicesManager() {
   const { t, locale } = useTranslation()
   const ar = locale === "ar"
 
-  const [rows, setRows] = useState<InvoiceRow[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [loadError, setLoadError] = useState(false)
-  const [page, setPage] = useState(1)
-  const [totalCount, setTotalCount] = useState(0)
-  const [statusFilter, setStatusFilter] = useState("all")
-  const [search, setSearch] = useState("")
+  const invoicePage=useInvoicePage<InvoiceRow>("invoices")
+  const {rows,loading:isLoading,error:loadError,search,setSearch,status:statusFilter,setStatus:setStatusFilter}=invoicePage
+  const page=invoicePage.pagination.currentPage,totalCount=invoicePage.pagination.totalRecords
+  const setPage=invoicePage.pagination.onPageChange
+  const load=async()=>{invoicePage.reload()}
   const [feedback, setFeedback] = useState<{ type: "ok" | "err"; text: string } | null>(null)
 
-  const [customers, setCustomers] = useState<PartyOption[]>([])
-  const [suppliers, setSuppliers] = useState<PartyOption[]>([])
 
   const [editTarget, setEditTarget] = useState<InvoiceRow | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<InvoiceRow | null>(null)
@@ -163,109 +144,17 @@ export function InvoicesManager() {
   const [creditTarget, setCreditTarget] = useState<InvoiceRow | null>(null)
   const [debitTarget, setDebitTarget] = useState<InvoiceRow | null>(null)
 
-  const load = useCallback(async () => {
-    const supabase = createClient()
-    setIsLoading(true)
-    setLoadError(false)
-    const { data, error, count } = await supabase
-      .from("invoices")
-      .select(
-        "id,invoice_number,invoice_type,issue_date,due_date,status,subtotal,discount,vat_amount,total,currency,updated_at,customer_id,supplier_id,vat_rate,notes,customers(name_ar),suppliers(name_ar)", { count: "exact" }
-      )
-      .is("deleted_at", null)
-      .order("issue_date", { ascending: false })
-      .order("id", { ascending: false })
-      .range((page - 1) * 50, page * 50 - 1)
-    if (error) {
-      setLoadError(true)
-    } else {
-      setTotalCount(count ?? 0)
-      setRows(
-        (data as unknown as (Omit<InvoiceRow, "customer_name" | "supplier_name"> & {
-          customers?: { name_ar: string | null } | null
-          suppliers?: { name_ar: string | null } | null
-        })[] ?? []).map((r) => ({
-          id: r.id,
-          invoice_number: r.invoice_number,
-          invoice_type: r.invoice_type,
-          issue_date: r.issue_date,
-          due_date: r.due_date,
-          status: r.status,
-          subtotal: Number(r.subtotal),
-          discount: Number(r.discount),
-          vat_amount: Number(r.vat_amount),
-          total: Number(r.total),
-          currency: r.currency,
-          updated_at: r.updated_at,
-          customer_id: r.customer_id,
-          supplier_id: r.supplier_id,
-          vat_rate: Number(r.vat_rate),
-          notes: r.notes,
-          customer_name: r.customers?.name_ar ?? null,
-          supplier_name: r.suppliers?.name_ar ?? null,
-        }))
-      )
-    }
-    setIsLoading(false)
-  }, [page])
-
-  useEffect(() => {
-    void (async () => {
-      const supabase = createClient()
-      const [custRes, suppRes] = await Promise.all([
-        supabase.from("customers").select("id,customer_code,name_ar").is("deleted_at", null).eq("is_active", true).order("customer_code", { ascending: true }).limit(200),
-        supabase.from("suppliers").select("id,supplier_code,name_ar").is("deleted_at", null).eq("is_active", true).order("supplier_code", { ascending: true }).limit(200),
-      ])
-      setCustomers(
-        ((custRes.data ?? []) as { id: string; customer_code: string; name_ar: string }[]).map((c) => ({
-          id: c.id,
-          code: c.customer_code,
-          name: c.name_ar,
-        }))
-      )
-      setSuppliers(
-        ((suppRes.data ?? []) as { id: string; supplier_code: string; name_ar: string }[]).map((s) => ({
-          id: s.id,
-          code: s.supplier_code,
-          name: s.name_ar,
-        }))
-      )
-      await load()
-    })()
-  }, [load])
-
   const flash = (type: "ok" | "err", text: string) => {
     setFeedback({ type, text })
     window.setTimeout(() => setFeedback(null), 6000)
   }
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    const byStatus = rows.filter((r) => statusFilter === "all" || r.status === statusFilter)
-    if (!q) return byStatus
-    return byStatus.filter(
-      (r) =>
-        r.invoice_number.toLowerCase().includes(q) ||
-        (r.customer_name ?? "").toLowerCase().includes(q) ||
-        (r.supplier_name ?? "").toLowerCase().includes(q) ||
-        r.status.toLowerCase().includes(q)
-    )
-  }, [rows, search, statusFilter])
-
-  const totalValue = rows
-    .filter((r) => r.currency === "SAR" && r.status !== "cancelled" && r.status !== "credited")
-    .reduce((s, r) => s + r.total, 0)
-
-  const kpiCards: KpiCardData[] = [
-    { label: ar ? "الفواتير المحملة" : "Loaded invoices", value: rows.length, icon: FileText, color: "#1E5A99" },
-    { label: ar ? "مسودات" : "Drafts", value: rows.filter((r) => r.status === "draft").length, icon: ReceiptText, color: "#64748B" },
-    { label: ar ? "معتمدة" : "Finalized", value: rows.filter((r) => r.status === "finalized").length, icon: CheckCircle2, color: "#10B981" },
-    {
-      label: ar ? "قيمة الفواتير (ر.س)" : "Loaded value (SAR)",
-      value: fmtMoney(totalValue),
-      icon: CircleDollarSign,
-      color: "#8B5CF6",
-    },
+  const summary=invoicePage.summary
+  const kpiCards:KpiCardData[]=[
+   {label:ar?"إجمالي الفواتير":"Total invoices",value:summary?.total??"—",icon:FileText,color:"#1E5A99"},
+   {label:ar?"مسودات":"Drafts",value:summary?.drafts??"—",icon:ReceiptText,color:"#64748B"},
+   {label:ar?"معتمدة":"Finalized",value:summary?.finalized??"—",icon:CheckCircle2,color:"#10B981"},
+   {label:ar?"قيمة الفواتير (ر.س)":"Invoice value (SAR)",value:formatInvoiceSummary(summary?.value_sar),icon:CircleDollarSign,color:"#8B5CF6"},
   ]
 
   const columns: TableColumn<InvoiceRow>[] = [
@@ -291,7 +180,7 @@ export function InvoicesManager() {
       key: "party",
       header: ar ? "الطرف" : "Party",
       render: (r) => (
-        <span className="font-medium">{r.customer_name ?? r.supplier_name ?? "—"}</span>
+        <span className="font-medium">{(ar?(r.customer_name||r.customer_name_en||r.supplier_name||r.supplier_name_en):(r.customer_name_en||r.customer_name||r.supplier_name_en||r.supplier_name)) || "—"}</span>
       ),
     },
     {
@@ -303,7 +192,7 @@ export function InvoicesManager() {
       key: "due_date",
       header: ar ? "الاستحقاق" : "Due",
       render: (r) => (
-        <span dir="ltr" className={`text-xs ${r.status !== "paid" && r.status !== "cancelled" && new Date(r.due_date) < new Date() ? "text-red-600 font-medium" : ""}`}>
+        <span dir="ltr" className={`text-xs ${!["paid", "cancelled", "credited"].includes(r.status) && businessDay && r.due_date < businessDay ? "text-red-600 font-medium" : ""}`}>
           {fmtDate(r.due_date)}
         </span>
       ),
@@ -333,7 +222,7 @@ export function InvoicesManager() {
   const [isExporting, setIsExporting] = useState(false)
   async function handleExport() {
     setIsExporting(true)
-    const res = await exportInvoicesCsv()
+    const res = await exportInvoicesCsv({search,status:statusFilter,locale})
     setIsExporting(false)
     if (res.success && res.csv) {
       const blob = new Blob([res.csv], { type: "text/csv;charset=utf-8" })
@@ -347,15 +236,18 @@ export function InvoicesManager() {
       URL.revokeObjectURL(url)
       flash("ok", ar ? "تم تصدير الفواتير." : "Invoices exported.")
     } else {
-      flash("err", res.error ?? "Export failed")
+      flash("err", (ar?res.errorAr:res.error) ?? (ar?"تعذر تصدير الفواتير.":"Invoice export failed."))
     }
   }
 
   // ── Create form ─────────────────────────────────────────────────────────
   const [formType, setFormType] = useState<InvoiceType>("sales")
+  const [draftRequest,setDraftRequest]=useState<string|null>(null)
+  const [partyReadReady,setPartyReadReady]=useState(false)
   const [formPartyId, setFormPartyId] = useState("")
-  const [formIssue, setFormIssue] = useState(() => new Date().toISOString().slice(0, 10))
-  const [formDue, setFormDue] = useState(() => new Date().toISOString().slice(0, 10))
+  const [formIssue, setFormIssue] = useState(() => businessDateKey(new Date()))
+  const [formDue, setFormDue] = useState(() => businessDateKey(new Date()))
+  const [formShowDueDate, setFormShowDueDate] = useState(false)
   const [formVatRate, setFormVatRate] = useState("15")
   const [formCurrency, setFormCurrency] = useState("SAR")
   const [formNotes, setFormNotes] = useState("")
@@ -368,12 +260,14 @@ export function InvoicesManager() {
 
 
   const openCreate = () => {
+    setDraftRequest(crypto.randomUUID());setPartyReadReady(false)
     setEditTarget(null)
     setFormCurrency("SAR")
     setFormType("sales")
     setFormPartyId("")
-    setFormIssue(new Date().toISOString().slice(0, 10))
-    setFormDue(new Date().toISOString().slice(0, 10))
+    setFormIssue(businessDateKey(new Date()))
+    setFormDue(businessDateKey(new Date()))
+    setFormShowDueDate(false)
     setFormVatRate("15")
     setFormNotes("")
     setLines([emptyLine(1)])
@@ -390,19 +284,21 @@ export function InvoicesManager() {
     setBusyId(row.id)
     const client = createClient()
     const { data, error } = await client.from("invoice_lines")
-      .select("line_no,description,quantity,unit_price,discount,vat_rate")
+      .select("line_no,item_name,description,quantity,unit_price,discount,vat_rate")
       .eq("invoice_id", row.id).order("line_no")
     setBusyId(null)
     if (error || !data?.length) { flash("err", ar ? "تعذر تحميل البنود. حاول مجدداً." : "Could not load invoice lines. Retry."); return }
     setEditTarget(row)
+    setDraftRequest(crypto.randomUUID());setPartyReadReady(false)
     setFormType(row.invoice_type)
     setFormPartyId(row.customer_id ?? row.supplier_id ?? "")
     setFormIssue(row.issue_date)
     setFormDue(row.due_date)
+    setFormShowDueDate(row.show_due_date)
     setFormVatRate(String(row.vat_rate))
     setFormCurrency(row.currency)
     setFormNotes(row.notes ?? "")
-    setLines(data.map((l) => ({ key: l.line_no, description: l.description,
+    setLines(data.map((l) => ({ key: l.line_no, item_name: l.item_name ?? "", description: l.description,
       quantity: String(l.quantity), unit_price: String(l.unit_price),
       discount: String(l.discount), vat_rate: String(l.vat_rate) })))
     setFormError(null)
@@ -413,16 +309,16 @@ export function InvoicesManager() {
     setIsSaving(true)
     setFormError(null)
     try {
-      const input = { invoice_type: formType,
+      const input = { invoice_type: formType, request_id: draftRequest ?? undefined,
         customer_id: formType === "sales" ? formPartyId || null : null,
         supplier_id: formType === "purchase" ? formPartyId || null : null,
-        issue_date: formIssue, due_date: formDue, currency: formCurrency,
+        issue_date: formIssue, due_date: formDue, show_due_date: formShowDueDate, currency: formCurrency,
         vat_rate: Number(formVatRate || 0), notes: formNotes || null,
         lines: lineInputs(lines, formVatRate) }
       const res = editTarget
         ? await updateInvoiceDraft({ ...input, id: editTarget.id, expected_updated_at: editTarget.updated_at })
         : await createInvoiceDraft(input)
-      if (!res.success) { setFormError(res.error ?? "Save failed"); return }
+      if (!res.success) { setFormError((ar?res.errorAr:res.error) ?? (ar?"تعذر تأكيد الحفظ. أعد المحاولة بالتفاصيل نفسها.":"Unable to confirm the save. Retry with unchanged details.")); return }
       flash("ok", ar ? "تم حفظ مسودة الفاتورة." : "Invoice draft saved.")
       setCreateOpen(false)
       await load()
@@ -454,7 +350,7 @@ export function InvoicesManager() {
     const [linesRes, cnRes, dnRes] = await Promise.all([
       supabase
         .from("invoice_lines")
-        .select("line_no,description,quantity,unit_price,discount,amount,vat_rate,vat_amount")
+        .select("line_no,item_name,description,quantity,unit_price,discount,amount,vat_rate,vat_amount")
         .eq("invoice_id", r.id)
         .order("line_no", { ascending: true }),
       supabase
@@ -602,7 +498,7 @@ export function InvoicesManager() {
   const [debitDate, setDebitDate] = useState("")
   const [isDebiting, setIsDebiting] = useState(false)
   const debitPreview = useMemo(() => {
-    if (!debitAmount.trim() || !debitVatRate.trim() || Number(debitAmount) <= 0) return null
+    if (!debitAmount.trim() || !debitVatRate.trim() || Number(debitAmount) <= 0 || !/^\d+(?:\.\d{1,2})?$/.test(debitAmount.trim())) return null
     try { return computeInvoiceTotals([{ description: "Debit note", quantity: 1,
       unit_price: Number(debitAmount), vat_rate: Number(debitVatRate) }]) } catch { return null }
   }, [debitAmount, debitVatRate])
@@ -622,14 +518,9 @@ export function InvoicesManager() {
     } finally { setIsDebiting(false) }
   }
 
-  const parties = formType === "sales" ? customers : suppliers
 
   return (
-    <div className="space-y-4">
-      {loadError && <div role="alert" className="flex items-center justify-between rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm">
-        <span>{ar ? "تعذر تحديث الفواتير. قد تكون البيانات المعروضة قديمة." : "Invoices could not refresh. Displayed data may be stale."}</span>
-        <Button variant="outline" onClick={() => void load()}>{ar ? "إعادة المحاولة" : "Retry"}</Button>
-      </div>}
+    <div className="space-y-4" data-testid="invoices-manager">
       {feedback && (
         <div
           role="status"
@@ -650,7 +541,7 @@ export function InvoicesManager() {
           ? "دورة حياة الفاتورة: مسودة ← صادرة ← معتمدة (نهائية)، مع الإشعارات الدائنة والمدينة"
           : "Invoice lifecycle: draft → issued → finalized (immutable), plus credit & debit notes"}
         kpiCards={kpiCards}
-        searchPlaceholder={ar ? "بحث في الفواتير المحملة…" : "Search loaded invoices…"}
+        searchPlaceholder={ar ? "ابحث برقم الفاتورة أو الطرف أو الحالة…" : "Search invoice number, party or status…"}
         searchValue={search}
         onSearchChange={setSearch}
         primaryCtaLabel={ar ? "فاتورة جديدة" : "New invoice"}
@@ -673,7 +564,7 @@ export function InvoicesManager() {
           </div>
         }
         columns={columns}
-        data={filtered}
+        data={rows}
         rowActions={(r) => {
           const canIssue = r.status === "draft"
           const canFinalize = r.status === "issued"
@@ -705,14 +596,16 @@ export function InvoicesManager() {
           )
         }}
         isLoading={isLoading}
+        loadError={loadError?(ar?"تعذر تحميل الفواتير وإجمالياتها. أعد المحاولة.":"Could not load invoices and their totals. Retry."):undefined}
+        onRetry={()=>void load()}
         emptyStateMessage={ar ? "لا توجد فواتير بعد. أنشئ أول فاتورة." : "No invoices yet. Create your first invoice."}
       />
 
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card p-4 text-sm text-muted-foreground">
-        <span>{ar ? `تم تحميل ${rows.length} من ${totalCount} فاتورة — البحث والمؤشرات للصفوف المحملة` : `Page ${page} of ${Math.max(1, Math.ceil(totalCount / 50))} · ${totalCount} invoices — search and metrics cover this page`}</span>
+        <span>{isLoading?(ar?"جارٍ تحميل الفواتير…":"Loading invoices…"):loadError?"—":ar ? `${totalCount} فاتورة · الصفحة ${page} من ${invoicePage.pagination.totalPages}` : `Page ${page} of ${invoicePage.pagination.totalPages} · ${totalCount} invoices`}</span>
         <div className="flex gap-2">
-          <Button variant="outline" disabled={isLoading || page <= 1} onClick={() => setPage((n) => n - 1)}>{ar ? "السابق" : "Previous"}</Button>
-          <Button variant="outline" disabled={isLoading || page * 50 >= totalCount} onClick={() => setPage((n) => n + 1)}>{ar ? "التالي" : "Next"}</Button>
+          <Button variant="outline" disabled={isLoading || loadError || page <= 1} onClick={() => setPage(page - 1)}>{ar ? "السابق" : "Previous"}</Button>
+          <Button variant="outline" disabled={isLoading || loadError || page * 50 >= totalCount} onClick={() => setPage(page + 1)}>{ar ? "التالي" : "Next"}</Button>
         </div>
       </div>
       <Dialog open={!!printTarget} onOpenChange={(open) => { if (!open && !printingId) setPrintTarget(null) }}>
@@ -758,7 +651,8 @@ export function InvoicesManager() {
                 : "Save a draft, review the amounts, then issue it when ready. Finalized invoices cannot be edited."}
             </DialogDescription>
           </DialogHeader>
-          <div className="min-w-0 space-y-4">
+          <fieldset disabled={isSaving} className="min-w-0 space-y-4" data-testid="invoice-draft-fields">
+            <legend className="sr-only">{ar?"بيانات الفاتورة":"Invoice details"}</legend>
             <div className="grid min-w-0 gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>{ar ? "النوع" : "Type"}</Label>
@@ -782,22 +676,8 @@ export function InvoicesManager() {
                   ))}
                 </div>
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="inv-party">
-                  {formType === "sales" ? (ar ? "العميل" : "Customer") : ar ? "المورد" : "Supplier"}
-                </Label>
-                <select
-                  id="inv-party"
-                  value={formPartyId}
-                  onChange={(e) => setFormPartyId(e.target.value)}
-                  className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <option value="">—</option>
-                  {parties.map((p) => (
-                    <option key={p.id} value={p.id}>{p.code} · {p.name}</option>
-                  ))}
-                </select>
-              </div>
+              <InvoicePartyPicker key={formType+":"+(editTarget?.id??"new")} kind={formType==="sales"?"customers":"suppliers"} id="inv-party" value={formPartyId} onChange={setFormPartyId} ar={ar} disabled={isSaving} onAvailabilityChange={setPartyReadReady} label={formType==="sales"?(ar?"العميل":"Customer"):(ar?"المورد":"Supplier")} selectedLabel={editTarget?(ar?(editTarget.customer_name||editTarget.supplier_name):(editTarget.customer_name_en||editTarget.customer_name||editTarget.supplier_name_en||editTarget.supplier_name)):null}/>
+
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3">
@@ -808,6 +688,7 @@ export function InvoicesManager() {
               <div className="space-y-1.5">
                 <Label htmlFor="inv-due">{ar ? "تاريخ الاستحقاق" : "Due date"}</Label>
                 <Input id="inv-due" type="date" dir="ltr" value={formDue} onChange={(e) => setFormDue(e.target.value)} className="h-9" />
+                <div className="flex items-center gap-2 pt-1"><input id="inv-show-due" type="checkbox" checked={formShowDueDate} onChange={e => setFormShowDueDate(e.target.checked)} className="size-4 accent-elite-blue-600" /><Label htmlFor="inv-show-due" className="text-xs font-normal">{ar ? "إظهار تاريخ الاستحقاق في الفاتورة المطبوعة" : "Show due date on the printed invoice"}</Label></div>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="inv-vat">{ar ? "الضريبة الافتراضية %" : "Default VAT %"}</Label>
@@ -821,7 +702,8 @@ export function InvoicesManager() {
               <p className="text-xs text-muted-foreground">{ar ? "تدعم المحاسبة الريال السعودي فقط. تبقى السجلات القديمة بعملتها الأصلية للمراجعة." : "Accounting supports SAR. Existing foreign-currency records retain their original currency for review."}</p>
             </div>
             <div className="overflow-x-auto rounded-xl border border-border/50">
-              <div className="grid min-w-[560px] grid-cols-[1fr_80px_90px_70px_70px_32px] gap-2 border-b border-border/50 bg-muted/30 px-3 py-2 text-[11px] font-medium text-muted-foreground">
+              <div className="grid min-w-[780px] grid-cols-[minmax(120px,0.6fr)_minmax(180px,1fr)_80px_120px_70px_70px_32px] gap-2 border-b border-border/50 bg-muted/30 px-3 py-2 text-[11px] font-medium text-muted-foreground">
+                <span>{ar ? "اسم الصنف" : "Item name"}</span>
                 <span>{ar ? "الوصف" : "Description"}</span>
                 <span>{ar ? "الكمية" : "Qty"}</span>
                 <span>{ar ? "السعر" : "Price"}</span>
@@ -830,8 +712,10 @@ export function InvoicesManager() {
                 <span />
               </div>
               {lines.map((l) => (
-                <div key={l.key} className="grid min-w-[560px] grid-cols-[1fr_80px_90px_70px_70px_32px] items-center gap-2 px-3 py-2">
+                <div key={l.key} className="grid min-w-[780px] grid-cols-[minmax(120px,0.6fr)_minmax(180px,1fr)_80px_120px_70px_70px_32px] items-center gap-2 px-3 py-2">
+                  <Input aria-label={ar ? "اسم الصنف (اختياري)" : "Item name (optional)"} maxLength={200} value={l.item_name} onChange={e => updateLine(l.key, { item_name: e.target.value })} placeholder={ar ? "اسم الصنف" : "Item name"} className="h-9" />
                   <Input
+                    maxLength={1000}
                     aria-label={ar ? "وصف البند" : "Line description"}
                     value={l.description}
                     onChange={(e) => updateLine(l.key, { description: e.target.value })}
@@ -839,7 +723,7 @@ export function InvoicesManager() {
                     className="h-9"
                   />
                   <Input aria-label={ar ? "الكمية" : "Quantity"} type="number" dir="ltr" min="0.001" step="0.001" value={l.quantity} onChange={(e) => updateLine(l.key, { quantity: e.target.value })} className="h-9 text-end tabular-nums" />
-                  <Input aria-label={ar ? "سعر الوحدة" : "Unit price"} type="number" dir="ltr" min="0" step="0.01" value={l.unit_price} onChange={(e) => updateLine(l.key, { unit_price: e.target.value })} className="h-9 text-end tabular-nums" />
+                  <Input aria-label={ar ? "سعر الوحدة" : "Unit price"} type="number" dir="ltr" min="0" step="0.0001" value={l.unit_price} onChange={(e) => updateLine(l.key, { unit_price: e.target.value })} className="h-9 text-end tabular-nums" />
                   <Input aria-label={ar ? "الخصم" : "Discount"} type="number" dir="ltr" min="0" step="0.01" value={l.discount} onChange={(e) => updateLine(l.key, { discount: e.target.value })} className="h-9 text-end tabular-nums" />
                   <Input aria-label={ar ? "ضريبة البند" : "Line VAT rate"} type="number" dir="ltr" min="0" max="100" step="0.01" value={l.vat_rate} onChange={(e) => updateLine(l.key, { vat_rate: e.target.value })} className="h-9 text-end tabular-nums" />
                   <button
@@ -871,13 +755,13 @@ export function InvoicesManager() {
               <Input id="inv-notes" value={formNotes} onChange={(e) => setFormNotes(e.target.value)} className="h-9" />
             </div>
 
-            {!lineTotals && hasLineInput && <p role="status" className="text-xs text-amber-700">{ar ? "أكمل كل بند: وصف، كمية موجبة حتى ٣ منازل عشرية، ومبالغ حتى منزلتين. يجب ألا يتجاوز الخصم قيمة البند." : "Complete every line: description, a positive quantity with up to 3 decimals, and amounts with up to 2 decimals. Discounts cannot exceed the line value."}</p>}
+            {!lineTotals && hasLineInput && <p role="status" className="text-xs text-amber-700">{ar ? "أكمل كل بند: وصف، كمية موجبة حتى ٣ منازل عشرية، وسعر وحدة حتى ٤ منازل عشرية. تبقى مبالغ الخصم والإجماليات بمنزلتين. يجب ألا يتجاوز الخصم قيمة البند." : "Complete every line: description, a positive quantity with up to 3 decimals, and a unit price with up to 4 decimals. Discounts and totals use 2 decimals. Discounts cannot exceed the line value."}</p>}
             {formError && <p role="alert" className="text-xs text-red-500">{formError}</p>}
 
             <div className="flex items-center gap-3">
               <Button
                 onClick={() => void handleCreate()}
-                disabled={isSaving || !formPartyId || !lineTotals}
+                disabled={isSaving || !formPartyId || !lineTotals || !partyReadReady || !draftRequest}
                 className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800"
               >
                 {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
@@ -888,7 +772,7 @@ export function InvoicesManager() {
                 {ar ? "إلغاء" : "Cancel"}
               </Button>
             </div>
-          </div>
+          </fieldset>
         </DialogContent>
       </Dialog>
 
@@ -924,6 +808,7 @@ export function InvoicesManager() {
                   <thead>
                     <tr className="border-b border-border/60 text-start text-xs text-muted-foreground">
                       <th className="px-3 py-2 text-start font-medium">#</th>
+                      <th className="px-3 py-2 text-start font-medium">{ar ? "اسم الصنف" : "Item name"}</th>
                       <th className="px-3 py-2 text-start font-medium">{ar ? "الوصف" : "Description"}</th>
                       <th className="px-3 py-2 text-start font-medium">{ar ? "الكمية" : "Qty"}</th>
                       <th className="px-3 py-2 text-start font-medium">{ar ? "السعر" : "Price"}</th>
@@ -935,9 +820,10 @@ export function InvoicesManager() {
                     {detailLines.map((l) => (
                       <tr key={l.line_no} className="border-b border-border/40 last:border-0">
                         <td className="px-3 py-2 text-xs text-muted-foreground">{l.line_no}</td>
+                        <td className="px-3 py-2" dir="auto">{l.item_name || "—"}</td>
                         <td className="px-3 py-2">{l.description}</td>
                         <td className="px-3 py-2 text-xs tabular-nums" dir="ltr">{l.quantity}</td>
-                        <td className="px-3 py-2 text-xs tabular-nums" dir="ltr">{fmtMoney(l.unit_price)}</td>
+                        <td className="px-3 py-2 text-xs tabular-nums" dir="ltr">{fmtUnitPrice(l.unit_price)}</td>
                         <td className="px-3 py-2 text-xs tabular-nums" dir="ltr">{fmtMoney(l.amount)}</td>
                         <td className="px-3 py-2 text-xs tabular-nums" dir="ltr">{fmtMoney(l.vat_amount)}</td>
                       </tr>

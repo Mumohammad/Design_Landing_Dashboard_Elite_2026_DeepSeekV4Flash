@@ -115,7 +115,7 @@ describe("computeInvoiceTotals — validation (INV codes)", () => {
 describe("invoice storage precision and limits", () => {
   const line = { description: "Service", quantity: 1, unit_price: 10 }
   it.each([
-    { quantity: 0.0001 }, { unit_price: 1.005 }, { discount: 0.001 },
+    { quantity: 0.0001 }, { unit_price: 1.00001 }, { discount: 0.001 },
     { vat_rate: 15.001 }, { discount: 11 }, { quantity: 1e9 },
     { unit_price: 1e10 }, { description: "x".repeat(1001) },
   ])("rejects invalid line %j", (patch) => {
@@ -129,5 +129,24 @@ describe("invoice storage precision and limits", () => {
   })
   it("rejects more than 200 lines", () => {
     expect(() => computeInvoiceTotals(Array.from({ length: 201 }, () => line))).toThrow("INV013")
+  })
+})
+
+describe("four-decimal reference unit prices", () => {
+  it("rounds the reference line once to cents without the historical adjustment", () => {
+    const invoice=computeInvoiceTotals([{item_name:"  Reference item  ",description:"Separate description",quantity:1,unit_price:72225.2082}])
+    expect(invoice.lines[0]).toMatchObject({item_name:"Reference item",description:"Separate description",unit_price:72225.2082,amount:72225.21,vat_amount:10833.78})
+    expect(invoice.total).toBe(83058.99)
+  })
+  it("matches quantity-times-price half-cent boundaries exactly", () => {
+    expect(computeInvoiceTotals([{description:"Half cent",quantity:0.125,unit_price:0.04,vat_rate:0}]).total).toBe(0.01)
+    expect(computeInvoiceTotals([{description:"Four decimals",quantity:100,unit_price:0.0001,vat_rate:0}]).total).toBe(0.01)
+    expect(computeInvoiceTotals([{description:"Mixed precision",quantity:1.005,unit_price:1.0055,vat_rate:0}]).total).toBe(1.01)
+  })
+  it("keeps item names separate, optional and bounded", () => {
+    const input={description:"Description",quantity:1,unit_price:1}
+    expect(computeInvoiceTotals([{...input,item_name:"  "}]).lines[0]).not.toHaveProperty("item_name")
+    expect(()=>computeInvoiceTotals([{...input,item_name:"x".repeat(201)}])).toThrow("INV002")
+    expect(()=>computeInvoiceTotals([{...input,item_name:42 as unknown as string}])).toThrow("INV002")
   })
 })

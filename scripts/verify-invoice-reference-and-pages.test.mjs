@@ -1,0 +1,9 @@
+import test from'node:test'
+import assert from'node:assert/strict'
+import{assertInvoiceReferenceTestTarget,verifyInvoiceReferenceAndPages}from'./verify-invoice-reference-and-pages.mjs'
+const stage='https://viowrovartosrkqukjxy.supabase.co',app='https://elite-dashboard-fixture-elitesaasc-5643.vercel.app',sha='a'.repeat(40)
+for(const[name,backend,url,commit]of[
+ ['production backend','https://wwfnsbilmyxeawgzicmv.supabase.co',app,sha],['production alias',stage,'https://elite-dashboard-blush.vercel.app',sha],['unknown backend','https://unknown.supabase.co',app,sha],['unknown app',stage,'https://example.test',sha],['backend path',stage+'/rest/v1',app,sha],['query pin',stage,app+'?dpl=old',sha],['nonexact commit',stage,app,'master'],
+])test('invoice reference guard denies '+name,()=>assert.throws(()=>assertInvoiceReferenceTestTarget(backend,url,commit),/isolated staging/))
+test('invoice reference guard accepts only exact isolated immutable target',()=>assert.deepEqual(assertInvoiceReferenceTestTarget(stage,app,sha),{backend:stage,app,sha}))
+for(const[name,backend,url]of[['production backend','https://wwfnsbilmyxeawgzicmv.supabase.co',app],['production alias',stage,'https://elite-dashboard-blush.vercel.app']])test('invoice reference acceptance denies '+name+' before fixtures or Auth',async()=>{let reads=0;const admin={supabaseUrl:backend,from(){reads++;throw Error('Unexpected fixture access')}};Object.defineProperty(admin,'auth',{get(){reads++;throw Error('Unexpected Auth access')}});const old=process.env.VERIFY_COMMIT_SHA;process.env.VERIFY_COMMIT_SHA=sha;try{await assert.rejects(()=>verifyInvoiceReferenceAndPages({},admin,'95200000-0000-4000-8000-000000000001',url),/isolated staging/);assert.equal(reads,0)}finally{if(old===undefined)delete process.env.VERIFY_COMMIT_SHA;else process.env.VERIFY_COMMIT_SHA=old}})
