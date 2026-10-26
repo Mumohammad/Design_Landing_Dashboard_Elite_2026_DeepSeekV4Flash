@@ -5,14 +5,28 @@ import {getDocument} from 'pdfjs-dist/legacy/build/pdf.mjs'
 import {readFile} from 'node:fs/promises'
 import {assertAcceptanceTarget,preflightAcceptanceTarget} from './lib/coordinated-acceptance.mjs'
 const expect=baseExpect.configure({timeout:30000}),uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-export function assertInvoiceReferenceTestTarget(backend,app,sha){return assertAcceptanceTarget(backend,app,sha)}
+export function assertInvoiceReferenceTestTarget(backend,app,sha){
+ const db=new URL(backend),site=new URL(app),loopback=host=>['localhost','127.0.0.1'].includes(host)
+ if(loopback(db.hostname)&&loopback(site.hostname)){
+  if(db.protocol!=='http:'||site.protocol!=='http:'||db.port!=='58321'||!['3107','3108'].includes(site.port)||[db,site].some(url=>url.username||url.password||url.pathname!=='/'||url.search||url.hash))throw Error('Exact isolated staging or disposable local invoice target required')
+  return {kind:'loopback',backend:db.origin,app:site.origin}
+ }
+ return assertAcceptanceTarget(backend,app,sha)
+}
 export async function verifyInvoiceReferenceAndPages(page,admin,tenantId,appUrl){
- const sha=process.env.VERIFY_COMMIT_SHA;assertInvoiceReferenceTestTarget(admin.supabaseUrl,appUrl,sha);await preflightAcceptanceTarget({backendUrl:admin.supabaseUrl,appUrl,expectedCommit:sha})
+ const sha=process.env.VERIFY_COMMIT_SHA,target=assertInvoiceReferenceTestTarget(admin.supabaseUrl,appUrl,sha)
+ if(target.kind==='loopback'){
+  const [health,landing]=await Promise.all([page.request.get(appUrl+'/api/health',{maxRedirects:0,timeout:30000}),page.request.get(appUrl+'/landing',{maxRedirects:0,timeout:30000})])
+  const policy=landing.headers()['content-security-policy']??'',connect=(policy.split(';').map(x=>x.trim()).find(x=>x.startsWith('connect-src '))??'').split(/\s+/).slice(1)
+  const allowedConnect=new Set(["'self'",target.backend,target.backend.replace(/^http/,'ws'),'https://api.resend.com','https://api.emailjs.com','https://zatca.gov.sa','https://*.ingest.sentry.io'])
+  if(health.status()!==200||landing.status()!==200||(await health.json()).status!=='healthy'||!connect.includes(target.backend)||connect.some(source=>!allowedConnect.has(source)))throw Error('Healthy exclusively local invoice runtime required')
+ }else await preflightAcceptanceTarget({backendUrl:admin.supabaseUrl,appUrl,expectedCommit:sha})
+ if(!uuid.test(process.env.VERIFY_RELEASE_RUN_ID??''))throw Error('Owned invoice acceptance run required')
  if(!uuid.test(tenantId??''))throw Error('Owned synthetic invoice tenant required')
  const tenant=await admin.from('tenants').select('created_by,domain').eq('id',tenantId).single()
  if(tenant.error||!uuid.test(tenant.data.created_by)||!/\.test$/.test(tenant.data.domain??'')||!uuid.test(tenant.data.domain?.replace(/\.test$/,'')))throw Error('Owned release company required')
  const owner=await admin.auth.admin.getUserById(tenant.data.created_by)
- if(owner.error||!/^release-[0-9a-f-]{36}@example\.test$/i.test(owner.data.user?.email??'')||owner.data.user.app_metadata?._release_acceptance_group!=='finance'||owner.data.user.app_metadata?._release_acceptance_run!==process.env.VERIFY_RELEASE_RUN_ID)throw Error('Owned finance acceptance actor required')
+ if(owner.error||!/^release-[0-9a-f-]{36}@example\.test$/i.test(owner.data.user?.email??'')||owner.data.user.app_metadata?._release_acceptance_group!==(target.kind==='loopback'?'local_ci':'finance')||owner.data.user.app_metadata?._release_acceptance_run!==process.env.VERIFY_RELEASE_RUN_ID)throw Error('Owned finance acceptance actor required')
  const evidence=path.resolve(process.env.VERIFY_EVIDENCE_DIR??''),relative=path.relative(path.resolve('supabase/.temp'),evidence)
  if(!relative||relative.startsWith('..')||path.isAbsolute(relative))throw Error('Ignored owned invoice evidence folder required')
  const tag=randomUUID().slice(0,4).toUpperCase(),description='Separate reference description '+tag,root=page.getByTestId('invoices-manager'),viewport=page.viewportSize(),routes=[];let step='reference customer'

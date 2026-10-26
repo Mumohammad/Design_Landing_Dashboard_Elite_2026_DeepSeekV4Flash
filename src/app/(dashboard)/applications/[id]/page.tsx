@@ -697,7 +697,7 @@ export default function ApplicationDetailPage() {
       {/* ── Review action bar ── */}
       {(
 
-        <div className="sticky bottom-4 z-10 rounded-2xl border border-border/60 bg-card/90 p-4 shadow-lg backdrop-blur-md">
+        <div className="sticky bottom-[calc(6rem+env(safe-area-inset-bottom))] z-10 rounded-2xl border border-border/60 bg-card/90 p-4 shadow-lg backdrop-blur-md">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
             <div className="flex-1">
               <label htmlFor="application-review-reason" className="mb-1.5 block text-xs font-medium text-muted-foreground">

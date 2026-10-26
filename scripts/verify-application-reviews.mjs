@@ -16,6 +16,7 @@ export async function verifyApplicationReviews(page,admin,tenantId,appUrl){
  const write=async button=>{const wait=2100-(Date.now()-lastWrite);if(wait>0)await new Promise(resolve=>setTimeout(resolve,wait));lastWrite=Date.now();await button.click()}
  const current=async id=>{const r=await admin.from('driver_applications').select('status,workflow_version,reviewed_by,reviewed_at,review_note,archived_at,withdrawn_at,withdrawn_by,withdrawal_reason').eq('tenant_id',tenantId).eq('id',id).single();if(r.error)throw Error('Synthetic application verification read failed');return r.data}
  try{
+  await page.setViewportSize({width:1440,height:1000})
   const inserted=await admin.from('driver_applications').insert([...ids.map((id,i)=>fixture(id,names[i],'2026-10-23T00:00:00Z')),...Array.from({length:205},(_,i)=>fixture(randomUUID(),i===0?needle:`Paged Candidate ${tag} ${i}`,new Date(Date.UTC(2000,0,1,0,0,i)).toISOString()))])
   if(inserted.error)throw Error('Synthetic application fixtures failed')
   const document=await admin.from('driver_application_documents').insert({id:docId,tenant_id:tenantId,application_id:ids[0],document_type:'identity',file_name:'synthetic-identity.pdf',storage_path:tenantId+'/synthetic/'+tag+'/identity.pdf'})
@@ -53,13 +54,21 @@ export async function verifyApplicationReviews(page,admin,tenantId,appUrl){
   await expect(stale.getByText('This application changed. Reload and review it before deciding.',{exact:true})).toBeVisible()
   const unchanged=await current(ids[0]);if(unchanged.status!=='under_review'||unchanged.workflow_version!==4)throw Error('Stale approval altered current document decision')
   stage='final approval and immutable decision controls'
+  await page.setViewportSize({width:390,height:844})
   await page.reload();await expect(page.getByText('synthetic-identity-corrected.pdf',{exact:false})).toBeVisible()
   await reason.fill('Approved current synthetic identity evidence');await write(page.getByRole('button',{name:'Approve',exact:true}))
   await expect(page.getByRole('button',{name:'Archive application',exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'Reject',exact:true})).toHaveCount(0)
+  const approvalToast=page.locator('[data-sonner-toast]').filter({hasText:'Application approved'})
+  await expect(approvalToast).toBeVisible();await approvalToast.hover()
   const approved=await current(ids[0]);if(approved.status!=='approved'||approved.workflow_version!==5||approved.review_note!=='Approved current synthetic identity evidence')throw Error('Final approval evidence differs')
   stage='archive visibility and preserved final evidence'
-  await reason.fill('Archive completed synthetic review');await write(page.getByRole('button',{name:'Archive application',exact:true}))
+  await reason.fill('Archive completed synthetic review')
+  const archiveButton=page.getByRole('button',{name:'Archive application',exact:true})
+  await expect(approvalToast).toBeVisible()
+  await expect.poll(()=>archiveButton.evaluate(button=>{const r=button.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return !!hit&&button.contains(hit)})).toBe(true)
+  await write(archiveButton)
   await expect(page.getByRole('button',{name:'Restore to list',exact:true})).toBeVisible()
+  await page.setViewportSize({width:1440,height:1000})
   await page.goto(appUrl+'/applications?lang=en');await page.getByRole('checkbox',{name:'Archived history',exact:true}).check()
   await expect(rows).toHaveCount(1);await expect(rows).toContainText(name);await expect(metrics.nth(0)).toHaveText('1')
   await rows.first().click();await expect(page.getByRole('heading',{name,exact:true})).toBeVisible()

@@ -6,7 +6,7 @@ export async function verifyExpenseCorrections(page,admin,tenantId,appUrl){
  await assertModuleTestTarget(page,admin.supabaseUrl,appUrl)
  if(!tenantId)throw Error('Synthetic tenant required')
  const vendor='Correction-'+randomUUID().slice(0,8),attachment='synthetic-private-receipt-reference'
- const dialog=page.getByRole('dialog'),rows=page.locator('tbody tr')
+ const dialog=page.getByRole('dialog'),rows=page.locator('tbody tr'),viewport=page.viewportSize()
  let lastWrite=0
  const write=async button=>{const wait=6200-(Date.now()-lastWrite);if(wait>0)await new Promise(resolve=>setTimeout(resolve,wait));lastWrite=Date.now();await button.click()}
  await page.goto(appUrl+'/expenses?lang=en')
@@ -49,6 +49,6 @@ export async function verifyExpenseCorrections(page,admin,tenantId,appUrl){
   await page.goto(appUrl+'/expenses?lang=ar');await page.getByRole('textbox').first().fill(vendor);await expect(rows.getByText('ملغى',{exact:true})).toBeVisible()
   await page.setViewportSize({width:390,height:844});await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true)
   console.log(JSON.stringify({check:'expense maker correction, response-loss replay, stale approval, cancellation, receipt/audit preservation, Arabic mobile',result:'PASS'}))
- }finally{await stale.close();await page.unrouteAll({behavior:'ignoreErrors'})}
+ }finally{await stale.close();await page.unrouteAll({behavior:'ignoreErrors'});if(viewport)await page.setViewportSize(viewport)}
  // Keep final source/audit evidence in the isolated synthetic tenant.
 }
