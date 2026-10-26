@@ -58,6 +58,7 @@ export async function verifyPayrollPreparation(page, admin, tenantId, appUrl) {
     await ruleSection.getByLabel("Base salary (SAR)", { exact: true }).fill("2700.25")
     await ruleSection.getByLabel("Rule review note", { exact: true }).fill("Owner corrected agreed monthly salary")
     await pacePayrollInteraction(); await ruleSection.getByRole("button", { name: "Save rule changes", exact: true }).click()
+    await prepReady(page)
     await expect.poll(async () => Number((await read("driver_payroll_rules")).base_salary)).toBe(2700.25)
     await prepReady(page)
 
@@ -65,10 +66,12 @@ export async function verifyPayrollPreparation(page, admin, tenantId, appUrl) {
     for (let day = 1; day <= 28; day++) await page.getByRole("combobox", { name: `2001-02-${String(day).padStart(2, "0")}`, exact: true }).selectOption(day <= 20 ? "present" : day === 21 ? "half_day" : day === 22 ? "absent_unexcused" : "day_off")
     await page.getByLabel("Attendance review note", { exact: true }).fill("Reviewed every calendar day explicitly")
     await pacePayrollInteraction(); await page.getByRole("button", { name: "Save and review attendance", exact: true }).click()
+    await prepReady(page)
     await expect.poll(async () => (await read("payroll_preparation_reviews", { period_year: 2001, period_month: 2 })).attendance_reviewed).toBe(true)
     await prepReady(page)
     await page.getByLabel("Order review note (confirm zero if no orders)", { exact: true }).fill("Confirmed no daily orders in this synthetic period")
     await pacePayrollInteraction(); await page.getByRole("button", { name: "Confirm recorded order totals", exact: true }).click()
+    await prepReady(page)
     await expect.poll(async () => (await read("payroll_preparation_reviews", { period_year: 2001, period_month: 2 })).orders_reviewed).toBe(true)
     await prepReady(page)
 
@@ -83,10 +86,12 @@ export async function verifyPayrollPreparation(page, admin, tenantId, appUrl) {
     await pacePayrollInteraction(); await advances.getByRole("button", { name: "Edit advance", exact: true }).click()
     await advances.getByLabel("Amount (SAR)", { exact: true }).fill("12.34")
     await pacePayrollInteraction(); await advances.getByRole("button", { name: "Save pending advance", exact: true }).click()
+    await prepReady(page)
     await expect.poll(async () => Number((await read("payroll_advances")).amount)).toBe(12.34)
     await prepReady(page)
     page.once("dialog", dialog => dialog.accept("Owner approved synthetic advance"))
     await pacePayrollInteraction(); await advances.getByRole("button", { name: "Approve", exact: true }).click()
+    await prepReady(page)
     await expect.poll(async () => (await read("payroll_advances")).status).toBe("approved")
     await prepReady(page)
 

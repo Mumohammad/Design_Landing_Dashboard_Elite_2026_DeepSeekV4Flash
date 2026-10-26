@@ -131,6 +131,7 @@ ON CONFLICT DO NOTHING;
 UPDATE rbac_matrix SET expected_table_grant=false
 WHERE command_name IN ('INSERT','UPDATE','DELETE') AND table_name IN (
   'invoices','invoice_lines','bank_accounts','credit_notes','debit_notes',
+  'chart_of_accounts','customers','suppliers',
   'attendance_periods','daily_order_entries','delivery_platforms','driver_attendance',
   'driver_cards','driver_compliance_overrides','driver_documents','driver_card_prints',
   'driver_leave_requests','driver_payroll_rules','drivers','monthly_driver_orders',

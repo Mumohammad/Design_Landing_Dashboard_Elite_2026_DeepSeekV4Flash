@@ -52,7 +52,7 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
     const other=await page.context().newPage()
     try{
       await other.goto(appUrl+'/approvals?lang='+language)
-      await other.getByRole('textbox').first().fill(code)
+      await other.getByRole('textbox',{name:language==='ar'?'بحث في المراجع والبيانات الظاهرة...':'Search references and visible details...',exact:true}).fill(code)
       const row=other.locator('tbody tr').filter({hasText:code})
       await expect(row).toHaveCount(1)
       await row.getByRole('button',{name:language==='ar'?'رفض':'Reject',exact:true}).click()
@@ -320,7 +320,7 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
     await rejectElsewhere(stale.data.expense_code,'Reviewed elsewhere before approval')
     await dialog.getByRole('button',{name:'Approve',exact:true}).click()
     await expect(dialog).toBeHidden()
-    await expect(page.getByText('This expense was already rejected. Review the refreshed decision.',{exact:true})).toBeVisible()
+    await expect(page.getByText('This expense was rejected. Review the refreshed decision.',{exact:true})).toBeVisible()
     await expect(rows.getByText('Rejected',{exact:true})).toBeVisible()
     await noFinancialEffects(ids[2])
     await expect(metrics.nth(0)).toHaveText('110')

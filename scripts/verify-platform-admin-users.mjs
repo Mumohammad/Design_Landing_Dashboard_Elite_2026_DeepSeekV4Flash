@@ -7,13 +7,82 @@ const uuid = value => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{
 const requireProof = (condition, message) => { if (!condition) throw Error(message) }
 const userFields = "id,auth_user_id,tenant_id,email,role,status,version,must_change_password,created_by,deleted_at"
 
+const own = (value, key) => Object.prototype.hasOwnProperty.call(value, key)
+const plain = value => value !== null && typeof value === "object" && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype
+const positiveVersion = value => (typeof value === "string" && /^[1-9][0-9]*$/.test(value)) || (Number.isSafeInteger(value) && value > 0)
+const samePayload = (actual, expected) => plain(actual) && plain(expected) && Object.keys(actual).length === Object.keys(expected).length && Object.keys(expected).every(key => own(actual, key) && (key === "expected_version" ? String(actual[key]) === String(expected[key]) : actual[key] === expected[key]))
+
+/** Pure preflight: a rejected DTO must never reach a browser route or API write. */
+export function assertOwnedPlatformMutation(method, payload, scope) {
+  requireProof(["POST", "PATCH", "DELETE"].includes(method) && plain(payload), "Owned platform mutation DTO required")
+  requireProof(uuid(scope?.actorId) && uuid(scope?.actorUserId) && uuid(scope?.actorTenantId) && uuid(scope?.tenantId) && scope.tenantId !== scope.actorTenantId, "Owned platform mutation scope required")
+  requireProof(scope.intent?.method === method, "Declared platform operation required before forwarding")
+  if (method === "POST") {
+    const fields = ["request_id", "tenant_id", "email", "full_name", "role", "password"]
+    requireProof(Object.keys(payload).length === fields.length && fields.every(key => own(payload, key)), "Owned platform creation fields differ")
+    requireProof(uuid(payload.request_id) && (!scope.requestId || payload.request_id === scope.requestId), "Owned platform creation request differs")
+    requireProof(payload.tenant_id === scope.tenantId && payload.email === scope.email && /^platform-member-[0-9a-f-]{36}@example\.test$/i.test(scope.email ?? ""), "Owned platform creation target differs")
+    requireProof(typeof scope.fullName === "string" && /^Platform member [0-9a-f-]{36}$/i.test(scope.fullName) && payload.full_name === scope.fullName && scope.role === "readonly_auditor" && payload.role === scope.role, "Owned platform creation identity or role differs")
+    requireProof(typeof scope.password === "string" && scope.password.length >= 10 && payload.password === scope.password, "Owned platform creation password differs")
+    return { kind: "platform-member-intent", actorId: scope.actorId, email: scope.email, requestId: payload.request_id, tenantId: scope.tenantId }
+  }
+  const fields = method === "PATCH" ? ["user_id", "expected_version", "reason", "role", "status", "reset_password"] : ["user_id", "expected_version", "reason"]
+  requireProof(Object.keys(payload).every(key => fields.includes(key)) && own(payload, "user_id") && own(payload, "expected_version"), "Owned platform mutation fields differ")
+  const ownedIds = [scope.actorUserId, scope.ownerUserId, scope.memberUserId].filter(uuid)
+  requireProof(uuid(payload.user_id) && ownedIds.includes(payload.user_id), "Owned platform mutation target differs")
+  requireProof(positiveVersion(payload.expected_version) && (!own(payload, "reason") || (typeof payload.reason === "string" && payload.reason.length <= 500)), "Owned platform mutation review differs")
+  if (method === "PATCH") {
+    requireProof(!own(payload, "role") || payload.role === "supervisor", "Owned platform mutation role differs")
+    requireProof(!own(payload, "status") || ["active", "inactive"].includes(payload.status), "Owned platform mutation status differs")
+    requireProof(!own(payload, "reset_password") || payload.reset_password === true, "Owned platform mutation reset differs")
+    const operations = ["role", "status", "reset_password"].filter(key => own(payload, key))
+    requireProof(operations.length === 1 || (operations.length === 2 && own(payload, "role") && own(payload, "reset_password")), "Owned platform mutation operation differs")
+  }
+  // The primary caller and separate company's last owner are intentional denials,
+  // never general-purpose targets for this harness.
+  if (payload.user_id === scope.actorUserId) {
+    requireProof(method === "PATCH" && payload.status === "inactive" && !own(payload, "role") && !own(payload, "reset_password") && String(payload.expected_version) === String(scope.actorVersion) && payload.reason === "Synthetic protected actor denial", "Protected synthetic actor operation differs")
+  } else if (payload.user_id === scope.ownerUserId) {
+    requireProof(method === "PATCH" && !own(payload, "reset_password") && String(payload.expected_version) === String(scope.ownerVersion) && payload.reason === "Synthetic last owner protection" && ((payload.role === "supervisor" && !own(payload, "status")) || (payload.status === "inactive" && !own(payload, "role"))), "Synthetic last owner operation differs")
+  }
+  requireProof(samePayload(payload, scope.intent.payload), "Platform mutation differs from the declared operation")
+  return null
+}
+
+/** The durable, secret-free intent must complete before any POST is forwarded. */
+export async function forwardOwnedPlatformMutation(method, payload, scope, { recordIntent, forward }) {
+  const intent = assertOwnedPlatformMutation(method, payload, scope)
+  requireProof(typeof forward === "function", "Platform request forwarder required")
+  if (intent) {
+    requireProof(typeof recordIntent === "function", "Durable platform member intent recorder required")
+    await recordIntent(intent)
+  }
+  return forward(payload)
+}
+
+/** Bind one request synchronously and share its durable write before forwarding. */
+export function createOwnedPlatformIntentRecorder({ record, bind }) {
+  requireProof(typeof record === "function" && typeof bind === "function", "Durable platform intent callbacks required")
+  let bound, pending
+  return intent => {
+    if (bound) {
+      requireProof(samePayload(intent, bound), "Owned platform creation intent differs")
+      return pending
+    }
+    bound = { ...intent }
+    bind(bound)
+    pending = Promise.resolve().then(() => record(bound))
+    return pending
+  }
+}
+
 /**
  * Mutating acceptance for the coordinated runner's authenticated AAL2 owner.
  * Only its release-UUID@example.test identity receives a temporary admin marker.
  * All global mutations target a new synthetic company, never another tenant.
  * Do not run with tracing, video, HAR recording, or request/body logging enabled.
  */
-export async function verifyPlatformAdminUsers(page, admin, tenantId, appUrl, actorId) {
+export async function verifyPlatformAdminUsers(page, admin, tenantId, appUrl, actorId, options = {}) {
   // This must precede every fixture read, Auth lookup, and mutation.
   await assertModuleTestTarget(page, admin.supabaseUrl, appUrl)
   requireProof(uuid(tenantId) && uuid(actorId), "Synthetic release owner and tenant IDs required")
@@ -27,6 +96,7 @@ export async function verifyPlatformAdminUsers(page, admin, tenantId, appUrl, ac
   const existingAdmin = await admin.from("platform_admins").select("user_id").eq("user_id", actorId).maybeSingle()
   requireProof(!existingAdmin.error && !existingAdmin.data, "Synthetic caller must have no pre-existing platform admin marker")
 
+  requireProof(typeof options.recordOwnedFixture === "function", "Durable platform fixture recorder required")
   const app = new URL(appUrl)
   const tag = randomUUID()
   const marker = "platform-user-acceptance:" + tag
@@ -34,7 +104,7 @@ export async function verifyPlatformAdminUsers(page, admin, tenantId, appUrl, ac
   const ownerEmail = "platform-owner-" + tag + "@example.test"
   const memberEmail = "platform-member-" + tag + "@example.test"
   const companyName = "Platform acceptance " + tag
-  let targetTenantId, memberId, requestId, authorization, creationPayload, reservationInput, reservedAuthId
+  let targetTenantId, targetOwnerUserId, targetOwnerVersion, memberId, requestId, authorization, creationPayload, reservationInput, reservedAuthId
   let markerInserted = false, ownerAttempted = false, failed = false
   let password = "Fixture!" + randomBytes(24).toString("base64url") + "aA1"
   let stage = "synthetic caller authentication"
@@ -42,7 +112,50 @@ export async function verifyPlatformAdminUsers(page, admin, tenantId, appUrl, ac
   const originalLocale = await page.locator("html").getAttribute("lang")
   const endpoint = new URL("/api/platform/admin/users", app).href
   const isApi = (request, method) => new URL(request.url()).origin === app.origin && new URL(request.url()).pathname === "/api/platform/admin/users" && request.method() === method
-  const api = (method, data, authenticated = true) => page.request.fetch(endpoint, { method, headers: authenticated ? { Authorization: authorization } : {}, ...(data ? { data } : {}) })
+  const apiOperations = []
+  let browserIntent, routeInstalled = false, blockedMutationError, rejectBlocked
+  const blockedMutation = new Promise((_, reject) => { rejectBlocked = reject })
+  // A guard failure may happen outside an active click/response wait.
+  blockedMutation.catch(() => {})
+  const guardRace = promise => Promise.race([promise, blockedMutation])
+  const ownedScope = intent => ({ actorId, actorUserId: actor.id, actorTenantId: tenantId, actorVersion: actor.version, tenantId: targetTenantId, ownerUserId: targetOwnerUserId, ownerVersion: targetOwnerVersion, memberUserId: memberId, email: memberEmail, fullName: "Platform member " + tag, role: "readonly_auditor", password, requestId, intent })
+  const persistIntent = createOwnedPlatformIntentRecorder({
+    record: intent => options.recordOwnedFixture(intent),
+    bind: intent => { requestId = intent.requestId },
+  })
+  const rememberCreation = payload => {
+    requireProof(payload.request_id === requestId, "Durably bound platform request required")
+    creationPayload = payload
+    reservationInput = { p_request_id: requestId, p_tenant_id: targetTenantId, p_email: memberEmail, p_role: payload.role, p_full_name: payload.full_name }
+  }
+  const api = (method, data, authenticated = true) => {
+    const forward = payload => page.request.fetch(endpoint, { method, headers: authenticated ? { Authorization: authorization } : {}, ...(payload ? { data: payload } : {}) })
+    if (method === "GET") return forward(data)
+    // APIRequestContext traffic bypasses page.route, so it has its own preflight.
+    const intent = method === "POST" ? { method } : apiOperations.find(operation => operation.method === method && samePayload(data, operation.payload))
+    return forwardOwnedPlatformMutation(method, data, ownedScope(intent), { recordIntent: persistIntent, forward })
+  }
+  const platformRoute = url => url.origin === app.origin && url.pathname === "/api/platform/admin/users"
+  const routeHandler = async route => {
+    const request = route.request()
+    if (["GET", "HEAD", "OPTIONS"].includes(request.method())) return route.continue()
+    try {
+      const url = new URL(request.url())
+      requireProof(!url.search && !url.hash, "Exact platform mutation endpoint required")
+      const payload = request.postDataJSON()
+      await forwardOwnedPlatformMutation(request.method(), payload, ownedScope(browserIntent), {
+        recordIntent: persistIntent,
+        forward: async validated => {
+          if (request.method() === "POST") rememberCreation(validated)
+          await route.continue()
+        },
+      })
+    } catch {
+      blockedMutationError = Error("Unexpected platform mutation blocked before forwarding")
+      rejectBlocked(blockedMutationError)
+      await route.abort("blockedbyclient").catch(() => {})
+    }
+  }
   const read = async id => {
     const result = await admin.from("users").select(userFields).eq("tenant_id", targetTenantId).eq("id", id).single()
     requireProof(!result.error && result.data, "Owned platform user verification read failed")
@@ -71,25 +184,33 @@ export async function verifyPlatformAdminUsers(page, admin, tenantId, appUrl, ac
     await expect(page.getByTestId("platform-users")).toBeVisible()
   }
   const rowFor = id => page.locator('[data-testid="platform-user-row"][data-user-id="' + id + '"]')
-  const review = async (button, reason, method = "PATCH") => {
-    await button.click()
-    const dialog = page.getByTestId("platform-user-review")
-    await expect(dialog).toBeVisible()
-    await dialog.locator("#platform-user-reason").fill(reason)
-    const pending = page.waitForResponse(response => isApi(response.request(), method))
-    await dialog.getByTestId("platform-user-confirm").click()
-    const response = await pending
-    requireProof(response.ok(), "Reviewed platform mutation was rejected")
-    await expect(dialog).toBeHidden()
-    return response.request().postDataJSON()
+  const review = async (button, reason, method = "PATCH", change = {}) => {
+    const before = await read(memberId)
+    browserIntent = { method, payload: { user_id: memberId, expected_version: before.version, reason, ...change } }
+    try {
+      await guardRace(button.click())
+      const dialog = page.getByTestId("platform-user-review")
+      await expect(dialog).toBeVisible()
+      await dialog.locator("#platform-user-reason").fill(reason)
+      const pending = page.waitForResponse(response => isApi(response.request(), method))
+      const [response] = await guardRace(Promise.all([pending, dialog.getByTestId("platform-user-confirm").click()]))
+      requireProof(response.ok(), "Reviewed platform mutation was rejected")
+      await expect(dialog).toBeHidden()
+      return response.request().postDataJSON()
+    } finally { browserIntent = undefined }
   }
 
   try {
     // Stop any accidental tracing before handling an access token or password.
     await page.context().tracing.stop()
     requireProof(!page.video(), "Platform acceptance requires an unrecorded browser context")
-    const tokenRequest = page.waitForRequest(request => new URL(request.url()).origin === app.origin && new URL(request.url()).pathname === "/api/platform/admin/me")
-    await page.goto(new URL("/platform/admin?lang=en", app).href)
+    await page.route(platformRoute, routeHandler)
+    routeInstalled = true
+    // Obtain this already-verified owner session from an allowed tenant read;
+    // the global-admin page correctly redirects a caller before it is granted authority.
+    const backendOrigin = new URL(admin.supabaseUrl).origin
+    const tokenRequest = page.waitForRequest(request => new URL(request.url()).origin === backendOrigin && new URL(request.url()).pathname === "/rest/v1/journal_entries")
+    await page.goto(new URL("/accounting?lang=en", app).href)
     authorization = await (await tokenRequest).headerValue("authorization")
     requireProof(/^Bearer\s+\S+$/i.test(authorization ?? ""), "Authenticated platform browser session required")
     const verifiedActor = await admin.auth.getUser(authorization.replace(/^Bearer\s+/i, ""))
@@ -98,43 +219,57 @@ export async function verifyPlatformAdminUsers(page, admin, tenantId, appUrl, ac
     requireProof((await api("GET", undefined, false)).status() === 401, "Unauthenticated request gained global user access")
 
     stage = "temporary synthetic platform authority"
+    await options.recordOwnedFixture({ kind: "platform-marker", actorId, email: actor.email, note: marker, tag })
     const granted = await admin.from("platform_admins").insert({ user_id: actorId, email: actor.email, note: marker, created_by: actorId }).select("user_id").single()
     requireProof(!granted.error && granted.data?.user_id === actorId, "Synthetic platform admin grant failed")
     markerInserted = true
 
     stage = "separate synthetic company and last owner"
     ownerAttempted = true
-    const owner = await admin.auth.admin.createUser({ id: ownerAuthId, email: ownerEmail, password, email_confirm: true, app_metadata: { _invite_provisioned: true, _platform_acceptance: tag } })
+    await options.recordOwnedFixture?.({kind:"platform-owner",authUserId:ownerAuthId,actorId,email:ownerEmail,tag})
+    const owner = await admin.auth.admin.createUser({ id: ownerAuthId, email: ownerEmail, password, email_confirm: true, app_metadata: { _invite_provisioned: true, _platform_acceptance: tag, _platform_acceptance_actor: actorId } })
     requireProof(!owner.error && owner.data.user?.id === ownerAuthId, "Synthetic platform target owner creation failed")
     const company = await admin.rpc("provision_company_atomic", { p_auth_user_id: ownerAuthId, p_company: { name: companyName, domain: tag + ".test", slug: "platform-acceptance-" + tag } })
     requireProof(!company.error && uuid(company.data?.id) && company.data.id !== tenantId, "Synthetic platform target company creation failed")
     targetTenantId = company.data.id
+    await options.recordOwnedFixture?.({kind:"platform-owner",authUserId:ownerAuthId,actorId,email:ownerEmail,tag,tenantId:targetTenantId})
     const targetOwner = await admin.from("users").select(userFields).eq("tenant_id", targetTenantId).eq("auth_user_id", ownerAuthId).eq("email", ownerEmail).single()
-    requireProof(!targetOwner.error && targetOwner.data.role === "general_manager" && targetOwner.data.status === "active", "Synthetic target owner proof failed")
+    requireProof(!targetOwner.error && uuid(targetOwner.data.id) && targetOwner.data.role === "general_manager" && targetOwner.data.status === "active", "Synthetic target owner proof failed")
+    targetOwnerUserId = targetOwner.data.id
+    targetOwnerVersion = targetOwner.data.version
+    apiOperations.push(
+      { method: "PATCH", payload: { user_id: actor.id, expected_version: String(actor.version), status: "inactive", reason: "Synthetic protected actor denial" } },
+      ...[{ role: "supervisor" }, { status: "inactive" }].map(operation => ({ method: "PATCH", payload: { user_id: targetOwnerUserId, expected_version: String(targetOwnerVersion), ...operation, reason: "Synthetic last owner protection" } })),
+    )
 
     stage = "global UI initial-password creation"
     await openUsers()
-    await page.getByTestId("platform-user-create").click()
+    browserIntent = { method: "POST" }
+    await guardRace(page.getByTestId("platform-user-create").click())
     const create = page.getByTestId("platform-user-create-form")
     await create.locator("#platform-new-tenant").selectOption(targetTenantId)
     await create.locator("#platform-new-email").fill(memberEmail)
     await create.locator("#platform-new-name").fill("Platform member " + tag)
     await create.locator("#platform-new-role").selectOption("readonly_auditor")
     await create.locator("#platform-new-password").fill(password)
-    const creatingRequest = page.waitForRequest(request => isApi(request, "POST")).then(request => {
-      creationPayload = request.postDataJSON()
-      requestId = creationPayload.request_id
-      requireProof(uuid(requestId) && creationPayload.tenant_id === targetTenantId && creationPayload.email === memberEmail && creationPayload.role === "readonly_auditor", "Global UI creation request differs from the owned fixture")
-      reservationInput = { p_request_id: requestId, p_tenant_id: targetTenantId, p_email: memberEmail, p_role: creationPayload.role, p_full_name: creationPayload.full_name ?? null }
-    })
     const creating = page.waitForResponse(response => isApi(response.request(), "POST"))
-    const [, created] = await Promise.all([creatingRequest, creating, create.getByTestId("platform-new-submit").click()])
+    const [created] = await guardRace(Promise.all([creating, create.getByTestId("platform-new-submit").click()]))
+    browserIntent = undefined
     requireProof(created.ok() && uuid(requestId), "Global UI user creation failed")
     await expect(create).toBeHidden()
     const member = await admin.from("users").select(userFields).eq("tenant_id", targetTenantId).eq("email", memberEmail).single()
     requireProof(!member.error && member.data.created_by === actorId && member.data.role === "readonly_auditor" && member.data.status === "active" && member.data.must_change_password === true, "Initial-password user state differs")
     memberId = member.data.id
+    apiOperations.push(
+      ...[
+        { status: "inactive", reason: "no" },
+        { role: "supervisor", reset_password: true, reason: "Reject combined recovery operation" },
+        { reset_password: true },
+      ].map(operation => ({ method: "PATCH", payload: { user_id: memberId, expected_version: String(member.data.version), ...operation } })),
+      { method: "DELETE", payload: { user_id: memberId, expected_version: String(member.data.version), reason: "Reject archive of active synthetic user" } },
+    )
     reservedAuthId = member.data.auth_user_id
+    await options.recordOwnedFixture?.({kind:"platform-member",authUserId:reservedAuthId,actorId,email:memberEmail,requestId,tenantId:targetTenantId})
     const auth = await admin.auth.admin.getUserById(member.data.auth_user_id)
     requireProof(!auth.error && auth.data.user?.email === memberEmail && !auth.data.user.invited_at && !auth.data.user.recovery_sent_at && auth.data.user.app_metadata?._platform_provision_request === requestId && auth.data.user.app_metadata?._platform_provision_tenant === targetTenantId && auth.data.user.app_metadata?._platform_provision_actor === actorId, "Created Auth identity does not bind to the durable request")
     await synchronized(memberId, "readonly_auditor")
@@ -172,12 +307,15 @@ export async function verifyPlatformAdminUsers(page, admin, tenantId, appUrl, ac
 
     stage = "reviewed role and stale-version conflict"
     const beforeRole = await read(memberId)
-    await rowFor(memberId).getByRole("combobox").selectOption("supervisor")
+    apiOperations.push({ method: "PATCH", payload: { user_id: memberId, expected_version: String(beforeRole.version), status: "inactive", reason: "Synthetic stale global status attempt" } })
+    browserIntent = { method: "PATCH", payload: { user_id: memberId, expected_version: beforeRole.version, role: "supervisor", reason: "Synthetic global operational reassignment" } }
+    await guardRace(rowFor(memberId).getByRole("combobox").selectOption("supervisor"))
     const roleReview = page.getByTestId("platform-user-review")
     await roleReview.locator("#platform-user-reason").fill("Synthetic global operational reassignment")
     const changingRole = page.waitForResponse(response => isApi(response.request(), "PATCH"))
-    await roleReview.getByTestId("platform-user-confirm").click()
-    requireProof((await changingRole).ok(), "Global UI role review failed")
+    const [changedRole] = await guardRace(Promise.all([changingRole, roleReview.getByTestId("platform-user-confirm").click()]))
+    browserIntent = undefined
+    requireProof(changedRole.ok(), "Global UI role review failed")
     await expect(roleReview).toBeHidden()
     let current = await read(memberId)
     requireProof(current.role === "supervisor" && Number(current.version) > Number(beforeRole.version), "Global role change did not persist")
@@ -191,7 +329,7 @@ export async function verifyPlatformAdminUsers(page, admin, tenantId, appUrl, ac
 
     stage = "reviewed status transitions and reload persistence"
     for (const next of ["inactive", "active", "inactive"]) {
-      await review(rowFor(memberId).getByTestId("platform-user-status"), "Synthetic global status " + next)
+      await review(rowFor(memberId).getByTestId("platform-user-status"), "Synthetic global status " + next, "PATCH", { status: next })
       current = await read(memberId)
       requireProof(current.status === next && !current.deleted_at, "Global status change did not persist")
       await synchronized(memberId, "supervisor")
@@ -213,9 +351,13 @@ export async function verifyPlatformAdminUsers(page, admin, tenantId, appUrl, ac
     const auditFields = new Set(["role", "status", "version", "archived", "reason_recorded", "must_change_password"])
     requireProof(evidence.length === 6 && evidence.every(row => row.actor_id === actorId && row.entity_type === "users" && row.entity_id === memberId && Object.keys({ ...row.old_values, ...row.new_values }).every(key => auditFields.has(key))), "Global audit actor or privacy proof failed")
     requireProof(evidence.filter(row => row.action !== "platform_user_created").every(row => row.new_values?.reason_recorded === true), "Reviewed global changes lack audit reason proof")
-  } catch {
+    if (blockedMutationError) throw blockedMutationError
+  } catch (error) {
     failed = true
-    throw Error("Platform user acceptance failed: " + stage)
+    console.error(JSON.stringify({check:"platform user acceptance",stage,errorType:error.name,operation:/expect\(locator\)\.[A-Za-z]+/.exec(error.message)?.[0],callsite:/verify-platform-admin-users\.mjs:(\d+):(\d+)/.exec(error.stack)?.slice(1)}))
+    const failure = Error("Platform user acceptance failed: " + stage)
+    failure.verificationStage = stage
+    throw failure
   } finally {
     password = ""
     if (creationPayload) creationPayload.password = undefined
@@ -234,6 +376,7 @@ export async function verifyPlatformAdminUsers(page, admin, tenantId, appUrl, ac
         const reservation = await recovered.json()
         requireProof(recovered.ok && uuid(reservation?.auth_user_id), "Owned Auth reservation recovery failed")
         reservedAuthId = reservation.auth_user_id
+        await options.recordOwnedFixture?.({kind:"platform-member",authUserId:reservedAuthId,actorId,email:memberEmail,requestId,tenantId:targetTenantId})
       } catch { cleanupFailed = true }
     }
     // Delete only the exact marker this invocation successfully inserted.
@@ -273,13 +416,17 @@ export async function verifyPlatformAdminUsers(page, admin, tenantId, appUrl, ac
           const identity = await admin.auth.admin.getUserById(id)
           if (identity.data.user) {
             const user = identity.data.user
-            requireProof(!identity.error && (id === ownerAuthId ? user.email === ownerEmail && user.app_metadata?._platform_acceptance === tag : user.email === memberEmail && user.app_metadata?._platform_provision_request === requestId && user.app_metadata?._platform_provision_tenant === targetTenantId && user.app_metadata?._platform_provision_actor === actorId), "Owned Auth cleanup proof failed")
+            requireProof(!identity.error && (id === ownerAuthId ? user.email === ownerEmail && user.app_metadata?._platform_acceptance === tag && user.app_metadata?._platform_acceptance_actor === actorId : user.email === memberEmail && user.app_metadata?._platform_provision_request === requestId && user.app_metadata?._platform_provision_tenant === targetTenantId && user.app_metadata?._platform_provision_actor === actorId), "Owned Auth cleanup proof failed")
             requireProof(!(await admin.auth.admin.deleteUser(id, true)).error, "Owned Auth retirement failed")
           } else requireProof(!identity.error || identity.error.status === 404, "Owned Auth absence could not be verified")
         } catch { cleanupFailed = true }
       }
     }
     authorization = undefined
+    browserIntent = undefined
+    if (routeInstalled) {
+      try { await page.unroute(platformRoute, routeHandler) } catch { cleanupFailed = true }
+    }
     if (viewport) await page.setViewportSize(viewport).catch(() => {})
     await page.goto(new URL("/dashboard?lang=" + (originalLocale ?? "en"), app).href).catch(() => {})
     // Company, role, accounting, user, assignment and audit history is retained.

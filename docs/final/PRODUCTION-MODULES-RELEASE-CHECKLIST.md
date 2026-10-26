@@ -4,7 +4,7 @@ This is the verification map for the coordinated completion branch. A local buil
 
 ## User workflows and acceptance entry points
 
-Run `scripts/verify-production-modules.mjs` against the approved staging Supabase project and an exact-commit, healthy, isolated Vercel deployment. It creates only synthetic identities/companies, performs real MFA/password flows, verifies persisted data and retires its test access. The target guard must pass before fixture creation.
+Run `scripts/verify-production-modules.mjs` against the approved staging Supabase project and an exact-commit, healthy, isolated Vercel deployment. It runs nine explicit groups covering 24 workflow helpers. Each group receives a fresh synthetic owner/company so pristine payroll, VAT and expense assertions remain valid. The parent requires every group, exact-source/deployment evidence and independently verified retirement; it does not treat one passing group as a complete release. The target guard must pass before fixture creation. Existing ignored staging credentials remain the environment source; no credentials or session secrets are persisted in evidence.
 
 | Surface | Required behavior | Acceptance entry point |
 | --- | --- | --- |
@@ -18,6 +18,7 @@ Run `scripts/verify-production-modules.mjs` against the approved staging Supabas
 | Orders and platforms | Natural-key protection, versioned correction/archive/restore, exact values, complete summaries and payment history. | `verify-local-orders-platforms.mjs`, SQL135 |
 | Payroll | Prepared/reviewed inputs, period-specific basis, reservation integrity, immutable calculation revisions, guarded payment status; no guessed attendance or historical postings. | `verify-payroll-preparation.mjs`, SQL095–098, SQL079 |
 | Expenses | Pending correction/cancel/restore, versioned approval/rejection, one payable/event/audit and rollback on failed audit. | `verify-expense-corrections.mjs`, `verify-local-expenses.mjs`, approval/rejection concurrency helpers, SQL086–087/139 |
+| Accounting master data | Complete customer/supplier/account pages and global KPIs, visible read failure/retry, reviewed timestamp conflicts, idempotent atomic change/audit, protected canonical and posted accounts, complete bounded exports and partial imports, explicit opening balances. | `verify-accounting-master-crud.mjs`, SQL147–148 and master backend/parser tests |
 | Accounting and payments | Complete paged journals, options, allocations, statements and exports; exact cents, sign-preserving balances, source-backed posting/reversal, no read failure disguised as zero. | `verify-accounting-pages.mjs`, `verify-financial-statements.mjs`, journal/bank/receivable helpers, SQL134/136 |
 | Invoices | Draft CRUD, lifecycle safeguards, correct totals/source data, clean PDF response with private licensed fonts, retained generated documents. | `verify-local-invoices.mjs`, `verify-invoice-print.mjs`, `verify-invoice-pdf-bundle.mjs` |
 | VAT | Classification backed by processed expense source, audited adjustment journal, exact VAT recovery, immutable resolution, explicit rejection of ambiguous/imported sources. | `verify-vat-review-posting.mjs`, `verify-local-vat-position.mjs`, SQL142 |
@@ -32,7 +33,7 @@ Retired template/demo routes are redirect checks; they must not be presented as 
 ## Release gates, in order
 
 1. Capture the exact source and migration hashes. Run the full unit suite, lint, TypeScript, production build, dependency audit, API/deployment guards, migration archive checks and secret/sensitive-file scan. Licensed fonts, credentials, backups and verification output stay out of Git.
-2. Run every rollback-only SQL suite on canonical synthetic fixtures, with before/after table fingerprints. Separately restore the approved production backup into a new isolated local database, apply all forward migrations from source, and compare every original business value. A schema-only test snapshot is not a fresh migration replay.
+2. Run every rollback-only SQL suite (including master data and platform schema convergence) on canonical synthetic fixtures, with before/after table fingerprints. Separately restore the approved production backup into a new isolated local database, apply all forward migrations from source, and compare every original business value. A schema-only test snapshot is not a fresh migration replay.
 3. Review the accumulated diff and concrete high-risk changes. Fix findings and repeat affected checks; any final source change invalidates earlier exact-source evidence.
 4. Configure branch-specific Vercel Preview variables for the approved staging database. Generic Preview settings in this project can inherit production configuration; the build-time preview guard must reject that combination. Disable external mail, ZATCA submission and shared production service dependencies during synthetic acceptance.
 5. Provision the owner-supplied licensed Tahoma files into the clean private deployment package; verify both traced files and the actual Linux PDF route. Compare the sample geometry/typography, multipage item coverage, totals and visual output. A Windows-only comparison does not establish production identity.

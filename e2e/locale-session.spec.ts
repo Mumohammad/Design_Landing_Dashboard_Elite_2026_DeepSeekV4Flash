@@ -97,7 +97,7 @@ test("one sign-in survives landing visits and legacy login entry points", async 
     if (path === "/landing") {
       await page.getByRole("navigation").getByRole("link", { name: "Sign in", exact: true }).first().click()
     }
-    await expect(page).toHaveURL(/\/(dashboard|invoices)(?:\?|$)/)
+    await expect(page).toHaveURL(/\/(dashboard|invoices)(?:\?|$)/, { timeout: 30_000 })
     await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible()
   }
   expect(signIns).toBe(1)

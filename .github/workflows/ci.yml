@@ -50,7 +50,7 @@ jobs:
 
     - name: Preview isolation and historical archive checks
       run: |
-        node --test scripts/preview-safety.test.mjs scripts/verify-staging-history.test.mjs scripts/assert-module-test-target.test.mjs scripts/verify-driver-evidence.test.mjs scripts/verify-driver-leave-lifecycle.test.mjs scripts/verify-platform-admin-users.test.mjs
+        node --test scripts/preview-safety.test.mjs scripts/verify-staging-history.test.mjs scripts/assert-module-test-target.test.mjs scripts/verify-driver-evidence.test.mjs scripts/verify-driver-leave-lifecycle.test.mjs scripts/verify-platform-admin-users.test.mjs scripts/coordinated-acceptance.test.mjs scripts/verify-accounting-master-crud.test.mjs
         node scripts/verify-staging-history.mjs
 
     # ── FX-10: every API route must self-guard or be explicitly allowlisted ──

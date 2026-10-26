@@ -56,6 +56,7 @@ export async function verifyDriverLeaveLifecycle(page,admin,tenantId,appUrl){
   stage="rejection retains reviewed evidence"
   const rejectedId=await create("2098-10-01","2098-10-02","Browser rejection fixture "+tag)
   await card(page,rejectedId).getByRole("textbox",{name:"Review reason",exact:true}).fill("Rejected synthetic evidence "+tag);await write(card(page,rejectedId).getByRole("button",{name:"Reject",exact:true}))
+  await expect(card(page,rejectedId).getByText("Rejected",{exact:true})).toBeVisible()
   await expect(card(page,rejectedId).getByRole("button",{name:"Restore",exact:true})).toHaveCount(0);expect(await read(rejectedId)).toMatchObject({status:"rejected",workflow_version:2})
   stage="current leave changes driver status atomically"
   const parts=new Intl.DateTimeFormat("en",{timeZone:"Asia/Riyadh",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date()),part=key=>parts.find(p=>p.type===key).value,today=part("year")+"-"+part("month")+"-"+part("day")

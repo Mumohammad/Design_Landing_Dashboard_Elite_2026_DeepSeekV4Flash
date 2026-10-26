@@ -19,7 +19,7 @@ export async function verifyDriverProfileOperations(page, admin, tenantId, appUr
     }
     const choose = async (id, name) => { await page.locator(`#${id}`).click(); await page.getByRole("option", { name, exact: true }).click() }
     const save = async (creating = false) => {
-      const selectedTabName = (await page.getByRole("tab", { selected: true }).innerText()).trim()
+      const selectedTabName = (await page.getByRole("tab", { selected: true, includeHidden: true }).innerText()).trim()
       const dialog = page.getByRole("dialog")
       await Promise.all([
         page.waitForResponse(response => {
