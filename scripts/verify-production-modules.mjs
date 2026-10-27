@@ -1,5 +1,6 @@
 import fs from "node:fs"
 import path from "node:path"
+import {writeReleaseEvidence} from "./lib/write-release-evidence.mjs"
 // Coordinated release acceptance in the explicitly approved staging project.
 // Every fixture is synthetic; no production endpoint is accepted. Owner retired in finally.
 import { chromium, expect } from "@playwright/test"
@@ -42,7 +43,7 @@ if (!relativeEvidence || relativeEvidence.startsWith("..") || path.isAbsolute(re
 fs.mkdirSync(evidenceDir,{recursive:true})
 const proofPath = path.join(evidenceDir,"fixture-proof.json")
 const proof = {runId:releaseRunId,group:moduleGroup,pid:process.pid,project:"viowrovartosrkqukjxy",commit:expectedCommit,target:appUrl,result:"RUNNING",results:[],extraFixtures:[],pendingAuxiliary:[],startedAt:new Date().toISOString()}
-const saveProof = () => fs.writeFileSync(proofPath,JSON.stringify(proof,null,2))
+const saveProof = () => writeReleaseEvidence(proofPath,proof)
 const recordFixture = fixture => {if(fixture.kind==="platform-marker"){proof.authorityMarker=fixture}else if(fixture.kind==="platform-member-intent"){proof.pendingAuxiliary.push(fixture)}else{const index=proof.extraFixtures.findIndex(item=>item.authUserId===fixture.authUserId);if(index<0)proof.extraFixtures.push(fixture);else proof.extraFixtures[index]={...proof.extraFixtures[index],...fixture}}saveProof()}
 saveProof()
 let browser

@@ -4,6 +4,7 @@ import {spawn,spawnSync} from 'node:child_process'
 import {randomUUID} from 'node:crypto'
 import {StringDecoder} from 'node:string_decoder'
 import {createClient} from '@supabase/supabase-js'
+import {writeReleaseEvidence} from './write-release-evidence.mjs'
 
 export const MODULE_GROUPS = {
  vat_review:['verifyVatReviewPosting'],
@@ -37,6 +38,7 @@ export async function preflightAcceptanceTarget({backendUrl,appUrl,expectedCommi
  validateDeploymentEvidence(health.status,await health.json(),landing.headers.get('content-security-policy')??'',expectedCommit)
  return target
 }
+export function resolveAcceptanceRunId(env=process.env) { return assertAcceptanceRunId(env.VERIFY_RELEASE_RUN_ID??randomUUID()) }
 export function assertAcceptanceRunId(runId) {
  if(!uuid(runId))throw Error('Owned acceptance run UUID required before fixture creation')
  return runId
@@ -148,8 +150,8 @@ export async function runCoordinatedAcceptance({appUrl,expectedCommit,backendUrl
  const target=assertAcceptanceTarget(backendUrl,appUrl,expectedCommit)
  if(!env.SUPABASE_SERVICE_ROLE_KEY||!cleanHead(expectedCommit))throw Error('Clean exact source and existing isolated credentials required')
  await preflightAcceptanceTarget({backendUrl,appUrl,expectedCommit})
- const runId=randomUUID(),root=path.resolve('supabase/.temp/release-acceptance-'+runId),groups=Object.keys(MODULE_GROUPS),results=[]
- fs.mkdirSync(root,{recursive:true});const summary={runId,commit:expectedCommit,target:target.app,project:staging,result:'RUNNING',groups:results,startedAt:new Date().toISOString()};const save=()=>fs.writeFileSync(path.join(root,'result.json'),JSON.stringify(summary,null,2));save()
+ const runId=resolveAcceptanceRunId(env),root=path.resolve('supabase/.temp/release-acceptance-'+runId),groups=Object.keys(MODULE_GROUPS),results=[]
+ fs.mkdirSync(root);const summary={runId,commit:expectedCommit,target:target.app,project:staging,result:'RUNNING',groups:results,startedAt:new Date().toISOString()};const save=()=>writeReleaseEvidence(path.join(root,'result.json'),summary);save()
  const admin=createClient(target.backend,env.SUPABASE_SERVICE_ROLE_KEY,{auth:{persistSession:false,autoRefreshToken:false}})
  let cursor=0
  const worker=async()=>{while(cursor<groups.length){const group=groups[cursor++],folder=path.join(root,group);fs.mkdirSync(folder,{recursive:true});const out={group,result:'RUNNING',startedAt:new Date().toISOString()};results.push(out);save();console.log(JSON.stringify({check:'coordinated acceptance',group,state:'started'}));const log=path.join(folder,'run.log');let timedOut=false,logSafe=true

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {MODULE_GROUPS,assertAcceptanceRunId,preflightAcceptanceTarget,assertAcceptanceTarget,validateDeploymentEvidence,validateGroupProof,redactAcceptanceOutput,createAcceptanceLogScrubber,retireAcceptanceFixtures} from './lib/coordinated-acceptance.mjs'
+import {MODULE_GROUPS,resolveAcceptanceRunId,assertAcceptanceRunId,preflightAcceptanceTarget,assertAcceptanceTarget,validateDeploymentEvidence,validateGroupProof,redactAcceptanceOutput,createAcceptanceLogScrubber,retireAcceptanceFixtures} from './lib/coordinated-acceptance.mjs'
 const stage='https://viowrovartosrkqukjxy.supabase.co',app='https://elite-dashboard-fixture-elitesaasc-5643.vercel.app',sha='a'.repeat(40),runId='15000000-0000-4000-8000-000000000001',auth='15000000-0000-4000-8000-000000000002',tenant='15000000-0000-4000-8000-000000000003'
 for(const [name,backend,url,commit] of [
  ['production backend','https://wwfnsbilmyxeawgzicmv.supabase.co',app,sha],['production alias',stage,'https://elite-dashboard-blush.vercel.app',sha],['unknown backend','https://unknown.supabase.co',app,sha],['unknown deployment',stage,'https://example.test',sha],['credentials',stage,'https://name:password@elite-dashboard-fixture-elitesaasc-5643.vercel.app',sha],['query pin',stage,app+'?dpl=old',sha],['fragment',stage,app+'#old',sha],['nonroot path',stage,app+'/dashboard',sha],['backend path',stage+'/rest/v1',app,sha],['bad commit',stage,app,'master'],['port',stage,app+':8443',sha],
@@ -43,3 +43,7 @@ test('shared parent and child preflight accepts exact healthy immutable staging'
 
 for(const value of [undefined,'','not-a-uuid','15000000-0000-0000-0000-000000000001'])test('invalid child run identity '+String(value)+' fails before fixture writes',()=>{let writes=0;assert.throws(()=>{assertAcceptanceRunId(value);writes++},/UUID required before fixture creation/);assert.equal(writes,0)})
 test('valid owned child run identity remains stable',()=>assert.equal(assertAcceptanceRunId(runId),runId))
+
+test('coordinator retains the caller-owned run identity',()=>assert.equal(resolveAcceptanceRunId({VERIFY_RELEASE_RUN_ID:runId}),runId))
+test('coordinator validates caller identity before creating a run',()=>assert.throws(()=>resolveAcceptanceRunId({VERIFY_RELEASE_RUN_ID:'not-owned'}),/UUID required/))
+test('coordinator generates a valid identity when no caller supplied one',()=>assert.doesNotThrow(()=>assertAcceptanceRunId(resolveAcceptanceRunId({}))))
