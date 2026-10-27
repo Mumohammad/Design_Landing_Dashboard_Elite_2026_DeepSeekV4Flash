@@ -48,21 +48,29 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
       await route.abort('failed')
     }else await route.continue()
   }
+  let stage = 'fixtures'
   const rejectElsewhere=async(code,reason,language='en')=>{
     const other=await page.context().newPage()
     try{
+      stage=language+' second-tab rejection: load and search'
       await other.goto(appUrl+'/approvals?lang='+language)
+      await expect(other.locator('html')).toHaveAttribute('lang',language)
       await other.getByRole('textbox',{name:language==='ar'?'بحث في المراجع والبيانات الظاهرة...':'Search references and visible details...',exact:true}).fill(code)
       const row=other.locator('tbody tr').filter({hasText:code})
+      stage=language+' second-tab rejection: searched row'
       await expect(row).toHaveCount(1)
+      stage=language+' second-tab rejection: open and submit'
       await row.getByRole('button',{name:language==='ar'?'رفض':'Reject',exact:true}).click()
       const decisionDialog=other.getByRole('dialog')
       await decisionDialog.locator('#decision-reason').fill(reason)
       await decisionDialog.getByRole('button',{name:language==='ar'?'تأكيد الرفض':'Confirm rejection',exact:true}).click()
+      stage=language+' second-tab rejection: committed dialog and queue exit'
       await expect(decisionDialog).toBeHidden();await expect(row).toHaveCount(0)
+    }catch(error){
+      await other.screenshot({path:'supabase/.temp/expenses-second-tab-failure.png',fullPage:true}).catch(()=>{})
+      throw error
     }finally{await other.close()}
   }
-  let stage = 'fixtures'
   try {
     const defaults=await admin.from('expense_category_mappings').select('expense_type,coa_account_code').eq('tenant_id',tenantId)
     if(defaults.error||defaults.data?.length!==6)throw Error('Provisioned company lacks complete expense accounting defaults')
@@ -341,6 +349,7 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
     await dialog.locator('#decision-reason').fill('Reviewed before another decision')
     retainedSeeds.push(ids[3])
     await rejectElsewhere(arabicStale.data.expense_code,'Duplicate Arabic review fixture','ar')
+    stage='Arabic mobile stale approval resolves prior rejection and notification'
     await dialog.getByRole('button',{name:'تأكيد الموافقة',exact:true}).click()
     await expect(dialog).toBeHidden();await expect(arabicQueueRow).toHaveCount(0)
     await expect(page.locator('[data-sonner-toast]').filter({hasText:'تم اتخاذ القرار مسبقاً. راجع القائمة بعد تحديثها.'})).toBeVisible()
@@ -381,7 +390,7 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
   } catch (error) {
     const operation=/expect\(locator\)\.[A-Za-z]+/.exec(error.message)?.[0]
       ??(/strict mode violation/.test(error.message)?'ambiguous-locator':undefined)
-    console.error(JSON.stringify({check:'expenses overview',stage,errorType:error.name,operation}))
+    console.error(JSON.stringify({check:'expenses overview',stage,errorType:error.name,operation,callsite:/verify-local-expenses\.mjs:(\d+):(\d+)/.exec(error.stack)?.slice(1)}))
     await page.screenshot({path:'supabase/.temp/expenses-overview-failure.png',fullPage:true}).catch(()=>{})
     throw Error('Expense overview verification failed: ' + stage)
   } finally {

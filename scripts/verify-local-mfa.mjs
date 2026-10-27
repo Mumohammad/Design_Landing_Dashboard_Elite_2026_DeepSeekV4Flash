@@ -57,7 +57,8 @@ try {
     const { verifyNewPasswordFlows } = await import("./verify-local-password-policy.mjs")
     await verifyNewPasswordFlows(browser, admin, appUrl, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
   }
-  const page = await browser.newPage()
+  const context = await browser.newContext()
+  const page = await context.newPage()
   page.setDefaultTimeout(20_000)
   let pageErrors = 0
   page.on("pageerror", () => { pageErrors++ })

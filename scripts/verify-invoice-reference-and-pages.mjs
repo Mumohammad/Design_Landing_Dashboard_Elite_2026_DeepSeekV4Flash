@@ -13,6 +13,25 @@ export function assertInvoiceReferenceTestTarget(backend,app,sha){
  }
  return assertAcceptanceTarget(backend,app,sha)
 }
+export function createInvoiceResponseLoss(description,assertPendingFields){
+ const ids=[],completion=Promise.withResolvers();let lost=false,ready=false
+ const handler=async route=>{
+  const request=route.request(),body=request.postData()??''
+  if(request.method()!=='POST'||!request.headers()['next-action']||!body.includes(description))return route.continue()
+  ids.push(/request_id[\\\"\s:]{1,12}([0-9a-f-]{36})/i.exec(body)?.[1])
+  if(lost)return route.continue()
+  lost=true;let failure
+  try{await assertPendingFields()}catch{failure=Error('Pending invoice fields remained editable')}
+  ready=true
+  if(!failure)try{const response=await route.fetch({timeout:60000});if(!response.ok())failure=Error('Owned save response was not successful')}catch{failure=Error('Owned invoice save forwarding failed')}
+  try{await route.abort('failed')}catch{failure??=Error('Owned invoice response loss failed')}
+  completion.resolve(failure)
+ }
+ return {handler,ids,get lost(){return lost},get ready(){return ready},async wait(timeout=65000){
+  let timer
+  try{const failure=await Promise.race([completion.promise,new Promise(resolve=>{timer=setTimeout(()=>resolve(Error('Owned invoice response loss did not complete')),timeout)})]);if(failure)throw failure}finally{clearTimeout(timer)}
+ }}
+}
 export async function verifyInvoiceReferenceAndPages(page,admin,tenantId,appUrl){
  const sha=process.env.VERIFY_COMMIT_SHA,target=assertInvoiceReferenceTestTarget(admin.supabaseUrl,appUrl,sha)
  if(target.kind==='loopback'){
@@ -43,8 +62,8 @@ export async function verifyInvoiceReferenceAndPages(page,admin,tenantId,appUrl)
   const customer=await admin.from('customers').insert({tenant_id:tenantId,name_ar:'عميل الفاتورة المرجعية '+tag,name_en:'Reference invoice party '+tag}).select('id').single();if(customer.error)throw Error('Owned reference customer creation failed');customerId=customer.data.id
   await page.goto(appUrl+'/invoices?lang=en');await page.getByRole('button',{name:'New invoice',exact:true}).click();let dialog=page.getByRole('dialog');await dialog.locator('#inv-party').selectOption(customerId);await dialog.getByLabel('Item name (optional)',{exact:true}).fill('Reference item '+tag);await dialog.getByLabel('Line description',{exact:true}).fill(description);await dialog.getByLabel('Unit price',{exact:true}).fill('72225.2082');await dialog.locator('#inv-due').fill('2091-06-17');await expect(dialog.getByText('83,058.99',{exact:true})).toBeVisible();await expect(dialog.getByLabel('Show due date on the printed invoice',{exact:true})).not.toBeChecked()
   step='committed response loss preserves one draft intent'
-  let lost=false,pendingSaveGuardError;const ids=[],pattern='**/invoices*',handler=async route=>{const request=route.request(),body=request.postData()??'';if(request.method()!=='POST'||!request.headers()['next-action']||!body.includes(description))return route.continue();ids.push(/request_id[\\"\s:]{1,12}([0-9a-f-]{36})/i.exec(body)?.[1]);if(lost)return route.continue();lost=true;try{await expect(dialog.getByTestId('invoice-draft-fields')).toBeDisabled();await expect(dialog.getByLabel('Unit price',{exact:true})).toBeDisabled();await expect(dialog.getByLabel('Item name (optional)',{exact:true})).toBeDisabled();await expect(dialog.getByLabel('Show due date on the printed invoice',{exact:true})).toBeDisabled();await expect(dialog.locator('#inv-due')).toBeDisabled()}catch{pendingSaveGuardError=Error('Pending invoice fields remained editable');await route.abort('failed');return}const response=await route.fetch({timeout:60000});if(!response.ok())throw Error('Owned save response was not successful');await route.abort('failed')};routes.push([pattern,handler]);await page.route(pattern,handler)
-  await dialog.getByRole('button',{name:'Save draft',exact:true}).click();await expect(dialog.getByRole('alert')).toBeVisible();if(pendingSaveGuardError)throw pendingSaveGuardError;await expect.poll(async()=>Number((await readReference()).total)).toBe(83058.99);await dialog.getByRole('button',{name:'Save draft',exact:true}).click();await expect(dialog).toBeHidden();await page.unroute(pattern,handler);expect(lost).toBe(true);expect(ids).toHaveLength(2);expect(ids[0]).toMatch(uuid);expect(ids[1]).toBe(ids[0]);const reference=await readReference();expect(reference.show_due_date).toBe(false);expect(reference.due_date).toBe('2091-06-17');const line=await scalar('invoice_lines',{invoice_id:reference.id});expect(line.item_name).toBe('Reference item '+tag);expect(line.description).toBe(description);expect(Number(line.unit_price)).toBe(72225.2082)
+  const loss=createInvoiceResponseLoss(description,async()=>{await expect(dialog.getByTestId('invoice-draft-fields')).toHaveAttribute('disabled','');await expect(dialog.getByLabel('Unit price',{exact:true})).toBeDisabled();await expect(dialog.getByLabel('Item name (optional)',{exact:true})).toBeDisabled();await expect(dialog.getByLabel('Show due date on the printed invoice',{exact:true})).toBeDisabled();await expect(dialog.locator('#inv-due')).toBeDisabled()}),pattern='**/invoices*';routes.push([pattern,loss.handler]);await page.route(pattern,loss.handler)
+  await dialog.getByRole('button',{name:'Save draft',exact:true}).click();await expect.poll(()=>loss.ready).toBe(true);await loss.wait();await expect(dialog.getByRole('alert')).toBeVisible();await expect.poll(async()=>Number((await readReference()).total)).toBe(83058.99);await dialog.getByRole('button',{name:'Save draft',exact:true}).click();await expect(dialog).toBeHidden();await page.unroute(pattern,loss.handler);expect(loss.lost).toBe(true);expect(loss.ids).toHaveLength(2);expect(loss.ids[0]).toMatch(uuid);expect(loss.ids[1]).toBe(loss.ids[0]);const reference=await readReference();expect(reference.show_due_date).toBe(false);expect(reference.due_date).toBe('2091-06-17');const line=await scalar('invoice_lines',{invoice_id:reference.id});expect(line.item_name).toBe('Reference item '+tag);expect(line.description).toBe(description);expect(Number(line.unit_price)).toBe(72225.2082)
   const audits=await admin.from('audit_log').select('id',{count:'exact'}).eq('tenant_id',tenantId).eq('entity_id',reference.id).eq('action','invoice_draft_created');if(audits.error||audits.count!==1)throw Error('Reference retry created duplicate audit evidence')
   step='persisted reference fields and due-date PDF option'
   await page.reload();await search().fill(reference.invoice_number);await expect(invoiceRow(reference.invoice_number)).toHaveCount(1);const hidden=await pdfText(reference.invoice_number,'invoice-reference-hidden-due.pdf');expect(hidden).toContain('Reference item '+tag);expect(hidden).toContain(description);expect(hidden).toContain('72,225.2082');expect(hidden).not.toContain('Due Date');expect(hidden).not.toContain('17/06/2091');for(const amount of['72,225.21','10,833.78','83,058.99'])expect(hidden).toContain(amount);expect(hidden).not.toMatch(/https?:\/\/|about:blank/)

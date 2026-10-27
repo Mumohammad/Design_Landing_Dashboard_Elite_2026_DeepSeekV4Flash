@@ -64,6 +64,7 @@ export async function verifyApplicationReviews(page,admin,tenantId,appUrl){
   stage='archive visibility and preserved final evidence'
   await reason.fill('Archive completed synthetic review')
   const archiveButton=page.getByRole('button',{name:'Archive application',exact:true})
+  await archiveButton.scrollIntoViewIfNeeded()
   await expect(approvalToast).toBeVisible()
   await expect.poll(()=>archiveButton.evaluate(button=>{const r=button.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return !!hit&&button.contains(hit)})).toBe(true)
   await write(archiveButton)
@@ -103,7 +104,8 @@ export async function verifyApplicationReviews(page,admin,tenantId,appUrl){
   await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true)
   console.log(JSON.stringify({check:'application complete pages, literal search/retries, versioned reviews/documents, approve/reject/withdraw, archive/restore, audit evidence and Arabic mobile',result:'PASS'}))
  }catch(error){
-  console.error(JSON.stringify({check:'application review',stage,errorType:error.name}))
+  const archiveHit=stage==='archive visibility and preserved final evidence'?await page.getByRole('button',{name:'Archive application',exact:true}).evaluate(button=>{const r=button.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return {viewport:{width:innerWidth,height:innerHeight},button:{x:r.x,y:r.y,width:r.width,height:r.height},centerVisible:r.x+r.width/2>=0&&r.x+r.width/2<=innerWidth&&r.y+r.height/2>=0&&r.y+r.height/2<=innerHeight,hitTag:hit?.tagName??null,buttonReceivesPointer:!!hit&&button.contains(hit)}}).catch(()=>null):undefined
+  console.error(JSON.stringify({check:'application review',stage,errorType:error.name,operation:/expect\(locator\)\.[A-Za-z]+/.exec(error.message)?.[0],callsite:/verify-application-reviews\.mjs:(\d+):(\d+)/.exec(error.stack)?.slice(1),archiveHit}))
   await page.screenshot({path:'supabase/.temp/application-review-failure.png',fullPage:true}).catch(()=>{})
   throw Error('Application review verification failed: '+stage)
  }finally{
