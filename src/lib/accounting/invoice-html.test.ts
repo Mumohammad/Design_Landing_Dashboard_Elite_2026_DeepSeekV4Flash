@@ -17,6 +17,13 @@ describe('modern invoice print template',()=>{
   expect(html).not.toContain(BASE.verifyUrl)
   expect(html).not.toContain('ZATCA electronic invoicing has not been validated.')
  })
+ it('titles B2C sales as a Simplified Tax Invoice and prints the Phase 1 QR note',()=>{
+  const html=buildInvoiceHtml({...BASE,internalQr:false,simplified:true,qrNote:{ar:'رمز الفاتورة الإلكترونية (المرحلة الأولى) · لم تُرسل إلى ZATCA',en:'E-invoice QR (Phase 1) · not submitted to ZATCA'}})
+  expect(html).toContain('Simplified Tax Invoice')
+  expect(html).toContain('فاتورة ضريبية مبسطة')
+  expect(html).toContain('E-invoice QR (Phase 1) · not submitted to ZATCA')
+  expect(html).not.toContain('Internal QR · unvalidated')
+ })
  it('uses A4 and concise bilingual RTL headings',()=>{
   const html=buildInvoiceHtml(BASE)
   expect(html).toContain('<html lang="ar" dir="rtl">')

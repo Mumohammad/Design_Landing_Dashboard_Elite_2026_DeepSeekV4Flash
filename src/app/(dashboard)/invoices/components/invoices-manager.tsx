@@ -27,6 +27,8 @@ import {
   type InvoiceType,
 } from "@/lib/accounting/invoices"
 import { computeInvoiceTotals } from "@/lib/accounting/invoice-math"
+import { sendDocumentToZatca } from "@/lib/accounting/zatca"
+import { getZatcaStatus } from "@/lib/accounting/zatca-management"
 import { requestInvoicePdf } from "@/lib/invoice-pdf-download"
 import { businessDateKey } from "@/lib/formatting/business-date"
 import { useBusinessDate } from "@/hooks/use-business-date"
@@ -62,6 +64,7 @@ interface InvoiceRow {
   supplier_id: string | null
   vat_rate: number
   notes: string | null
+  zatca_status: string | null
 }
 
 interface InvoiceLineRow {
@@ -80,6 +83,20 @@ interface PartyOption {
   name: string
   code: string
 }
+
+// Electronic invoice status (Daftra-style). Phase 1 documents are generated
+// locally with the simplified QR and never sent; Phase 2 states only appear
+// once the tenant is connected to a (non-production) ZATCA gateway.
+const EINVOICE_META: Record<string, { ar: string; en: string; className: string }> = {
+  local: { ar: "محلية · المرحلة 1", en: "Local · Phase 1", className: "bg-slate-500/10 text-slate-600 border-slate-500/20" },
+  not_transmitted: { ar: "لم تُرسل", en: "Not submitted", className: "bg-amber-500/10 text-amber-700 border-amber-500/20" },
+  pending: { ar: "قيد الإرسال", en: "Pending", className: "bg-blue-500/10 text-blue-600 border-blue-500/20" },
+  reported: { ar: "مُبلّغة", en: "Reported", className: "bg-emerald-500/10 text-emerald-700 border-emerald-500/20" },
+  cleared: { ar: "مُخلّصة", en: "Cleared", className: "bg-emerald-500/10 text-emerald-700 border-emerald-500/20" },
+  failed: { ar: "فشل الإرسال", en: "Failed", className: "bg-red-500/10 text-red-600 border-red-500/20" },
+  rejected: { ar: "مرفوضة", en: "Rejected", className: "bg-red-500/10 text-red-600 border-red-500/20" },
+}
+const SENDABLE_ZATCA = new Set(["not_transmitted", "failed", "rejected", "pending"])
 
 const STATUS_META: Record<string, { ar: string; en: string; className: string }> = {
   draft: { ar: "مسودة", en: "Draft", className: "bg-gray-500/15 text-gray-600 border-gray-500/20" },
@@ -170,7 +187,7 @@ export function InvoicesManager() {
     const { data, error, count } = await supabase
       .from("invoices")
       .select(
-        "id,invoice_number,invoice_type,issue_date,due_date,status,subtotal,discount,vat_amount,total,currency,updated_at,customer_id,supplier_id,vat_rate,notes,customers(name_ar),suppliers(name_ar)", { count: "exact" }
+        "id,invoice_number,invoice_type,issue_date,due_date,status,subtotal,discount,vat_amount,total,currency,updated_at,customer_id,supplier_id,vat_rate,notes,zatca_status,customers(name_ar),suppliers(name_ar)", { count: "exact" }
       )
       .is("deleted_at", null)
       .order("issue_date", { ascending: false })
@@ -201,6 +218,7 @@ export function InvoicesManager() {
           supplier_id: r.supplier_id,
           vat_rate: Number(r.vat_rate),
           notes: r.notes,
+          zatca_status: r.zatca_status ?? null,
           customer_name: r.customers?.name_ar ?? null,
           supplier_name: r.suppliers?.name_ar ?? null,
         }))
@@ -233,6 +251,15 @@ export function InvoicesManager() {
       await load()
     })()
   }, [load])
+
+  // E-invoicing mode: "connected" only once an EGS unit is onboarded on the
+  // configured non-production gateway; otherwise Phase 1 (local generation).
+  const [zatcaMode, setZatcaMode] = useState<{ connected: boolean; environment: string | null }>({ connected: false, environment: null })
+  useEffect(() => {
+    void getZatcaStatus().then((res) => {
+      if (res.success && res.status) setZatcaMode({ connected: res.status.mode === "connected", environment: res.status.environment })
+    }).catch(() => { /* Accounting access is optional; default to Phase 1. */ })
+  }, [])
 
   const flash = (type: "ok" | "err", text: string) => {
     setFeedback({ type, text })
@@ -318,6 +345,16 @@ export function InvoicesManager() {
             {ar ? s.ar : s.en}
           </span>
         )
+      },
+    },
+    {
+      key: "zatca_status",
+      header: ar ? "الفاتورة الإلكترونية" : "E-invoice",
+      render: (r) => {
+        if (r.invoice_type !== "sales" || ["draft", "issued", "cancelled"].includes(r.status)) return <span className="text-xs text-muted-foreground">—</span>
+        const key = zatcaMode.connected ? (r.zatca_status ?? "not_transmitted") : (r.zatca_status && r.zatca_status !== "not_transmitted" ? r.zatca_status : "local")
+        const m = EINVOICE_META[key] ?? EINVOICE_META.not_transmitted
+        return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${m.className}`}>{ar ? m.ar : m.en}</span>
       },
     },
     {
@@ -555,6 +592,21 @@ export function InvoicesManager() {
     } finally { setBusyId(null) }
   }
 
+  // Per-document "Send to ZATCA" (Phase 2, non-production gateway only).
+  async function sendToZatca(r: InvoiceRow) {
+    setBusyId(r.id)
+    try {
+      const res = await sendDocumentToZatca(r.id)
+      if (!res.success) flash("err", res.error ?? (ar ? "تعذر الإرسال إلى ZATCA." : "Unable to send to ZATCA."))
+      else if ((res.failed ?? 0) > 0) flash("err", ar ? `رفض/فشل الإرسال: ${res.error ?? ""}` : `Submission failed: ${res.error ?? ""}`)
+      else if ((res.processed ?? 0) === 0) flash("ok", ar ? "لا يوجد ما يُرسل: الفاتورة مُرسلة مسبقاً أو صادرة قبل بدء الربط." : "Nothing to send: already submitted or issued before the go-live.")
+      else flash("ok", ar ? `أُرسلت الفاتورة إلى ZATCA (${zatcaMode.environment ?? "test"} · بيئة اختبار لا تُحتسب).` : `Sent to ZATCA (${zatcaMode.environment ?? "test"} · test environment, not counted).`)
+      await load()
+    } catch {
+      flash("err", ar ? "تعذر الإرسال إلى ZATCA." : "Unable to send to ZATCA.")
+    } finally { setBusyId(null) }
+  }
+
   // Unposted cancellation preserves the reviewed version/reason on failure.
   const [cancelReason, setCancelReason] = useState("")
   const [cancelError, setCancelError] = useState("")
@@ -680,6 +732,8 @@ export function InvoicesManager() {
           const canCancel = r.status === "draft" || r.status === "issued"
           const canCredit = r.status === "finalized" && r.invoice_type === "sales"
           const canDebit = r.status === "finalized" && r.invoice_type === "sales"
+          const canSendZatca = zatcaMode.connected && r.invoice_type === "sales"
+            && !["draft", "issued", "cancelled"].includes(r.status) && SENDABLE_ZATCA.has(r.zatca_status ?? "not_transmitted")
           return (
             <DropdownMenu dir={ar ? "rtl" : "ltr"}>
               <DropdownMenuTrigger asChild>
@@ -697,6 +751,7 @@ export function InvoicesManager() {
                   <DropdownMenuItem className="text-destructive" onSelect={() => setDeleteTarget(r)}><Trash2 className="h-4 w-4" />{ar ? "حذف" : "Delete"}</DropdownMenuItem>
                 </>}
                 {canFinalize && <DropdownMenuItem onSelect={() => void runAction("finalize", r)}><Check className="h-4 w-4" />{ar ? "اعتماد" : "Finalize"}</DropdownMenuItem>}
+                {canSendZatca && <DropdownMenuItem onSelect={() => void sendToZatca(r)}><Send className="h-4 w-4" />{ar ? "إرسال إلى ZATCA" : "Send to ZATCA"}</DropdownMenuItem>}
                 {canCredit && <DropdownMenuItem onSelect={() => { setCreditTarget(r); setCreditReason(""); setCreditRequest(crypto.randomUUID()); setCreditDate(businessDateKey(new Date())); setNoteError("") }}><RotateCcw className="h-4 w-4" />{ar ? "دائن" : "Credit"}</DropdownMenuItem>}
                 {canDebit && <DropdownMenuItem onSelect={() => { setDebitTarget(r); setDebitAmount(""); setDebitReason(""); setDebitVatRate(String(r.vat_rate)); setDebitRequest(crypto.randomUUID()); setDebitDate(businessDateKey(new Date())); setNoteError("") }}><BadgeDollarSign className="h-4 w-4" />{ar ? "مدين" : "Debit"}</DropdownMenuItem>}
                 {canCancel && <DropdownMenuItem className="text-destructive" onSelect={() => { setCancelTarget(r); setCancelReason(""); setCancelError("") }}><Ban className="h-4 w-4" />{ar ? "إلغاء" : "Cancel"}</DropdownMenuItem>}
@@ -722,7 +777,9 @@ export function InvoicesManager() {
           </DialogHeader>
           <BankAccountPicker key={printTarget?.id} value={printBank} onChange={setPrintBank} ar={ar} disabled={!!printingId} />
           <p role="note" className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
-            {ar ? "الرمز الحالي داخلي. لم يكتمل ربط ZATCA، ولا تعد هذه النسخة دليلاً على اعتماد أو إرسال الفاتورة لدى الهيئة." : "The current QR is internal. ZATCA integration is incomplete; this copy is not evidence of ZATCA clearance or reporting."}
+            {printTarget && printTarget.invoice_type === "sales" && !["draft", "issued", "cancelled"].includes(printTarget.status)
+              ? (ar ? "فاتورة إلكترونية (المرحلة الأولى): رمز QR يُنشأ محلياً بوقت الاعتماد ولا تُرسل الفاتورة إلى ZATCA ما لم تُرسل من الربط. لا تعد هذه النسخة دليلاً على التخليص أو الإبلاغ." : "Phase 1 e-invoice: the QR is generated locally at the finalization time and the invoice is not sent to ZATCA unless submitted through the connection. This copy is not evidence of clearance or reporting.")
+              : (ar ? "الرمز الحالي داخلي. لم تُعتمد الفاتورة بعد، ولا تعد هذه النسخة دليلاً على اعتماد أو إرسال الفاتورة لدى الهيئة." : "The current QR is internal. The invoice is not finalized; this copy is not evidence of ZATCA clearance or reporting.")}
           </p>
           {printError && <p role="alert" className="text-sm text-destructive">{printError}</p>}
           <div className="flex flex-wrap gap-2">

@@ -41,7 +41,7 @@ import { ChartOfAccountsManager } from "./components/chart-of-accounts-manager"
 import { PartiesManager } from "./components/parties-manager"
 import { StatementsManager } from "./components/statements-manager"
 import { runEventDispatcher } from "@/lib/accounting/dispatcher"
-import { runZatcaAdapter, getZatcaTransmission } from "@/lib/accounting/zatca"
+import { runZatcaAdapter, getZatcaTransmission, setZatcaAutoSend } from "@/lib/accounting/zatca"
 import { zatcaEvidenceLabel } from "@/lib/accounting/zatca-evidence"
 import {
   listZatcaCsids,
@@ -968,6 +968,18 @@ export default function AccountingPage() {
     } else {
       flash("err", res.error ?? "ZATCA adapter failed")
     }
+  }
+
+  async function handleToggleAutoSend(enabled: boolean) {
+    setZatcaBusy(true)
+    const res = await setZatcaAutoSend(enabled)
+    setZatcaBusy(false)
+    if (res.success) {
+      flash("ok", enabled
+        ? (ar ? "تم تفعيل الإرسال التلقائي عند اعتماد الفاتورة." : "Automatic submission on finalization enabled.")
+        : (ar ? "تم إيقاف الإرسال التلقائي. أرسل الفواتير يدوياً من قائمة الفواتير." : "Automatic submission disabled. Send invoices manually from the invoice list."))
+      await reloadZatca()
+    } else flash("err", res.error ?? "Failed")
   }
 
   async function handleViewZatca(id: string) {
@@ -2170,6 +2182,47 @@ export default function AccountingPage() {
                 )}
                 <p>{ar ? "الإرسال الإنتاجي يتطلب تسجيل المكلّف الفعلي في بوابة Fatoora واجتياز بيئة المحاكاة واعتماد الإصدار." : "Production submission requires real taxpayer onboarding in the Fatoora portal, a passing simulation run and release approval."}</p>
               </div>
+              {zatcaStatus && (
+                <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">{ar ? "وضع الفوترة الإلكترونية" : "E-invoicing mode"}</CardTitle>
+                    <CardDescription>
+                      {ar ? "المرحلة الأولى افتراضياً، والربط بالمرحلة الثانية فقط بعد إشعار ZATCA بموجة الربط الخاصة بك." : "Phase 1 by default; connect Phase 2 only once ZATCA has notified your integration wave."}
+                    </CardDescription>
+                  </CardHeader>
+                  <div className="px-4 pb-4 grid gap-3 md:grid-cols-2 text-sm">
+                    <div className={`rounded-xl border p-3 space-y-1 ${zatcaStatus.mode === "local" ? "border-emerald-500/40 bg-emerald-500/5" : "border-border/50 bg-muted/30"}`}>
+                      <div className="flex items-center gap-2 font-medium">
+                        {ar ? "المرحلة الأولى — الإصدار (محلي)" : "Phase 1 — Generation (local)"}
+                        {zatcaStatus.mode === "local" && <Badge className="bg-emerald-500/15 text-emerald-700">{ar ? "الوضع الحالي" : "Current"}</Badge>}
+                      </div>
+                      <p className="text-[12px] text-muted-foreground">
+                        {ar ? "تُنشأ الفواتير إلكترونياً بترقيم تسلسلي ورمز QR (اسم البائع، الرقم الضريبي، الوقت، الإجمالي، الضريبة) وتُحفظ محلياً. لا يُرسل أي شيء إلى ZATCA." : "Invoices are generated electronically with sequential numbering and a QR (seller, VAT number, time, total, VAT) and stored locally. Nothing is sent to ZATCA."}
+                      </p>
+                    </div>
+                    <div className={`rounded-xl border p-3 space-y-2 ${zatcaStatus.mode === "connected" ? "border-sky-500/40 bg-sky-500/5" : "border-border/50 bg-muted/30"}`}>
+                      <div className="flex items-center gap-2 font-medium">
+                        {ar ? "المرحلة الثانية — الربط والتكامل" : "Phase 2 — Integration"}
+                        {zatcaStatus.mode === "connected" && <Badge className="bg-sky-500/15 text-sky-700">{ar ? `متصل · ${zatcaStatus.environment}` : `Connected · ${zatcaStatus.environment}`}</Badge>}
+                      </div>
+                      <p className="text-[12px] text-muted-foreground">
+                        {ar ? "بيئة المحاكاة (منصة فاتورة التجريبية) للاختبار فقط ولا تُحتسب فواتيرها لدى الهيئة. الربط الإنتاجي معطل ويتطلب موافقة صريحة بعد إشعار موجتك." : "The simulation environment (Fatoora test portal) is for testing only; its invoices do not count with ZATCA. Production is disabled and requires explicit approval after your wave is notified."}
+                      </p>
+                      {zatcaStatus.mode === "connected" && (
+                        <label className="flex items-center gap-2 text-[12px]">
+                          <input
+                            type="checkbox"
+                            checked={!!zatcaStatus.automation?.enabled}
+                            disabled={zatcaBusy}
+                            onChange={(e) => void handleToggleAutoSend(e.target.checked)}
+                          />
+                          {ar ? "إرسال الفاتورة تلقائياً إلى ZATCA عند اعتمادها (وإعادة المحاولة يومياً للفاشلة)" : "Send invoices to ZATCA automatically on finalization (failed ones retried daily)"}
+                        </label>
+                      )}
+                    </div>
+                  </div>
+                </Card>
+              )}
               {zatcaStatus && (
                 <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                   <CardHeader className="pb-3">

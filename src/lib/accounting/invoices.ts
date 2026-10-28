@@ -34,7 +34,6 @@ import { writeAuditLog } from "@/lib/auth/sessions"
 import { mapFinancialError, toCsv } from "@/lib/accounting/csv-utils"
 import { computeInvoiceTotals, type InvoiceLineInput } from "@/lib/accounting/invoice-math"
 import { runEventDispatcher } from "@/lib/accounting/dispatcher"
-import { runZatcaAdapter } from "@/lib/accounting/zatca"
 import { runZatcaForTenant } from "@/lib/accounting/zatca-adapter-core"
 import { rateLimitAccounting } from "@/lib/auth/rate-limit"
 import { getErrorDefinition } from "@/lib/errors/error-codes"
@@ -119,16 +118,16 @@ export async function deleteInvoiceDraft(input: { id: string; expected_updated_a
 // Issuance/approval use caller-bound transactions; a receipt makes retries of
 // the same reviewed version safe without adopting older partial effects.
 /**
- * Submit newly issued documents to ZATCA right away (so the preparation time
- * is the issue time and B2C reporting starts inside the 24-hour window).
- * Users without accounting:approve fall back to the tenant's registered
- * ZATCA operator; the scheduled run retries anything still pending. Never
+ * Optional auto-send (Daftra-style "send on save"): when the tenant enabled
+ * automatic submission, newly issued documents are submitted right away on
+ * behalf of the tenant's registered ZATCA operator (so the preparation time
+ * is the issue time). With auto-send off (the default) documents stay local
+ * Phase 1 e-invoices until someone sends them from the invoice list. Never
  * fails the committed invoice decision.
  */
 async function submitToZatcaAfterIssue(tenantId: string): Promise<void> {
   try {
-    const own = await runZatcaAdapter()
-    if (!own.success) await runZatcaForTenant(tenantId)
+    await runZatcaForTenant(tenantId)
   } catch { /* Separate, gated transmission workflow; retried on schedule. */ }
 }
 

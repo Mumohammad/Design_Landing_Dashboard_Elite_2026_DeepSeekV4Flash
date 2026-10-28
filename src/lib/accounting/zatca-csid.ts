@@ -333,12 +333,13 @@ export async function onboardZatcaCsids(input: OnboardZatcaInput): Promise<Onboa
       if (streamError && streamError.code !== "23505") return { success: false, error: "Unable to register the EGS issuance stream." }
     }
 
-    // The onboarding user becomes the tenant's ZATCA operator: the scheduled
-    // backstop retries pending documents on their behalf (re-authorized on
-    // every run). Failure here does not undo the issued credentials.
+    // The onboarding user becomes the tenant's ZATCA operator. Automatic
+    // submission stays OFF until explicitly enabled (Daftra-style opt-in);
+    // a renewal never overrides an existing choice. Failure here does not
+    // undo the issued credentials.
     const { error: automationError } = await admin.from("zatca_automation").upsert({
-      tenant_id: currentUser.tenantId, operator_id: currentUser.authUserId, enabled: true, updated_at: new Date().toISOString(),
-    }, { onConflict: "tenant_id" })
+      tenant_id: currentUser.tenantId, operator_id: currentUser.authUserId, enabled: false, updated_at: new Date().toISOString(),
+    }, { onConflict: "tenant_id", ignoreDuplicates: true })
     if (automationError) console.error("[zatca] failed to register the automation operator")
 
     await writeAuditLog({

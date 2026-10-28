@@ -17,6 +17,12 @@ import { computeZatcaBacklog, type BacklogEvent, type BacklogTransmission, type 
 
 export interface ZatcaStatus {
   enabled: boolean
+  /**
+   * "local": Phase 1 — e-invoices are generated and stored locally with the
+   * simplified QR; nothing is sent to ZATCA. "connected": Phase 2 — an EGS unit
+   * is onboarded on the configured non-production gateway.
+   */
+  mode: "local" | "connected"
   environment: "sandbox" | "simulation" | null
   productionEnabled: false
   profileMissing: string[]
@@ -97,6 +103,7 @@ export async function getZatcaStatus(): Promise<{ success: boolean; error?: stri
       success: true,
       status: {
         enabled,
+        mode: enabled && goLiveAt ? "connected" : "local",
         environment,
         productionEnabled: false,
         profileMissing,

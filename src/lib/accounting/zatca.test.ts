@@ -99,7 +99,7 @@ vi.mock("next/cache", () => ({
   revalidatePath: mocks.revalidatePath,
 }))
 
-import { runZatcaAdapter, getZatcaTransmission } from "./zatca"
+import { runZatcaAdapter, getZatcaTransmission, sendDocumentToZatca, setZatcaAutoSend } from "./zatca"
 import { runZatcaForTenant } from "./zatca-adapter-core"
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -240,6 +240,7 @@ function tableBuilder(table: string, rows: Record<string, unknown>, writes: { ta
   builder.maybeSingle = vi.fn(single)
   builder.insert = vi.fn((value: unknown) => { writes.push({ table, op: "insert", value }); return Promise.resolve({ error: null }) })
   builder.update = vi.fn((value: unknown) => { writes.push({ table, op: "update", value }); return builder })
+  builder.upsert = vi.fn((value: unknown, opts: unknown) => { writes.push({ table, op: "upsert", value: { value, opts } }); return Promise.resolve({ error: null }) })
   builder.then = (resolve: (v: unknown) => void) =>
     resolve(table === "financial_events" ? { data: rows.financial_events, error: null } : { data: rows[`${table}:list`] ?? [], error: null })
   return builder
@@ -360,5 +361,45 @@ describe("runZatcaForTenant — scheduled backstop on behalf of the registered o
     expect(mocks.getCurrentUser).not.toHaveBeenCalled()
     expect(writes.find((w) => w.table === "zatca_automation")?.value).toMatchObject({ last_result: { success: true, processed: 1 } })
     expect((writes.find((w) => w.table === "zatca_transmissions")?.value as Record<string, unknown>).created_by).toBe("auth-9")
+  })
+})
+
+describe("Daftra-style controls — per-document send and opt-in auto-send", () => {
+  beforeEach(() => {
+    mocks.getZatcaCsidCredential.mockResolvedValue(STORED_CSID)
+    vi.stubEnv("ZATCA_MODE", "sandbox")
+    vi.stubEnv("ZATCA_API_BASE_URL", "https://gw-fatoora.zatca.gov.sa/e-invoicing/developer-portal")
+  })
+
+  it("sends only the selected document, requiring accounting:approve", async () => {
+    networkAdmin()
+    const res = await sendDocumentToZatca(SOURCE_ID)
+    expect(res).toMatchObject({ success: true, processed: 1 })
+    expect(mocks.requirePermission).toHaveBeenCalledWith("accounting", "approve")
+    const eventsBuilder = mocks.adminFrom.mock.results.find((r, i) => (mocks.adminFrom.mock.calls[i] as unknown[])[0] === "financial_events")?.value as { in: ReturnType<typeof vi.fn> }
+    expect(eventsBuilder.in).toHaveBeenCalledWith("source_id", [SOURCE_ID])
+  })
+
+  it("rejects malformed ids and tenants without a connected EGS unit", async () => {
+    expect(await sendDocumentToZatca("x")).toMatchObject({ success: false })
+    networkAdmin({ zatca_issuance_streams: null })
+    const res = await sendDocumentToZatca(SOURCE_ID)
+    expect(res.error).toContain("Connect ZATCA")
+    expect(mocks.prepareZatcaDocument).not.toHaveBeenCalled()
+  })
+
+  it("registers the approver as operator when toggling auto-send and audits the change", async () => {
+    const writes = networkAdmin()
+    expect(await setZatcaAutoSend(true)).toEqual({ success: true })
+    expect(writes.find((w) => w.table === "zatca_automation")?.value).toEqual({
+      value: expect.objectContaining({ tenant_id: "tenant-0001", operator_id: "auth-0001", enabled: true }), opts: { onConflict: "tenant_id" },
+    })
+    expect(mocks.writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({ action: "zatca_auto_send_changed", newValues: { enabled: true } }))
+  })
+
+  it("refuses to enable auto-send before onboarding, but always allows turning it off", async () => {
+    networkAdmin({ zatca_issuance_streams: null })
+    expect((await setZatcaAutoSend(true)).success).toBe(false)
+    expect((await setZatcaAutoSend(false)).success).toBe(true)
   })
 })

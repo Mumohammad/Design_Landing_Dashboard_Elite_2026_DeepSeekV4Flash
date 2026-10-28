@@ -5,6 +5,20 @@ Never paste OTPs, CSID secrets, private keys or CRON_SECRET into chat, tickets
 or source control. They are entered in the app or in Vercel's encrypted
 environment settings only.
 
+## E-invoicing modes (Daftra-style model)
+
+EliteDev follows the same model as mainstream Saudi accounting SaaS (e.g. Daftra):
+
+| Mode | What happens | Sent to ZATCA? | Legal effect |
+|---|---|---|---|
+| **Phase 1 — Generation (default)** | Finalized sales invoices are e-invoices: system-generated sequential number, seller/buyer VAT, VAT per line, totals, 5-field TLV QR stamped with the finalization time. B2C buyers (no VAT number) print as *Simplified Tax Invoice*. | No | Required for every VAT-registered taxpayer since 4 Dec 2021. Sufficient until ZATCA notifies the taxpayer's Phase 2 wave. |
+| **Phase 2 — Simulation** (`ZATCA_MODE=simulation`) | EGS onboarding with a Fatoora *simulation* OTP; invoices can be sent per document ("Send to ZATCA") or automatically on finalization (opt-in toggle). | Test portal only | **Does not count.** Simulation/sandbox invoices are not legal submissions. |
+| **Phase 2 — Production** | Blocked in code (`zatca-config.ts`). | Yes (core) | Counts legally; only after the wave notice, a passing simulation run and explicit owner approval. |
+
+- Auto-send is **off by default** (onboarding registers the operator with `enabled=false`); turn it on from *Accounting → ZATCA → E-invoicing mode*. The daily cron only runs for enabled tenants.
+- Per-invoice status on the invoice list: *Local · Phase 1* → (once connected) *Not submitted* → *Reported/Cleared* or *Failed/Rejected* with a *Send to ZATCA* action.
+- Waves: ZATCA notifies each taxpayer ≥ 6 months ahead. Wave 25 covers taxpayers with VAT-subject revenue > SAR 187,500 in any year 2022–2025, integration due **1 Feb 2027**. Check the Fatoora portal / ZATCA notice for the company's actual wave before planning production.
+
 ## 0. Current state
 
 | Item | State |

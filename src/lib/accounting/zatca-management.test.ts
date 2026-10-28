@@ -59,6 +59,7 @@ describe("getZatcaStatus", () => {
     expect(res.success).toBe(true)
     const s = res.status!
     expect(s).toMatchObject({ enabled: true, environment: "sandbox", productionEnabled: false, profileMissing: [], vatValid: true })
+    expect(["local", "connected"]).toContain(s?.mode)
     expect(s.streams).toEqual([{ egsSerial: "1-EliteDev|2-Dashboard|3-x", environment: "sandbox", lastCounter: 4, createdAt: old }])
     expect(s.certificates[0].daysLeft).toBeGreaterThanOrEqual(9)
     expect(s.backlog.pending).toBe(2)
