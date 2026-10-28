@@ -401,4 +401,4 @@ jobs:
         STAGING_EXPECTED_COMMIT: ${{ github.event.pull_request.head.sha }}
       run: |
         node scripts/wait-for-staging.mjs
-        pnpm exec playwright test e2e/smoke.spec.ts e2e/locale-session.spec.ts --reporter=github
+        pnpm exec playwright test e2e/smoke.spec.ts e2e/locale-session.spec.ts e2e/public-surface.spec.ts --reporter=github
