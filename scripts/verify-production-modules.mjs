@@ -7,6 +7,7 @@ import { chromium, expect } from "@playwright/test"
 import { createClient } from "@supabase/supabase-js"
 import { createHmac, randomBytes, randomUUID } from "node:crypto"
 import { setTimeout } from "node:timers/promises"
+import {readAcceptanceFixturePlans} from "./lib/acceptance-fixture-ledgers.mjs"
 import {MODULE_GROUPS,runCoordinatedAcceptance,retireAcceptanceFixtures,preflightAcceptanceTarget,assertAcceptanceRunId} from "./lib/coordinated-acceptance.mjs"
 
 process.loadEnvFile("supabase/.temp/staging-verification.env")
@@ -148,6 +149,12 @@ try {
     proof.results.push("verifyFleetOperations"); saveProof()
   }
   if (moduleGroup === "drivers") {
+    stage = "driver profile create, versioned changes, status and safe archive"
+    const { verifyDriverProfileCrud } = await import("./verify-driver-profile-crud.mjs")
+    await verifyDriverProfileCrud(page, admin, company.data.id, appUrl)
+    proof.results.push("verifyDriverProfileCrud"); saveProof()
+  }
+  if (moduleGroup === "drivers") {
     stage = "driver profile operational lifecycle"
     const { verifyDriverProfileOperations } = await import("./verify-local-driver-profile-operations.mjs")
     await verifyDriverProfileOperations(page, admin, company.data.id, appUrl)
@@ -170,6 +177,12 @@ try {
     const { verifyOrdersPlatforms } = await import("./verify-local-orders-platforms.mjs")
     await verifyOrdersPlatforms(page, admin, company.data.id, appUrl)
     proof.results.push("verifyOrdersPlatforms"); saveProof()
+  }
+  if (moduleGroup === "access") {
+    stage = "tenant invitation issuance, truthful delivery and revocation"
+    const { verifyTenantInvitation } = await import("./verify-tenant-invitation.mjs")
+    await verifyTenantInvitation(page, admin, company.data.id, appUrl)
+    proof.results.push("verifyTenantInvitation"); saveProof()
   }
   if (moduleGroup === "access") {
     stage = "user and role management"
@@ -215,6 +228,12 @@ try {
     proof.results.push("verifyAccountingPages"); saveProof()
   }
   if (moduleGroup === "finance") {
+    stage = "VAT complete CSV, printable outputs and retained snapshots"
+    const { verifyVatReportOutputs } = await import("./verify-vat-report-outputs.mjs")
+    await verifyVatReportOutputs(page, admin, company.data.id, appUrl)
+    proof.results.push("verifyVatReportOutputs"); saveProof()
+  }
+  if (moduleGroup === "finance") {
     stage = "bank account CRUD"
     const { verifyBankCrud } = await import("./verify-local-banks.mjs")
     await verifyBankCrud(page, admin, company.data.id, appUrl)
@@ -249,6 +268,12 @@ try {
     const { verifyVatPosition } = await import("./verify-local-vat-position.mjs")
     await verifyVatPosition(page, admin, company.data.id, appUrl)
     proof.results.push("verifyVatPosition"); saveProof()
+  }
+  if (moduleGroup === "audit_admin") {
+    stage = "reports generation, private Storage and signed downloads"
+    const { verifyReportsLifecycle } = await import("./verify-reports-lifecycle.mjs")
+    await verifyReportsLifecycle(page, admin, company.data.id, appUrl)
+    proof.results.push("verifyReportsLifecycle"); saveProof()
   }
   if (moduleGroup === "audit_admin") {
     stage = "audit privacy, filtered export and failure recovery"
@@ -317,6 +342,7 @@ try {
   proof.result="FAIL";proof.failedStage=stage;saveProof()
   process.exitCode = 1
 } finally {
+  clearInterval(heartbeat)
   if (browser) {
     for (const context of browser.contexts()) {
       for (const page of context.pages()) await page.goto(appUrl + "/auth/sign-out").catch(() => {})
@@ -324,7 +350,7 @@ try {
   }
   await browser?.close()
   if(fixtureUserId) {
-    try {const cleanup=await retireAcceptanceFixtures(admin,proof);proof.appAccessRetired=cleanup.result==="PASS";proof.authAccessRetired=cleanup.result==="PASS";if(cleanup.result!=="PASS")process.exitCode=1}
+    try {const plans=readAcceptanceFixturePlans({workspaceRoot:process.cwd(),groupDirectory:evidenceDir,proof});const cleanup=await retireAcceptanceFixtures(admin,proof,plans);proof.appAccessRetired=cleanup.result==="PASS";proof.authAccessRetired=cleanup.result==="PASS";if(cleanup.result!=="PASS")process.exitCode=1}
     catch (error) {proof.cleanupFailed=true;proof.cleanupEvidence=error.cleanupEvidence;process.exitCode=1;console.error("Owned group access retirement failed")}
   }
   proof.finishedAt=new Date().toISOString();saveProof()

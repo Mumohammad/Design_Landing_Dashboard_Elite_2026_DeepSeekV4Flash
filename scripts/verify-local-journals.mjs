@@ -1,10 +1,14 @@
 import { expect as baseExpect } from "@playwright/test"
 import { verifyAccountingReads } from "./verify-accounting-reads.mjs"
 import { verifyLedgerPagination } from "./verify-ledger-pagination.mjs"
+import { assertModuleTestTarget } from "./assert-module-test-target.mjs"
+import { verifyJournalReviewLifecycle } from "./verify-journal-review-lifecycle.mjs"
+import { verifyPeriodReopen } from "./verify-period-reopen.mjs"
 const expect = baseExpect.configure({ timeout: 20_000 })
 
-// Only invoked by the loopback-only MFA harness, using disposable tenant data.
+// Invoked only against the guarded loopback or isolated staging tenant.
 export async function verifyJournalCrud(page, admin, tenantId, appUrl) {
+  await assertModuleTestTarget(page, admin.supabaseUrl, appUrl)
   let stage = "journal accounts"
   try {
     stage = "accounting read failure and recovery"
@@ -73,6 +77,10 @@ export async function verifyJournalCrud(page, admin, tenantId, appUrl) {
     if (audit.error || !["journal_draft_created", "journal_draft_updated", "journal_draft_deleted"]
       .every((action) => audit.data.some((entry) => entry.action === action))) throw new Error("Journal audit incomplete")
     console.log("PASS: journal browser create → edit → persisted lines → mobile editor → soft delete → reload → audit")
+    stage = "manual journal review and exact protected reversal"
+    const period = await verifyJournalReviewLifecycle(page, admin, tenantId, appUrl, { cash, income })
+    stage = "period close, reopen and re-close"
+    await verifyPeriodReopen(page, admin, tenantId, appUrl, period)
     stage = "ledger pagination and search"
     await verifyLedgerPagination(page, admin, tenantId, appUrl, [cash, income], deleted.data.period_id)
   } catch (error) {

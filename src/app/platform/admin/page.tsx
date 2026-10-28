@@ -12,6 +12,8 @@ import {
   ScrollText, Pencil, Trash2, KeyRound, BadgeDollarSign, TrendingUp,
 } from 'lucide-react';
 import { getBrowserSupabase } from '@/lib/platform/browser';
+import { createPlatformRequest } from '@/lib/platform/request';
+import { loadPlatformUserChoices, canCreatePlatformUser, PlatformUserChoicesError, type PlatformUserChoices } from '@/lib/platform/user-choices';
 
 type Stats = { total: number; active: number; suspended: number; terminated: number; trial: number; new_this_month: number };
 type Company = {
@@ -58,7 +60,6 @@ export default function PlatformAdminPage() {
   const ui = useUiText()
   const router = useRouter();
   const [phase, setPhase] = useState<'checking' | 'ready'>('checking');
-  const [token, setToken] = useState<string | null>(null);
   const [section, setSection] = useState<Section>('overview');
 
   const [stats, setStats] = useState<Stats | null>(null);
@@ -77,56 +78,65 @@ export default function PlatformAdminPage() {
   const [formErr, setFormErr] = useState('');
   const [busy, setBusy] = useState(false);
   const busyLock = useRef(false);
-  const lifecycle = useRef({ mounted: false, generation: 0 });
+  const lifecycle = useRef({ mounted: false, generation: 0, choiceGeneration: 0 });
   useEffect(() => {
     const state = lifecycle.current;
     state.mounted = true;
-    return () => { state.mounted = false; state.generation++; };
+    return () => { state.mounted = false; state.generation++; state.choiceGeneration++; };
   }, []);
   const [authError, setAuthError] = useState(false);
   const [notice,setNotice]=useState('');
   const [creationPending,setCreationPending]=useState(false);
   const [userRoles,setUserRoles]=useState<{tenant_id:string;name:string}[]>([]);
+  const [userChoices,setUserChoices]=useState<PlatformUserChoices|null>(null);
+  const [userChoicesState,setUserChoicesState]=useState<'idle'|'loading'|'ready'|'error'>('idle');
+  const [userChoicesFailure,setUserChoicesFailure]=useState<PlatformUserChoicesError|null>(null);
   const [userReview,setUserReview]=useState<{user:AdminUser;action:'role'|'status'|'archive'|'reset';value?:string}|null>(null);
   const [userReason,setUserReason]=useState('');
   const [companyForm, setCompanyForm] = useState({ company_name: '', domain: '', owner_email: '', owner_name: '' });
   const [userForm, setUserForm] = useState({ request_id:'', tenant_id: '', email: '', full_name: '', role: 'readonly_auditor', password: '' });
   const [invoiceForm, setInvoiceForm] = useState({ tenant_id: '', amount: '', period_label: '', due_date: '' });
 
-  const api = useCallback(async (path: string, init?: RequestInit) => {
-    const res = await fetch(path, {
-      ...init,
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
-    });
-    if (!res.ok) { const body=await res.json().catch(()=>({})); throw Object.assign(new Error((locale==='ar'?body.error_ar:body.error)||body.error||`HTTP ${res.status}`),{status:res.status}); }
-    return res.json();
-  }, [token,locale]);
+  const api = useMemo(() => createPlatformRequest(() => getBrowserSupabase().auth.getSession(),locale),[locale]);
 
+  const refreshUserChoices = useCallback(async () => {
+    const request = ++lifecycle.current.choiceGeneration;
+    setUserChoicesState('loading');setUserChoices(null);setUserChoicesFailure(null);
+    try {
+      const choices = await loadPlatformUserChoices(api);
+      if (!lifecycle.current.mounted || request !== lifecycle.current.choiceGeneration) return;
+      setUserChoices(choices);setUserChoicesState('ready');
+    } catch(error) {
+      if (!lifecycle.current.mounted || request !== lifecycle.current.choiceGeneration) return;
+      setUserChoicesFailure(error instanceof PlatformUserChoicesError ? error : new PlatformUserChoicesError('companies'));
+      setUserChoicesState('error');
+    }
+  },[api]);
+  const createUserReady = userChoicesState==='ready' && canCreatePlatformUser(userChoices,userForm,ROLES);
   const load = useCallback(async (isCurrent: () => boolean = () => true) => {
     const generation = ++lifecycle.current.generation;
-    const result = await Promise.all([
-      api('/api/platform/admin/stats'),
-      api('/api/platform/admin/companies'),
-      api('/api/platform/admin/users'),
-      api('/api/platform/admin/billing'),
-      api('/api/platform/admin/analytics'),
-      api('/api/platform/admin/audit'),
-    ]).catch(error => {
-      if (!lifecycle.current.mounted || generation !== lifecycle.current.generation || !isCurrent()) return null;
-      throw error;
-    });
-    if (!result || !lifecycle.current.mounted || generation !== lifecycle.current.generation || !isCurrent()) return;
-    const [s, c, u, b, an, au] = result;
-    setStats(s); setCompanies(c.companies); setUsers(u.users); setUserRoles(u.active_roles??[]);
-    setInvoices(b.invoices); setBillingSummary(b.summary);
-    setAnalytics(an); setAudit(au.entries);
+    const result = await Promise.allSettled([
+      api('/api/platform/admin/stats'),api('/api/platform/admin/companies'),api('/api/platform/admin/users'),
+      api('/api/platform/admin/billing'),api('/api/platform/admin/analytics'),api('/api/platform/admin/audit'),
+    ]);
+    if (!lifecycle.current.mounted || generation !== lifecycle.current.generation || !isCurrent()) return;
+    if(result[0].status==='fulfilled')setStats(result[0].value);
+    if(result[1].status==='fulfilled')setCompanies(result[1].value.companies);
+    if(result[2].status==='fulfilled'){setUsers(result[2].value.users);setUserRoles(result[2].value.active_roles??[]);}
+    if(result[3].status==='fulfilled'){setInvoices(result[3].value.invoices);setBillingSummary(result[3].value.summary);}
+    if(result[4].status==='fulfilled')setAnalytics(result[4].value);
+    if(result[5].status==='fulfilled')setAudit(result[5].value.entries);
+    if(result.some(item=>item.status==='rejected'))throw Error('Some platform data could not be loaded.');
   }, [api]);
 
   useEffect(() => {
     let current = true;
     const controller = new AbortController();
+    const supabase = getBrowserSupabase();
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(event => {
+      if(current&&event==='SIGNED_OUT'){current=false;controller.abort();setPhase('checking');router.replace('/auth/sign-in');}
+    });
     void (async () => {
-      const supabase = getBrowserSupabase();
       const { data: { session } } = await supabase.auth.getSession();
       if (!current) return;
       if (!session?.access_token) { router.replace('/auth/sign-in'); return; }
@@ -134,10 +144,9 @@ export default function PlatformAdminPage() {
       if (!current) return;
       if (res.status === 401 || res.status === 403) { router.replace('/platform'); return; }
       if (!res.ok) throw new Error('Authority check unavailable');
-      setToken(session.access_token);
       setPhase('ready');
     })().catch(() => { if (current) setAuthError(true); });
-    return () => { current = false; controller.abort(); };
+    return () => { current = false; controller.abort(); subscription.unsubscribe(); };
   }, [router]);
 
   useEffect(() => {
@@ -368,7 +377,7 @@ export default function PlatformAdminPage() {
               <div data-testid="platform-users" className="rounded-2xl border border-white/10 bg-slate-900/60">
                 <div className="flex flex-col gap-4 border-b border-white/10 p-5 md:flex-row md:items-center md:justify-between">
                   <div><h2 className="text-lg font-extrabold"><LocalizedText text="كل المستخدمين" /></h2><p className="mt-0.5 text-xs text-white/45">{users.length}<LocalizedText text="مستخدم عبر" />{companies.length}<LocalizedText text="شركة" /></p></div>
-                  <button data-testid="platform-user-create" disabled={busy} onClick={() => { if(busyLock.current)return; if(!userForm.request_id){const tenant=companies.find(c=>c.status==='active');setUserForm({...userForm,request_id:crypto.randomUUID(),tenant_id:tenant?.id??'',role:userRoles.find(r=>r.tenant_id===tenant?.id)?.name??'readonly_auditor'});} setFormErr(''); setModal('create-user'); }} className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-[#1E5A99] to-[#174a7e] px-4 py-2.5 text-sm font-bold shadow-lg shadow-[#1E5A99]/25 transition hover:scale-[1.02]"><Plus className="h-4 w-4" /><LocalizedText text="إنشاء مستخدم" /></button>
+                  <button data-testid="platform-user-create" disabled={busy} onClick={() => { if(busyLock.current)return; if(!userForm.request_id)setUserForm({...userForm,request_id:crypto.randomUUID(),tenant_id:'',role:'readonly_auditor'}); setFormErr(''); setModal('create-user'); void refreshUserChoices(); }} className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-[#1E5A99] to-[#174a7e] px-4 py-2.5 text-sm font-bold shadow-lg shadow-[#1E5A99]/25 transition hover:scale-[1.02]"><Plus className="h-4 w-4" /><LocalizedText text="إنشاء مستخدم" /></button>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[820px] text-right">
@@ -522,14 +531,20 @@ export default function PlatformAdminPage() {
               </fieldset></form>
             )}
             {modal === 'create-user' && (
-              <form data-testid="platform-user-create-form" onSubmit={e => { e.preventDefault(); userAction('POST', { ...userForm, password: userForm.password || undefined }); }} className="mt-5 space-y-4"><fieldset disabled={busy} className="min-w-0 space-y-4">
-                <div><label htmlFor="platform-new-tenant" className="mb-1.5 block text-xs font-bold text-white/70">{locale==='ar'?'المنشأة':'Company'}</label><select id="platform-new-tenant" required disabled={creationPending} value={userForm.tenant_id} onChange={e => setUserForm({ ...userForm, tenant_id:e.target.value,role:userRoles.find(r=>r.tenant_id===e.target.value)?.name??'readonly_auditor' })} className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm focus:border-[#1E5A99] focus:outline-none"><option value="">{locale==='ar'?'اختر المنشأة':'Choose company'}</option>{companies.filter(c=>c.status==='active').map(c => <option key={c.id} value={c.id}>{c.name_en}</option>)}</select></div>
+              <form data-testid="platform-user-create-form" onSubmit={e => { e.preventDefault(); if(!createUserReady){setFormErr(locale==='ar'?'تحقق من المنشأة والدور قبل الإنشاء.':'Verify the company and role before creating.');return;} void userAction('POST', { ...userForm, password: userForm.password || undefined }); }} className="mt-5 space-y-4">
+                <div data-testid="platform-user-choices" data-state={userChoicesState} data-error-endpoint={userChoicesFailure?.endpoint} data-http-status={userChoicesFailure?.status}>
+                  {(userChoicesState==='idle'||userChoicesState==='loading')&&<p role="status" className="text-sm text-white/60">{locale==='ar'?'جارٍ تحميل المنشآت والأدوار…':'Loading companies and roles…'}</p>}
+                  {userChoicesState==='error'&&<div role="alert" className="space-y-2 rounded-xl border border-rose-500/30 p-3 text-sm text-rose-200"><p>{locale==='ar'?'تعذر التحقق من المنشآت والأدوار. أعد المحاولة قبل الإنشاء.':'Companies and roles could not be verified. Retry before creating.'}</p><button type="button" onClick={()=>void refreshUserChoices()} className="rounded-lg border border-white/20 px-3 py-1.5">{locale==='ar'?'أعد المحاولة':'Retry'}</button></div>}
+                  {userChoicesState==='ready'&&!userChoices?.companies.some(c=>c.status==='active')&&<p role="status" className="text-sm text-amber-200">{locale==='ar'?'لا توجد منشأة نشطة متاحة لإنشاء المستخدم.':'No active company is available for user creation.'}</p>}
+                </div>
+                <fieldset disabled={busy||userChoicesState!=='ready'} className="min-w-0 space-y-4">
+                <div><label htmlFor="platform-new-tenant" className="mb-1.5 block text-xs font-bold text-white/70">{locale==='ar'?'المنشأة':'Company'}</label><select id="platform-new-tenant" required disabled={creationPending} value={userForm.tenant_id} onChange={e => setUserForm({ ...userForm, tenant_id:e.target.value,role:userChoices?.roles.find(r=>r.tenant_id===e.target.value&&ROLES.includes(r.name))?.name??'' })} className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm focus:border-[#1E5A99] focus:outline-none"><option value="">{locale==='ar'?'اختر المنشأة':'Choose company'}</option>{(userChoices?.companies??[]).filter(c=>c.status==='active').map(c => <option key={c.id} value={c.id}>{locale==='ar'&&c.name_ar?c.name_ar:c.name_en}</option>)}</select></div>
                 <div><label htmlFor="platform-new-email" className="mb-1.5 block text-xs font-bold text-white/70">{locale==='ar'?'البريد الإلكتروني':'Email'}</label><input id="platform-new-email" required type="email" disabled={creationPending} value={userForm.email} onChange={e => setUserForm({ ...userForm, email:e.target.value })} className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm focus:border-[#1E5A99] focus:outline-none" dir="ltr" /></div>
                 <div><label htmlFor="platform-new-name" className="mb-1.5 block text-xs font-bold text-white/70">{locale==='ar'?'الاسم':'Name'}</label><input id="platform-new-name" maxLength={150} disabled={creationPending} value={userForm.full_name} onChange={e => setUserForm({ ...userForm, full_name:e.target.value })} className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm focus:border-[#1E5A99] focus:outline-none" /></div>
-                <div><label htmlFor="platform-new-role" className="mb-1.5 block text-xs font-bold text-white/70">{locale==='ar'?'الدور':'Role'}</label><select id="platform-new-role" required disabled={creationPending} value={userForm.role} onChange={e => setUserForm({ ...userForm, role:e.target.value })} className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm focus:border-[#1E5A99] focus:outline-none">{userRoles.filter(r=>r.tenant_id===userForm.tenant_id&&ROLES.includes(r.name)).map(r=><option key={r.name} value={r.name}>{ui(roleLabels[r.name]??r.name)}</option>)}</select></div>
+                <div><label htmlFor="platform-new-role" className="mb-1.5 block text-xs font-bold text-white/70">{locale==='ar'?'الدور':'Role'}</label><select id="platform-new-role" required disabled={creationPending} value={userForm.role} onChange={e => setUserForm({ ...userForm, role:e.target.value })} className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm focus:border-[#1E5A99] focus:outline-none"><option value="">{locale==='ar'?'اختر الدور':'Choose role'}</option>{(userChoices?.roles??[]).filter(r=>r.tenant_id===userForm.tenant_id&&ROLES.includes(r.name)).map(r=><option key={r.name} value={r.name}>{ui(roleLabels[r.name]??r.name)}</option>)}</select></div>
                 <div><label htmlFor="platform-new-password" className="mb-1.5 block text-xs font-bold text-white/70">{locale==='ar'?'كلمة مرور أولية (اختياري)':'Initial password (optional)'}</label><input id="platform-new-password" type="password" autoComplete="new-password" minLength={10} maxLength={128} disabled={creationPending} value={userForm.password} onChange={e => setUserForm({ ...userForm, password:e.target.value })} className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm focus:border-[#1E5A99] focus:outline-none" /><p className="mt-2 text-xs text-white/50">{locale==='ar'?'اتركها فارغة لإرسال دعوة. كلمة المرور الأولية تتطلب تغييرها عند أول دخول.':'Leave blank for an invitation. An initial password must be changed at first sign-in.'}</p></div>
                 {creationPending&&<p role="status" className="text-xs text-amber-200">{locale==='ar'?'احتفظ بنفس التفاصيل وأعد محاولة الطلب للتحقق من نتيجته. لن تتغير كلمة المرور الأصلية.':'Retry these same details to confirm the outcome. The original password is preserved.'}</p>}
-                <button data-testid="platform-new-submit" disabled={busy||!userForm.tenant_id||!userForm.role} className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#1E5A99] to-[#174a7e] px-4 py-3 text-sm font-bold disabled:opacity-60">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} {busy ? (locale==='ar'?'جارٍ الإنشاء…':'Creating…'):(locale==='ar'?'إنشاء المستخدم أو الدعوة':'Create user or invitation')}</button>
+                <button data-testid="platform-new-submit" disabled={busy||!createUserReady} className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#1E5A99] to-[#174a7e] px-4 py-3 text-sm font-bold disabled:opacity-60">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} {busy ? (locale==='ar'?'جارٍ الإنشاء…':'Creating…'):(locale==='ar'?'إنشاء المستخدم أو الدعوة':'Create user or invitation')}</button>
               </fieldset></form>
             )}
 

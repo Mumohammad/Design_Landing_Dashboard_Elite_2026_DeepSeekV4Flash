@@ -5,6 +5,7 @@ import {spawnSync} from 'node:child_process'
 import {randomUUID} from 'node:crypto'
 import {createClient} from '@supabase/supabase-js'
 import {MODULE_GROUPS,assertAcceptanceRunId,assertAcceptanceTarget,retireAcceptanceFixtures,redactAcceptanceOutput} from './lib/coordinated-acceptance.mjs'
+import {readAcceptanceFixturePlans,assertAcceptanceFixturePlans,readOwnedAcceptanceJson} from './lib/acceptance-fixture-ledgers.mjs'
 
 const project='viowrovartosrkqukjxy',groups=Object.keys(MODULE_GROUPS)
 const uuid=value=>/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value??'')
@@ -21,9 +22,7 @@ function regular(workspace,file,directory=false){
  return true
 }
 function readJson(workspace,file){
- if(!regular(workspace,file))return null
- if(fs.statSync(file).size>2*1024*1024)throw denied()
- try{const value=JSON.parse(fs.readFileSync(file,'utf8'));if(!value||typeof value!=='object'||Array.isArray(value))throw denied();return value}catch{throw denied()}
+ return readOwnedAcceptanceJson(workspace,file)?.value??null
 }
 function identity(value,expected,group){
  if(!value||value.runId!==expected.runId||value.commit!==expected.commit||value.target!==expected.target||value.project!==project||(group&&value.group!==group))throw denied()
@@ -55,6 +54,7 @@ function cleanupFacts(value){
  const result={result:['PASS','NOT_CREATED','UNVERIFIED'].includes(value?.result)?value.result:'UNVERIFIED'}
  for(const field of ['membersRetired','auxiliaryRetired','unresolvedAuxiliary','recoveredAuxiliary'])if(Number.isSafeInteger(value?.[field])&&value[field]>=0)result[field]=value[field]
  if(typeof value?.markerRemoved==='boolean')result.markerRemoved=value.markerRemoved
+ if(Array.isArray(value?.fixtures))result.fixtures=value.fixtures.filter(item=>['driver','invitation'].includes(item?.kind)).map(item=>({kind:item.kind,result:['PASS','NOT_CREATED','UNVERIFIED'].includes(item.result)?item.result:'UNVERIFIED',...(typeof item.holdRestored==='boolean'?{holdRestored:item.holdRestored}:{}),...(typeof item.revoked==='boolean'?{revoked:item.revoked}:{})}))
  result.issues=Array.isArray(value?.issues)?value.issues.filter(item=>typeof item==='string'&&/^[A-Z_]{1,80}$/.test(item)):result.result==='UNVERIFIED'?['RETIREMENT_UNVERIFIED']:[]
  return result
 }
@@ -72,7 +72,8 @@ export function readAcceptanceLedger({workspaceRoot=process.cwd(),runDirectory,r
   const proof=readJson(workspace,path.join(root,group,'fixture-proof.json'))
   if(proof)validateProof(proof,expected,group)
   for(const name of ['run.log',...(group==='finance'?pdfs:[])])regular(workspace,path.join(root,group,name))
-  return{group,proof}
+  const fixturePlan=readAcceptanceFixturePlans({workspaceRoot:workspace,groupDirectory:path.join(root,group),proof:proof??{...expected,group}})
+  return{group,proof,fixturePlan}
  })
  if(!summary&&proofs.some(item=>item.proof))throw denied()
  const artifactRoot=path.join(root,'safe-artifacts-'+randomUUID())
@@ -92,12 +93,14 @@ export async function retireReleaseAcceptance(options,{createAdmin,retire=retire
  fs.mkdirSync(ledger.artifactRoot)
  let admin
  const results=[]
- for(const {group,proof}of ledger.proofs){
+ for(const {group,proof,fixturePlan}of ledger.proofs){
   if(!proof){results.push({group,result:'NOT_STARTED'});continue}
   const copy=structuredClone(proof)
   try{
    const client=proof.authUserId?(admin??=createAdmin()):{supabaseUrl:options.backendUrl}
-   const cleanup=cleanupFacts(await retire(client,copy))
+   // Recheck the complete run after client construction, before any API access.
+   for(const entry of ledger.proofs)assertAcceptanceFixturePlans(entry.fixturePlan,entry.proof??{...ledger.expected,group:entry.group})
+   const cleanup=cleanupFacts(await retire(client,copy,fixturePlan))
    if(proof.authUserId&&!proof.tenantId&&['PASS','NOT_CREATED'].includes(cleanup.result)&&!(cleanup.membersRetired>0)){
     cleanup.result='UNVERIFIED';cleanup.issues=[...cleanup.issues,'INFLIGHT_AUTH_CREATION_UNVERIFIED']
    }

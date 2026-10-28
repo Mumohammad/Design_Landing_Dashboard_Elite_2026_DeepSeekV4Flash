@@ -5,17 +5,18 @@ import {randomUUID} from 'node:crypto'
 import {StringDecoder} from 'node:string_decoder'
 import {createClient} from '@supabase/supabase-js'
 import {writeReleaseEvidence} from './write-release-evidence.mjs'
+import {readAcceptanceFixturePlans,assertAcceptanceFixturePlans,retireAcceptanceFixturePlans,mayRetireAcceptanceFixtureMember} from './acceptance-fixture-ledgers.mjs'
 
 export const MODULE_GROUPS = {
  vat_review:['verifyVatReviewPosting'],
  payroll:['verifyPayrollPreparation'],
- drivers:['verifyDriverProfileOperations','verifyDriverLeaveLifecycle','verifyDriverEvidence'],
+ drivers:['verifyDriverProfileCrud','verifyDriverProfileOperations','verifyDriverLeaveLifecycle','verifyDriverEvidence'],
  operations:['verifyFleetOperations','verifyOrdersPlatforms'],
- access:['verifyUserRoleManagement','verifySettingsCrud','verifyExpenseCorrections','verifyApplicationReviews','verifyApprovalsInbox'],
- finance:['verifyInvoiceCrud','verifyJournalCrud','verifyFinancialStatements','verifyAccountingPages','verifyBankCrud','verifyReceivableCrud'],
+ access:['verifyTenantInvitation','verifyUserRoleManagement','verifySettingsCrud','verifyExpenseCorrections','verifyApplicationReviews','verifyApprovalsInbox'],
+ finance:['verifyInvoiceCrud','verifyJournalCrud','verifyFinancialStatements','verifyAccountingPages','verifyVatReportOutputs','verifyBankCrud','verifyReceivableCrud'],
  expenses:['verifyExpensesOverview'],
  masters:['verifyAccountingMasters'],
- audit_admin:['verifyVatPosition','verifyAuditPrivacy','verifyPlatformAdminUsers','verifyModuleLocales'],
+ audit_admin:['verifyVatPosition','verifyReportsLifecycle','verifyAuditPrivacy','verifyPlatformAdminUsers','verifyModuleLocales'],
 }
 const production='wwfnsbilmyxeawgzicmv',staging='viowrovartosrkqukjxy',uuid=value=>/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value??'')
 export function assertAcceptanceTarget(backendUrl,appUrl,sha) {
@@ -58,9 +59,11 @@ export function createAcceptanceLogScrubber(secrets,onLine,{maxLineBytes=131072}
  return {write(data){if(ended)throw Error('Acceptance output already finalized');pending+=decoder.write(Buffer.isBuffer(data)?data:Buffer.from(String(data)));consume()},end(){if(ended)return;ended=true;pending+=decoder.end();consume();if(pending){emit(pending);pending=''}}}
 }
 const authGone=result=>result.error?.status===404||(!result.error&&!!result.data.user?.deleted_at)
-export async function retireAcceptanceFixtures(admin,proof) {
+export async function retireAcceptanceFixtures(admin,proof,fixturePlan) {
  assertAcceptanceTarget(admin.supabaseUrl,proof.target,proof.commit)
  if(proof.project!==staging||!uuid(proof.runId)||!Object.hasOwn(MODULE_GROUPS,proof.group))throw Error('Owned acceptance run identity required')
+ fixturePlan??=readAcceptanceFixturePlans({proof,groupDirectory:path.resolve('supabase/.temp/release-acceptance-'+proof.runId,proof.group)})
+ assertAcceptanceFixturePlans(fixturePlan,proof)
  if(!uuid(proof.authUserId))return {result:'NOT_CREATED'}
  if(!uuid(proof.tenantId)) {
   const identity=await admin.auth.admin.getUserById(proof.authUserId)
@@ -79,12 +82,14 @@ export async function retireAcceptanceFixtures(admin,proof) {
  const tenant=await admin.from('tenants').select('created_by,domain').eq('id',proof.tenantId).single()
  const owner=await admin.from('users').select('id,tenant_id,auth_user_id,email,status').eq('tenant_id',proof.tenantId).eq('auth_user_id',proof.authUserId).single()
  if(tenant.error||owner.error||tenant.data.created_by!==proof.authUserId||tenant.data.domain!==proof.companyDomain||!/^[0-9a-f-]{36}\.test$/i.test(tenant.data.domain??'')||owner.data.email!==proof.ownerEmail||!/^release-[0-9a-f-]{36}@example\.test$/i.test(owner.data.email??''))throw Error('Owned release tenant retirement proof failed')
- const issues=[],facts={membersRetired:0,auxiliaryRetired:0,markerRemoved:false,unresolvedAuxiliary:0,recoveredAuxiliary:0}
+ const fixtureCleanup=fixturePlan.count?await retireAcceptanceFixturePlans(admin,proof,fixturePlan):{fixtures:[],issues:[]}
+ const issues=[...fixtureCleanup.issues],facts={membersRetired:0,auxiliaryRetired:0,markerRemoved:false,unresolvedAuxiliary:0,recoveredAuxiliary:0,...(fixturePlan.count?{fixtures:fixtureCleanup.fixtures}:{})}
  const members=await admin.from('users').select('id,auth_user_id,email,status',{count:'exact'}).eq('tenant_id',proof.tenantId)
  if(members.error||members.count===null||members.count!==members.data?.length)issues.push('MEMBER_SET_INCOMPLETE')
  const known=members.error?[owner.data]:members.data??[owner.data]
  if(!known.some(member=>member.auth_user_id===proof.authUserId))known.push(owner.data)
  for(const member of known)try{
+  if(!mayRetireAcceptanceFixtureMember(fixturePlan,member))throw Error('Unexpected invitation member requires reviewed auxiliary recovery')
   if(!uuid(member.auth_user_id)||!member.email?.endsWith('@example.test'))throw Error('Non-synthetic member')
   let auth=await admin.auth.admin.getUserById(member.auth_user_id)
   if(!authGone(auth)&&(auth.error||auth.data.user?.email!==member.email))throw Error('Owned Auth binding unknown')

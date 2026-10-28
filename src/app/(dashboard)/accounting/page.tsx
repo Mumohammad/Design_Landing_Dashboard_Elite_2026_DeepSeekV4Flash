@@ -1,6 +1,7 @@
 "use client"
 
 import { LocalizedText } from "@/components/localized-text"
+import { printReportFromGesture } from "@/lib/accounting/report-print"
 import { integrationAvailable } from "@/lib/release/integrations"
 import { Fragment, useCallback, useEffect, useState } from "react"
 import { useActionState } from "react"
@@ -843,19 +844,14 @@ export default function AccountingPage() {
   }
 
   async function handlePrintVatRecon() {
+    if (reconPrinting) return
     setReconPrinting(true)
-    const res = await generateVatReconciliationReport()
-    setReconPrinting(false)
-    if (res.success && res.html) {
-      const win = window.open("", "_blank")
-      if (win) {
-        win.document.write(res.html)
-        win.document.close()
-        setTimeout(() => win.print(), 300)
-      }
-    } else {
-      flash("err", res.error ?? "Report failed")
-    }
+    try {
+      const result = await printReportFromGesture(() => generateVatReconciliationReport())
+      if (result === "blocked") flash("err", ar ? "اسمح بالنوافذ المنبثقة لهذا الموقع، ثم حاول طباعة التقرير مجدداً." : "Allow pop-ups for this site, then try printing the report again.")
+      else if (result === "failed") flash("err", ar ? "تعذر فتح تقرير التسوية. تحقق من الاتصال وحاول مجدداً." : "Could not open the reconciliation report. Check your connection and try again.")
+      else flash("ok", ar ? "فُتح التقرير للطباعة أو الحفظ بصيغة PDF." : "Report opened for printing or saving as PDF.")
+    } finally { setReconPrinting(false) }
   }
 
   async function handleResolveReview() {
@@ -893,22 +889,20 @@ export default function AccountingPage() {
   }
 
   async function handlePrintVatReturn() {
-    if (!vatReturnPeriod) return
+    if (!vatReturnPeriod || returnPrinting) return
     setReturnPrinting(true)
-    const [year, month] = vatReturnPeriod.split("-").map(Number)
-    const res = await generateVatReturnReport({ period_year: year, period_month: month })
-    setReturnPrinting(false)
-    if (res.success && res.html) {
-      const win = window.open("", "_blank")
-      if (win) {
-        win.document.write(res.html)
-        win.document.close()
-        setTimeout(() => win.print(), 300)
-      }
-      flash("ok", ar ? `تم إنشاء مستند ${res.docNumber}` : `Document ${res.docNumber} generated`)
-    } else {
-      flash("err", res.error ?? "Report failed")
-    }
+    try {
+      const [year, month] = vatReturnPeriod.split("-").map(Number)
+      let documentNumber: string | undefined
+      const result = await printReportFromGesture(async () => {
+        const generated = await generateVatReturnReport({ period_year: year, period_month: month })
+        documentNumber = generated.docNumber
+        return generated
+      })
+      if (result === "blocked") flash("err", ar ? "اسمح بالنوافذ المنبثقة لهذا الموقع، ثم حاول طباعة الإقرار مجدداً." : "Allow pop-ups for this site, then try printing the return again.")
+      else if (result === "failed") flash("err", ar ? "تعذر فتح الإقرار الضريبي. تحقق من الاتصال وحاول مجدداً." : "Could not open the VAT return. Check your connection and try again.")
+      else flash("ok", ar ? `فُتح الإقرار ${documentNumber ?? ""} للطباعة أو الحفظ بصيغة PDF.` : `VAT return ${documentNumber ?? ""} opened for printing or saving as PDF.`)
+    } finally { setReturnPrinting(false) }
   }
 
   // ── Payments ───────────────────────────────────────────────────────────
@@ -2124,7 +2118,7 @@ export default function AccountingPage() {
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1">
-                            {(p.status === "open" || p.status === "closing") && (
+                            {(p.status === "open" || p.status === "closing" || p.status === "reopened") && (
                               <button
                                 onClick={() => handleClosePeriod(p)}
                                 disabled={busyPeriodId === p.id}
@@ -2143,7 +2137,7 @@ export default function AccountingPage() {
                                 {ar ? "إعادة فتح" : "Reopen"}
                               </button>
                             )}
-                            {(p.status === "reopened" || p.status === "closed") && <span className="text-xs text-muted-foreground">—</span>}
+                            {p.status === "closed" && <span className="text-xs text-muted-foreground">—</span>}
                           </div>
                         </td>
                       </tr>

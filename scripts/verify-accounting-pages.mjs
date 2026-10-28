@@ -75,6 +75,9 @@ export async function verifyAccountingPages(page,admin,tenantId,appUrl){
   const ar=await admin.from("receivables").select("paid_amount,status").eq("tenant_id",tenantId).eq("id",chosen.id).single()
   if(ar.error)throw Error("Committed allocation missing")
   expect(Number(ar.data.paid_amount)).toBe(1);expect(ar.data.status).toBe("paid")
+  phase="payment void, reversal, restored receivable and stale replay"
+  const {verifyPaymentVoidLifecycle}=await import("./verify-payment-void-lifecycle.mjs")
+  await verifyPaymentVoidLifecycle(page,admin,tenantId,appUrl,{paymentId:saved.data.id,receivableId:chosen.id})
   phase="VAT review beyond 200, independent return month and mobile"
   await page.getByRole("tab",{name:"VAT",exact:true}).click()
   const reviewCard=page.locator('[data-slot="card"]').filter({has:page.getByText("Items awaiting review",{exact:true})})

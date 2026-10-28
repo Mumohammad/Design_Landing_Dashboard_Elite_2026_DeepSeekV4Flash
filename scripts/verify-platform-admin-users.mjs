@@ -243,10 +243,25 @@ export async function verifyPlatformAdminUsers(page, admin, tenantId, appUrl, ac
     )
 
     stage = "global UI initial-password creation"
+    const unavailableOverview=route=>route.fulfill({status:503,contentType:"application/json",body:'{"error":"Synthetic overview unavailable"}'})
+    const unavailableCompanies=route=>route.fulfill({status:503,contentType:"application/json",body:'{"error":"Synthetic company choices unavailable"}'})
+    await page.route("**/api/platform/admin/stats",unavailableOverview)
+    await page.route("**/api/platform/admin/companies",unavailableCompanies)
     await openUsers()
     browserIntent = { method: "POST" }
     await guardRace(page.getByTestId("platform-user-create").click())
     const create = page.getByTestId("platform-user-create-form")
+    const choices=create.getByTestId("platform-user-choices")
+    await expect(choices).toHaveAttribute("data-state","error")
+    await expect(choices.getByRole("alert")).toBeVisible()
+    await expect(create.getByTestId("platform-new-submit")).toBeDisabled()
+    await page.unroute("**/api/platform/admin/companies",unavailableCompanies)
+    await choices.getByRole("button",{name:"Retry",exact:true}).click()
+    await expect.poll(()=>choices.getAttribute("data-state")).toMatch(/^(ready|error)$/)
+    const state=await choices.getAttribute("data-state")
+    if(state!=="ready"){console.error(JSON.stringify({check:"platform user choices",state,endpoint:await choices.getAttribute("data-error-endpoint"),status:await choices.getAttribute("data-http-status")}));throw Error("Owned platform company and role choices unavailable")}
+    await expect(create.locator('#platform-new-tenant option[value="'+targetTenantId+'"]')).toHaveCount(1)
+    await page.unroute("**/api/platform/admin/stats",unavailableOverview)
     await create.locator("#platform-new-tenant").selectOption(targetTenantId)
     await create.locator("#platform-new-email").fill(memberEmail)
     await create.locator("#platform-new-name").fill("Platform member " + tag)
