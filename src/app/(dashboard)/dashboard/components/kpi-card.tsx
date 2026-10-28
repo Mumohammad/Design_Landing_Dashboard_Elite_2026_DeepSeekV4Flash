@@ -61,14 +61,14 @@ export function KpiCard({
       )}
     >
       <span className="text-sm font-medium text-muted-foreground">{label}</span>
-      <div className="mt-2 text-2xl font-semibold tabular-nums text-foreground sm:text-[28px]">
+      <span className="mt-2 block text-2xl font-semibold tabular-nums text-foreground sm:text-[28px]">
         {metric.available ? valueText : "N/A"}
         {currency && metric.available && (
           <span className="ms-1.5 text-sm font-normal text-muted-foreground">
             {locale === "ar" ? "ر.س" : "SAR"}
           </span>
         )}
-      </div>
+      </span>
       <p className="mt-2 text-[13px] tabular-nums text-muted-foreground">
         {hasDelta ? (
           <>

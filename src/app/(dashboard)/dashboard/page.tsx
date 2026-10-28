@@ -65,14 +65,21 @@ export default function DashboardPage() {
   const [refreshing, setRefreshing] = React.useState(false)
   const [loadError, setLoadError] = React.useState(false)
   const requestId = React.useRef(0)
+  // The first load of every dashboard visit is computed fresh (and refreshes
+  // the cache): many writes go straight to Supabase, so there is no complete
+  // mutation hook to invalidate on. Only filter switches within the 60-second
+  // window are served from the server cache.
+  const visitedFresh = React.useRef(false)
 
   const load = React.useCallback(async (f: DashboardFilters, isRefresh = false) => {
     const id = ++requestId.current
     if (isRefresh) setRefreshing(true)
     else setInitialLoading(true)
     try {
-      // An explicit refresh bypasses the 60-second server cache.
-      const snap = await getDashboardSnapshot(f, { fresh: isRefresh })
+      // An explicit refresh and the first load of a visit bypass the cache.
+      const fresh = isRefresh || !visitedFresh.current
+      visitedFresh.current = true
+      const snap = await getDashboardSnapshot(f, { fresh })
       if (requestId.current === id) {
         setSnapshot(snap)
         setLoadError(false)
