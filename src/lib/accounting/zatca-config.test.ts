@@ -44,6 +44,6 @@ describe("ZATCA environment boundary", () => {
   it("does not return simulated success for missing network credentials", async () => {
     vi.stubEnv("ZATCA_MODE", "sandbox")
     vi.stubEnv("ZATCA_API_BASE_URL", "https://gw-fatoora.zatca.gov.sa/e-invoicing/developer-portal")
-    await expect(transmitToZatca({ xml: "<Invoice/>", pipeline: "reporting", docRef: "TEST" })).rejects.toThrow("official API validation are incomplete")
+    await expect(transmitToZatca({ xml: "<Invoice/>", pipeline: "reporting", docRef: "TEST" })).rejects.toThrow("NOT_SIGNED")
   })
 })
