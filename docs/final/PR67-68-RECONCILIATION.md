@@ -1,4 +1,4 @@
-# PRs 67 and 68: forward reconciliation
+# PRs 67, 68 and 77: forward reconciliation
 
 Repository: Mumohammad/Design_Landing_Dashboard_Elite_2026_DeepSeekV4Flash.
 
@@ -6,6 +6,7 @@ Reviewed source heads:
 
 - PR 67: `b66bec1d4f4a3474e5d374de479ecb54c2c01316`
 - PR 68: `5a1162651c7e184f0905c2c84b83fef3cb9cb7ec`
+- PR 77: `be7dd21537f3835d3ae4bdc5878add60fe0c282f` (migration/test provenance only)
 - Released baseline for this completion branch: `6b21b383993022690c6c13c96994243e41e9b6a3`
 
 Both older PRs overlap later production fixes. Reconcile their useful changes forward on the current baseline; merging either stale tree wholesale would restore superseded financial, routing and integration behavior.
@@ -20,5 +21,7 @@ Both older PRs overlap later production fixes. Reconcile their useful changes fo
 | Eight historical staging migration versions | Retained only in `supabase/history/staging`, with normalized SHA-256 provenance and `active_migrations:false`. They are not active migrations, a history repair, or permission to replay their SQL. | `node scripts/verify-staging-history.mjs`; archive tamper/replay/extra-file regression tests. |
 | Server-only ZATCA credentials | Retain constant browser masking and independent production/transport gates. Forward migration `20261021165218_credential_acl_hardening.sql` also revokes legacy PUBLIC/client table and column ACLs. Earlier RLS with no client policy already denied access; this hardening is not evidence of a demonstrated credential leak. | Credential ACL SQL tests, masking/config/transport tests and advisor review. |
 | Official ZATCA integration | Neither older PR establishes authority acceptance. Preserve truthful internal-QR disclosure and code gates. Track the independent SDK/SignedInfo findings in `docs/financial/ZATCA-ENV.md`. | Validated application signer, genuine authorized non-production onboarding/submission and immutable acceptance evidence before changing the gate. |
+
+PR77’s forward migration `20261028063000_zatca_csid_client_lockdown.sql` and its 24-assertion regression suite are retained byte-for-byte from the reviewed head because staging already records that version. The repeated credential revokes/note addition preserve the stronger candidate hardening and existing data. Dependency security intent is retained through the candidate’s newer validated package/lockfile versions; the older tree is not merged wholesale. The eight archived staging versions remain archived.
 
 The forward reconciliation is still a release candidate. Close the older PRs as superseded only after the current feature PR has complete local/staging evidence and exact-head CI/review. No branch protection or unresolved launch blocker is waived by this document.
