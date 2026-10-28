@@ -42,7 +42,7 @@ const Command = React.forwardRef<
   <CommandPrimitive
     ref={ref}
     className={cn(
-      "flex h-full w-full flex-col overflow-hidden rounded-xl bg-white/95 backdrop-blur-xl dark:bg-zinc-950/95 text-zinc-950 dark:text-zinc-50",
+      "flex h-full w-full flex-col overflow-hidden rounded-xl bg-white/95 dark:bg-zinc-950/95 text-zinc-950 dark:text-zinc-50",
       className
     )}
     {...props}
@@ -96,7 +96,7 @@ const CommandGroup = React.forwardRef<
   <CommandPrimitive.Group
     ref={ref}
     className={cn(
-      "overflow-hidden px-2 [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-zinc-400 dark:[&_[cmdk-group-heading]]:text-zinc-500 [&:not(:first-child)]:mt-1 [&:not(:first-child)]:border-t [&:not(:first-child)]:border-zinc-100 dark:[&:not(:first-child)]:border-zinc-800/70 [&:not(:first-child)]:pt-1.5",
+      "overflow-hidden px-2 [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:text-zinc-400 dark:[&_[cmdk-group-heading]]:text-zinc-500 [&:not(:first-child)]:mt-1 [&:not(:first-child)]:border-t [&:not(:first-child)]:border-zinc-100 dark:[&:not(:first-child)]:border-zinc-800/70 [&:not(:first-child)]:pt-1.5",
       className
     )}
     {...props}
@@ -111,7 +111,7 @@ const CommandItem = React.forwardRef<
   <CommandPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex h-11 cursor-pointer select-none items-center gap-3 rounded-lg px-3 text-sm text-zinc-700 dark:text-zinc-300 outline-none transition-colors data-[disabled=true]:pointer-events-none data-[selected=true]:bg-gradient-to-r data-[selected=true]:from-elite-blue-500/10 data-[selected=true]:to-elite-orange-500/10 data-[selected=true]:text-zinc-900 dark:data-[selected=true]:text-zinc-50 data-[selected=true]:ring-1 data-[selected=true]:ring-elite-blue-500/20 data-[disabled=true]:opacity-50",
+      "relative flex h-11 cursor-pointer select-none items-center gap-3 rounded-lg px-3 text-sm text-zinc-700 dark:text-zinc-300 outline-none transition-colors data-[disabled=true]:pointer-events-none data-[selected=true]:bg-elite-blue-500/10 data-[selected=true]:text-zinc-900 dark:data-[selected=true]:text-zinc-50 data-[selected=true]:ring-1 data-[selected=true]:ring-elite-blue-500/20 data-[disabled=true]:opacity-50",
       className
     )}
     {...props}
@@ -157,8 +157,8 @@ export function CommandSearch({ open, onOpenChange }: CommandSearchProps) {
     { title: t.nav.violations, url: "/violations", group: t.nav.fleet, icon: Siren, accent: "#F59E0B" },
 
     // HR
-    { title: t.nav.hrManagement, url: "/hr", group: t.nav.hr, icon: Users, accent: "#8B5CF6" },
-    { title: t.nav.templates, url: "/templates", group: t.nav.hr, icon: LayoutTemplate, accent: "#8B5CF6" },
+    { title: t.nav.hrManagement, url: "/hr", group: t.nav.hr, icon: Users, accent: "#0F766E" },
+    { title: t.nav.templates, url: "/templates", group: t.nav.hr, icon: LayoutTemplate, accent: "#0F766E" },
 
     // Analytics
     { title: t.nav.reports, url: "/reports", group: t.nav.analytics, icon: ChartLine, accent: "#0EA5E9" },
@@ -199,9 +199,9 @@ export function CommandSearch({ open, onOpenChange }: CommandSearchProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="overflow-hidden p-0 border-0 shadow-2xl shadow-elite-blue-950/30 max-w-[600px] rounded-2xl">
+      <DialogContent className="overflow-hidden p-0 border-0 shadow-elite-blue-950/30 max-w-[600px] rounded-2xl">
         {/* Gradient top accent */}
-        <div className="h-1 w-full bg-gradient-to-r from-elite-blue-500 via-elite-blue-600 to-elite-orange-500" />
+        <div className="h-1 w-full bg-elite-blue-500" />
         <DialogTitle className="sr-only"><LocalizedText text="Command Search" /></DialogTitle>
         <DialogDescription className="sr-only">
           {t.common.searchPlaceholder}
@@ -245,17 +245,17 @@ export function CommandSearch({ open, onOpenChange }: CommandSearchProps) {
           </CommandList>
         </Command>
         {/* Footer hints */}
-        <div className="flex items-center gap-4 border-t border-zinc-200/70 bg-zinc-50/80 px-5 py-2.5 text-[11px] text-zinc-400 backdrop-blur dark:border-zinc-800/70 dark:bg-zinc-900/80 dark:text-zinc-500">
+        <div className="flex items-center gap-4 border-t border-zinc-200/70 bg-zinc-50/80 px-5 py-2.5 text-[11px] text-zinc-400 dark:border-zinc-800/70 dark:bg-zinc-900/80 dark:text-zinc-500">
           <span className="flex items-center gap-1.5">
-            <kbd className="rounded border border-zinc-200 bg-white px-1.5 py-0.5 font-mono text-[10px] font-semibold text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">↑↓</kbd>
+            <kbd className="rounded border border-zinc-200 bg-white px-1.5 py-0.5 font-mono text-[11px] font-semibold text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">↑↓</kbd>
             {t.common.navigate}
           </span>
           <span className="flex items-center gap-1.5">
-            <kbd className="rounded border border-zinc-200 bg-white px-1.5 py-0.5 font-mono text-[10px] font-semibold text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">↵</kbd>
+            <kbd className="rounded border border-zinc-200 bg-white px-1.5 py-0.5 font-mono text-[11px] font-semibold text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">↵</kbd>
             {t.common.open}
           </span>
           <span className="ml-auto flex items-center gap-1.5">
-            <kbd className="rounded border border-zinc-200 bg-white px-1.5 py-0.5 font-mono text-[10px] font-semibold text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">esc</kbd>
+            <kbd className="rounded border border-zinc-200 bg-white px-1.5 py-0.5 font-mono text-[11px] font-semibold text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">esc</kbd>
             {t.common.close}
           </span>
         </div>
@@ -273,7 +273,7 @@ export function SearchTrigger({ onClick }: { onClick: () => void }) {
     >
       <Search className="h-4 w-4 shrink-0 text-muted-foreground/70" />
       <span className="hidden flex-1 truncate text-start sm:block">{t.common.searchPlaceholder}</span>
-      <span className="flex items-center gap-1 rounded border border-border bg-muted/60 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-muted-foreground/80 transition-colors group-hover:border-elite-blue-500/30 group-hover:text-elite-blue-600 dark:group-hover:text-elite-blue-300">
+      <span className="flex items-center gap-1 rounded border border-border bg-muted/60 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-muted-foreground/80 transition-colors group-hover:border-elite-blue-500/30 group-hover:text-elite-blue-600 dark:group-hover:text-elite-blue-300">
         <span>⌘</span>K
       </span>
     </button>

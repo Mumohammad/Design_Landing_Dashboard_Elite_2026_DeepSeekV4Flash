@@ -131,7 +131,7 @@ export function CalendarMain({ selectedDate, onDateSelect, onMenuClick, events, 
                 <div className="flex items-center justify-between mb-1">
                   <span className={cn(
                     "text-sm font-medium",
-                    isDayToday && "bg-primary text-primary-foreground rounded-md w-6 h-6 flex items-center justify-center text-xs"
+                    isDayToday && "text-primary-foreground rounded-md w-6 h-6 flex items-center justify-center text-xs text-elite-blue-600 dark:text-elite-blue-300"
                   )}>
                     {format(day, 'd')}
                   </span>
@@ -179,7 +179,7 @@ export function CalendarMain({ selectedDate, onDateSelect, onMenuClick, events, 
       <div className="flex-1 p-6">
         <div className="space-y-4">
           {upcomingEvents.map(event => (
-            <Card key={event.id} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleEventClick(event)}>
+            <Card key={event.id} className="cursor-pointer transition-shadow" onClick={() => handleEventClick(event)}>
               <CardContent className="px-4">
                 <div className="flex items-start justify-between">
                   <div className="flex items-start gap-3">

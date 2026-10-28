@@ -79,7 +79,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     },
     {
       label: t.nav.hr,
-      accentColor: "#8B5CF6",
+      accentColor: "#0F766E",
       items: [
         { title: t.nav.hrManagement, url: "/hr", icon: Users },
         { title: t.nav.applications, url: "/applications", icon: FileBadge },
@@ -113,18 +113,18 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   }
 
   return (
-    <Sidebar side={locale === "ar" ? "right" : "left"} {...props} className="sidebar-gradient text-white border-none shadow-xl">
+    <Sidebar side={locale === "ar" ? "right" : "left"} {...props} className="sidebar-gradient text-sidebar-foreground">
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
               <Link href="/dashboard">
-                <div className="flex aspect-square size-8 items-center justify-center rounded-2xl bg-gradient-to-br from-elite-blue-500 to-elite-blue-700 text-white shadow-lg shadow-elite-blue-500/30">
+                <div className="flex aspect-square size-8 items-center justify-center rounded-md bg-elite-blue-600 text-white">
                   <Logo size={24} className="text-current" />
                 </div>
                 <div className="grid flex-1 text-right text-sm leading-tight">
                   <span className="truncate font-semibold">{t.app.companyNameArabic}</span>
-                  <span className="truncate text-xs text-white/50">{t.app.companyName}</span>
+                  <span className="truncate text-xs text-muted-foreground">{t.app.companyName}</span>
                 </div>
               </Link>
             </SidebarMenuButton>

@@ -54,7 +54,7 @@ export function NavUser({
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-medium">{user.name}</span>
-                <span className="text-white/60 truncate text-xs">
+                <span className="text-muted-foreground truncate text-xs">
                   {user.email}
                 </span>
               </div>
@@ -62,7 +62,7 @@ export function NavUser({
             </SidebarMenuButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent
-            className="w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-xl border-border/50 bg-card/95 backdrop-blur-xl shadow-xl"
+            className="w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-xl border-border/50 bg-card"
             side={isMobile ? "bottom" : "right"}
             align="end"
             sideOffset={4}

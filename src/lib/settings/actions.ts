@@ -34,6 +34,10 @@ export type CompanyProfile = {
   address: string | null
   city: string | null
   region: string | null
+  building_number: string | null
+  additional_number: string | null
+  district: string | null
+  postal_code: string | null
   country: string | null
   phone: string | null
   email: string | null
@@ -57,7 +61,7 @@ export async function fetchCompanyProfile(): Promise<CompanyProfile | null> {
   const { data, error } = await admin
     .from("tenants")
     .select(
-      "id, name_ar, name_en, legal_name, cr_number, vat_number, address, city, region, country, phone, email, logo_url, timezone, default_locale"
+      "id, name_ar, name_en, legal_name, cr_number, vat_number, address, city, region, building_number, additional_number, district, postal_code, country, phone, email, logo_url, timezone, default_locale"
     )
     .eq("id", currentUser.tenantId)
     .is("deleted_at", null)
@@ -87,6 +91,10 @@ export async function fetchCompanyProfile(): Promise<CompanyProfile | null> {
     address: data.address as string | null,
     city: data.city as string | null,
     region: data.region as string | null,
+    building_number: (data.building_number as string | null) ?? null,
+    additional_number: (data.additional_number as string | null) ?? null,
+    district: (data.district as string | null) ?? null,
+    postal_code: (data.postal_code as string | null) ?? null,
     country: data.country as string | null,
     phone: data.phone as string | null,
     email: data.email as string | null,
@@ -141,6 +149,11 @@ export interface CompanyProfileInput {
   address?: string | null
   city?: string | null
   region?: string | null
+  /** National Address: 4-digit building/additional numbers, 5-digit postal code. */
+  building_number?: string | null
+  additional_number?: string | null
+  district?: string | null
+  postal_code?: string | null
   country?: string | null
   phone?: string | null
   email?: string | null
@@ -166,6 +179,15 @@ export async function updateCompanyProfile(
     const rl = await rateLimitSettings(currentUser.id)
     if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
 
+    const building = input.building_number?.trim() || null
+    const additional = input.additional_number?.trim() || null
+    const postal = input.postal_code?.trim() || null
+    const vat = input.vat_number?.trim() || null
+    if (vat && !/^3\d{13}3$/.test(vat)) return { success: false, error: "VAT number must be 15 digits starting and ending with 3." }
+    if (building && !/^\d{4}$/.test(building)) return { success: false, error: "Building number must be exactly 4 digits." }
+    if (additional && !/^\d{4}$/.test(additional)) return { success: false, error: "Additional number must be exactly 4 digits." }
+    if (postal && !/^\d{5}$/.test(postal)) return { success: false, error: "Postal code must be exactly 5 digits." }
+
     const admin = createAdminClient()
     const { error } = await admin
       .from("tenants")
@@ -174,10 +196,14 @@ export async function updateCompanyProfile(
         name_en: input.name_en,
         legal_name: input.legal_name ?? null,
         cr_number: input.cr_number ?? null,
-        vat_number: input.vat_number ?? null,
+        vat_number: vat,
         address: input.address ?? null,
         city: input.city ?? null,
         region: input.region ?? null,
+        building_number: building,
+        additional_number: additional,
+        district: input.district?.trim() || null,
+        postal_code: postal,
         country: input.country ?? null,
         phone: input.phone ?? null,
         email: input.email ?? null,

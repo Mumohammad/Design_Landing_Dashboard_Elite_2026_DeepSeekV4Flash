@@ -146,7 +146,7 @@ export default function MaintenancePage() {
     { label: m.kpiOpen, value: kpis.open, icon: Wrench, color: "#F59E0B" },
     { label: m.kpiInProgress, value: kpis.inProg, icon: Clock, color: "#1E5A99" },
     { label: m.kpiCompletedMonth, value: kpis.completedMonth, icon: CheckCircle2, color: "#10B981" },
-    { label: m.kpiAvgCost, value: kpis.avgCost != null ? kpis.avgCost.toFixed(0) + " " + (isAr ? "ر.س" : "SAR") : "—", icon: Car, color: "#8B5CF6" },
+    { label: m.kpiAvgCost, value: kpis.avgCost != null ? kpis.avgCost.toFixed(0) + " " + (isAr ? "ر.س" : "SAR") : "—", icon: Car, color: "#0F766E" },
     { label: m.kpiVehiclesInMaintenance, value: vehiclesInMaintenance, icon: Car, color: "#EF4444" },
   ]
 

@@ -152,7 +152,7 @@ export default function UserDetailPage() {
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
-          <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-elite-blue-500 to-elite-orange-500 text-lg font-bold text-white">
+          <span className="flex h-14 w-14 items-center justify-center rounded-2xl text-lg font-bold text-elite-blue-600 dark:text-elite-blue-300">
             {(user.full_name_ar ?? user.full_name_en ?? "?").trim().slice(0, 1)}
           </span>
           <div>
@@ -220,7 +220,7 @@ export default function UserDetailPage() {
 
       {/* Facts grid */}
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="rounded-2xl border border-border/50 bg-card/60 shadow-sm backdrop-blur-sm">
+        <Card className="rounded-2xl border border-border/50 bg-card/60 shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-sm font-semibold">
               <Mail className="h-4 w-4 text-elite-blue-600" />
@@ -258,7 +258,7 @@ export default function UserDetailPage() {
           </CardContent>
         </Card>
 
-        <Card className="rounded-2xl border border-border/50 bg-card/60 shadow-sm backdrop-blur-sm">
+        <Card className="rounded-2xl border border-border/50 bg-card/60 shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-sm font-semibold">
               <BadgeCheck className="h-4 w-4 text-elite-blue-600" />
@@ -294,7 +294,7 @@ export default function UserDetailPage() {
           </CardContent>
         </Card>
 
-        <Card className="rounded-2xl border border-border/50 bg-card/60 shadow-sm backdrop-blur-sm">
+        <Card className="rounded-2xl border border-border/50 bg-card/60 shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-sm font-semibold">
               <CalendarDays className="h-4 w-4 text-elite-blue-600" />
@@ -339,7 +339,7 @@ export default function UserDetailPage() {
       </div>
 
       {/* Employee code card */}
-      <Card className="rounded-2xl border border-border/50 bg-card/60 shadow-sm backdrop-blur-sm">
+      <Card className="rounded-2xl border border-border/50 bg-card/60 shadow-sm">
         <CardHeader className="pb-2">
           <CardTitle className="flex items-center gap-2 text-sm font-semibold">
             <KeyRound className="h-4 w-4 text-elite-blue-600" />
@@ -359,7 +359,7 @@ export default function UserDetailPage() {
           ) : (
             <Button
               size="sm"
-              className="rounded-xl bg-gradient-to-r from-elite-blue-500 to-elite-blue-600 text-white hover:from-elite-blue-600 hover:to-elite-blue-700"
+              className="rounded-xl bg-elite-blue-500 text-white hover:bg-elite-blue-600"
               onClick={handleAssignCode}
               disabled={assigningCode}
             >

@@ -12,7 +12,7 @@ export function QuickActions() {
     { label: t.dashboard.quickAddDriver, href: "/drivers", icon: UserPlus, color: "#1E5A99" },
     { label: t.dashboard.quickAddVehicle, href: "/vehicles", icon: CarFront, color: "#E87D3E" },
     { label: t.dashboard.quickRunPayroll, href: "/payroll", icon: CreditCard, color: "#10B981" },
-    { label: t.dashboard.quickViewReports, href: "/reports", icon: BarChart3, color: "#8B5CF6" },
+    { label: t.dashboard.quickViewReports, href: "/reports", icon: BarChart3, color: "#0F766E" },
   ]
 
   return (

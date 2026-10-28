@@ -98,7 +98,7 @@ export function DashboardHeader({
   return (
     <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
       <div>
-        <h1 className="text-2xl font-extrabold tracking-tight text-foreground lg:text-3xl">
+        <h1 className="text-2xl font-semibold text-foreground">
           {t.app.dashboardTitle}
         </h1>
         <p className="mt-1.5 text-sm text-muted-foreground">

@@ -236,7 +236,7 @@ export function buildZatcaUblInvoice(data: ZatcaInvoiceData): string {
   // complete validated XAdES extension must be added by the signing layer.
   const signatureXml = [
     `  <cac:Signature>`,
-    `    <cbc:ID>urn:oasis:names:specification:ubl:signature:1</cbc:ID>`,
+    `    <cbc:ID>urn:oasis:names:specification:ubl:signature:Invoice</cbc:ID>`,
     `    <cbc:SignatureMethod>urn:oasis:names:specification:ubl:dsig:enveloped:xades</cbc:SignatureMethod>`,
     `    <cac:SignatoryParty>`,
     `      <cac:PartyIdentification><cbc:ID>${escXml(data.seller.vatNumber ?? "")}</cbc:ID></cac:PartyIdentification>`,

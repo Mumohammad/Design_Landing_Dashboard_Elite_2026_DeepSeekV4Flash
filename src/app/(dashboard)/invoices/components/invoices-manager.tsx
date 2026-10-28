@@ -89,7 +89,7 @@ const STATUS_META: Record<string, { ar: string; en: string; className: string }>
   partially_paid: { ar: "مدفوعة جزئياً", en: "Partially paid", className: "bg-amber-500/15 text-amber-600 border-amber-500/20" },
   overdue: { ar: "متأخرة", en: "Overdue", className: "bg-red-500/15 text-red-600 border-red-500/20" },
   cancelled: { ar: "ملغاة", en: "Cancelled", className: "bg-gray-500/15 text-gray-600 border-gray-500/20" },
-  credited: { ar: "معتمدة بإشعار", en: "Credited", className: "bg-purple-500/15 text-purple-600 border-purple-500/20" },
+  credited: { ar: "معتمدة بإشعار", en: "Credited", className: "bg-teal-500/15 text-teal-600 border-teal-500/20" },
 }
 
 function fmtMoney(n: number | null | undefined): string {
@@ -264,7 +264,7 @@ export function InvoicesManager() {
       label: ar ? "قيمة الفواتير (ر.س)" : "Loaded value (SAR)",
       value: fmtMoney(totalValue),
       icon: CircleDollarSign,
-      color: "#8B5CF6",
+      color: "#0F766E",
     },
   ]
 
@@ -878,7 +878,7 @@ export function InvoicesManager() {
               <Button
                 onClick={() => void handleCreate()}
                 disabled={isSaving || !formPartyId || !lineTotals}
-                className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800"
+                className="bg-elite-blue-600 hover:bg-elite-blue-700"
               >
                 {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 {ar ? "حفظ المسودة" : "Save draft"}
@@ -959,7 +959,7 @@ export function InvoicesManager() {
                     {detailNotes.map((n) => (
                       <div key={n.id} className="flex items-center justify-between text-xs">
                         <span dir="ltr" className="font-mono">{n.number}</span>
-                        <span className={n.kind === "credit" ? "text-purple-600" : "text-orange-600"}>
+                        <span className={n.kind === "credit" ? "text-teal-600" : "text-orange-600"}>
                           {ar ? (n.kind === "credit" ? "إشعار دائن" : "إشعار مدين") : n.kind === "credit" ? "Credit note" : "Debit note"}
                         </span>
                         <span dir="ltr" className="tabular-nums font-medium">{fmtMoney(n.total)}</span>
@@ -975,7 +975,7 @@ export function InvoicesManager() {
                   <Button
                     onClick={() => void runAction("finalize", detailTarget)}
                     disabled={busyId === detailTarget.id}
-                    className="bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800"
+                    className="bg-emerald-600 hover:bg-emerald-700"
                   >
                     {busyId === detailTarget.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                     {ar ? "اعتماد نهائي (إصدار حدث)" : "Finalize (emits event)"}
@@ -1012,7 +1012,7 @@ export function InvoicesManager() {
               <Button
                 onClick={() => void handleCancel()}
                 disabled={isCancelling || cancelReason.trim().length < 5}
-                className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800"
+                className="bg-red-600 hover:bg-red-700"
               >
                 {isCancelling ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}
                 {ar ? "إلغاء الفاتورة" : "Cancel invoice"}
@@ -1058,7 +1058,7 @@ export function InvoicesManager() {
               <Button
                 onClick={() => void handleCredit()}
                 disabled={isCrediting || creditReason.trim().length < 5 || !creditDate}
-                className="bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800"
+                className="bg-teal-600 hover:bg-teal-700"
               >
                 {isCrediting ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
                 {ar ? "إصدار الإشعار الدائن" : "Issue credit note"}
@@ -1126,7 +1126,7 @@ export function InvoicesManager() {
               <Button
                 onClick={() => void handleDebit()}
                 disabled={isDebiting || debitReason.trim().length < 5 || !debitDate || !debitPreview}
-                className="bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-700 hover:to-orange-800"
+                className="bg-orange-600 hover:bg-orange-700"
               >
                 {isDebiting ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeDollarSign className="h-4 w-4" />}
                 {ar ? "إصدار الإشعار المدين" : "Issue debit note"}

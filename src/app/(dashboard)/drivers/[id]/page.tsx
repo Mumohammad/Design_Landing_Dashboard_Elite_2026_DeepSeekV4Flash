@@ -102,7 +102,7 @@ const CATEGORY_META: Record<DriverCategory, { ar: string; en: string; className:
     ar: "كفيل نوع ٢",
     en: "Sponsored T2",
     className:
-      "bg-purple-500/15 text-purple-700 dark:text-purple-400 border border-purple-500/20",
+      "bg-teal-500/15 text-teal-700 dark:text-teal-400 border border-teal-500/20",
   },
   freelancer: {
     ar: "مستقل",
@@ -122,7 +122,7 @@ function InfoGroup({
   children: ReactNode
 }) {
   return (
-    <div className="rounded-2xl border border-border/50 bg-card/60 p-4 shadow-sm backdrop-blur-sm">
+    <div className="rounded-2xl border border-border/50 bg-card/60 p-4 shadow-sm">
       <div className="mb-3 flex items-center gap-2 border-b border-border/30 pb-3">
         <Icon className="h-4 w-4 text-elite-blue-500" />
         <h3 className="text-sm font-semibold text-foreground">{title}</h3>
@@ -399,7 +399,7 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
           <ArrowLeft className="h-4 w-4 rtl:rotate-180" />
           {t.common.back}
         </Button>
-        <div className="rounded-2xl border border-border/50 bg-card/60 p-8 text-center backdrop-blur-sm">
+        <div className="rounded-2xl border border-border/50 bg-card/60 p-8 text-center">
           <p className="text-sm text-muted-foreground">{t.common.error}</p>
           <Button
             variant="outline"
@@ -426,7 +426,7 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
           <ArrowLeft className="h-4 w-4 rtl:rotate-180" />
           {t.common.back}
         </Button>
-        <div className="rounded-2xl border border-border/50 bg-card/60 p-8 text-center backdrop-blur-sm">
+        <div className="rounded-2xl border border-border/50 bg-card/60 p-8 text-center">
           <p className="text-sm text-muted-foreground">
             {isAr ? "السائق غير موجود" : "Driver not found"}
           </p>
@@ -453,7 +453,7 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
       </Button>
 
       {/* Profile header */}
-      <div className="relative overflow-hidden rounded-2xl border border-border/50 bg-card/80 p-6 shadow-sm backdrop-blur-sm">
+      <div className="relative overflow-hidden rounded-2xl border border-border/50 bg-card p-6 shadow-sm">
         <div
           className="absolute top-0 right-0 h-32 w-32 rounded-full opacity-[0.06]"
           style={{ backgroundColor: "#1E5A99", transform: "translate(30%, -30%)" }}
@@ -482,13 +482,13 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
                       }}
                     />
                   )}
-                  <AvatarFallback className="rounded-full bg-gradient-to-br from-elite-blue-500 to-elite-orange-500 text-lg font-semibold text-white">
+                  <AvatarFallback className="rounded-full bg-elite-blue-500 text-lg font-semibold text-white">
                     {initials}
                   </AvatarFallback>
                 </Avatar>
                 {resolvedPhotoUrl && (
                   <span className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-full bg-black/0 opacity-0 transition-all duration-200 group-hover:bg-black/25 group-hover:opacity-100">
-                    <ZoomIn className="h-5 w-5 text-white drop-shadow" />
+                    <ZoomIn className="h-5 w-5 text-white" />
                   </span>
                 )}
               </button>
@@ -584,17 +584,17 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
 
       {/* Full-size photo lightbox */}
       <Dialog open={photoPreviewOpen} onOpenChange={setPhotoPreviewOpen}>
-        <DialogContent className="overflow-hidden border-border/40 bg-background/95 p-0 backdrop-blur-xl sm:max-w-lg">
+        <DialogContent className="overflow-hidden border-border/40 bg-background p-0 sm:max-w-lg">
           <DialogHeader className="border-b border-border/40 px-5 py-4">
             <DialogTitle className="text-base">{driver.full_name_ar}</DialogTitle>
           </DialogHeader>
-          <div className="relative flex items-center justify-center bg-gradient-to-br from-elite-blue-500/5 via-transparent to-elite-orange-500/5 p-6">
+          <div className="relative flex items-center justify-center bg-elite-blue-500/5 p-6">
             {resolvedPhotoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element -- dynamic signed URL
               <img
                 src={resolvedPhotoUrl}
                 alt={driver.full_name_ar}
-                className="max-h-[65vh] w-auto max-w-full rounded-2xl object-contain shadow-2xl ring-1 ring-border/40"
+                className="max-h-[65vh] w-auto max-w-full rounded-2xl object-contain ring-1 ring-border/40"
                 onError={() => logPhotoRenderFailure(resolvedPhotoUrl)}
               />
             ) : (

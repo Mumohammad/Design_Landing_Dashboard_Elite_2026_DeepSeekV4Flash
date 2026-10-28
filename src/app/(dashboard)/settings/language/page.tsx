@@ -59,10 +59,10 @@ export default function LanguageSettingsPage() {
         </p>
       </div>
 
-      <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm">
+      <Card className="rounded-2xl border border-border/50 bg-card shadow-sm">
         <CardHeader className="pb-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-elite-blue-600/10">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl text-elite-blue-600 dark:text-elite-blue-300">
               <Languages className="h-5 w-5 text-elite-blue-600" />
             </div>
             <div>
@@ -112,7 +112,7 @@ export default function LanguageSettingsPage() {
       </Card>
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm">
+        <Card className="rounded-2xl border border-border/50 bg-card shadow-sm">
           <CardHeader className="pb-3">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Globe className="h-4 w-4 text-elite-blue-600" />
@@ -125,7 +125,7 @@ export default function LanguageSettingsPage() {
             </span>
           </CardContent>
         </Card>
-        <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm">
+        <Card className="rounded-2xl border border-border/50 bg-card shadow-sm">
           <CardHeader className="pb-3">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Clock className="h-4 w-4 text-elite-blue-600" />
@@ -138,7 +138,7 @@ export default function LanguageSettingsPage() {
             </span>
           </CardContent>
         </Card>
-        <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm">
+        <Card className="rounded-2xl border border-border/50 bg-card shadow-sm">
           <CardHeader className="pb-3">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <CalendarDays className="h-4 w-4 text-elite-blue-600" />

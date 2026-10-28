@@ -56,8 +56,8 @@ export default function HelpPage() {
         </div>
         <div className="mt-12 grid gap-5 sm:grid-cols-2">
           {cards.map((card) => (
-            <div key={card.title} className="rounded-2xl border border-border/50 bg-card/60 p-6 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/5 hover:border-elite-blue-500/40">
-              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-elite-blue-500 to-elite-orange-500 text-white shadow-lg shadow-elite-blue-500/20">
+            <div key={card.title} className="rounded-2xl border border-border/50 bg-card/60 p-6 transition-all duration-300 hover:-translate-y-1 hover:border-elite-blue-500/40">
+              <span className="flex h-11 w-11 items-center justify-center rounded-xl text-elite-blue-600 dark:text-elite-blue-300">
                 <card.icon className="h-5 w-5" aria-hidden="true" />
               </span>
               <h2 className="mt-4 text-base font-bold text-foreground"><LocalizedText text={card.title} /></h2>

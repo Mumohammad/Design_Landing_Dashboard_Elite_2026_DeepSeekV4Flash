@@ -53,14 +53,14 @@ export async function sendCompanyConfirmationEmail(params: {
 <body style="margin:0;padding:24px;background:#f6f8fb;font-family:'Segoe UI',Tahoma,Arial,sans-serif;color:#1a1d23;">
   <div style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:16px;padding:36px;border:1px solid #e5e7eb;">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:24px;">
-      <span style="display:inline-flex;width:36px;height:36px;align-items:center;justify-content:center;border-radius:10px;background:linear-gradient(135deg,#1E5A99,#E87D3E);color:#ffffff;font-weight:700;">ن</span>
+      <span style="display:inline-flex;width:36px;height:36px;align-items:center;justify-content:center;border-radius:10px;background:#1E5A99;color:#ffffff;font-weight:700;">ن</span>
       <span style="font-weight:700;color:#1E5A99;">نخبة التطوير · منصة الشركات</span>
     </div>
     <h2 style="margin:0 0 16px;font-size:20px;">مرحباً بك في نخبة التطوير 👋</h2>
     <p style="margin:0 0 8px;line-height:1.8;">تم إنشاء مساحة العمل <strong>${companyName}</strong> بنجاح.</p>
     <p style="margin:0 0 20px;line-height:1.8;">خطوة أخيرة: أكّد بريدك الإلكتروني لتفعيل حسابك وتسجيل الدخول إلى لوحة التحكم.</p>
     <p style="margin:0 0 28px;text-align:center;">
-      <a href="${params.confirmationUrl}" style="display:inline-block;background:linear-gradient(90deg,#1E5A99,#174a7e);color:#ffffff;text-decoration:none;padding:13px 32px;border-radius:10px;font-weight:700;">تأكيد البريد وتسجيل الدخول</a>
+      <a href="${params.confirmationUrl}" style="display:inline-block;background:#1E5A99;color:#ffffff;text-decoration:none;padding:13px 32px;border-radius:10px;font-weight:700;">تأكيد البريد وتسجيل الدخول</a>
     </p>
     <p style="margin:0 0 24px;font-size:12px;color:#6b7280;line-height:1.7;">أو انسخ الرابط إلى متصفحك:<br /><a href="${params.confirmationUrl}" style="color:#1E5A99;word-break:break-all;">${params.confirmationUrl}</a></p>
     <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;" />

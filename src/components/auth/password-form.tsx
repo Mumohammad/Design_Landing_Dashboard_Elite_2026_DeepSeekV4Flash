@@ -93,7 +93,7 @@ export function PasswordForm({ mode = "recovery" }: { mode?: "recovery" | "requi
         <LogoMark size={56} showIndicator />
       </div>
 
-      <div className="rounded-2xl border border-border/50 shadow-modern-lg backdrop-blur-sm bg-card/80 dark:bg-card/60 p-6 md:p-8">
+      <div className="rounded-2xl border border-border/50 shadow-modern-lg bg-card dark:bg-card/60 p-6 md:p-8">
         <div className="stagger-2 flex flex-col gap-1.5 text-center mb-6">
           <h1 className="text-2xl font-bold tracking-tight">{mode === "recovery" ? t.pages.resetPassword : t.pages.changePassword}</h1>
           <p className="text-sm text-muted-foreground">{mode === "required"
@@ -191,7 +191,7 @@ export function PasswordForm({ mode = "recovery" }: { mode?: "recovery" | "requi
           <button
             type="submit"
             disabled={loading || done}
-            className="mt-2 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-elite-blue-500 to-elite-blue-600 hover:from-elite-blue-600 hover:to-elite-blue-700 text-base font-semibold text-white shadow-lg shadow-elite-blue-500/20 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60 cursor-pointer"
+            className="mt-2 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-elite-blue-500 hover:bg-elite-blue-600 text-base font-semibold text-white shadow-elite-blue-500/20 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60 cursor-pointer"
           >
             {loading && <Loader2 className="size-4 animate-spin" />}
             {t.auth.setPasswordButton}

@@ -60,13 +60,13 @@ function ResultCard({ result }: { result: VerifyResult }) {
   const valid = result.found && result.verified
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-slate-50 to-slate-100 px-4 py-10 dark:from-slate-950 dark:to-slate-900">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-slate-50 px-4 py-10 dark:bg-slate-950">
       <div className="w-full max-w-md">
         <div className="mb-6 flex justify-center">
           <LogoMark />
         </div>
 
-        <div className="overflow-hidden rounded-2xl border border-border/60 bg-card shadow-xl shadow-slate-900/5 dark:shadow-black/30">
+        <div className="overflow-hidden rounded-2xl border border-border/60 bg-card">
           {/* Status banner */}
           <div
             className={
@@ -93,7 +93,7 @@ function ResultCard({ result }: { result: VerifyResult }) {
           <div className="space-y-4 px-6 py-6">
             {/* Document number */}
             <div className="rounded-xl border border-border/50 bg-muted/30 px-4 py-3 text-center">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <p className="text-[11px] font-semibold text-muted-foreground">
                 Document number
               </p>
               <p className="mt-0.5 font-mono text-base font-bold text-foreground" dir="ltr">
@@ -104,14 +104,14 @@ function ResultCard({ result }: { result: VerifyResult }) {
             {valid && (
               <div className="grid grid-cols-2 gap-3">
                 <div className="rounded-xl border border-border/50 bg-muted/30 px-4 py-3">
-                  <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <p className="flex items-center gap-1.5 text-[11px] font-semibold text-muted-foreground">
                     <FileQuestion className="h-3 w-3" /><LocalizedText text="Type" /></p>
                   <p className="mt-0.5 truncate text-sm font-semibold text-foreground">
                     {result.template_name ?? "—"}
                   </p>
                 </div>
                 <div className="rounded-xl border border-border/50 bg-muted/30 px-4 py-3">
-                  <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <p className="flex items-center gap-1.5 text-[11px] font-semibold text-muted-foreground">
                     <Timer className="h-3 w-3" />
                     Issued
                   </p>

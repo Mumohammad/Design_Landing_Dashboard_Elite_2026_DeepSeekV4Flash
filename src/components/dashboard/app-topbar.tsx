@@ -30,7 +30,7 @@ export function AppTopbar() {
 
   return (
     <>
-      <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center gap-3 border-b border-slate-200/80 bg-white/95 px-4 backdrop-blur-md dark:border-slate-800 dark:bg-slate-950/90 sm:px-6">
+      <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center gap-3 border-b border-slate-200/80 bg-white/95 px-4 dark:border-slate-800 dark:bg-slate-950/90 sm:px-6">
         <SidebarTrigger className="h-10 w-10 rounded-xl text-slate-600 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white" />
 
         <div className="h-6 w-px bg-slate-200 dark:bg-slate-800" />

@@ -165,7 +165,7 @@ export function ThemeCustomizerTrigger({ onClick }: { onClick: () => void }) {
       onClick={onClick}
       size="icon"
       className={cn(
-        "fixed top-1/2 -translate-y-1/2 h-12 w-12 rounded-full shadow-lg z-50 bg-primary hover:bg-primary/90 text-primary-foreground cursor-pointer",
+        "fixed top-1/2 -translate-y-1/2 h-12 w-12 rounded-full z-50 bg-primary hover:bg-primary/90 text-primary-foreground cursor-pointer",
         sidebarConfig.side === "left" ? "right-4" : "left-4"
       )}
     >

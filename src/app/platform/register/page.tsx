@@ -81,10 +81,10 @@ export default function RegisterPage() {
   if (done) {
     return (
       <main className="min-h-screen bg-[#f6f8fb] text-slate-900">
-        <header className="border-b border-slate-200/70 bg-white/80 backdrop-blur-xl sticky top-0 z-50">
+        <header className="border-b border-slate-200/70 bg-white/80 sticky top-0 z-50">
           <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
             <Link href="/platform" className="flex items-center gap-2.5 font-bold">
-              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[#1E5A99] to-[#E87D3E] text-white"><Building2 className="h-5 w-5" /></span>
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl text-elite-blue-600 dark:text-elite-blue-300"><Building2 className="h-5 w-5" /></span>
               <span><LocalizedText text="نخبة التطوير" /> <span className="text-slate-400 font-medium">· <LocalizedText text="Company platform" /></span></span>
             </Link>
             <LanguageToggle /><Link href={withLocale(REDIRECTS.signInUrl, locale)} className="text-sm font-semibold text-[#1E5A99] hover:text-[#174a7e] transition"><LocalizedText text="لديك حساب؟ دخول" /></Link>
@@ -94,7 +94,7 @@ export default function RegisterPage() {
         <section className="mx-auto max-w-xl px-6 py-20 text-center">
           {state.kind === 'needs_confirmation' ? (
             <>
-              <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-50 ring-1 ring-emerald-200">
+              <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl text-elite-blue-600 dark:text-elite-blue-300">
                 <MailCheck className="h-8 w-8 text-emerald-600" />
               </span>
               <h1 className="mt-6 text-2xl font-extrabold tracking-tight"><LocalizedText text="أنشئت مساحة العمل — أكّد بريدك" /></h1>
@@ -111,14 +111,14 @@ export default function RegisterPage() {
                 <button
                   type="button"
                   onClick={() => router.push(withLocale(REDIRECTS.signInUrl, locale))}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#1E5A99] to-[#174a7e] px-6 py-3.5 font-bold text-white shadow-lg shadow-[#1E5A99]/25 transition hover:shadow-xl"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#1E5A99] px-6 py-3.5 font-bold text-white shadow-[#1E5A99]/25 transition"
                 ><LocalizedText text="الانتقال لتسجيل الدخول" /><ArrowRight className="h-4 w-4" />
                 </button>
               </div>
             </>
           ) : (
             <>
-              <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-50 ring-1 ring-emerald-200">
+              <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl text-elite-blue-600 dark:text-elite-blue-300">
                 <CheckCircle2 className="h-8 w-8 text-emerald-600" />
               </span>
               <h1 className="mt-6 text-2xl font-extrabold tracking-tight"><LocalizedText text="تم إنشاء مساحة عمل شركتك 🎉" /></h1>
@@ -127,7 +127,7 @@ export default function RegisterPage() {
                 <button
                   type="button"
                   onClick={() => router.push(withLocale(REDIRECTS.signInUrl, locale))}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#1E5A99] to-[#174a7e] px-6 py-3.5 font-bold text-white shadow-lg shadow-[#1E5A99]/25 transition hover:shadow-xl"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#1E5A99] px-6 py-3.5 font-bold text-white shadow-[#1E5A99]/25 transition"
                 ><LocalizedText text="تسجيل الدخول الآن" /><ArrowRight className="h-4 w-4" />
                 </button>
               </div>
@@ -143,10 +143,10 @@ export default function RegisterPage() {
 
   return (
     <main className="min-h-screen bg-[#f6f8fb] text-slate-900">
-      <header className="border-b border-slate-200/70 bg-white/80 backdrop-blur-xl sticky top-0 z-50">
+      <header className="border-b border-slate-200/70 bg-white/80 sticky top-0 z-50">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
           <Link href="/platform" className="flex items-center gap-2.5 font-bold">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[#1E5A99] to-[#E87D3E] text-white"><Building2 className="h-5 w-5" /></span>
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl text-elite-blue-600 dark:text-elite-blue-300"><Building2 className="h-5 w-5" /></span>
             <span><LocalizedText text="نخبة التطوير" /> <span className="text-slate-400 font-medium">· <LocalizedText text="Company platform" /></span></span>
           </Link>
           <LanguageToggle /><Link href={withLocale(REDIRECTS.signInUrl, locale)} className="text-sm font-semibold text-[#1E5A99] hover:text-[#174a7e] transition"><LocalizedText text="لديك حساب؟ دخول" /></Link>
@@ -156,7 +156,7 @@ export default function RegisterPage() {
       <section className="mx-auto max-w-xl px-6 py-14">
         <Link href="/platform" className="inline-flex items-center gap-2 text-sm text-slate-500 hover:text-slate-800 transition mb-8"><ArrowLeft className="h-4 w-4 -scale-x-100" /> <LocalizedText text="العودة للمنصة" /></Link>
 
-        <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-xl shadow-slate-200/60">
+        <div className="rounded-3xl border border-slate-200 bg-white p-8">
           <div className="mb-8">
             <span className="inline-flex items-center gap-2 rounded-full border border-[#1E5A99]/20 bg-[#1E5A99]/5 px-3.5 py-1.5 text-xs font-bold text-[#1E5A99]"><LocalizedText text="تجربة مجانية 14 يوم" /></span>
             <h1 className="mt-4 text-2xl font-extrabold tracking-tight"><LocalizedText text="أنشئ مساحة عمل شركتك" /></h1>
@@ -172,7 +172,7 @@ export default function RegisterPage() {
             <div><label className="mb-2 block text-sm font-bold" htmlFor="registration-password"><LocalizedText text="كلمة المرور *" /></label><input id="registration-password" required type="password" autoComplete="new-password" aria-describedby="registration-password-policy" value={formData.password} onChange={e => setFormData({ ...formData, password: e.target.value })} className={inputCls} placeholder={ui("10 أحرف على الأقل (أحرف وأرقام)")} minLength={MIN_PASSWORD_LENGTH} maxLength={MAX_PASSWORD_LENGTH} /><p id="registration-password-policy" className="mt-2 text-sm text-muted-foreground">{newPasswordHint(locale)}</p></div>
             <div><label className="mb-2 block text-sm font-bold"><LocalizedText text="رابط شعار الشركة" /></label><input type="url" value={formData.logo_url} onChange={e => setFormData({ ...formData, logo_url: e.target.value })} className={inputCls} placeholder="https://cdn.example.com/logo.png" dir="ltr" /><p className="mt-1.5 text-xs text-slate-400"><LocalizedText text="ارفع الشعار إلى CDN والصق الرابط هنا." /></p></div>
             <div><label className="mb-2 block text-sm font-bold"><LocalizedText text="لون العلامة" /></label><div className="flex items-center gap-3"><input type="color" value={formData.brand_colors} onChange={e => setFormData({ ...formData, brand_colors: e.target.value })} className="h-11 w-16 cursor-pointer rounded-lg border border-slate-200 bg-white" /><input type="text" value={formData.brand_colors} onChange={e => setFormData({ ...formData, brand_colors: e.target.value })} className={inputCls} dir="ltr" /></div></div>
-            <div className="pt-3"><button disabled={loading} type="submit" className="group flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#1E5A99] to-[#174a7e] px-6 py-3.5 font-bold text-white shadow-lg shadow-[#1E5A99]/25 transition hover:shadow-xl hover:shadow-[#1E5A99]/35 disabled:opacity-60">{loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />} {locale === 'ar' ? (loading ? 'جارٍ إنشاء المساحة…' : 'أنشئ المساحة') : (loading ? 'Creating workspace…' : 'Create workspace')} {!loading && <ArrowRight className="h-4 w-4 -scale-x-100 transition-transform group-hover:-translate-x-0.5" />}</button></div>
+            <div className="pt-3"><button disabled={loading} type="submit" className="group flex w-full items-center justify-center gap-2 rounded-xl bg-[#1E5A99] px-6 py-3.5 font-bold text-white shadow-[#1E5A99]/25 transition hover:shadow-[#1E5A99]/35 disabled:opacity-60">{loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />} {locale === 'ar' ? (loading ? 'جارٍ إنشاء المساحة…' : 'أنشئ المساحة') : (loading ? 'Creating workspace…' : 'Create workspace')} {!loading && <ArrowRight className="h-4 w-4 -scale-x-100 transition-transform group-hover:-translate-x-0.5" />}</button></div>
             <p className="text-center text-xs leading-5 text-slate-400"><LocalizedText text="بالتسجيل أنت توافق على الشروط وسياسة الخصوصية. بعدها تسجّل الدخول من الصفحة الرئيسية مع التحقق بخطوتين." /></p>
           </form>
         </div>

@@ -13,7 +13,7 @@ export function ForbiddenError() {
   return (
     <div className="mx-auto flex min-h-dvh flex-col items-center justify-center gap-8 p-8 md:gap-12 md:p-16">
       {/* Icon instead of external image — more reliable and accessible */}
-      <div className="flex h-24 w-24 items-center justify-center rounded-3xl bg-gradient-to-br from-red-500/15 to-amber-500/15 shadow-lg shadow-red-500/10">
+      <div className="flex h-24 w-24 items-center justify-center rounded-3xl bg-red-500/15">
         <ShieldAlert className="h-12 w-12 text-red-500" />
       </div>
       <div className="text-center">

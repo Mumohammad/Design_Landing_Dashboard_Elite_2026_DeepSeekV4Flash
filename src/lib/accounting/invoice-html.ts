@@ -18,6 +18,8 @@ export interface InvoiceDocData {
   qrDataUrl: string; verifyUrl: string; generatedAt: string
   /** Explicit disclosure for the current internal QR, preserved on saved PDFs. */
   internalQr: boolean
+  /** Disclosure for a ZATCA-environment QR (sandbox/simulation evidence). */
+  qrNote?: { ar: string; en: string } | null
   /** Embedded licensed font keeps Arabic shaping consistent in saved PDFs. */
   fontDataUrl?: string
   bankIban?: string | null; bankName?: string | null; bankBeneficiary?: string | null
@@ -129,7 +131,7 @@ small { display: block; font-size: 7.5pt; color: #53697b; font-weight: 400; }
 <table class="items"><colgroup><col style="width:30%"><col style="width:6%"><col style="width:15%"><col style="width:16%"><col style="width:15%"><col style="width:18%"></colgroup>
 <thead><tr><th>${label("البند والوصف", "Item / Description")}</th><th>${label("الكمية", "Qty")}</th><th>${label("سعر الوحدة", "Unit price")}</th><th>${label("قبل الضريبة", "Net amount")}</th><th>${label("ضريبة القيمة المضافة", "VAT amount")}</th><th>${label("الإجمالي", "Total with VAT")}</th></tr></thead>
 <tbody>${rows}</tbody></table>
-<section class="summary"><div>${qr ? `<div class="qr-block"><img src="${qr}" class="qr" alt="${d.internalQr ? "Internal invoice QR" : "Invoice QR"}" />${d.internalQr ? '<small role="note">رمز داخلي · غير معتمد<br>Internal QR · unvalidated</small>' : ""}</div>` : ""}</div><div><table class="totals"><tbody>
+<section class="summary"><div>${qr ? `<div class="qr-block"><img src="${qr}" class="qr" alt="${d.internalQr ? "Internal invoice QR" : "Invoice QR"}" />${d.internalQr ? '<small role="note">رمز داخلي · غير معتمد<br>Internal QR · unvalidated</small>' : d.qrNote ? `<small role="note">${esc(d.qrNote.ar)}<br>${esc(d.qrNote.en)}</small>` : ""}</div>` : ""}</div><div><table class="totals"><tbody>
 <tr><th>${label("الإجمالي قبل الضريبة", "Net total")}</th><td>${money(d.subtotal)}</td></tr>
 <tr><th>${label(`القيمة المضافة ${vatLabel ? `(${esc(vatLabel)})` : ""}`, "VAT total")}</th><td>${money(d.vatAmount)}</td></tr>
 ${adjustment !== 0 ? `<tr><th>${label(adjustment > 0 ? "خصم من الإجمالي" : "تعديل الإجمالي", "Total adjustment")}</th><td>${money(-adjustment)}</td></tr>` : ""}

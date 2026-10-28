@@ -1,36 +1,28 @@
-// Application-layer caching for hot paths.
+// Application-layer caching for hot, read-mostly paths.
 //
-// Uses Upstash Redis when configured (UPSTASH_REDIS_REST_URL/TOKEN),
-// falls back to an in-memory Map for development.
+// * Upstash Redis when UPSTASH_REDIS_REST_URL/TOKEN are set; otherwise a
+//   bounded in-memory store (development / single instance only).
+// * Fail-open: a Redis outage never breaks a request — reads fall back to
+//   the fetcher and writes are skipped.
+// * Single-flight: concurrent misses for the same key share one fetch.
+// * Invalidation uses SCAN (never KEYS) so it is safe on large keyspaces.
 //
-// REQUIRES: pnpm add @upstash/redis
-//   This is OPTIONAL — when env vars are absent, an in-memory cache is used.
+// Keys MUST be scoped by tenant (and by user when the fetcher reads through
+// the caller's RLS client) — use cacheKey() to build them.
 //
-// Usage:
-//   import { cacheGet, cacheSet, cacheInvalidate } from "@/lib/cache"
-//
-//   // Read with cache
-//   const data = await cacheGet<TenantKPIs>(`dashboard:${tenantId}:kpis`, () =>
-//     fetchDashboardKPIs(tenantId)
-//   )
-//
-//   // Invalidate on mutation
+//   const data = await cacheGet(cacheKey("dashboard", tenantId, userId, filters), fetcher, CACHE_TTL.dashboard)
 //   await cacheInvalidate(`dashboard:${tenantId}:*`)
-//
-//   // Direct set
-//   await cacheSet(`coa:${tenantId}`, accounts, 300) // 5 min TTL
 
+import { createHash } from "node:crypto"
 import { logger } from "@/lib/logger"
-
-// ── Types ────────────────────────────────────────────────────────────────────
 
 type CacheEntry<T> = { value: T; expiresAt: number }
 
 type UpstashRedisInstance = {
-  get: (key: string) => Promise<string | null>
-  set: (key: string, value: string, opts?: { ex?: number }) => Promise<"OK">
+  get: (key: string) => Promise<unknown>
+  set: (key: string, value: string, opts?: { ex?: number }) => Promise<unknown>
   del: (...keys: string[]) => Promise<number>
-  keys: (pattern: string) => Promise<string[]>
+  scan: (cursor: string | number, opts?: { match?: string; count?: number }) => Promise<[string | number, string[]]>
 }
 
 // ── Upstash (optional) ──────────────────────────────────────────────────────
@@ -46,18 +38,15 @@ async function getUpstashClient(): Promise<UpstashRedisInstance | null> {
   const token = process.env.UPSTASH_REDIS_REST_TOKEN
   if (!url || !token) {
     upstashAvailable = false
+    warnMemoryFallback()
     return null
   }
 
   try {
-    // Dynamic import with non-literal specifier so TypeScript does not try
-    // to resolve the (optional) module at compile time.
-    const specifier = "@upstash/redis" as string
-    const mod = (await import(specifier)) as Record<string, unknown>
-    const RedisConstructor = mod.Redis as new (config: { url: string; token: string }) => UpstashRedisInstance
-    upstashClient = new RedisConstructor({ url, token })
+    const mod = (await import("@upstash/redis")) as unknown as Record<string, unknown>
+    const RedisConstructor = mod.Redis as new (config: { url: string; token: string; automaticDeserialization?: boolean }) => UpstashRedisInstance
+    upstashClient = new RedisConstructor({ url, token, automaticDeserialization: false })
     upstashAvailable = true
-    logger.info("Upstash Redis connected for caching")
     return upstashClient
   } catch (err) {
     upstashAvailable = false
@@ -66,55 +55,73 @@ async function getUpstashClient(): Promise<UpstashRedisInstance | null> {
   }
 }
 
-// ── In-memory fallback (dev only) ───────────────────────────────────────────
+let redisErrorLoggedAt = 0
+function redisFailed(err: unknown, op: string): void {
+  // Rate-limit the log line; an outage would otherwise log on every request.
+  if (Date.now() - redisErrorLoggedAt > 60_000) {
+    redisErrorLoggedAt = Date.now()
+    logger.warn({ err, component: "cache", op }, "Redis cache unavailable — serving uncached")
+  }
+}
 
+// ── In-memory fallback ──────────────────────────────────────────────────────
+
+const MEMORY_MAX_ENTRIES = 500
 const memoryStore = new Map<string, CacheEntry<unknown>>()
 let memoryWarned = false
 
 function warnMemoryFallback(err?: unknown): void {
-  if (memoryWarned) return
+  if (memoryWarned || process.env.NODE_ENV === "test") return
   memoryWarned = true
-  logger.warn(
-    { err, component: "cache" },
-    "Upstash Redis not configured — using in-memory cache (dev only, not safe for multi-instance)"
-  )
+  logger.warn({ err, component: "cache" }, "Upstash Redis not configured — using in-memory cache (single instance only)")
 }
 
-function memoryGet<T>(key: string): T | null {
+function memoryGet<T>(key: string): T | undefined {
   const entry = memoryStore.get(key)
-  if (!entry) return null
+  if (!entry) return undefined
   if (entry.expiresAt <= Date.now()) {
     memoryStore.delete(key)
-    return null
+    return undefined
   }
   return entry.value as T
 }
 
 function memorySet<T>(key: string, value: T, ttlSeconds: number): void {
+  memoryStore.delete(key)
   memoryStore.set(key, { value, expiresAt: Date.now() + ttlSeconds * 1000 })
+  // Map preserves insertion order: evict the oldest entries first.
+  while (memoryStore.size > MEMORY_MAX_ENTRIES) {
+    const oldest = memoryStore.keys().next().value
+    if (oldest === undefined) break
+    memoryStore.delete(oldest)
+  }
+}
+
+/** Glob with `*` wildcards only (the subset Redis MATCH and we both support). */
+function globToRegExp(pattern: string): RegExp {
+  return new RegExp(`^${pattern.split("*").map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`)
 }
 
 function memoryDelete(pattern: string): number {
-  // If pattern ends with *, delete all matching keys
-  if (pattern.endsWith("*")) {
-    const prefix = pattern.slice(0, -1)
-    let count = 0
-    for (const key of memoryStore.keys()) {
-      if (key.startsWith(prefix)) {
-        memoryStore.delete(key)
-        count++
-      }
+  if (!pattern.includes("*")) return memoryStore.delete(pattern) ? 1 : 0
+  const re = globToRegExp(pattern)
+  let count = 0
+  for (const key of [...memoryStore.keys()]) {
+    if (re.test(key)) {
+      memoryStore.delete(key)
+      count++
     }
-    return count
   }
-  return memoryStore.delete(pattern) ? 1 : 0
+  return count
 }
 
 // ── Default TTLs (seconds) ──────────────────────────────────────────────────
 
 export const CACHE_TTL = {
-  /** Dashboard KPIs — refresh every 60s */
+  /** Dashboard snapshot — refresh every 60s */
   dashboard: 60,
+  /** Financial KPIs — refresh every 60s */
+  financialKpis: 60,
   /** Chart of Accounts — refresh every 5 min */
   chartOfAccounts: 300,
   /** Drivers list — refresh every 2 min */
@@ -133,23 +140,37 @@ export const CACHE_TTL = {
   default: 120,
 } as const
 
-// ── Key prefix ──────────────────────────────────────────────────────────────
+// ── Keys ────────────────────────────────────────────────────────────────────
 
 const KEY_PREFIX = "ed:"
+const prefixedKey = (key: string) => `${KEY_PREFIX}${key}`
 
-function prefixedKey(key: string): string {
-  return `${KEY_PREFIX}${key}`
+/**
+ * Builds `scope:tenant[:user]:<digest>` — stable for equal inputs, never
+ * leaks raw filter values into Redis key names.
+ */
+export function cacheKey(scope: string, tenantId: string, userId: string | null, params?: unknown): string {
+  if (!/^[a-z][a-z0-9-]*$/.test(scope)) throw new Error("Invalid cache scope")
+  if (!/^[0-9a-f-]{8,64}$/i.test(tenantId) || (userId !== null && !/^[0-9a-f-]{8,64}$/i.test(userId))) {
+    throw new Error("Invalid cache owner")
+  }
+  const digest = createHash("sha256").update(stableJson(params ?? null)).digest("base64url").slice(0, 22)
+  return [scope, tenantId, userId ?? "_", digest].join(":")
+}
+
+function stableJson(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null"
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`
+  return `{${Object.keys(value as Record<string, unknown>).sort().map((k) => `${JSON.stringify(k)}:${stableJson((value as Record<string, unknown>)[k])}`).join(",")}}`
 }
 
 // ── Public API ──────────────────────────────────────────────────────────────
 
+const inflight = new Map<string, Promise<unknown>>()
+
 /**
- * Get a value from cache. If not found, call `fetcher`, cache the result,
- * and return it.
- *
- * @param key       Cache key (e.g. "dashboard:tenant123:kpis")
- * @param fetcher   Async function to fetch the value on cache miss
- * @param ttlSeconds  TTL in seconds (defaults to CACHE_TTL.default)
+ * Read-through cache. On a miss (or any cache failure) the fetcher runs and
+ * its result is stored for `ttlSeconds`. `undefined` results are not cached.
  */
 export async function cacheGet<T>(
   key: string,
@@ -159,93 +180,89 @@ export async function cacheGet<T>(
   const redis = await getUpstashClient()
 
   if (redis) {
-    // Try Redis
-    const raw = await redis.get(prefixedKey(key))
-    if (raw) {
-      try {
-        return JSON.parse(raw) as T
-      } catch {
-        // Corrupted cache — fetch fresh
-      }
+    try {
+      const raw = await redis.get(prefixedKey(key))
+      if (typeof raw === "string") return JSON.parse(raw) as T
+    } catch (err) {
+      redisFailed(err, "get")
     }
-
-    // Cache miss — fetch and store
-    const value = await fetcher()
-    await redis.set(prefixedKey(key), JSON.stringify(value), { ex: ttlSeconds })
-    return value
+  } else {
+    const cached = memoryGet<T>(key)
+    if (cached !== undefined) return cached
   }
 
-  // In-memory fallback
-  const cached = memoryGet<T>(key)
-  if (cached !== null) return cached
+  const pending = inflight.get(key) as Promise<T> | undefined
+  if (pending) return pending
 
-  const value = await fetcher()
-  memorySet(key, value, ttlSeconds)
-  return value
+  const run = (async () => {
+    const value = await fetcher()
+    if (value !== undefined) await cacheSet(key, value, ttlSeconds)
+    return value
+  })()
+  inflight.set(key, run)
+  try {
+    return await run
+  } finally {
+    inflight.delete(key)
+  }
 }
 
-/**
- * Set a value in cache directly.
- */
-export async function cacheSet<T>(
-  key: string,
-  value: T,
-  ttlSeconds: number = CACHE_TTL.default
-): Promise<void> {
+/** Store a value directly. Failures are logged and ignored. */
+export async function cacheSet<T>(key: string, value: T, ttlSeconds: number = CACHE_TTL.default): Promise<void> {
+  const ttl = Math.max(1, Math.floor(ttlSeconds))
   const redis = await getUpstashClient()
-
   if (redis) {
-    await redis.set(prefixedKey(key), JSON.stringify(value), { ex: ttlSeconds })
+    try {
+      await redis.set(prefixedKey(key), JSON.stringify(value), { ex: ttl })
+    } catch (err) {
+      redisFailed(err, "set")
+    }
     return
   }
-
-  memorySet(key, value, ttlSeconds)
+  memorySet(key, value, ttl)
 }
 
 /**
- * Invalidate cache entries matching a pattern.
- * Use "*" as a wildcard suffix (e.g. "dashboard:tenant123:*").
+ * Invalidate one key, or every key matching a `*` glob
+ * (e.g. "dashboard:<tenant>:*"). Returns the number of keys removed.
  */
 export async function cacheInvalidate(pattern: string): Promise<number> {
   const redis = await getUpstashClient()
+  if (!redis) return memoryDelete(pattern)
 
-  if (redis) {
-    const fullPattern = prefixedKey(pattern)
-    if (pattern.endsWith("*")) {
-      // Scan for matching keys
-      const keys = await redis.keys(prefixedKey(pattern.replace("*", "")) + "*")
-      if (keys.length > 0) {
-        return await redis.del(...keys)
-      }
-      return 0
-    }
-    return await redis.del(fullPattern)
+  try {
+    if (!pattern.includes("*")) return await redis.del(prefixedKey(pattern))
+    let cursor: string | number = 0
+    let removed = 0
+    let rounds = 0
+    do {
+      const [next, keys]: [string | number, string[]] = await redis.scan(cursor, { match: prefixedKey(pattern), count: 200 })
+      if (keys.length) removed += await redis.del(...keys)
+      cursor = next
+    } while (String(cursor) !== "0" && ++rounds < 100)
+    return removed
+  } catch (err) {
+    redisFailed(err, "invalidate")
+    return 0
   }
-
-  return memoryDelete(pattern)
 }
 
-/**
- * Invalidate all cache entries for a tenant.
- */
+/** Invalidate every cached entry for a tenant (all scopes). */
 export async function cacheInvalidateTenant(tenantId: string): Promise<void> {
+  if (!/^[0-9a-f-]{8,64}$/i.test(tenantId)) return
   await cacheInvalidate(`*:${tenantId}:*`)
 }
 
-/**
- * Get cache stats (for monitoring/debugging).
- */
-export async function cacheStats(): Promise<{
-  provider: "redis" | "memory"
-  keys?: number
-  memoryEntries?: number
-}> {
+/** Cache stats for monitoring/debugging. */
+export async function cacheStats(): Promise<{ provider: "redis" | "memory"; memoryEntries?: number }> {
   const redis = await getUpstashClient()
+  return redis ? { provider: "redis" } : { provider: "memory", memoryEntries: memoryStore.size }
+}
 
-  if (redis) {
-    const keys = await redis.keys(`${KEY_PREFIX}*`)
-    return { provider: "redis", keys: keys.length }
-  }
-
-  return { provider: "memory", memoryEntries: memoryStore.size }
+/** Test seam: reset module state. */
+export function __resetCacheForTests(): void {
+  upstashClient = null
+  upstashAvailable = null
+  memoryStore.clear()
+  inflight.clear()
 }

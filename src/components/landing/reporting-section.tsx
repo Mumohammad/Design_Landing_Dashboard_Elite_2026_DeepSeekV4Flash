@@ -146,16 +146,16 @@ export function ReportingSection() {
           <div className="flex flex-col gap-4 lg:col-span-2">
             {c.reporting.cards.map((card, index) => {
               const Icon = iconMap[card.icon]
-              const gradient = iconGradients[card.icon] || "from-blue-500 to-cyan-500"
+              const gradient = iconGradients[card.icon] || "bg-transparent text-elite-blue-600! dark:text-elite-blue-300! shadow-none h-auto! w-auto! justify-start! rounded-none"
               return (
                 <Reveal key={card.title} delay={index * 100}>
                   <div className="group card-premium flex flex-1 items-start gap-4 p-5">
-                    <span className={cn("flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br text-white shadow-lg transition-all duration-300 group-hover:scale-110 group-hover:shadow-xl", gradient, "shadow-black/10")}>
+                    <span className={cn("flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-white transition-all duration-300 group-hover:scale-110", gradient, "")}>
                       <Icon className="h-5 w-5" />
                     </span>
                     <div>
                       <h3 className="font-bold text-foreground">{card.title}</h3>
-                      <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{card.desc}</p>
+                      <p className="mt-1.5 text-base leading-relaxed text-foreground/75">{card.desc}</p>
                     </div>
                   </div>
                 </Reveal>

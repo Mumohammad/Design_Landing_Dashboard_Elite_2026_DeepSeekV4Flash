@@ -71,7 +71,7 @@ function Footer({ onBack }: { onBack?: () => void }) {
       )}
       <button
         type="submit"
-        className="h-11 rounded-xl bg-gradient-to-r from-elite-blue-500 to-elite-blue-600 px-8 text-sm font-bold text-white shadow-lg shadow-elite-blue-500/25 transition-all hover:from-elite-blue-600 hover:to-elite-blue-700 hover:shadow-elite-blue-500/40"
+        className="h-11 rounded-xl bg-elite-blue-500 px-8 text-sm font-bold text-white shadow-elite-blue-500/25 transition-all hover:bg-elite-blue-600 hover:shadow-elite-blue-500/40"
       >
         {dict.common.next}
       </button>
@@ -702,7 +702,7 @@ export function WorkStep({
         <button
           type="button"
           onClick={submit}
-          className="h-11 rounded-xl bg-gradient-to-r from-elite-blue-500 to-elite-blue-600 px-8 text-sm font-bold text-white shadow-lg shadow-elite-blue-500/25 transition-all hover:from-elite-blue-600 hover:to-elite-blue-700 hover:shadow-elite-blue-500/40"
+          className="h-11 rounded-xl bg-elite-blue-500 px-8 text-sm font-bold text-white shadow-elite-blue-500/25 transition-all hover:bg-elite-blue-600 hover:shadow-elite-blue-500/40"
         >
           {dict.common.next}
         </button>
@@ -766,8 +766,8 @@ export function PlatformsStep({
             className={cn(
               "flex items-center gap-3 rounded-2xl border p-4 text-start transition-all duration-200",
               selected.includes(p.code)
-                ? "border-elite-blue-500 bg-elite-blue-500/5 shadow-md shadow-elite-blue-500/10"
-                : "border-border bg-card hover:-translate-y-0.5 hover:border-elite-blue-500/40 hover:shadow-md"
+                ? "border-elite-blue-500 bg-elite-blue-500/5 shadow-elite-blue-500/10"
+                : "border-border bg-card hover:-translate-y-0.5 hover:border-elite-blue-500/40"
             )}
           >
             <span className="text-xl" aria-hidden>{p.emoji ?? "📦"}</span>
@@ -778,7 +778,7 @@ export function PlatformsStep({
                 selected.includes(p.code) ? "border-elite-blue-500 bg-elite-blue-500" : "border-muted-foreground/30"
               )}
             >
-              {selected.includes(p.code) && <span className="text-[10px] font-black text-white">✓</span>}
+              {selected.includes(p.code) && <span className="text-[11px] font-black text-white">✓</span>}
             </span>
           </button>
         ))}
@@ -800,7 +800,7 @@ export function PlatformsStep({
               noneSelected ? "border-elite-blue-500 bg-elite-blue-500" : "border-muted-foreground/30"
             )}
           >
-            {noneSelected && <span className="text-[10px] font-black text-white">✓</span>}
+            {noneSelected && <span className="text-[11px] font-black text-white">✓</span>}
           </span>
           <span className="text-sm font-bold">{dict.platforms.none}</span>
         </button>
@@ -824,7 +824,7 @@ export function PlatformsStep({
         <button
           type="button"
           onClick={submit}
-          className="h-11 rounded-xl bg-gradient-to-r from-elite-blue-500 to-elite-blue-600 px-8 text-sm font-bold text-white shadow-lg shadow-elite-blue-500/25 transition-all hover:from-elite-blue-600 hover:to-elite-blue-700 hover:shadow-elite-blue-500/40"
+          className="h-11 rounded-xl bg-elite-blue-500 px-8 text-sm font-bold text-white shadow-elite-blue-500/25 transition-all hover:bg-elite-blue-600 hover:shadow-elite-blue-500/40"
         >
           {dict.common.next}
         </button>
@@ -1000,7 +1000,7 @@ export function VehicleStep({
         <button
           type="button"
           onClick={submit}
-          className="h-11 rounded-xl bg-gradient-to-r from-elite-blue-500 to-elite-blue-600 px-8 text-sm font-bold text-white shadow-lg shadow-elite-blue-500/25 transition-all hover:from-elite-blue-600 hover:to-elite-blue-700 hover:shadow-elite-blue-500/40"
+          className="h-11 rounded-xl bg-elite-blue-500 px-8 text-sm font-bold text-white shadow-elite-blue-500/25 transition-all hover:bg-elite-blue-600 hover:shadow-elite-blue-500/40"
         >
           {dict.common.next}
         </button>
@@ -1067,7 +1067,7 @@ export function DocumentsStep({
         <button
           type="button"
           onClick={submit}
-          className="h-11 rounded-xl bg-gradient-to-r from-elite-blue-500 to-elite-blue-600 px-8 text-sm font-bold text-white shadow-lg shadow-elite-blue-500/25 transition-all hover:from-elite-blue-600 hover:to-elite-blue-700 hover:shadow-elite-blue-500/40"
+          className="h-11 rounded-xl bg-elite-blue-500 px-8 text-sm font-bold text-white shadow-elite-blue-500/25 transition-all hover:bg-elite-blue-600 hover:shadow-elite-blue-500/40"
         >
           {dict.common.next}
         </button>

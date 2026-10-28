@@ -5,11 +5,45 @@ import { AnimatePresence, motion } from "framer-motion"
 import { useDriverRegistration } from "@/contexts/driver-registration-context"
 import { WelcomeHero } from "./components/welcome-hero"
 import { Wizard, type PlatformOption } from "./components/wizard"
+import {
+  discardSavedApplication,
+  loadSavedApplication,
+} from "@/lib/driver-registration/saved-application-actions"
+import type { StepKey } from "@/lib/driver-registration/schema"
 
 export function RegistrationApp({ tenantSlug }: { tenantSlug: string }) {
-  const { locale } = useDriverRegistration()
+  const { locale, hydrate, reset } = useDriverRegistration()
   const [started, setStarted] = React.useState(false)
   const [platformOptions, setPlatformOptions] = React.useState<PlatformOption[]>([])
+  const [saved, setSaved] = React.useState<Awaited<ReturnType<typeof loadSavedApplication>>>(null)
+  const [startStep, setStartStep] = React.useState<StepKey>("personal")
+
+  // Offer to resume progress sealed in this browser's httpOnly cookie.
+  React.useEffect(() => {
+    let cancelled = false
+    loadSavedApplication(tenantSlug)
+      .then((found) => {
+        if (!cancelled) setSaved(found)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [tenantSlug])
+
+  const resume = () => {
+    if (!saved) return
+    hydrate(saved.data)
+    setStartStep(saved.step)
+    setStarted(true)
+  }
+
+  const startOver = () => {
+    reset()
+    setSaved(null)
+    setStartStep("personal")
+    void discardSavedApplication().catch(() => undefined)
+  }
 
   // Load the platform list from Supabase config (driver_application_platforms).
   React.useEffect(() => {
@@ -67,7 +101,12 @@ export function RegistrationApp({ tenantSlug }: { tenantSlug: string }) {
           exit={{ opacity: 0, y: -24 }}
           transition={{ duration: 0.4, ease: "easeOut" }}
         >
-          <WelcomeHero onStart={() => setStarted(true)} />
+          <WelcomeHero
+            onStart={() => setStarted(true)}
+            saved={saved ? { savedAt: saved.savedAt } : null}
+            onResume={resume}
+            onStartOver={startOver}
+          />
         </motion.div>
       ) : (
         <motion.div
@@ -76,7 +115,7 @@ export function RegistrationApp({ tenantSlug }: { tenantSlug: string }) {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, ease: "easeOut" }}
         >
-          <Wizard platformOptions={platformOptions} tenantSlug={tenantSlug} />
+          <Wizard platformOptions={platformOptions} tenantSlug={tenantSlug} initialStep={startStep} />
         </motion.div>
       )}
     </AnimatePresence>

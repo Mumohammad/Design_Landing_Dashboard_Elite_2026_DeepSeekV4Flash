@@ -25,8 +25,8 @@ export function FaqSection() {
                 className={cn(
                   "overflow-hidden rounded-2xl border transition-all duration-300",
                   open
-                    ? "border-elite-blue-500/30 bg-card shadow-lg shadow-elite-blue-500/5 ring-1 ring-inset ring-elite-blue-500/10"
-                    : "border-border/50 bg-card/70 hover:border-border hover:bg-card"
+                    ? "border-elite-blue-500/30 bg-card shadow-elite-blue-500/5 ring-1 ring-inset ring-elite-blue-500/10"
+                    : "border-border/50 bg-card hover:border-border hover:bg-card"
                 )}
               >
                 <button
@@ -63,8 +63,8 @@ export function FaqSection() {
                   )}
                 >
                   <div className="overflow-hidden">
-                    <div className="mx-5 mb-5 h-px bg-gradient-to-r from-elite-blue-500/20 to-transparent" />
-                    <p className="px-5 pb-5 text-sm leading-relaxed text-muted-foreground">{faq.a}</p>
+                    <div className="mx-5 mb-5 h-px bg-elite-blue-500/20" />
+                    <p className="px-5 pb-5 text-base leading-relaxed text-foreground/75">{faq.a}</p>
                   </div>
                 </div>
               </div>

@@ -1,0 +1,11 @@
+BEGIN;
+SELECT plan(7);
+SELECT has_table('public','zatca_automation','Scheduled ZATCA operator table exists');
+SELECT ok((SELECT relrowsecurity FROM pg_class WHERE oid='public.zatca_automation'::regclass),'RLS is enabled');
+SELECT ok(NOT has_table_privilege('authenticated','public.zatca_automation','SELECT'),'Clients cannot read the automation operator');
+SELECT ok(NOT has_table_privilege('anon','public.zatca_automation','INSERT'),'Anonymous users cannot write it');
+SELECT ok(has_table_privilege('service_role','public.zatca_automation','UPDATE'),'Service role maintains it');
+SELECT ok(NOT has_function_privilege('authenticated','public.zatca_operator_authorized(uuid,uuid)','EXECUTE'),'Operator check is not callable by clients');
+SELECT is(public.zatca_operator_authorized(gen_random_uuid(), gen_random_uuid()), false,'Unknown users are never authorized');
+SELECT * FROM finish();
+ROLLBACK;

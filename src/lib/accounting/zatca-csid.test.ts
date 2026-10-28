@@ -100,6 +100,8 @@ function mockBuilder(overrides: BuilderOverrides = {}) {
     select: vi.fn((_cols: string) => builder),
     eq: vi.fn((_col: string, _val: unknown) => builder),
     order: vi.fn((_col: string, _opts?: unknown) => builder),
+    limit: vi.fn((_n: number) => builder),
+    insert: vi.fn(async (_payload: Record<string, unknown>) => ({ data: null, error: null })),
     maybeSingle: vi.fn(async () => ({
       data: overrides.maybeSingleData ?? null,
       error: overrides.maybeSingleError ?? null,
@@ -316,27 +318,24 @@ describe("getZatcaCsidCredential", () => {
 // ── onboardZatcaCsids ──────────────────────────────────────────────────────
 
 describe("onboardZatcaCsids", () => {
-  it("persists compliance + production CSIDs with the SAME keypair private key", async () => {
-    // tenant lookup via admin.from("tenants")
-    const tenantBuilder = mockBuilder({
-      maybeSingleData: {
-        name_en: "Elite", legal_name: "Elite Co", vat_number: "310122993400001",
-        address: "Riyadh", city: "Riyadh", country: "SA",
-      },
-    })
+  it("persists compliance + production CSIDs with the SAME keypair private key and registers the EGS stream", async () => {
+    const tenantBuilder = mockBuilder({ maybeSingleData: {
+        name_ar: "إيليت", name_en: "Elite", legal_name: "Elite Co", vat_number: "310122993400003", cr_number: "1010010000",
+        address: "King Fahd Road", city: "Riyadh", region: "Riyadh", district: "Olaya", building_number: "1234",
+        additional_number: "5678", postal_code: "12345", country: "SA",
+      } })
+    const streamBuilder = mockBuilder({ maybeSingleData: null })
     const csidBuilder = mockBuilder()
-    mocks.adminFrom
-      .mockImplementationOnce(() => tenantBuilder) // tenants
-      .mockImplementation(() => csidBuilder) // zatca_csids upserts
+    const automationBuilder = mockBuilder()
+    mocks.adminFrom.mockImplementation(((table: string) =>
+      table === "tenants" ? tenantBuilder : table === "zatca_issuance_streams" ? streamBuilder
+        : table === "zatca_automation" ? automationBuilder : csidBuilder) as never)
 
     const res = await onboardZatcaCsids({ environment: "sandbox", otp: "123456" })
 
-    expect(res.success).toBe(true)
-    expect(res.sandbox).toBe(true)
-    expect(res.complianceSaved).toBe(true)
-    expect(res.productionSaved).toBe(true)
+    expect(res).toMatchObject({ success: true, sandbox: true, complianceSaved: true, productionSaved: true })
+    expect(res.egsSerial).toMatch(/^1-EliteDev\|2-Dashboard\|3-[0-9a-f-]{36}$/)
 
-    // both upserts happened (compliance then production), same keypair key
     expect(csidBuilder.upsert).toHaveBeenCalledTimes(2)
     const [compliancePayload] = csidBuilder.upsert.mock.calls[0]
     const [productionPayload] = csidBuilder.upsert.mock.calls[1]
@@ -347,25 +346,49 @@ describe("onboardZatcaCsids", () => {
     expect(productionPayload.private_key).toBe(KEY_PEM)
     expect(productionPayload.secret).toBe("pc-secret")
 
-    // CSR was built with the sandbox certificate template
-    expect(mocks.buildZatcaCsr).toHaveBeenCalledTimes(1)
     const csrInput = mocks.buildZatcaCsr.mock.calls[0][0]
     expect(csrInput.certificateTemplate).toBe("TSTZATCA-Code-Signing")
-    expect(csrInput.uid).toBe("310122993400001")
+    expect(csrInput.uid).toBe("310122993400003")
+    expect(csrInput.registeredAddress).toBe("1234 King Fahd Road Olaya Riyadh")
+    expect(csrInput.serialNumber).toBe(res.egsSerial)
 
-    // production step authenticated with the compliance CSID
     expect(mocks.requestProductionCsid).toHaveBeenCalledWith({
       complianceRequestId: "req-123",
       csidBase64: "CCSID-BASE64",
       csidSecret: "cc-secret",
     })
+    expect(streamBuilder.insert).toHaveBeenCalledWith({ tenant_id: "tenant-0001", environment: "sandbox", egs_serial: res.egsSerial })
+    // The onboarding user becomes the scheduled-run operator.
+    expect(automationBuilder.upsert).toHaveBeenCalledWith(expect.objectContaining({ tenant_id: "tenant-0001", enabled: true }), { onConflict: "tenant_id" })
 
-    // audit logged with sandbox flag + VAT
-    expect(mocks.writeAuditLog).toHaveBeenCalledTimes(1)
     const audit = mocks.writeAuditLog.mock.calls[0][0]
     expect(audit.action).toBe("zatca_onboarded")
-    expect(audit.newValues.sandbox).toBe(true)
-    expect(audit.newValues.vat).toBe("310122993400001")
+    expect(audit.newValues).toMatchObject({ sandbox: true, vat: "310122993400003", renewal: false })
+  })
+
+  it("renews with the existing EGS serial so the ICV/PIH chain continues", async () => {
+    const tenantBuilder = mockBuilder({ maybeSingleData: {
+        name_ar: "إيليت", name_en: "Elite", legal_name: "Elite Co", vat_number: "310122993400003", cr_number: "1010010000",
+        address: "King Fahd Road", city: "Riyadh", region: "Riyadh", district: "Olaya", building_number: "1234",
+        additional_number: "5678", postal_code: "12345", country: "SA",
+      } })
+    const streamBuilder = mockBuilder({ maybeSingleData: { id: "s-1", egs_serial: "1-EliteDev|2-Dashboard|3-existing" } })
+    const csidBuilder = mockBuilder()
+    mocks.adminFrom.mockImplementation(((table: string) =>
+      table === "tenants" ? tenantBuilder : table === "zatca_issuance_streams" ? streamBuilder : csidBuilder) as never)
+    const res = await onboardZatcaCsids({ environment: "sandbox", otp: "123456", serialNumber: "1-Other|2-X|3-Y" })
+    expect(res.success).toBe(true)
+    expect(mocks.buildZatcaCsr.mock.calls[0][0].serialNumber).toBe("1-EliteDev|2-Dashboard|3-existing")
+    expect(streamBuilder.insert).not.toHaveBeenCalled()
+  })
+
+  it("refuses production onboarding and a mismatched gateway environment", async () => {
+    expect(await onboardZatcaCsids({ environment: "production", otp: "123456" })).toMatchObject({ success: false, error: "Production onboarding is disabled." })
+    vi.stubEnv("ZATCA_MODE", "sandbox")
+    vi.stubEnv("ZATCA_API_BASE_URL", "https://gw-fatoora.zatca.gov.sa/e-invoicing/developer-portal")
+    const res = await onboardZatcaCsids({ environment: "simulation", otp: "123456" })
+    expect(res.error).toMatch(/configured ZATCA gateway is sandbox/)
+    expect(mocks.requestComplianceCsid).not.toHaveBeenCalled()
   })
 
   it("requires an OTP before any network or persistence", async () => {
@@ -391,23 +414,17 @@ describe("onboardZatcaCsids", () => {
     expect(mocks.requestComplianceCsid).not.toHaveBeenCalled()
   })
 
-  it("uses the demo placeholder VAT when the tenant VAT is not a 15-digit number", async () => {
+  it("never substitutes a demo VAT number or address: incomplete profiles are refused", async () => {
     const tenantBuilder = mockBuilder({
-      maybeSingleData: {
-        name_en: "Elite", legal_name: "Elite Co", vat_number: "not-a-vat",
-        address: null, city: null, country: "SA",
-      },
+      maybeSingleData: { name_en: "Elite", legal_name: "Elite Co", vat_number: "not-a-vat", address: null, city: null, country: "SA" },
     })
-    const csidBuilder = mockBuilder()
-    mocks.adminFrom
-      .mockImplementationOnce(() => tenantBuilder)
-      .mockImplementation(() => csidBuilder)
-
+    mocks.adminFrom.mockReturnValue(tenantBuilder)
     const res = await onboardZatcaCsids({ environment: "sandbox", otp: "123456" })
-
-    expect(res.success).toBe(true)
-    const csrInput = mocks.buildZatcaCsr.mock.calls[0][0]
-    expect(csrInput.uid).toBe("310122993400001")
+    expect(res.success).toBe(false)
+    expect(res.error).toContain("vat_number")
+    expect(res.error).toContain("building_number")
+    expect(mocks.buildZatcaCsr).not.toHaveBeenCalled()
+    expect(mocks.requestComplianceCsid).not.toHaveBeenCalled()
   })
 })
 

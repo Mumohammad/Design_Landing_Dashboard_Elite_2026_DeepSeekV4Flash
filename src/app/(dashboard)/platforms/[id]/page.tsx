@@ -227,7 +227,7 @@ export default function PlatformDetailPage() {
       {isLoading ? (
         <p className="p-6 text-sm text-muted-foreground">{t.common.loading}</p>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/80">
+        <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card">
           {tab === "daily" && (
             dailyRollup.length === 0 ? (
               <p className="p-6 text-center text-sm text-muted-foreground">{pm.noEntries}</p>

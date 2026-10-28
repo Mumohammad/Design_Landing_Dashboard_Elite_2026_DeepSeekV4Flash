@@ -89,10 +89,10 @@ export default function SecuritySettingsPage() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         {/* Account status */}
-        <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm">
+        <Card className="rounded-2xl border border-border/50 bg-card shadow-sm">
           <CardHeader className="pb-4">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-elite-blue-600/10">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl text-elite-blue-600 dark:text-elite-blue-300">
                 <Shield className="h-5 w-5 text-elite-blue-600" />
               </div>
               <div>
@@ -147,10 +147,10 @@ export default function SecuritySettingsPage() {
         </Card>
 
         {/* Policy values */}
-        <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm">
+        <Card className="rounded-2xl border border-border/50 bg-card shadow-sm">
           <CardHeader className="pb-4">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-elite-blue-600/10">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl text-elite-blue-600 dark:text-elite-blue-300">
                 <KeyRound className="h-5 w-5 text-elite-blue-600" />
               </div>
               <div>

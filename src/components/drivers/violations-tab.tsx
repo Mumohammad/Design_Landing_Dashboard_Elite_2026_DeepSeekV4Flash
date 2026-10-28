@@ -28,7 +28,7 @@ const VIOLATION_STATUS_STYLES: Record<string, { ar: string; en: string; classNam
   deducted: {
     ar: "مخصومة",
     en: "Deducted",
-    className: "bg-purple-500/15 text-purple-700 dark:text-purple-400",
+    className: "bg-teal-500/15 text-teal-700 dark:text-teal-400",
   },
   paid: {
     ar: "مدفوعة",
@@ -159,7 +159,7 @@ export function ViolationsTab({ driverId, isAr }: ViolationsTabProps) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
-        <div className="rounded-2xl border border-border/50 bg-card/60 px-4 py-3 backdrop-blur-sm">
+        <div className="rounded-2xl border border-border/50 bg-card/60 px-4 py-3">
           <span className="text-xs text-muted-foreground">
             {isAr ? "إجمالي الخصومات" : "Total deductions"}
           </span>
@@ -167,7 +167,7 @@ export function ViolationsTab({ driverId, isAr }: ViolationsTabProps) {
             {totals.deductions.toLocaleString("en-US")} {isAr ? "ر.س" : "SAR"}
           </div>
         </div>
-        <div className="rounded-2xl border border-border/50 bg-card/60 px-4 py-3 backdrop-blur-sm">
+        <div className="rounded-2xl border border-border/50 bg-card/60 px-4 py-3">
           <span className="text-xs text-muted-foreground">
             {isAr ? "عدد المخالفات" : "Violations"}
           </span>
@@ -184,16 +184,16 @@ export function ViolationsTab({ driverId, isAr }: ViolationsTabProps) {
       </div>
 
       {rows.length === 0 ? (
-        <div className="rounded-2xl border border-border/50 bg-card/60 p-8 text-center backdrop-blur-sm">
+        <div className="rounded-2xl border border-border/50 bg-card/60 p-8 text-center">
           <p className="text-sm text-muted-foreground">
             {isAr ? "لا توجد مخالفات مسجلة" : "No violations recorded"}
           </p>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm">
+        <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60">
           <table className="w-full min-w-[780px] text-start text-sm">
             <thead>
-              <tr className="border-b border-border/50 text-[10px] uppercase tracking-wide text-muted-foreground">
+              <tr className="border-b border-border/50 text-[11px] text-muted-foreground">
                 <th className="px-4 py-3 text-start font-semibold">{isAr ? "المرجع" : "Ref"}</th>
                 <th className="px-4 py-3 text-start font-semibold">{isAr ? "النوع" : "Type"}</th>
                 <th className="px-4 py-3 text-start font-semibold">{isAr ? "التاريخ" : "Date"}</th>

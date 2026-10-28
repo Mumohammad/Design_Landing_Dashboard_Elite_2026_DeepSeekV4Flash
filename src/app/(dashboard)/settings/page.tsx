@@ -40,7 +40,7 @@ export default function SettingsPage() {
       description: t.common.status === "الحالة" ? "إدارة المستخدمين والدعوات" : "User management and invites",
       href: "/settings/users",
       icon: Users,
-      color: "#8B5CF6",
+      color: "#0F766E",
     },
     {
       title: t.settings.language,
@@ -76,7 +76,7 @@ export default function SettingsPage() {
     <div className="px-4 lg:px-6 py-4 space-y-6 page-enter">
       <ScrollReveal direction="fade" duration={400}>
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-muted/50 to-muted/30 border border-border/50 backdrop-blur-sm">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted/50 border border-border/50">
             <KeyRound className="h-5 w-5 text-muted-foreground" />
           </div>
           <div>
@@ -96,18 +96,8 @@ export default function SettingsPage() {
               <Link
                 key={card.href}
                 href={card.href}
-                className="group relative overflow-hidden rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm p-6 shadow-sm hover:shadow-lg hover:shadow-black/[0.04] transition-all duration-300 hover:-translate-y-0.5 hover:border-border/80"
+                className="group relative overflow-hidden rounded-2xl border border-border/50 bg-card p-6 shadow-sm hover:shadow-black/[0.04] transition-all duration-300 hover:-translate-y-0.5 hover:border-border/80"
               >
-                {/* Animated gradient accent top line */}
-                <div
-                  className="absolute inset-x-0 top-0 h-[2px] opacity-0 group-hover:opacity-60 transition-opacity duration-300"
-                  style={{ background: `linear-gradient(90deg, transparent, ${card.color}, transparent)` }}
-                />
-                {/* Soft glow behind icon */}
-                <div
-                  className="absolute -top-6 -right-6 w-24 h-24 rounded-full opacity-[0.04] group-hover:opacity-[0.08] transition-opacity duration-500 blur-xl"
-                  style={{ backgroundColor: card.color }}
-                />
                 <div className="relative">
                   <div
                     className="flex h-12 w-12 items-center justify-center rounded-xl mb-4 transition-transform duration-300 group-hover:scale-110"

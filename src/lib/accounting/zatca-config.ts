@@ -28,3 +28,21 @@ export function getZatcaNetworkBase(): string | null {
   }
   return `${url.origin}${path}`
 }
+
+/**
+ * True only for an explicit, valid NON-PRODUCTION gateway configuration
+ * (ZATCA_MODE=sandbox|simulation plus the matching official URL). Production
+ * stays code-blocked above; invalid configuration is treated as disabled.
+ */
+export function zatcaNonProductionEnabled(): boolean {
+  try {
+    return getZatcaNetworkBase() !== null
+  } catch {
+    return false
+  }
+}
+
+export function zatcaConfiguredEnvironment(): "sandbox" | "simulation" | null {
+  if (!zatcaNonProductionEnabled()) return null
+  return process.env.ZATCA_MODE === "simulation" ? "simulation" : "sandbox"
+}

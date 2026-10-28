@@ -21,6 +21,9 @@ export interface ZatcaPreparedDocument {
   unsigned_xml: string
 }
 
+export { riyadhLocal } from "./zatca-issuance-time"
+import { riyadhLocal } from "./zatca-issuance-time"
+
 type PreparedInput = Omit<ZatcaInvoiceData, "uuid" | "invoiceCounter" | "previousInvoiceHash" | "issueDate" | "issueTime" | "qr">
 
 function preparedResult(value: unknown, tenant: string, source: string, type: ZatcaDocType, environment: string): ZatcaPreparedDocument {
@@ -47,12 +50,25 @@ function preparedResult(value: unknown, tenant: string, source: string, type: Za
  * The DB validates source ownership/state/totals and atomically fences the
  * stream. Signing, onboarding, transmission and production remain unavailable.
  */
+export type ZatcaActor = { tenantId: string; authUserId: string }
+
 export async function prepareZatcaDocument(
   streamId: string, sourceId: string, input: PreparedInput,
 ): Promise<ZatcaPreparedDocument> {
   await requirePermission("accounting", "approve")
   const user = await getCurrentUser()
   if (!user) throw new Error("Not authenticated.")
+  return prepareZatcaDocumentAs(user, streamId, sourceId, input)
+}
+
+/**
+ * Same as prepareZatcaDocument for an already-authorized actor (the signed-in
+ * user, or the tenant's ZATCA operator for the scheduled run). The database
+ * re-checks that the actor is an active user of the tenant.
+ */
+export async function prepareZatcaDocumentAs(
+  user: ZatcaActor, streamId: string, sourceId: string, input: PreparedInput,
+): Promise<ZatcaPreparedDocument> {
   const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i
   if (!uuidPattern.test(streamId) || !uuidPattern.test(sourceId) || !["invoice", "credit_note", "debit_note"].includes(input.docType)) {
     throw new Error("Invalid ZATCA preparation identity.")
@@ -77,13 +93,17 @@ export async function prepareZatcaDocument(
     throw new Error("A valid seller VAT identity is required for ZATCA preparation.")
   }
   const issuedAt = new Date().toISOString().replace(/\.\d{3}Z$/, "Z")
+  // IssueDate/IssueTime are the seller's Riyadh-local date and time (UTC+3,
+  // no DST) so the VAT period follows the Saudi calendar day; the QR
+  // timestamp uses the same local wall-clock value (signer contract).
+  const local = riyadhLocal(issuedAt)
   const documentId = randomUUID()
   const data: ZatcaInvoiceData = {
     ...input, uuid: documentId, invoiceCounter: counter + 1,
     previousInvoiceHash: stream.last_invoice_hash,
-    issueDate: issuedAt.slice(0, 10), issueTime: issuedAt.slice(11, 19),
+    issueDate: local.slice(0, 10), issueTime: local.slice(11, 19),
     qr: { sellerName: input.seller.name, sellerVatNumber: input.seller.vatNumber,
-      timestamp: issuedAt, total: input.total, vatAmount: input.vatAmount },
+      timestamp: local, total: input.total, vatAmount: input.vatAmount },
   }
   const xml = buildZatcaUblInvoice(data)
   const { data: stored, error } = await admin.rpc("record_zatca_issuance", {

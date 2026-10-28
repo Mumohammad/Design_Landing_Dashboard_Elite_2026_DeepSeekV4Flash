@@ -7,7 +7,7 @@ import { useTranslation } from "@/hooks/use-translation"
 import { Reveal, SectionHeading, iconMap, iconGradients } from "./shared"
 
 const cardIcons = [Coins, ReceiptText, ChartLine]
-const cardGradients = ["from-emerald-500 to-teal-500", "from-cyan-500 to-blue-500", "from-blue-500 to-purple-500"]
+const cardGradients = ["bg-transparent text-elite-blue-600! dark:text-elite-blue-300! shadow-none h-auto! w-auto! justify-start! rounded-none", "bg-transparent text-elite-blue-600! dark:text-elite-blue-300! shadow-none h-auto! w-auto! justify-start! rounded-none", "bg-transparent text-elite-blue-600! dark:text-elite-blue-300! shadow-none h-auto! w-auto! justify-start! rounded-none"]
 
 export function CostControl() {
   const { locale } = useTranslation()
@@ -35,7 +35,7 @@ export function CostControl() {
                     className={cn(
                       "flex items-center justify-between gap-3 rounded-xl px-4 py-3 transition-colors",
                       isTotal &&
-                        "bg-gradient-to-r from-elite-blue-500/10 to-elite-orange-500/10 ring-1 ring-inset ring-elite-blue-500/20"
+                        "bg-elite-blue-500/10 ring-1 ring-inset ring-elite-blue-500/20"
                     )}
                   >
                     <span className="flex items-center gap-2.5 text-sm text-muted-foreground">
@@ -63,7 +63,7 @@ export function CostControl() {
                 )
               })}
             </div>
-            <p className="border-t border-border/40 px-6 py-4 text-[13px] leading-relaxed text-muted-foreground">
+            <p className="border-t border-border/40 px-6 py-4 text-base leading-relaxed text-foreground/75">
               {c.cost.note}
             </p>
           </div>
@@ -72,17 +72,17 @@ export function CostControl() {
         {/* Value cards */}
         <div className="flex flex-col gap-4">
           {c.cost.cards.map((card, index) => {
-            const gradient = cardGradients[index] || "from-blue-500 to-cyan-500"
+            const gradient = cardGradients[index] || "bg-transparent text-elite-blue-600! dark:text-elite-blue-300! shadow-none h-auto! w-auto! justify-start! rounded-none"
             const Icon = cardIcons[index]
             return (
               <Reveal key={card.title} delay={index * 100}>
                 <div className="group card-premium flex items-start gap-4 p-5">
-                  <span className={cn("flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br text-white shadow-lg transition-all duration-300 group-hover:scale-110 group-hover:shadow-xl", gradient, "shadow-black/10")}>
+                  <span className={cn("flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-white transition-all duration-300 group-hover:scale-110", gradient, "")}>
                     <Icon className="h-5 w-5" />
                   </span>
                   <div>
                     <h3 className="font-bold text-foreground">{card.title}</h3>
-                    <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{card.desc}</p>
+                    <p className="mt-1.5 text-base leading-relaxed text-foreground/75">{card.desc}</p>
                   </div>
                 </div>
               </Reveal>

@@ -233,7 +233,7 @@ export function CreateOrderEntryDialog({
         ) : (
           <form onSubmit={handleSubmit(onSubmit)} className="grid gap-6" noValidate>
             <fieldset className="grid gap-4 rounded-2xl border border-border/50 bg-muted/20 p-4 sm:grid-cols-2">
-              <legend className="px-2 text-xs font-bold uppercase tracking-wide text-elite-blue-600 dark:text-elite-blue-300">
+              <legend className="px-2 text-xs font-bold text-elite-blue-600 dark:text-elite-blue-300">
                 {isAr ? "السائق والمنصة" : "Driver & platform"}
               </legend>
               <Field label={isAr ? "السائق" : "Driver"} required error={errors.driver_id?.message}>
@@ -302,7 +302,7 @@ export function CreateOrderEntryDialog({
             </fieldset>
 
             <fieldset className="grid gap-4 rounded-2xl border border-border/50 bg-muted/20 p-4 sm:grid-cols-2">
-              <legend className="px-2 text-xs font-bold uppercase tracking-wide text-elite-blue-600 dark:text-elite-blue-300">
+              <legend className="px-2 text-xs font-bold text-elite-blue-600 dark:text-elite-blue-300">
                 {isAr ? "أعداد الطلبات" : "Order counts"}
               </legend>
               <Field label={isAr ? "طلبات مُسلّمة" : "Delivered"}>
@@ -320,7 +320,7 @@ export function CreateOrderEntryDialog({
             </fieldset>
 
             <fieldset className="grid gap-4 rounded-2xl border border-border/50 bg-muted/20 p-4 sm:grid-cols-2">
-              <legend className="px-2 text-xs font-bold uppercase tracking-wide text-elite-blue-600 dark:text-elite-blue-300">
+              <legend className="px-2 text-xs font-bold text-elite-blue-600 dark:text-elite-blue-300">
                 {isAr ? "المسافة والإيرادات" : "Distance & revenue"}
               </legend>
               <Field label={isAr ? "المسافة الإجمالية (كم)" : "Total distance (km)"}>
@@ -341,7 +341,7 @@ export function CreateOrderEntryDialog({
             </fieldset>
 
             <fieldset className="grid gap-2 rounded-2xl border border-border/50 bg-muted/20 p-4">
-              <legend className="px-2 text-xs font-bold uppercase tracking-wide text-elite-blue-600 dark:text-elite-blue-300">
+              <legend className="px-2 text-xs font-bold text-elite-blue-600 dark:text-elite-blue-300">
                 {isAr ? "ملاحظات" : "Notes"}
               </legend>
               <Textarea {...register("notes")} rows={2} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30" />
@@ -354,7 +354,7 @@ export function CreateOrderEntryDialog({
               <Button
                 type="submit"
                 disabled={submitting}
-                className="bg-gradient-to-r from-elite-blue-500 to-elite-blue-700 text-white hover:from-elite-blue-600 hover:to-elite-blue-800"
+                className="bg-elite-blue-500 text-white hover:bg-elite-blue-600"
               >
                 {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
                 {isAr ? "حفظ الطلبات" : "Save orders"}

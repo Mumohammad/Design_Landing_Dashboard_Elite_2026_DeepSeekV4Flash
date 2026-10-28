@@ -10,10 +10,7 @@ export function SiteFooter() {
   const year = new Date().getFullYear()
 
   return (
-    <footer className="relative overflow-hidden bg-gradient-to-br from-[#0A1628] via-[#0F3A66] to-[#1E5A99] text-white/90">
-      {/* Decorative gradient orbs */}
-      <div className="absolute top-0 left-1/4 w-64 h-64 rounded-full bg-elite-blue-500/10 blur-[100px]" />
-      <div className="absolute bottom-0 right-1/4 w-48 h-48 rounded-full bg-elite-orange-500/10 blur-[80px]" />
+    <footer className="relative overflow-hidden bg-[#0A1628] text-white/90">
 
       <div className="relative px-6 py-12">
         <div className="mx-auto max-w-7xl">
@@ -21,12 +18,12 @@ export function SiteFooter() {
             {/* Column 0: Brand */}
             <div className="space-y-4 md:col-span-1">
               <div className="flex items-center gap-2.5">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 backdrop-blur-sm border border-white/10">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 border border-white/10">
                   <Logo size={20} className="text-white" />
                 </div>
                 <div>
                   <p className="text-sm font-bold text-white">{t.app.companyNameArabic}</p>
-                  <p className="text-[10px] text-white/40">{t.app.companyName}</p>
+                  <p className="text-[11px] text-white/40">{t.app.companyName}</p>
                 </div>
               </div>
               <p className="text-xs text-white/50 leading-relaxed max-w-[220px]">
@@ -36,7 +33,7 @@ export function SiteFooter() {
 
             {/* Column 1: Company */}
             <div className="space-y-4">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-white/70">
+              <h3 className="text-xs font-semibold text-white/70">
                 {t.footer.company}
               </h3>
               <div className="space-y-2 text-xs text-white/50">
@@ -47,7 +44,7 @@ export function SiteFooter() {
 
             {/* Column 2: Contact */}
             <div className="space-y-4">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-white/70">
+              <h3 className="text-xs font-semibold text-white/70">
                 {t.footer.contact}
               </h3>
               <ul className="space-y-2 text-xs">
@@ -80,7 +77,7 @@ export function SiteFooter() {
 
             {/* Column 3: Legal */}
             <div className="space-y-4">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-white/70">
+              <h3 className="text-xs font-semibold text-white/70">
                 {t.footer.legal}
               </h3>
               <ul className="space-y-2 text-xs">

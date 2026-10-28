@@ -55,7 +55,7 @@ export function OperationsSection() {
                   <KpiValue value={kpi.value} locale={locale} />
                 </p>
                 <p className="mt-2 text-sm text-muted-foreground">{kpi.label}</p>
-                <div className="mt-4 h-px w-0 bg-gradient-to-r from-elite-blue-500 to-elite-orange-500 transition-all duration-500 group-hover:w-full opacity-0 group-hover:opacity-40" />
+                <div className="mt-4 h-px w-0 bg-elite-blue-500 transition-all duration-500 group-hover:w-full opacity-0 group-hover:opacity-40" />
               </div>
             </Reveal>
           )
@@ -72,7 +72,7 @@ export function OperationsSection() {
             <div className="overflow-x-auto">
               <table className="w-full min-w-[460px] text-start">
                 <thead>
-                  <tr className="border-b border-border/50 text-[10px] uppercase tracking-wide text-muted-foreground">
+                  <tr className="border-b border-border/50 text-[11px] text-muted-foreground">
                     {c.operations.tableHeaders.map((h) => (
                       <th key={h} className="px-6 py-2.5 text-start font-semibold">
                         {h}
@@ -89,7 +89,7 @@ export function OperationsSection() {
                       <td className="px-6 py-3">
                         <span
                           className={cn(
-                            "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold",
+                            "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold",
                             row.warn
                               ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
                               : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
@@ -118,7 +118,7 @@ export function OperationsSection() {
               className="h-full w-full object-cover object-center transition-transform duration-700 hover:scale-105"
               sizes="(min-width: 1024px) 33vw, 100vw"
             />
-            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-elite-blue-950/90 via-elite-blue-950/50 to-transparent p-5 pt-14">
+            <div className="absolute inset-x-0 bottom-0 bg-elite-blue-950/90 p-5 pt-14">
               <p className="flex items-center gap-2 text-xs font-semibold text-white">
                 <Radar className="h-4 w-4 shrink-0 text-elite-orange-400" />
                 {c.operations.droneCaption}

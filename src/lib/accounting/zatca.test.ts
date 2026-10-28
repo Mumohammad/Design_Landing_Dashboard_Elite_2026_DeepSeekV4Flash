@@ -37,7 +37,21 @@ const mocks = vi.hoisted(() => ({
     raw: { sandbox: true },
   })),
   revalidatePath: vi.fn(),
+  adminRpc: vi.fn(async () => ({ data: true, error: null })),
   adminFrom: vi.fn(() => ({})),
+  prepareZatcaDocument: vi.fn(async (_stream: string, _source: string, _input: Record<string, unknown>) => ({
+    id: "11111111-1111-4111-8111-111111111111",
+    invoice_counter: 7,
+    invoice_hash: "HASH",
+    unsigned_xml: "<Invoice prepared/>",
+  })),
+  submitPreparedZatcaDocument: vi.fn(async (_id: string, _mode: string): Promise<Record<string, unknown>> => ({
+    success: true,
+    status: "cleared",
+    pipeline: "clearance",
+    warnings: [],
+    errors: [],
+  })),
 }))
 
 vi.mock("@/lib/auth/authorization", () => ({
@@ -50,7 +64,7 @@ vi.mock("@/lib/auth/sessions", () => ({
 }))
 
 vi.mock("@/lib/supabase/admin", () => ({
-  createAdminClient: () => ({ from: mocks.adminFrom }),
+  createAdminClient: () => ({ from: mocks.adminFrom, rpc: mocks.adminRpc }),
 }))
 
 vi.mock("@/lib/accounting/csv-utils", () => ({
@@ -69,11 +83,24 @@ vi.mock("./zatca-transport", () => ({
   transmitToZatca: mocks.transmitToZatca,
 }))
 
+vi.mock("server-only", () => ({}))
+
+// The adapter core calls the actor-based primitives; drop the actor argument
+// so assertions keep checking the document arguments.
+vi.mock("./zatca-issuance", () => ({
+  prepareZatcaDocumentAs: (_actor: unknown, ...args: unknown[]) => (mocks.prepareZatcaDocument as (...a: unknown[]) => unknown)(...args),
+}))
+
+vi.mock("./zatca-submission-core", () => ({
+  submitPreparedZatcaDocumentAs: (_actor: unknown, ...args: unknown[]) => (mocks.submitPreparedZatcaDocument as (...a: unknown[]) => unknown)(...args),
+}))
+
 vi.mock("next/cache", () => ({
   revalidatePath: mocks.revalidatePath,
 }))
 
 import { runZatcaAdapter, getZatcaTransmission } from "./zatca"
+import { runZatcaForTenant } from "./zatca-adapter-core"
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -196,3 +223,142 @@ describe("transmission detail boundary", () => {
 })
 
 vi.mock("@/lib/release/integrations", () => ({ integrationAvailable: () => true, INTEGRATION_UNAVAILABLE: "Unavailable" }))
+
+// ── Network mode: prepared + signed submission, never unsigned XML ─────────
+
+const SOURCE_ID = "22222222-2222-4222-8222-222222222222"
+const TENANT_ROW = {
+  name_ar: "شركة", name_en: "Co", legal_name: "Synthetic Co", vat_number: "399999999900003", cr_number: "1010010000",
+  address: "King Fahd Road", city: "Riyadh", region: "Riyadh", district: "Olaya", building_number: "1234",
+  additional_number: "5678", postal_code: "12345", country: "SA",
+}
+
+function tableBuilder(table: string, rows: Record<string, unknown>, writes: { table: string; op: string; value: unknown }[]) {
+  const single = () => Promise.resolve({ data: rows[table] ?? null, error: null })
+  const builder: Record<string, unknown> = {}
+  for (const m of ["select", "eq", "in", "order", "limit", "gt", "is"]) builder[m] = vi.fn(() => builder)
+  builder.maybeSingle = vi.fn(single)
+  builder.insert = vi.fn((value: unknown) => { writes.push({ table, op: "insert", value }); return Promise.resolve({ error: null }) })
+  builder.update = vi.fn((value: unknown) => { writes.push({ table, op: "update", value }); return builder })
+  builder.then = (resolve: (v: unknown) => void) =>
+    resolve(table === "financial_events" ? { data: rows.financial_events, error: null } : { data: rows[`${table}:list`] ?? [], error: null })
+  return builder
+}
+
+function networkAdmin(overrides: Record<string, unknown> = {}) {
+  const writes: { table: string; op: string; value: unknown }[] = []
+  const rows: Record<string, unknown> = {
+    financial_events: [{ id: "ev-1", event_type: "InvoiceFinalizedEvent", source_type: "invoice", source_id: SOURCE_ID, payload: {} }],
+    invoices: { id: SOURCE_ID, invoice_number: "INV-1", invoice_type: "sales", status: "finalized", customer_id: "cust-1", issue_date: "2026-10-28", currency: "SAR", subtotal: 100, discount: 0, vat_amount: 15, total: 115, vat_rate: 15 },
+    "invoice_lines:list": [{ line_no: 1, description: "Delivery", quantity: 1, unit_price: 100, discount: 0, amount: 100, vat_rate: 15, vat_amount: 15 }],
+    zatca_transmissions: null,
+    tenants: TENANT_ROW,
+    customers: { name_ar: "عميل", name_en: null, tax_number: "399999999800003", address: "Olaya St", city: "Riyadh", district: "Olaya", building_number: "4321", additional_number: null, postal_code: "54321", country_code: "SA" },
+    zatca_issuance_streams: { id: "33333333-3333-4333-8333-333333333333" },
+    ...overrides,
+  }
+  mocks.adminFrom.mockImplementation(((table: string) => tableBuilder(table, rows, writes)) as never)
+  return writes
+}
+
+describe("runZatcaAdapter — network mode uses the prepared, signed submission path", () => {
+  beforeEach(() => {
+    mocks.getZatcaCsidCredential.mockResolvedValue(STORED_CSID)
+    vi.stubEnv("ZATCA_MODE", "sandbox")
+    vi.stubEnv("ZATCA_API_BASE_URL", "https://gw-fatoora.zatca.gov.sa/e-invoicing/developer-portal")
+  })
+
+  it("prepares on the EGS stream, submits for clearance and records the issuance identity", async () => {
+    const writes = networkAdmin()
+    const res = await runZatcaAdapter()
+    expect(res).toMatchObject({ success: true, processed: 1, failed: 0, sandbox: false })
+    expect(mocks.transmitToZatca).not.toHaveBeenCalled()
+    expect(mocks.buildZatcaUblInvoice).not.toHaveBeenCalled()
+    const [stream, source, input] = mocks.prepareZatcaDocument.mock.calls[0]
+    expect(stream).toBe("33333333-3333-4333-8333-333333333333")
+    expect(source).toBe(SOURCE_ID)
+    expect(input).toMatchObject({ docType: "invoice", invoiceKind: "standard", invoiceNumber: "INV-1", deliveryDate: "2026-10-28" })
+    expect(mocks.submitPreparedZatcaDocument).toHaveBeenCalledWith("11111111-1111-4111-8111-111111111111", "submit")
+    const tx = writes.find((w) => w.table === "zatca_transmissions")?.value as Record<string, unknown>
+    expect(tx).toMatchObject({ status: "cleared", source_id: SOURCE_ID, zatca_uuid: "11111111-1111-4111-8111-111111111111", payload_xml: "<Invoice prepared/>", error_message: null })
+    expect(writes.find((w) => w.table === "invoices")?.value).toMatchObject({ zatca_status: "cleared" })
+  })
+
+  it("fails closed (no preparation) when the seller National Address is incomplete", async () => {
+    networkAdmin({ tenants: { ...TENANT_ROW, building_number: null, postal_code: null } })
+    const res = await runZatcaAdapter()
+    expect(res).toMatchObject({ success: true, processed: 0, failed: 1 })
+    expect(res.error).toContain("seller.building_number")
+    expect(mocks.prepareZatcaDocument).not.toHaveBeenCalled()
+  })
+
+  it("never submits documents finalized before the EGS go-live (stream registration)", async () => {
+    networkAdmin({
+      financial_events: [{ id: "ev-1", event_type: "InvoiceFinalizedEvent", source_type: "invoice", source_id: SOURCE_ID, payload: {}, created_at: "2026-10-01T10:00:00Z" }],
+      zatca_issuance_streams: { id: "33333333-3333-4333-8333-333333333333", created_at: "2026-10-20T00:00:00Z" },
+    })
+    const res = await runZatcaAdapter()
+    expect(res).toMatchObject({ success: true, processed: 0, skipped: 1, failed: 0 })
+    expect(mocks.prepareZatcaDocument).not.toHaveBeenCalled()
+  })
+
+  it("does not treat a mock or other-environment acceptance as done for the configured gateway", async () => {
+    networkAdmin({ zatca_transmissions: { id: "tx-1", status: "reported", environment: null } })
+    expect(await runZatcaAdapter()).toMatchObject({ processed: 1, skipped: 0 })
+    vi.clearAllMocks(); mocks.getCurrentUser.mockResolvedValue(CURRENT_USER); mocks.getZatcaCsidCredential.mockResolvedValue(STORED_CSID)
+    networkAdmin({ zatca_transmissions: { id: "tx-1", status: "cleared", environment: "sandbox" } })
+    expect(await runZatcaAdapter()).toMatchObject({ processed: 0, skipped: 1 })
+  })
+
+  it("requires a registered EGS issuance stream for the environment", async () => {
+    networkAdmin({ zatca_issuance_streams: null })
+    const res = await runZatcaAdapter()
+    expect(res.failed).toBe(1)
+    expect(res.error).toContain("EGS issuance stream")
+    expect(mocks.submitPreparedZatcaDocument).not.toHaveBeenCalled()
+  })
+
+  it("records a rejected submission as rejected (never reported) and counts it as failed", async () => {
+    mocks.submitPreparedZatcaDocument.mockResolvedValueOnce({ success: false, status: "rejected", pipeline: "reporting", warnings: [], errors: [{ code: "BR-KSA-63" }] })
+    const writes = networkAdmin({ customers: null, invoices: { id: SOURCE_ID, invoice_number: "INV-2", invoice_type: "sales", status: "finalized", customer_id: null, issue_date: "2026-10-28", currency: "SAR", subtotal: 100, discount: 0, vat_amount: 15, total: 115, vat_rate: 15 } })
+    const res = await runZatcaAdapter()
+    expect(res.failed).toBe(1)
+    expect(mocks.prepareZatcaDocument.mock.calls[0][2]).toMatchObject({ invoiceKind: "simplified" })
+    const tx = writes.find((w) => w.table === "zatca_transmissions")?.value as Record<string, unknown>
+    expect(tx.status).toBe("rejected")
+    expect(tx.error_message).toBe("Rejected by ZATCA validation.")
+  })
+})
+
+describe("runZatcaForTenant — scheduled backstop on behalf of the registered operator", () => {
+  beforeEach(() => {
+    mocks.getZatcaCsidCredential.mockResolvedValue(STORED_CSID)
+    vi.stubEnv("ZATCA_MODE", "sandbox")
+    vi.stubEnv("ZATCA_API_BASE_URL", "https://gw-fatoora.zatca.gov.sa/e-invoicing/developer-portal")
+  })
+
+  it("does nothing without a registered operator", async () => {
+    networkAdmin({ zatca_automation: null })
+    const res = await runZatcaForTenant("tenant-0001")
+    expect(res).toMatchObject({ success: false, operator: false })
+    expect(mocks.prepareZatcaDocument).not.toHaveBeenCalled()
+  })
+
+  it("stops when the operator is no longer authorized", async () => {
+    networkAdmin({ zatca_automation: { operator_id: "auth-9", enabled: true } })
+    mocks.adminRpc.mockResolvedValueOnce({ data: false, error: null })
+    const res = await runZatcaForTenant("tenant-0001")
+    expect(res.error).toContain("no longer authorized")
+    expect(mocks.adminRpc).toHaveBeenCalledWith("zatca_operator_authorized", { p_tenant: "tenant-0001", p_user: "auth-9" })
+    expect(mocks.prepareZatcaDocument).not.toHaveBeenCalled()
+  })
+
+  it("submits pending documents as the operator and records the run", async () => {
+    const writes = networkAdmin({ zatca_automation: { operator_id: "auth-9", enabled: true } })
+    const res = await runZatcaForTenant("tenant-0001")
+    expect(res).toMatchObject({ success: true, processed: 1, operator: true })
+    expect(mocks.getCurrentUser).not.toHaveBeenCalled()
+    expect(writes.find((w) => w.table === "zatca_automation")?.value).toMatchObject({ last_result: { success: true, processed: 1 } })
+    expect((writes.find((w) => w.table === "zatca_transmissions")?.value as Record<string, unknown>).created_by).toBe("auth-9")
+  })
+})

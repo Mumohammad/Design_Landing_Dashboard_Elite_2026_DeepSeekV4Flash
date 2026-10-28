@@ -78,7 +78,7 @@ export function TrainingTab({ driverId, isAr }: TrainingTabProps) {
 
   if (rows.length === 0) {
     return (
-      <div className="rounded-2xl border border-border/50 bg-card/60 p-8 text-center backdrop-blur-sm">
+      <div className="rounded-2xl border border-border/50 bg-card/60 p-8 text-center">
         <p className="text-sm text-muted-foreground">
           {isAr ? "لا توجد سجلات تدريب" : "No training records yet"}
         </p>
@@ -101,10 +101,10 @@ export function TrainingTab({ driverId, isAr }: TrainingTabProps) {
           {isAr ? "إضافة سجل تدريب" : "Add training record"}
         </Button>
       </div>
-      <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm">
+      <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60">
       <table className="w-full min-w-[760px] text-start text-sm">
         <thead>
-          <tr className="border-b border-border/50 text-[10px] uppercase tracking-wide text-muted-foreground">
+          <tr className="border-b border-border/50 text-[11px] text-muted-foreground">
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "الدورة" : "Course"}</th>
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "الجهة" : "Provider"}</th>
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "التاريخ" : "Date"}</th>

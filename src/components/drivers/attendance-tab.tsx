@@ -46,7 +46,7 @@ const STATUS_STYLES: Record<string, { ar: string; en: string; className: string 
   public_holiday: {
     ar: "عطلة رسمية",
     en: "Holiday",
-    className: "bg-purple-500/15 text-purple-700 dark:text-purple-400",
+    className: "bg-teal-500/15 text-teal-700 dark:text-teal-400",
   },
   day_off: {
     ar: "يوم راحة",
@@ -209,7 +209,7 @@ export function AttendanceTab({ driverId, isAr }: AttendanceTabProps) {
             {chips.map((c) => (
               <div
                 key={c.label}
-                className="rounded-2xl border border-border/50 bg-card/60 p-4 text-center backdrop-blur-sm"
+                className="rounded-2xl border border-border/50 bg-card/60 p-4 text-center"
               >
                 <div className={cn("text-2xl font-extrabold tabular-nums", c.color)} dir="ltr">
                   {c.value}
@@ -222,16 +222,16 @@ export function AttendanceTab({ driverId, isAr }: AttendanceTabProps) {
       )}
 
       {rows.length === 0 ? (
-        <div className="rounded-2xl border border-border/50 bg-card/60 p-8 text-center backdrop-blur-sm">
+        <div className="rounded-2xl border border-border/50 bg-card/60 p-8 text-center">
           <p className="text-sm text-muted-foreground">
             {isAr ? "لا توجد سجلات حضور بعد" : "No attendance records yet"}
           </p>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm">
+        <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60">
           <table className="w-full min-w-[720px] text-start text-sm">
             <thead>
-              <tr className="border-b border-border/50 text-[10px] uppercase tracking-wide text-muted-foreground">
+              <tr className="border-b border-border/50 text-[11px] text-muted-foreground">
                 <th className="px-4 py-3 text-start font-semibold">{isAr ? "التاريخ" : "Date"}</th>
                 <th className="px-4 py-3 text-start font-semibold">{isAr ? "الحالة" : "Status"}</th>
                 <th className="px-4 py-3 text-start font-semibold">{isAr ? "الحضور" : "Check-in"}</th>

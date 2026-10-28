@@ -32,7 +32,7 @@ export function RegistrationHeader() {
   const [langOpen, setLangOpen] = React.useState(false)
 
   return (
-    <header className="sticky top-0 z-40 border-b border-border/60 bg-background/85 backdrop-blur-xl">
+    <header className="sticky top-0 z-40 border-b border-border/60 bg-background">
       <div className="mx-auto flex h-16 max-w-5xl items-center justify-between gap-3 px-4 lg:px-8">
         <div className="flex items-center gap-3">
           <LogoMark size={38} />
@@ -64,7 +64,7 @@ export function RegistrationHeader() {
               <ul
                 role="listbox"
                 aria-label={dict.language.label}
-                className="absolute end-0 z-20 mt-2 w-44 overflow-hidden rounded-xl border border-border bg-popover p-1.5 shadow-lg"
+                className="absolute end-0 z-20 mt-2 w-44 overflow-hidden rounded-xl border border-border bg-popover p-1.5"
               >
                 {(Object.keys(registrationLocaleMeta) as RegistrationLocale[]).map((code) => (
                   <li key={code}>
@@ -203,7 +203,7 @@ export function DateField({
             {validity && (
               <span
                 className={cn(
-                  "ms-auto rounded-full px-2 py-0.5 text-[10px] font-bold",
+                  "ms-auto rounded-full px-2 py-0.5 text-[11px] font-bold",
                   validity === "valid" && "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
                   validity === "expiring" && "bg-amber-500/10 text-amber-600 dark:text-amber-400",
                   validity === "expired" && "bg-destructive/10 text-destructive"
@@ -219,7 +219,7 @@ export function DateField({
           </Button>
         </PopoverTrigger>
         <PopoverContent
-          className="w-auto rounded-2xl border-border/70 p-2 shadow-2xl shadow-elite-blue-900/10"
+          className="w-auto rounded-2xl border-border/70 p-2 shadow-elite-blue-900/10"
           align="start"
         >
           <Calendar
@@ -276,8 +276,8 @@ export function SelectionCard({
         "focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-elite-blue-500/20",
         "active:scale-[0.99]",
         selected
-          ? "border-elite-blue-500 bg-elite-blue-500/5 shadow-lg shadow-elite-blue-500/10"
-          : "border-border bg-card hover:-translate-y-0.5 hover:border-elite-blue-500/40 hover:shadow-md"
+          ? "border-elite-blue-500 bg-elite-blue-500/5 shadow-elite-blue-500/10"
+          : "border-border bg-card hover:-translate-y-0.5 hover:border-elite-blue-500/40"
       )}
     >
       <span className="absolute end-4 top-4 flex h-5 w-5 items-center justify-center rounded-full border-2 transition-colors"
@@ -376,7 +376,7 @@ export function UploadCard({
         <Label className="text-sm font-semibold">
           {label}
           {required && (
-            <span className="ms-1.5 rounded-full bg-elite-orange-500/10 px-2 py-0.5 text-[10px] font-bold text-elite-orange-600 dark:text-elite-orange-400">
+            <span className="ms-1.5 rounded-full bg-elite-orange-500/10 px-2 py-0.5 text-[11px] font-bold text-elite-orange-600 dark:text-elite-orange-400">
               {dict.documents.requiredLabel}
             </span>
           )}
@@ -402,7 +402,7 @@ export function UploadCard({
         className={cn(
           "relative flex min-h-28 flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed p-4 text-center transition-all duration-200",
           dragOver &&
-            "scale-[1.01] border-elite-blue-500 bg-elite-blue-500/10 shadow-lg shadow-elite-blue-500/10",
+            "scale-[1.01] border-elite-blue-500 bg-elite-blue-500/10 shadow-elite-blue-500/10",
           !dragOver &&
             (file
               ? "border-emerald-500/50 bg-emerald-500/5"
@@ -419,7 +419,7 @@ export function UploadCard({
           </div>
         ) : file ? (
           <div className="flex items-center gap-3 py-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl text-elite-blue-600 dark:text-elite-blue-300">
               <FileText className="h-5 w-5" />
             </span>
             <div className="min-w-0 text-start">
@@ -445,7 +445,7 @@ export function UploadCard({
           </div>
         ) : (
           <>
-            <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-elite-blue-500/10 text-elite-blue-600 transition-transform duration-200 dark:text-elite-blue-300">
+            <span className="flex h-12 w-12 items-center justify-center rounded-2xl transition-transform duration-200 text-elite-blue-600 dark:text-elite-blue-300">
               <UploadCloud className="h-6 w-6" />
             </span>
             <div>

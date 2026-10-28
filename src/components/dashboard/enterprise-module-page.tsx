@@ -74,17 +74,7 @@ export interface EnterpriseModulePageProps<T> {
 
 function KpiCard({ label, value, icon: Icon, color = "#1E5A99" }: KpiCardData) {
   return (
-    <div className="group relative overflow-hidden rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm p-5 shadow-sm transition-all duration-300 hover:shadow-lg hover:shadow-black/[0.04] hover:border-border/80 hover:-translate-y-0.5">
-      {/* Animated gradient accent top line */}
-      <div
-        className="absolute inset-x-0 top-0 h-[2px] opacity-60 group-hover:opacity-100 transition-opacity duration-300"
-        style={{ background: `linear-gradient(90deg, transparent, ${color}, transparent)` }}
-      />
-      {/* Soft glow behind icon */}
-      <div
-        className="absolute -top-4 -right-4 w-20 h-20 rounded-full opacity-[0.04] group-hover:opacity-[0.08] transition-opacity duration-500 blur-xl"
-        style={{ backgroundColor: color }}
-      />
+    <div className="group relative overflow-hidden rounded-2xl border border-border/50 bg-card p-5 shadow-sm transition-all duration-300 hover:shadow-black/[0.04] hover:border-border/80 hover:-translate-y-0.5">
       <div className="relative">
         <div className="flex items-center justify-between">
           <span className="text-xs font-medium text-muted-foreground"><LocalizedText text={label} /></span>
@@ -137,8 +127,7 @@ function EmptyState({
   return (
     <div data-testid="module-empty-state" className="flex flex-col items-center justify-center px-4 py-16 text-center">
       <div className="relative">
-        <div className="absolute inset-0 rounded-full bg-gradient-to-br from-elite-blue-500/20 to-elite-orange-500/20 blur-2xl scale-150" />
-        <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-muted/50 to-muted/30 border border-border/50 backdrop-blur-sm">
+        <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-muted/50 border border-border/50">
           <Inbox className="h-7 w-7 text-muted-foreground/60" />
         </div>
       </div>
@@ -146,7 +135,7 @@ function EmptyState({
       {action && (
         <Button
           size="sm"
-          className="mt-5 rounded-xl bg-gradient-to-r from-elite-blue-500 to-elite-blue-600 hover:from-elite-blue-600 hover:to-elite-blue-700 text-white shadow-lg shadow-elite-blue-500/20 h-9 px-5"
+          className="mt-5 rounded-xl bg-elite-blue-500 hover:bg-elite-blue-600 text-white shadow-elite-blue-500/20 h-9 px-5"
           onClick={action.onClick}
         >
           <Plus className="mr-1.5 h-4 w-4" />
@@ -193,7 +182,7 @@ export function EnterpriseModulePage<T extends { id?: string }>({
       <ScrollReveal direction="fade" duration={400}>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-elite-blue-500 to-elite-blue-600 text-white shadow-lg shadow-elite-blue-500/25">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl text-elite-blue-600 dark:text-elite-blue-300">
               <CtaIcon className="h-5 w-5" />
             </div>
             <div>
@@ -208,7 +197,7 @@ export function EnterpriseModulePage<T extends { id?: string }>({
           {primaryCtaLabel && onPrimaryCta && (
             <Button
               onClick={onPrimaryCta}
-              className="bg-gradient-to-r from-elite-blue-500 to-elite-blue-600 hover:from-elite-blue-600 hover:to-elite-blue-700 text-white shadow-lg shadow-elite-blue-500/20 rounded-xl h-10 px-5 font-semibold text-sm transition-all duration-200 hover:shadow-xl hover:shadow-elite-blue-500/25 hover:-translate-y-0.5"
+              className="bg-elite-blue-500 hover:bg-elite-blue-600 text-white shadow-elite-blue-500/20 rounded-xl h-10 px-5 font-semibold text-sm transition-all duration-200 hover:shadow-elite-blue-500/25 hover:-translate-y-0.5"
             >
               <CtaIcon className="mr-1.5 h-4 w-4" />
               <LocalizedText text={primaryCtaLabel} />
@@ -250,7 +239,7 @@ export function EnterpriseModulePage<T extends { id?: string }>({
 
       {/* 4. DATA TABLE */}
       <ScrollReveal direction="up" delay={120} duration={500}>
-        <div className="rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm shadow-sm overflow-hidden">
+        <div className="rounded-2xl border border-border/50 bg-card/60 shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-muted/20">
@@ -259,7 +248,7 @@ export function EnterpriseModulePage<T extends { id?: string }>({
                     <th
                       key={String(col.key)}
                       className={cn(
-                        "px-4 py-3.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider",
+                        "px-4 py-3.5 text-left text-xs font-semibold text-muted-foreground",
                         col.className
                       )}
                     >
@@ -285,7 +274,7 @@ export function EnterpriseModulePage<T extends { id?: string }>({
                       className={cn(
                         "group/row transition-all duration-200 border-b border-border/10 last:border-0",
                         onRowClick
-                          ? "cursor-pointer hover:bg-muted/20 hover:shadow-[inset_3px_0_0_0_var(--elite-blue-500)]"
+                          ? "cursor-pointer hover:bg-muted/20"
                           : "hover:bg-muted/15"
                       )}
                     >

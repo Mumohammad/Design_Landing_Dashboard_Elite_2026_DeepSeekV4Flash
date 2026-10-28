@@ -23,7 +23,7 @@ const STATUS_META: Record<string, { ar: string; en: string; className: string }>
   under_review: { ar: "مراجعة", en: "Review", className: "bg-blue-500/15 text-blue-600 border-blue-500/20" },
   disputed: { ar: "معترض", en: "Disputed", className: "bg-orange-500/15 text-orange-600 border-orange-500/20" },
   resolved: { ar: "محلولة", en: "Resolved", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/20" },
-  deduction_applied: { ar: "خصم مطبق", en: "Deducted", className: "bg-purple-500/15 text-purple-600 border-purple-500/20" },
+  deduction_applied: { ar: "خصم مطبق", en: "Deducted", className: "bg-teal-500/15 text-teal-600 border-teal-500/20" },
   waived: { ar: "إعفاء", en: "Waived", className: "bg-gray-500/15 text-gray-600 border-gray-500/20" },
   closed: { ar: "مغلقة", en: "Closed", className: "bg-gray-500/15 text-gray-600 border-gray-500/20" },
   acknowledged: { ar: "معتمدة", en: "Acknowledged", className: "bg-blue-500/15 text-blue-600 border-blue-500/20" },
@@ -58,7 +58,7 @@ export default function ViolationsPage() {
     { label: t.nav.violations, value: counts?.[0] ?? "—", icon: ShieldAlert, color: "#1E5A99" },
     { label: locale === "ar" ? "مفتوحة" : "Open", value: counts?.[1] ?? "—", icon: AlertCircle, color: "#F59E0B" },
     { label: locale === "ar" ? "معترض عليها" : "Disputed", value: counts?.[2] ?? "—", icon: MessageSquareWarning, color: "#EF4444" },
-    { label: "Deductions (SAR)", value: summary.value?.deductions.toFixed(2) ?? "—", icon: DollarSign, color: "#8B5CF6" },
+    { label: "Deductions (SAR)", value: summary.value?.deductions.toFixed(2) ?? "—", icon: DollarSign, color: "#0F766E" },
   ]
 
   const columns: TableColumn<ViolationRow>[] = [

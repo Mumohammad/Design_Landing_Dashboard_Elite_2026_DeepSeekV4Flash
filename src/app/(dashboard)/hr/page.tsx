@@ -33,7 +33,7 @@ export default function HRPage() {
     { label: locale === "ar" ? "تقييمات الأداء" : "Performance reviews", value: counts?.[0] ?? "—", icon: Users, color: "#1E5A99" },
     { label: t.common.pending, value: counts?.[1] ?? "—", icon: ClipboardCheck, color: "#F59E0B" },
     { label: locale === "ar" ? "مكتملة" : "Completed", value: counts?.[2] ?? "—", icon: Award, color: "#10B981" },
-    { label: locale === "ar" ? "الدرجة ٨٠ فأعلى" : "Score 80 or above", value: counts?.[3] ?? "—", icon: GraduationCap, color: "#8B5CF6" },
+    { label: locale === "ar" ? "الدرجة ٨٠ فأعلى" : "Score 80 or above", value: counts?.[3] ?? "—", icon: GraduationCap, color: "#0F766E" },
   ]
 
   const columns: TableColumn<PerformanceRow>[] = [

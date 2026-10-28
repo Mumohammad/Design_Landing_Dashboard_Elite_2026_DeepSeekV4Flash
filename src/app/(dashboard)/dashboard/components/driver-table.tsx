@@ -46,7 +46,7 @@ export function DriverTable({
       <div className="overflow-x-auto">
         <table className="w-full min-w-130 text-start text-[13px]">
           <thead>
-            <tr className="border-b border-border/70 text-[11px] uppercase tracking-wide text-muted-foreground">
+            <tr className="border-b border-border/70 text-[11px] text-muted-foreground">
               <th className="px-2 py-2 text-start font-semibold">{t.dashboard.driver}</th>
               <th className="px-2 py-2 text-end font-semibold">{t.dashboard.orders}</th>
               <th className="px-2 py-2 text-end font-semibold">{t.dashboard.target}</th>
@@ -63,7 +63,7 @@ export function DriverTable({
                 <tr key={d.driverId} className="border-b border-border/40 transition-colors last:border-0 hover:bg-accent/40">
                   <td className="px-2 py-2.5">
                     <Link href={`/drivers/${d.driverId}`} className="flex items-center gap-2.5">
-                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-elite-blue-500 to-elite-orange-500 text-xs font-bold text-white">
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-elite-blue-500 text-xs font-bold text-white">
                         {d.name.slice(0, 1)}
                       </span>
                       <span className="max-w-36 truncate font-medium text-foreground hover:text-elite-blue-600 dark:hover:text-elite-blue-300">
@@ -91,7 +91,7 @@ export function DriverTable({
                     {formatCurrency(locale, d.netPayroll)}
                   </td>
                   <td className="px-2 py-2.5 text-center">
-                    <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold", s.chip)}>
+                    <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[11px] font-bold", s.chip)}>
                       {t.dashboard[s.key]}
                     </span>
                   </td>

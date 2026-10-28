@@ -11,9 +11,6 @@ import {
   AlertTriangle,
   Info,
   UsersRound,
-  CarFront,
-  PackageSearch,
-  HandCoins,
   Menu,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -56,13 +53,6 @@ const toneStyles = {
   danger: "text-rose-600 dark:text-rose-400 bg-rose-500/10",
 } as const
 
-const kpiIcons = [UsersRound, CarFront, PackageSearch, HandCoins]
-const kpiColors = [
-  "from-blue-500 to-cyan-500",
-  "from-violet-500 to-purple-500",
-  "from-amber-500 to-orange-500",
-  "from-emerald-500 to-teal-500",
-]
 
 export function DashboardPreview({ className }: { className?: string }) {
   const { t, locale } = useTranslation()
@@ -78,10 +68,10 @@ export function DashboardPreview({ className }: { className?: string }) {
   const maxOrders = Math.max(...c.preview.chartValues)
 
   return (
-    <div
+    <div data-ui
       dir={isRtl ? "rtl" : "ltr"}
       className={cn(
-        "overflow-hidden rounded-2xl border border-border/60 bg-background shadow-2xl shadow-elite-blue-950/10",
+        "overflow-hidden rounded-2xl border border-border/60 bg-background shadow-elite-blue-950/10",
         className
       )}
     >
@@ -92,7 +82,7 @@ export function DashboardPreview({ className }: { className?: string }) {
             <LogoMark size={26} />
             <div className="min-w-0 leading-tight">
               <p className="truncate text-sm font-bold">{t.app.companyNameArabic}</p>
-              <p className="truncate text-[10px] text-white/50">{t.app.companyName}</p>
+              <p className="truncate text-[11px] text-white/50">{t.app.companyName}</p>
             </div>
           </div>
           <nav className="mt-4 flex-1 space-y-0.5 overflow-hidden px-2">
@@ -118,7 +108,7 @@ export function DashboardPreview({ className }: { className?: string }) {
               )
             })}
           </nav>
-          <div className="border-t border-white/10 p-3 text-[10px] text-white/45">
+          <div className="border-t border-white/10 p-3 text-[11px] text-white/45">
             {t.app.companyNameArabic}
           </div>
         </aside>
@@ -127,14 +117,14 @@ export function DashboardPreview({ className }: { className?: string }) {
         <div className="flex min-w-0 flex-1 flex-col bg-background">
           {/* Top bar */}
           <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border/60 px-3">
-            <span className="flex items-center gap-1.5 rounded-md border border-border/60 bg-muted/50 px-2 py-1 text-[10px] text-muted-foreground md:hidden">
+            <span className="flex items-center gap-1.5 rounded-md border border-border/60 bg-muted/50 px-2 py-1 text-[11px] text-muted-foreground md:hidden">
               <Menu className="h-3 w-3" />
               <LogoMark size={14} />
             </span>
             <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-border/60 bg-muted/40 px-2.5 py-1.5 text-[11px] text-muted-foreground">
               <Search className="h-3.5 w-3.5 shrink-0" />
               <span className="truncate">{c.preview.searchPlaceholder}</span>
-              <kbd className="ms-auto hidden rounded border border-border/60 bg-background px-1.5 text-[9px] sm:block">
+              <kbd className="ms-auto hidden rounded border border-border/60 bg-background px-1.5 text-[11px] sm:block">
                 ⌘K
               </kbd>
             </div>
@@ -144,7 +134,7 @@ export function DashboardPreview({ className }: { className?: string }) {
             <span className="flex h-6 w-6 items-center justify-center rounded-md border border-border/60 bg-muted/40 text-muted-foreground">
               <Settings className="h-3 w-3" />
             </span>
-            <span className="hidden rounded-md border border-elite-blue-500/30 bg-elite-blue-500/10 px-2 py-1 text-[10px] font-semibold text-elite-blue-600 dark:text-elite-blue-300 sm:block">
+            <span className="hidden rounded-md border border-elite-blue-500/30 bg-elite-blue-500/10 px-2 py-1 text-[11px] font-semibold text-elite-blue-600 dark:text-elite-blue-300 sm:block">
               {locale === "ar" ? "EN" : "عربي"}
             </span>
           </div>
@@ -154,24 +144,20 @@ export function DashboardPreview({ className }: { className?: string }) {
             <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
               {kpis.map((kpi, i) => {
                 const up = i !== 3
-                const KpiIcon = kpiIcons[i]
                 return (
                   <div
                     key={kpi.label}
                     className="group card-premium p-3 transition-all duration-200"
                   >
                     <div className="flex items-center justify-between">
-                      <p className="text-[10px] font-medium text-muted-foreground">{kpi.label}</p>
-                      <div className={cn("flex h-6 w-6 items-center justify-center rounded-lg bg-gradient-to-br text-white text-[8px] shadow-sm", kpiColors[i])}>
-                        <KpiIcon className="h-3 w-3" />
-                      </div>
+                      <p className="text-[11px] font-medium text-muted-foreground">{kpi.label}</p>
                     </div>
                     <p className="mt-1 text-lg font-extrabold text-foreground sm:text-xl">
                       <CountUpNumber target={kpi.target} locale={locale} prefix={kpi.prefix} suffix={kpi.suffix} />
                     </p>
                     <p
                       className={cn(
-                        "mt-1 inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-semibold",
+                        "mt-1 inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-semibold",
                         up ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-rose-500/10 text-rose-600 dark:text-rose-400"
                       )}
                     >
@@ -189,9 +175,9 @@ export function DashboardPreview({ className }: { className?: string }) {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs font-bold text-foreground">{c.preview.chartTitle}</p>
-                    <p className="text-[10px] text-muted-foreground">{c.preview.chartSubtitle}</p>
+                    <p className="text-[11px] text-muted-foreground">{c.preview.chartSubtitle}</p>
                   </div>
-                  <span className="rounded-md border border-border/60 px-2 py-0.5 text-[9px] text-muted-foreground">
+                  <span className="rounded-md border border-border/60 px-2 py-0.5 text-[11px] text-muted-foreground">
                     {c.preview.last7Days}
                   </span>
                 </div>
@@ -207,13 +193,13 @@ export function DashboardPreview({ className }: { className?: string }) {
                             className={cn(
                               "w-full rounded-t-md transition-all duration-500",
                               peak
-                                ? "bg-gradient-to-t from-elite-blue-600 to-elite-orange-500 shadow-lg shadow-elite-blue-500/20"
-                                : "bg-gradient-to-t from-elite-blue-500/70 to-elite-blue-400/70 group-hover/bar:from-elite-blue-500 group-hover/bar:to-elite-blue-400"
+                                ? "bg-elite-blue-600 shadow-elite-blue-500/20"
+                                : "bg-elite-blue-500/70 group-hover/bar:bg-elite-blue-500"
                             )}
                             style={{ height: `${h}%` }}
                           />
                         </div>
-                        <span className="max-w-full truncate text-[9px] text-muted-foreground">{c.preview.chartLabels[i]}</span>
+                        <span className="max-w-full truncate text-[11px] text-muted-foreground">{c.preview.chartLabels[i]}</span>
                       </div>
                     )
                   })}
@@ -237,8 +223,8 @@ export function DashboardPreview({ className }: { className?: string }) {
                           <AlertIcon className="h-3 w-3" />
                         </span>
                         <div className="min-w-0">
-                          <p className="truncate text-[10px] font-semibold text-foreground">{alert.title}</p>
-                          <p className="text-[9px] text-muted-foreground">{alert.meta}</p>
+                          <p className="truncate text-[11px] font-semibold text-foreground">{alert.title}</p>
+                          <p className="text-[11px] text-muted-foreground">{alert.meta}</p>
                         </div>
                       </div>
                     )
@@ -254,14 +240,14 @@ export function DashboardPreview({ className }: { className?: string }) {
                   <UsersRound className="h-3.5 w-3.5 text-elite-blue-500" />
                   {c.preview.tableTitle}
                 </p>
-                <span className="rounded-md border border-border/60 px-2 py-0.5 text-[9px] text-muted-foreground">
+                <span className="rounded-md border border-border/60 px-2 py-0.5 text-[11px] text-muted-foreground">
                   {c.preview.note}
                 </span>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[560px] text-start">
                   <thead>
-                    <tr className="border-b border-border/50 text-[9px] uppercase tracking-wide text-muted-foreground">
+                    <tr className="border-b border-border/50 text-[11px] text-muted-foreground">
                       {c.preview.tableHeaders.map((h) => (
                         <th key={h} className="px-3 py-1.5 text-start font-semibold">
                           {h}
@@ -273,16 +259,16 @@ export function DashboardPreview({ className }: { className?: string }) {
                     {c.preview.tableRows.map((row) => (
                       <tr
                         key={row.id}
-                        className="border-b border-border/40 text-[10px] last:border-0 hover:bg-muted/40"
+                        className="border-b border-border/40 text-[11px] last:border-0 hover:bg-muted/40"
                       >
                         <td className="px-3 py-1.5">
                           <div className="flex items-center gap-2">
-                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-elite-blue-500 to-elite-orange-500 text-[8px] font-bold text-white">
+                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-elite-blue-500 text-[8px] font-bold text-white">
                               {row.name.trim()[0]}
                             </span>
                             <div className="min-w-0 leading-tight">
                               <p className="truncate font-semibold text-foreground">{row.name}</p>
-                              <p className="text-[9px] text-muted-foreground">{row.id}</p>
+                              <p className="text-[11px] text-muted-foreground">{row.id}</p>
                             </div>
                           </div>
                         </td>
@@ -295,7 +281,7 @@ export function DashboardPreview({ className }: { className?: string }) {
                         <td className="px-3 py-1.5">
                           <span
                             className={cn(
-                              "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-semibold",
+                              "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold",
                               row.warn
                                 ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
                                 : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
@@ -320,7 +306,7 @@ export function DashboardPreview({ className }: { className?: string }) {
 
 function LayoutDot() {
   return (
-    <span className="flex h-4 w-4 items-center justify-center rounded-md bg-gradient-to-br from-elite-blue-500 to-elite-orange-500 text-white">
+    <span className="flex h-4 w-4 items-center justify-center rounded-md bg-elite-blue-500 text-white">
       <PanelLeft className="h-2.5 w-2.5 rtl:-scale-x-100" />
     </span>
   )

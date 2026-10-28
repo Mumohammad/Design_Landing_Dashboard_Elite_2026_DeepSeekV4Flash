@@ -1,7 +1,7 @@
 "use client"
 
+import Link from "next/link"
 import { LocalizedText } from "@/components/localized-text"
-import { integrationAvailable } from "@/lib/release/integrations"
 import { Fragment, useCallback, useEffect, useState } from "react"
 import { useActionState } from "react"
 import { createClient } from "@/lib/supabase/client"
@@ -49,6 +49,8 @@ import {
   type ZatcaCsidSummary,
   type ZatcaCsidEnvironment,
 } from "@/lib/accounting/zatca-csid"
+import { getZatcaStatus, type ZatcaStatus } from "@/lib/accounting/zatca-management"
+import type { ComplianceCheckResult } from "@/lib/accounting/zatca-compliance-checks"
 import { formatVatMoney, readVatPosition, vatNetAdjustments, type VatPosition } from "@/lib/accounting/vat-position"
 import { recordPayment, voidPayment, createBankAccount, updateBankAccount, changeBankAccountState } from "@/lib/accounting/payments"
 import {
@@ -297,7 +299,7 @@ const PERIOD_STATUS: Record<string, { ar: string; en: string; className: string 
   open: { ar: "مفتوحة", en: "Open", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/20" },
   closing: { ar: "قيد الإغلاق", en: "Closing", className: "bg-amber-500/15 text-amber-600 border-amber-500/20" },
   closed: { ar: "مغلقة", en: "Closed", className: "bg-gray-500/15 text-gray-600 border-gray-500/20" },
-  reopened: { ar: "أعيد فتحها", en: "Reopened", className: "bg-purple-500/15 text-purple-600 border-purple-500/20" },
+  reopened: { ar: "أعيد فتحها", en: "Reopened", className: "bg-teal-500/15 text-teal-600 border-teal-500/20" },
 }
 
 const MONTH_NAMES_AR = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"]
@@ -442,6 +444,9 @@ export default function AccountingPage() {
   const [onboardEnv, setOnboardEnv] = useState<ZatcaCsidEnvironment>("sandbox")
   const [onboardOtp, setOnboardOtp] = useState("")
   const [onboardBusy, setOnboardBusy] = useState(false)
+  const [zatcaStatus, setZatcaStatus] = useState<ZatcaStatus | null>(null)
+  const zatcaEnabled = !!zatcaStatus?.enabled
+  const [onboardChecks, setOnboardChecks] = useState<ComplianceCheckResult[] | null>(null)
   const [payments, setPayments] = useState<PaymentRow[]>([])
   const [bankAccounts, setBankAccounts] = useState<BankAccountRow[]>([])
   const [bankPage, setBankPage] = useState(0)
@@ -629,6 +634,11 @@ export default function AccountingPage() {
         if (!csids.success || !csids.csids) throw new Error("Could not load accounting data")
         requireAccountingRows(controller.signal, csids.csids)
         setZatcaCsids(csids.csids)
+        const status = await getZatcaStatus()
+        if (controller.signal.aborted) return
+        if (!status.success || !status.status) throw new Error("Could not load accounting data")
+        setZatcaStatus(status.status)
+        if (status.status.environment) setOnboardEnv(status.status.environment)
       }
       } catch {
         if (!controller.signal.aborted) setLoadError(true)
@@ -939,6 +949,8 @@ export default function AccountingPage() {
     if (data) setZatcaRows(data as ZatcaTransmissionRow[])
     const csids = await listZatcaCsids()
     if (csids.success && csids.csids) setZatcaCsids(csids.csids)
+    const status = await getZatcaStatus()
+    if (status.success && status.status) setZatcaStatus(status.status)
   }
 
   async function handleRunZatca() {
@@ -968,8 +980,10 @@ export default function AccountingPage() {
 
   async function handleOnboardZatca() {
     setOnboardBusy(true)
+    setOnboardChecks(null)
     const res = await onboardZatcaCsids({ environment: onboardEnv, otp: onboardOtp.trim() })
     setOnboardBusy(false)
+    setOnboardChecks(res.checks ?? null)
     if (res.success) {
       flash(
         "ok",
@@ -982,6 +996,7 @@ export default function AccountingPage() {
       await reloadZatca()
     } else {
       flash("err", res.error ?? "Onboarding failed")
+      if (res.complianceSaved) await reloadZatca()
     }
   }
 
@@ -1257,13 +1272,13 @@ export default function AccountingPage() {
     null
   )
 
-  const dialogBtn = "inline-flex h-8 items-center gap-1.5 rounded-xl bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 px-3 text-xs font-medium text-white shadow-sm transition-all hover:from-elite-blue-700 hover:to-elite-blue-800"
+  const dialogBtn = "inline-flex h-8 items-center gap-1.5 rounded-xl bg-elite-blue-600 px-3 text-xs font-medium text-white shadow-sm transition-all hover:bg-elite-blue-700"
 
   return (
     <div className="px-4 lg:px-6 py-4 space-y-6 page-enter">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-white shadow-lg shadow-emerald-500/25">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl text-elite-blue-600 dark:text-elite-blue-300">
             <Calculator className="h-5 w-5" />
           </div>
           <div>
@@ -1413,7 +1428,7 @@ export default function AccountingPage() {
                     <Button
                       type="submit"
                       disabled={isPosting || lines.some((l) => !l.account_id) || (!asDraft && !isBalanced)}
-                      className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800"
+                      className="bg-elite-blue-600 hover:bg-elite-blue-700"
                     >
                       {isPosting ? <LoadingSpinner className="h-4 w-4" /> : asDraft ? <Send className="h-4 w-4" /> : <Save className="h-4 w-4" />}
                       {asDraft ? (ar ? "حفظ كمسودة" : "Save draft") : (ar ? "ترحيل القيد" : "Post entry")}
@@ -1479,7 +1494,7 @@ export default function AccountingPage() {
         ) : (
           <>
             <TabsContent value="journal" className="mt-4">
-              <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+              <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                 <TableShell headers={["", "Ref", ar ? "التاريخ" : "Date", ar ? "الوصف" : "Description", ar ? "النوع" : "Type", ar ? "الحالة" : "Status", ar ? "إجراء" : "Action"]}>
                   {journals.length === 0 && <EmptyRow colSpan={7} text={ledger.search.trim() ? (ar ? "لا توجد قيود تطابق البحث." : "No journal entries match this search.") : (ar ? "لا توجد قيود بعد. أنشئ قيداً جديداً." : "No journal entries yet. Create one.")} />}
                   {journals.map((j) => {
@@ -1512,7 +1527,7 @@ export default function AccountingPage() {
                         <td className="px-4 py-3 font-mono text-xs" dir="ltr">{j.entry_ref}</td>
                         <td className="px-4 py-3 text-xs" dir="ltr">{fmtDate(j.entry_date)}</td>
                         <td className="px-4 py-3">{j.description_ar ?? j.description_en ?? "—"}</td>
-                        <td className="px-4 py-3 text-xs uppercase" dir="ltr">{j.entry_type}</td>
+                        <td className="px-4 py-3 text-xs" dir="ltr">{j.entry_type}</td>
                         <td className="px-4 py-3">
                           <div className="flex flex-wrap items-center gap-1.5">
                             <Badge className={s.className}>{ar ? s.ar : s.en}</Badge>
@@ -1557,7 +1572,7 @@ export default function AccountingPage() {
                             {canReverse && (
                               <button
                                 onClick={() => { setReversalTarget(j); setReversalDesc(""); setReversalDate(new Date().toISOString().slice(0, 10)) }}
-                                className="inline-flex h-7 items-center gap-1 rounded-lg border border-purple-500/25 bg-purple-500/10 px-2 text-xs font-medium text-purple-600 transition-colors hover:bg-purple-500/20"
+                                className="inline-flex h-7 items-center gap-1 rounded-lg border border-teal-500/25 bg-teal-500/10 px-2 text-xs font-medium text-teal-600 transition-colors hover:bg-teal-500/20"
                               >
                                 <RotateCcw className="h-3 w-3" />
                                 {ar ? "عكس" : "Reverse"}
@@ -1633,7 +1648,7 @@ export default function AccountingPage() {
             </TabsContent>
 
             <TabsContent value="trial" className="mt-4">
-              <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+              <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                 <TableShell headers={[ar ? "الرمز" : "Code", ar ? "الاسم" : "Name", ar ? "النوع" : "Type", ar ? "مدين" : "Debit", ar ? "دائن" : "Credit", ar ? "الرصيد" : "Balance"]}>
                   {trial.length === 0 && <EmptyRow colSpan={6} text={ar ? "لا توجد قيود مرحّلة بعد." : "No posted entries yet."} />}
                   {trial.map((r) => (
@@ -1652,7 +1667,7 @@ export default function AccountingPage() {
 
             <TabsContent value="receivables" className="mt-4">
               <div className="space-y-4">
-                <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+                <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                   <CardHeader className="pb-3 flex-row items-center justify-between">
                     <CardTitle className="text-base">{ar ? "الذمم المدينة" : "Receivables"}</CardTitle>
                     <Dialog open={openDialogs["receivable"]} onOpenChange={(o) => { if (!isSavingRcv) setOpenDialogs((p) => ({ ...p, receivable: o })) }}>
@@ -1696,7 +1711,7 @@ export default function AccountingPage() {
                             <p data-testid="receivable-preview" className="text-xs text-muted-foreground" dir="ltr"><LocalizedText text="VAT:" />{fmtMoney(rcvPreview.vat)} <LocalizedText text="· Total:" /> {fmtMoney(rcvPreview.total)}<LocalizedText text="SAR" /></p>
                           )}
                           <div className="flex items-center gap-3">
-                            <Button type="submit" disabled={isSavingRcv} className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800">
+                            <Button type="submit" disabled={isSavingRcv} className="bg-elite-blue-600 hover:bg-elite-blue-700">
                               {isSavingRcv ? <LoadingSpinner className="h-4 w-4" /> : <Save className="h-4 w-4" />}
                               {t.common.save}
                             </Button>
@@ -1731,7 +1746,7 @@ export default function AccountingPage() {
             </TabsContent>
 
             <TabsContent value="payables" className="mt-4">
-              <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+              <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                 <TableShell headers={[ar ? "الفاتورة" : "Invoice", ar ? "التاريخ" : "Date", ar ? "الاستحقاق" : "Due", ar ? "المبلغ" : "Amount", "VAT", ar ? "الإجمالي" : "Total", ar ? "المدفوع" : "Paid", ar ? "الحالة" : "Status"]}>
                   {payables.length === 0 && <EmptyRow colSpan={8} text={ledger.search.trim() ? (ar ? "لا توجد ذمم دائنة تطابق البحث." : "No payables match this search.") : (ar ? "لا توجد ذمم دائنة." : "No payables.")} />}
                   {payables.map((r) => {
@@ -1781,7 +1796,7 @@ export default function AccountingPage() {
                     <p className="text-sm text-muted-foreground">{ar ? "إجماليات جميع الفترات المسجلة بالريال السعودي؛ تشمل التسويات المعتمدة فقط." : "Totals across all recorded periods in SAR; finalized adjustments only."}</p>
                     <div className="grid gap-3 sm:grid-cols-4">
                       {items.map((it) => (
-                        <div key={it.label} className="rounded-2xl border border-border/50 bg-card/80 px-4 py-3 shadow-sm">
+                        <div key={it.label} className="rounded-2xl border border-border/50 bg-card px-4 py-3 shadow-sm">
                           <p className="text-[11px] font-medium text-muted-foreground">{it.label}</p>
                           <p dir="ltr" className={`mt-0.5 break-all text-lg font-bold tabular-nums ${ar ? "text-right" : "text-left"} ${it.cls}`}>{it.value}</p>
                         </div>
@@ -1793,7 +1808,7 @@ export default function AccountingPage() {
               })()}
 
               {/* Per-period reconciliation (Phase 11) */}
-              <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+              <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                 <CardHeader className="pb-3 flex-row items-center justify-between flex-wrap gap-2">
                   <div>
                     <CardTitle className="text-base">{ar ? "التسوية حسب الفترة" : "Reconciliation by period"}</CardTitle>
@@ -1836,7 +1851,7 @@ export default function AccountingPage() {
               </Card>
 
               {/* VAT return (Phase 12) */}
-              <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+              <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                 <CardHeader className="pb-3 flex-row items-center justify-between flex-wrap gap-2">
                   <div>
                     <CardTitle className="text-base">{ar ? "إقرار ضريبة القيمة المضافة" : "VAT Return"}</CardTitle>
@@ -1923,7 +1938,7 @@ export default function AccountingPage() {
               </Card>
 
               {/* Review items (pending_review) — Phase 11 */}
-              <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+              <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base">{ar ? "عناصر قيد المراجعة" : "Items awaiting review"}</CardTitle>
                   <CardDescription>
@@ -1994,7 +2009,7 @@ export default function AccountingPage() {
                         </button>
                       </div>
                       <div className="flex items-center gap-3">
-                        <Button onClick={() => void handleResolveReview()} disabled={resolveBusy} className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800">
+                        <Button onClick={() => void handleResolveReview()} disabled={resolveBusy} className="bg-elite-blue-600 hover:bg-elite-blue-700">
                           {resolveBusy ? <LoadingSpinner className="h-4 w-4" /> : <Check className="h-4 w-4" />}
                           {ar ? "تأكيد التصنيف" : "Confirm"}
                         </Button>
@@ -2006,7 +2021,7 @@ export default function AccountingPage() {
               </Dialog>
 
               <div className="grid gap-4 xl:grid-cols-2">
-                <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+                <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-base">{ar ? "ضريبة المخرجات (مبيعات)" : "Output VAT (Sales)"}</CardTitle>
                     <CardDescription>{ar ? "لا تُقابل مع المدخلات في نفس الدفتر" : "Never netted against input in the same ledger"}</CardDescription>
@@ -2025,7 +2040,7 @@ export default function AccountingPage() {
                   </TableShell>
                 </Card>
 
-                <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+                <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-base">{ar ? "ضريبة المدخلات (مشتريات ومصروفات)" : "Input VAT (Purchases & Expenses)"}</CardTitle>
                     <CardDescription>{ar ? "يُحتسب في صافي المركز ما كان قابلاً للاسترداد فقط" : "Only recoverable input counts toward the net position"}</CardDescription>
@@ -2055,7 +2070,7 @@ export default function AccountingPage() {
               </div>
 
               <div className="grid gap-4 xl:grid-cols-2">
-                <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+                <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-base">{ar ? "التسويات الضريبية" : "VAT Adjustments"}</CardTitle>
                     <CardDescription>{ar ? "إشعارات دائنة/مدينة وتصحيحات — نهائية وغير قابلة للتعديل" : "Credit/debit notes & corrections — finalized, immutable"}</CardDescription>
@@ -2075,7 +2090,7 @@ export default function AccountingPage() {
                   </TableShell>
                 </Card>
 
-                <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+                <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-base">{ar ? "فترات ضريبة القيمة المضافة" : "VAT Periods"}</CardTitle>
                     <CardDescription>{ar ? "فترة مفتوحة واحدة لكل شهر" : "One open period per month"}</CardDescription>
@@ -2103,7 +2118,7 @@ export default function AccountingPage() {
             </TabsContent>
 
             <TabsContent value="events" className="mt-4">
-              <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+              <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                 <CardHeader className="pb-3 flex-row items-center justify-between">
                   <div>
                     <CardTitle className="text-base">{ar ? "قائمة الأحداث المالية" : "Financial event queue"}</CardTitle>
@@ -2145,11 +2160,91 @@ export default function AccountingPage() {
             </TabsContent>
 
             <TabsContent value="zatca" className="mt-4 space-y-4">
-              <div role="status" className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm space-y-2">
-                <p>{ar ? "ربط ZATCA غير مكتمل. الإعداد والإرسال الإنتاجي معطلان." : "ZATCA integration is incomplete. Onboarding and production submissions are disabled."}</p>
-                <p>{ar ? "رمز الفاتورة الحالي داخلي. يلزم إكمال بيانات المنشأة وتسجيل وحدة إصدار الفواتير والتحقق من XML والتوقيع والرمز باستخدام أدوات الهيئة واختبارات الربط." : "The current invoice QR is internal. Company tax details, EGS onboarding, XML/signature/QR validation with the official tools, and integration tests are still required."}</p>
+              <div role="status" className={`rounded-xl border p-4 text-sm space-y-2 ${zatcaEnabled ? "border-sky-500/30 bg-sky-500/10" : "border-amber-500/30 bg-amber-500/10"}`}>
+                {zatcaEnabled ? (
+                  <p>{ar
+                    ? `بوابة ZATCA غير الإنتاجية مفعّلة (${zatcaStatus?.environment}). الإعداد والإرسال متاحان للاختبار فقط؛ الإرسال الإنتاجي معطل.`
+                    : `Non-production ZATCA gateway enabled (${zatcaStatus?.environment}). Onboarding and submission are available for testing only; production submission is disabled.`}</p>
+                ) : (
+                  <p>{ar ? "ربط ZATCA غير مفعّل في هذه البيئة. الإعداد والإرسال معطلان." : "ZATCA integration is not enabled in this environment. Onboarding and submission are disabled."}</p>
+                )}
+                <p>{ar ? "الإرسال الإنتاجي يتطلب تسجيل المكلّف الفعلي في بوابة Fatoora واجتياز بيئة المحاكاة واعتماد الإصدار." : "Production submission requires real taxpayer onboarding in the Fatoora portal, a passing simulation run and release approval."}</p>
               </div>
-              <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+              {zatcaStatus && (
+                <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">{ar ? "جاهزية ZATCA" : "ZATCA readiness"}</CardTitle>
+                    <CardDescription>
+                      {ar ? "الملف الضريبي ووحدة الإصدار وصلاحية الشهادات والمستندات المعلّقة" : "Tax profile, EGS unit, certificate validity and pending documents"}
+                    </CardDescription>
+                  </CardHeader>
+                  <div className="px-4 pb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-sm">
+                    <div className="rounded-xl border border-border/50 bg-muted/30 p-3 space-y-1">
+                      <div className="text-xs text-muted-foreground">{ar ? "الملف الضريبي للمنشأة" : "Company tax profile"}</div>
+                      {zatcaStatus.profileMissing.length === 0 && zatcaStatus.vatValid ? (
+                        <Badge className="bg-emerald-500/15 text-emerald-700">{ar ? "مكتمل" : "Complete"}</Badge>
+                      ) : (
+                        <>
+                          <Badge className="bg-amber-500/15 text-amber-700">{ar ? "غير مكتمل" : "Incomplete"}</Badge>
+                          <div className="text-[11px] text-muted-foreground" dir="ltr">
+                            {[...(zatcaStatus.vatValid ? [] : ["vatNumber"]), ...zatcaStatus.profileMissing.filter((f) => f !== "vatNumber")].join(", ")}
+                          </div>
+                          <Link href="/settings/company" className="text-[11px] text-elite-blue-600 underline">{ar ? "إكمال العنوان الوطني" : "Complete the National Address"}</Link>
+                        </>
+                      )}
+                    </div>
+                    <div className="rounded-xl border border-border/50 bg-muted/30 p-3 space-y-1">
+                      <div className="text-xs text-muted-foreground">{ar ? "وحدة إصدار الفواتير (EGS)" : "EGS issuance stream"}</div>
+                      {zatcaStatus.streams.length === 0 ? (
+                        <div className="text-[11px] text-muted-foreground">{ar ? "غير مسجلة — تُسجّل عند اكتمال الإعداد" : "Not registered — created when onboarding completes"}</div>
+                      ) : zatcaStatus.streams.map((st) => (
+                        <div key={`${st.environment}:${st.egsSerial}`} className="font-mono text-[11px] text-muted-foreground break-all" dir="ltr">
+                          {st.environment} · ICV {st.lastCounter}<br />{st.egsSerial}
+                        </div>
+                      ))}
+                      {zatcaStatus.goLiveAt && (
+                        <div className="text-[11px] text-muted-foreground">
+                          {ar ? "بداية الربط:" : "Go-live:"} <span dir="ltr">{fmtDate(zatcaStatus.goLiveAt)}</span>
+                        </div>
+                      )}
+                      <div className="text-[11px] text-muted-foreground">
+                        {zatcaStatus.automation?.enabled
+                          ? (ar ? "الإرسال التلقائي مفعّل" : "Automatic submission on") + (zatcaStatus.automation.lastRunAt ? ` · ${fmtDate(zatcaStatus.automation.lastRunAt)}` : "")
+                          : (ar ? "الإرسال التلقائي غير مفعّل" : "Automatic submission off")}
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-border/50 bg-muted/30 p-3 space-y-1">
+                      <div className="text-xs text-muted-foreground">{ar ? "صلاحية الشهادات" : "Certificate validity"}</div>
+                      {zatcaStatus.certificates.length === 0 ? (
+                        <div className="text-[11px] text-muted-foreground">—</div>
+                      ) : zatcaStatus.certificates.map((c) => (
+                        <div key={`${c.environment}:${c.kind}`} className="flex items-center justify-between gap-2 text-[11px]" dir="ltr">
+                          <span className="font-mono">{c.environment} · {c.kind}</span>
+                          {c.daysLeft === null ? <span className="text-muted-foreground">—</span>
+                            : c.daysLeft < 0 ? <Badge className="bg-red-500/15 text-red-700">{ar ? "منتهية" : "Expired"}</Badge>
+                            : c.daysLeft <= 30 ? <Badge className="bg-amber-500/15 text-amber-700">{ar ? `${c.daysLeft} يوم` : `${c.daysLeft}d left`}</Badge>
+                            : <Badge className="bg-emerald-500/15 text-emerald-700">{ar ? `${c.daysLeft} يوم` : `${c.daysLeft}d`}</Badge>}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="rounded-xl border border-border/50 bg-muted/30 p-3 space-y-1">
+                      <div className="text-xs text-muted-foreground">{ar ? "مستندات بانتظار الإرسال" : "Documents awaiting submission"}</div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg font-semibold tabular-nums">{zatcaStatus.backlog.pending}</span>
+                        {zatcaStatus.backlog.overdue > 0 && (
+                          <Badge className="bg-red-500/15 text-red-700">{ar ? `${zatcaStatus.backlog.overdue} متأخرة (>24 ساعة)` : `${zatcaStatus.backlog.overdue} overdue (>24h)`}</Badge>
+                        )}
+                      </div>
+                      {zatcaStatus.backlog.items.slice(0, 5).map((it) => (
+                        <div key={`${it.docType}:${it.sourceId}`} className="text-[11px] text-muted-foreground" dir="ltr">
+                          <span className="font-mono">{it.docRef ?? it.sourceId.slice(0, 8)}</span> · {it.hoursOpen}h{it.lastError ? ` · ${it.lastError.slice(0, 60)}` : ""}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </Card>
+              )}
+              <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                 <CardHeader className="pb-3 flex-row items-center justify-between">
                   <div>
                     <CardTitle className="text-base">{ar ? "شهادات CSID المخزّنة" : "Stored CSID credentials"}</CardTitle>
@@ -2161,7 +2256,7 @@ export default function AccountingPage() {
                   </div>
                   <Dialog open={onboardOpen} onOpenChange={setOnboardOpen}>
                     <DialogTrigger asChild>
-                      <button disabled={!integrationAvailable("zatca")} className={dialogBtn}>
+                      <button disabled={!zatcaEnabled} className={dialogBtn}>
                         <KeyRound className="h-3.5 w-3.5" />{ar ? "إعداد جديد" : "Onboard"}
                       </button>
                     </DialogTrigger>
@@ -2183,23 +2278,38 @@ export default function AccountingPage() {
                             onChange={(e) => setOnboardEnv(e.target.value as ZatcaCsidEnvironment)}
                             className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           >
-                            <option value="sandbox">sandbox · TSTZATCA</option>
-                            <option value="simulation">simulation · PREZATCA</option>
-                            <option value="production">production · ZATCA</option>
+                            {(zatcaStatus?.environment ? [zatcaStatus.environment] : ["sandbox", "simulation"]).map((env) => (
+                              <option key={env} value={env}>{env === "sandbox" ? "sandbox · developer portal" : "simulation · Fatoora simulation"}</option>
+                            ))}
                           </select>
                         </div>
                         <div className="space-y-1.5">
                           <Label htmlFor="onboardOtp">{ar ? "رمز الدخول لمرة واحدة (OTP) من بوابة Fatoora" : "One-time password (OTP) from the Fatoora portal"}</Label>
-                          <Input id="onboardOtp" dir="ltr" placeholder="••••••" value={onboardOtp} onChange={(e) => setOnboardOtp(e.target.value)} className="h-9 font-mono" />
+                          <Input id="onboardOtp" dir="ltr" inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="••••••" value={onboardOtp} onChange={(e) => setOnboardOtp(e.target.value.replace(/\D/g, "").slice(0, 6))} className="h-9 font-mono" />
                         </div>
                         <p className="text-[11px] text-muted-foreground">
                           {ar
-                            ? "وضع sandbox التجريبي لا يحتاج بوابة؛ محاكاة/إنتاج تتطلب OTP حقيقياً (صلاحيته ~ساعة)."
-                            : "The offline sandbox mock needs no portal; simulation/production require a real OTP (valid ~1 hour)."}
+                            ? "يتحقق الإعداد من الملف الضريبي، ويُصدر شهادة compliance، ويجتاز فحوص المطابقة الستة (فواتير/إشعارات دائنة ومدينة، قياسية ومبسطة) قبل طلب شهادة production. صلاحية OTP ~ساعة."
+                            : "Onboarding validates the tax profile, issues the compliance CSID, passes the six compliance checks (standard/simplified invoice, credit and debit notes) and only then requests the production CSID. The OTP is valid for ~1 hour."}
                         </p>
+                        {onboardChecks && (
+                          <div className="rounded-lg border border-border/50 p-2 space-y-1">
+                            {onboardChecks.map((c) => {
+                              const ok = c.status === (c.kind === "standard" ? "cleared" : "reported")
+                              return (
+                                <div key={`${c.kind}:${c.docType}`} className="flex items-center justify-between text-[11px]" dir="ltr">
+                                  <span className="font-mono">{c.kind} · {c.docType}</span>
+                                  <span className={ok ? "text-emerald-700" : "text-red-700"}>
+                                    {c.status}{c.warnings ? ` · ${c.warnings}w` : ""}{c.errors.length ? ` · ${c.errors.map((e) => e.code).filter(Boolean).join(", ")}` : ""}
+                                  </span>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
                       </div>
                       <div className="flex items-center gap-3">
-                        <Button onClick={() => void handleOnboardZatca()} disabled={!integrationAvailable("zatca") || onboardBusy || !onboardOtp.trim()} className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800">
+                        <Button onClick={() => void handleOnboardZatca()} disabled={!zatcaEnabled || onboardBusy || !/^\d{6}$/.test(onboardOtp)} className="bg-elite-blue-600 hover:bg-elite-blue-700">
                           {onboardBusy ? <LoadingSpinner className="h-4 w-4" /> : <KeyRound className="h-4 w-4" />}
                           {ar ? "بدء الإعداد" : "Start onboarding"}
                         </Button>
@@ -2237,17 +2347,17 @@ export default function AccountingPage() {
                 )}
               </Card>
 
-              <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+              <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                 <CardHeader className="pb-3 flex-row items-center justify-between">
                   <div>
                     <CardTitle className="text-base">{ar ? "سجل إرسال ZATCA" : "ZATCA transmission log"}</CardTitle>
                     <CardDescription>
                       {ar
-                        ? "الفواتير المبيعة المُرسلة كوثائق UBL 2.1 — وضع تجريبي افتراضياً، دون ادعاء امتثال"
-                        : "Finalized sales documents transmitted as UBL 2.1 — sandbox by default, no compliance claimed"}
+                        ? "مستندات المبيعات المعتمدة المُرسلة كوثائق UBL 2.1 موقّعة — بيئة غير إنتاجية فقط، دون ادعاء امتثال"
+                        : "Finalized sales documents transmitted as signed UBL 2.1 — non-production environments only, no compliance claimed"}
                     </CardDescription>
                   </div>
-                  <button onClick={handleRunZatca} disabled={zatcaBusy || !integrationAvailable("zatca")} className={dialogBtn}>
+                  <button onClick={handleRunZatca} disabled={zatcaBusy || !zatcaEnabled} className={dialogBtn}>
                     {zatcaBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
                     {ar ? "تشغيل المحوّل" : "Run adapter"}
                   </button>
@@ -2307,7 +2417,7 @@ export default function AccountingPage() {
             </TabsContent>
 
             <TabsContent value="periods" className="mt-4">
-              <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+              <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base">{ar ? "الفترات المحاسبية" : "Accounting periods"}</CardTitle>
                   <CardDescription>
@@ -2343,7 +2453,7 @@ export default function AccountingPage() {
                             {p.status === "closed" && (
                               <button
                                 onClick={() => { setReopenTarget(p); setReopenReason("") }}
-                                className="inline-flex h-7 items-center gap-1 rounded-lg border border-purple-500/25 bg-purple-500/10 px-2 text-xs font-medium text-purple-600 transition-colors hover:bg-purple-500/20"
+                                className="inline-flex h-7 items-center gap-1 rounded-lg border border-teal-500/25 bg-teal-500/10 px-2 text-xs font-medium text-teal-600 transition-colors hover:bg-teal-500/20"
                               >
                                 <Unlock className="h-3 w-3" />
                                 {ar ? "إعادة فتح" : "Reopen"}
@@ -2376,7 +2486,7 @@ export default function AccountingPage() {
                   return (
                     <div className="grid gap-3 sm:grid-cols-4">
                       {items.map((it) => (
-                        <div key={it.label} className="rounded-2xl border border-border/50 bg-card/80 px-4 py-3 shadow-sm">
+                        <div key={it.label} className="rounded-2xl border border-border/50 bg-card px-4 py-3 shadow-sm">
                           <p className="text-[11px] font-medium text-muted-foreground">{it.label}</p>
                           <p dir="ltr" className={`mt-0.5 text-lg font-bold tabular-nums ${it.cls}`}>{it.value}</p>
                         </div>
@@ -2385,7 +2495,7 @@ export default function AccountingPage() {
                   )
                 })()}
 
-                <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+                <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                   <CardHeader className="pb-3 flex-row items-center justify-between">
                     <CardTitle className="text-base flex items-center gap-2"><Building2 className="h-4 w-4 text-elite-blue-600" />{ar ? "الحسابات البنكية" : "Bank accounts"}</CardTitle>
                     <Dialog open={bankDialogOpen} onOpenChange={(open) => { if (!bankBusy) setBankDialogOpen(open) }}>
@@ -2443,7 +2553,7 @@ export default function AccountingPage() {
                           </div>
                           {bankError && <p role="alert" className="text-sm text-destructive">{bankError}</p>}
                           <div className="flex items-center gap-3">
-                            <Button onClick={() => void handleCreateBank()} disabled={bankBusy} className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800">
+                            <Button onClick={() => void handleCreateBank()} disabled={bankBusy} className="bg-elite-blue-600 hover:bg-elite-blue-700">
                               {bankBusy ? <LoadingSpinner className="h-4 w-4" /> : <Save className="h-4 w-4" />}
                               {bankEdit ? (ar ? "حفظ التعديلات" : "Save changes") : (ar ? "إضافة" : "Add")}
                             </Button>
@@ -2496,7 +2606,7 @@ export default function AccountingPage() {
                   </DialogContent>
                 </Dialog>
 
-                <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+                <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                   <CardHeader className="pb-3 flex-row items-center justify-between">
                     <CardTitle className="text-base">{ar ? "المدفوعات" : "Finance payments"}</CardTitle>
                     <button onClick={openPayDialog} className={dialogBtn}>
@@ -2702,7 +2812,7 @@ export default function AccountingPage() {
                       </div>
 
                       <div className="flex items-center gap-3">
-                        <Button onClick={() => void handleRecordPayment()} disabled={payBusy} className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800">
+                        <Button onClick={() => void handleRecordPayment()} disabled={payBusy} className="bg-elite-blue-600 hover:bg-elite-blue-700">
                           {payBusy ? <LoadingSpinner className="h-4 w-4" /> : <Save className="h-4 w-4" />}
                           {ar ? "تسجيل وترحيل" : "Record & post"}
                         </Button>
@@ -2740,7 +2850,7 @@ export default function AccountingPage() {
               <Button
                 onClick={() => void handleReverse()}
                 disabled={isReversing}
-                className="bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800"
+                className="bg-teal-600 hover:bg-teal-700"
               >
                 {isReversing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
                 {ar ? "عكس القيد" : "Reverse entry"}
@@ -2772,7 +2882,7 @@ export default function AccountingPage() {
               <Button
                 onClick={() => void handleReject()}
                 disabled={isRejecting || !rejectReason.trim()}
-                className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800"
+                className="bg-red-600 hover:bg-red-700"
               >
                 {isRejecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}
                 {ar ? "رفض القيد" : "Reject entry"}
@@ -2804,7 +2914,7 @@ export default function AccountingPage() {
               <Button
                 onClick={() => void handleReopen()}
                 disabled={isReopening || !reopenReason.trim()}
-                className="bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800"
+                className="bg-teal-600 hover:bg-teal-700"
               >
                 {isReopening ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unlock className="h-4 w-4" />}
                 {ar ? "إعادة فتح الفترة" : "Reopen period"}

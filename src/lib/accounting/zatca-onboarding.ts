@@ -25,6 +25,7 @@
 // No ZATCA compliance is claimed (ZATCA-BOUNDARY.md §5).
 
 import { getZatcaNetworkBase } from "./zatca-config"
+import { zatcaCsrRequestPayload } from "./zatca-crypto"
 
 export type CsidKind = "compliance" | "production"
 
@@ -72,7 +73,7 @@ export async function requestComplianceCsid(input: {
         "Accept-Version": "V2",
         OTP: input.otp,
       },
-      body: JSON.stringify({ csr: input.csr }),
+      body: JSON.stringify({ csr: zatcaCsrRequestPayload(input.csr) }),
     })
     if (!res.ok) {
       throw new Error(`ZATCA onboarding error ${res.status}`)

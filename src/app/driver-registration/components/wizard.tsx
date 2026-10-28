@@ -11,6 +11,7 @@ import {
   type StepKey,
 } from "@/lib/driver-registration/schema"
 import { submitDriverApplication } from "@/lib/driver-registration/actions"
+import { saveApplicationProgress } from "@/lib/driver-registration/saved-application-actions"
 import { RegistrationHeader } from "./fields"
 import {
   ContactStep,
@@ -63,7 +64,7 @@ function ProgressRail({
                 className={cn(
                   "flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 text-xs font-bold transition-all duration-300",
                   isDone && "border-emerald-500 bg-emerald-500 text-white",
-                  isCurrent && "border-elite-blue-500 bg-elite-blue-500 text-white shadow-md shadow-elite-blue-500/30",
+                  isCurrent && "border-elite-blue-500 bg-elite-blue-500 text-white shadow-elite-blue-500/30",
                   !isDone && !isCurrent && "border-muted-foreground/30 text-muted-foreground"
                 )}
               >
@@ -320,7 +321,7 @@ function ReviewPanel({
           type="button"
           onClick={() => void onSubmit()}
           disabled={phase === "validating" || phase === "submitting"}
-          className="flex h-12 items-center gap-2 rounded-xl bg-gradient-to-r from-elite-blue-500 to-elite-blue-600 px-8 text-sm font-bold text-white shadow-lg shadow-elite-blue-500/25 transition-all hover:from-elite-blue-600 hover:to-elite-blue-700 hover:shadow-elite-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60"
+          className="flex h-12 items-center gap-2 rounded-xl bg-elite-blue-500 px-8 text-sm font-bold text-white shadow-elite-blue-500/25 transition-all hover:bg-elite-blue-600 hover:shadow-elite-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {phase === "validating" && (
             <>
@@ -347,16 +348,37 @@ function ReviewPanel({
 export function Wizard({
   platformOptions,
   tenantSlug,
+  initialStep = "personal",
 }: {
   platformOptions: PlatformOption[]
   tenantSlug: string
+  initialStep?: StepKey
 }) {
   const { dict, data, patch } = useDriverRegistration()
-  const [current, setCurrent] = React.useState<StepKey>("personal")
+  const [current, setCurrent] = React.useState<StepKey>(initialStep)
   const [consent, setConsent] = React.useState({ terms: false, privacy: false })
+  const [saveState, setSaveState] = React.useState<"idle" | "saved" | "failed">("idle")
 
   const currentIndex = STEP_ORDER.indexOf(current)
   const completed: StepKey[] = STEP_ORDER.filter((k, i) => i < currentIndex)
+
+  // Seal progress into this browser after every completed step. Failure never
+  // blocks the applicant; it only changes the hint under the progress bar.
+  const persist = (next: typeof data, step: StepKey) => {
+    void saveApplicationProgress(tenantSlug, step, {
+      personal: next.personal,
+      contact: next.contact,
+      identity: next.identity,
+      license: next.license,
+      work: next.work,
+      platforms: next.platforms,
+      vehicle: next.vehicle,
+      documents: next.documents,
+      profilePhotoPath: next.profilePhotoPath,
+    })
+      .then((res) => setSaveState(res.ok ? "saved" : "failed"))
+      .catch(() => setSaveState("failed"))
+  }
 
   const goNext = () => {
     if (currentIndex < STEP_ORDER.length - 1) setCurrent(STEP_ORDER[currentIndex + 1])
@@ -365,9 +387,14 @@ export function Wizard({
     if (currentIndex > 0) setCurrent(STEP_ORDER[currentIndex - 1])
   }
 
-  const handleStepNext = (key: StepKey, values: unknown) => {
-    patch({ [key]: values } as Partial<typeof data>)
+  const advance = (partial: Partial<typeof data>) => {
+    patch(partial)
+    persist({ ...data, ...partial }, STEP_ORDER[Math.min(currentIndex + 1, STEP_ORDER.length - 1)])
     goNext()
+  }
+
+  const handleStepNext = (key: StepKey, values: unknown) => {
+    advance({ [key]: values } as Partial<typeof data>)
   }
 
   const handleEdit = (key: StepKey) => {
@@ -381,12 +408,23 @@ export function Wizard({
       <div className="mx-auto max-w-5xl px-4 pb-20 pt-8 lg:px-8">
         {/* Progress header */}
         <div className="mb-6 flex items-center justify-between">
-          <p className="text-sm font-semibold text-muted-foreground">
-            {dict.progress.step} {currentIndex + 1} {dict.progress.of} {STEP_ORDER.length}
-          </p>
+          <div>
+            <p className="text-sm font-semibold text-muted-foreground">
+              {dict.progress.step} {currentIndex + 1} {dict.progress.of} {STEP_ORDER.length}
+            </p>
+            {saveState !== "idle" && (
+              <p
+                role="status"
+                className={saveState === "saved" ? "mt-1 text-xs text-muted-foreground" : "mt-1 text-xs text-destructive"}
+                data-testid="registration-save-state"
+              >
+                {saveState === "saved" ? dict.resume.saved : dict.resume.notSaved}
+              </p>
+            )}
+          </div>
           <div className="h-2 w-40 overflow-hidden rounded-full bg-muted">
             <div
-              className="h-full rounded-full bg-gradient-to-r from-elite-blue-500 to-elite-orange-500 transition-all duration-500"
+              className="h-full rounded-full bg-elite-blue-500 transition-all duration-500"
               style={{ width: `${((currentIndex + 1) / STEP_ORDER.length) * 100}%` }}
             />
           </div>
@@ -396,7 +434,7 @@ export function Wizard({
           {/* Journey rail (right panel on desktop becomes compact bar on mobile) */}
           <aside className="hidden lg:block">
             <div className="sticky top-24 rounded-2xl border border-border/60 bg-card/60 p-4">
-              <p className="mb-3 px-3 text-xs font-bold uppercase tracking-widest text-muted-foreground">
+              <p className="mb-3 px-3 text-xs font-bold text-muted-foreground">
                 {dict.steps.review === dict.steps.review ? dict.header.tagline : dict.header.tagline}
               </p>
               <ProgressRail current={current} completed={completed} />
@@ -418,10 +456,7 @@ export function Wizard({
                     initial={data.personal}
                     photoPath={data.profilePhotoPath}
                     onBack={undefined}
-                    onNext={(v) => {
-                      patch({ personal: v, profilePhotoPath: v.profilePhotoPath })
-                      goNext()
-                    }}
+                    onNext={(v) => advance({ personal: v, profilePhotoPath: v.profilePhotoPath })}
                   />
                 )}
                 {current === "contact" && (

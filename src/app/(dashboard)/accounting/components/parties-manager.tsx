@@ -57,6 +57,11 @@ interface PartyRow {
   email: string | null
   tax_number: string | null
   address: string | null
+  city: string | null
+  district: string | null
+  building_number: string | null
+  additional_number: string | null
+  postal_code: string | null
   credit_limit: number | null
   is_active: boolean
 }
@@ -75,6 +80,11 @@ interface PartyFormState {
   email: string
   tax_number: string
   address: string
+  city: string
+  district: string
+  building_number: string
+  additional_number: string
+  postal_code: string
   credit_limit: string
   is_active: boolean
 }
@@ -88,6 +98,11 @@ function emptyForm(): PartyFormState {
     email: "",
     tax_number: "",
     address: "",
+    city: "",
+    district: "",
+    building_number: "",
+    additional_number: "",
+    postal_code: "",
     credit_limit: "",
     is_active: true,
   }
@@ -118,7 +133,7 @@ export function PartiesManager({ kind }: { kind: PartyKind }) {
     const supabase = createClient()
     const { data, error } = await supabase
       .from(kind)
-      .select(`id,${codeCol},name_ar,name_en,phone,email,tax_number,address,credit_limit,is_active`)
+      .select(`id,${codeCol},name_ar,name_en,phone,email,tax_number,address,city,district,building_number,additional_number,postal_code,credit_limit,is_active`)
       .is("deleted_at", null)
       .order(codeCol, { ascending: true })
     if (error) {
@@ -135,6 +150,11 @@ export function PartiesManager({ kind }: { kind: PartyKind }) {
           email: r.email,
           tax_number: r.tax_number,
           address: r.address,
+          city: r.city ?? null,
+          district: r.district ?? null,
+          building_number: r.building_number ?? null,
+          additional_number: r.additional_number ?? null,
+          postal_code: r.postal_code ?? null,
           credit_limit: r.credit_limit,
           is_active: r.is_active,
         }))
@@ -148,7 +168,7 @@ export function PartiesManager({ kind }: { kind: PartyKind }) {
       const supabase = createClient()
       const { data, error } = await supabase
         .from(kind)
-        .select(`id,${codeCol},name_ar,name_en,phone,email,tax_number,address,credit_limit,is_active`)
+        .select(`id,${codeCol},name_ar,name_en,phone,email,tax_number,address,city,district,building_number,additional_number,postal_code,credit_limit,is_active`)
         .is("deleted_at", null)
         .order(codeCol, { ascending: true })
       if (error) {
@@ -165,6 +185,11 @@ export function PartiesManager({ kind }: { kind: PartyKind }) {
             email: r.email,
             tax_number: r.tax_number,
             address: r.address,
+            city: r.city ?? null,
+            district: r.district ?? null,
+            building_number: r.building_number ?? null,
+            additional_number: r.additional_number ?? null,
+            postal_code: r.postal_code ?? null,
             credit_limit: r.credit_limit,
             is_active: r.is_active,
           }))
@@ -203,7 +228,7 @@ export function PartiesManager({ kind }: { kind: PartyKind }) {
       label: ar ? "مسجل ضريبياً" : "With tax number",
       value: rows.filter((r) => r.tax_number).length,
       icon: ReceiptText,
-      color: "#8B5CF6",
+      color: "#0F766E",
     },
     {
       label: ar ? "متوسط حد الائتمان" : "Avg credit limit",
@@ -310,6 +335,11 @@ export function PartiesManager({ kind }: { kind: PartyKind }) {
       email: r.email ?? "",
       tax_number: r.tax_number ?? "",
       address: r.address ?? "",
+      city: r.city ?? "",
+      district: r.district ?? "",
+      building_number: r.building_number ?? "",
+      additional_number: r.additional_number ?? "",
+      postal_code: r.postal_code ?? "",
       credit_limit: r.credit_limit != null ? String(r.credit_limit) : "",
       is_active: r.is_active,
     })
@@ -331,6 +361,11 @@ export function PartiesManager({ kind }: { kind: PartyKind }) {
       email: form.email || null,
       tax_number: form.tax_number || null,
       address: form.address || null,
+      city: form.city || null,
+      district: form.district || null,
+      building_number: form.building_number || null,
+      additional_number: form.additional_number || null,
+      postal_code: form.postal_code || null,
       credit_limit: form.credit_limit !== "" ? Number(form.credit_limit) : null,
     }
     const res = editTarget
@@ -553,6 +588,33 @@ export function PartiesManager({ kind }: { kind: PartyKind }) {
               <Label htmlFor="party-address">{ar ? "العنوان" : "Address"}</Label>
               <Input id="party-address" value={form.address} onChange={(e) => setField("address", e.target.value)} className="h-9" />
             </div>
+            <fieldset className="space-y-3">
+              <legend className="text-xs text-muted-foreground">
+                {ar ? "العنوان الوطني (مطلوب لفواتير ZATCA الضريبية)" : "National Address (required for ZATCA standard invoices)"}
+              </legend>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="party-city">{ar ? "المدينة" : "City"}</Label>
+                  <Input id="party-city" value={form.city} onChange={(e) => setField("city", e.target.value)} className="h-9" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="party-district">{ar ? "الحي" : "District"}</Label>
+                  <Input id="party-district" value={form.district} onChange={(e) => setField("district", e.target.value)} className="h-9" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="party-building">{ar ? "رقم المبنى" : "Building no."}</Label>
+                  <Input id="party-building" dir="ltr" inputMode="numeric" value={form.building_number} onChange={(e) => setField("building_number", e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="1234" className="h-9 tabular-nums" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="party-additional">{ar ? "الرقم الإضافي" : "Additional no."}</Label>
+                  <Input id="party-additional" dir="ltr" inputMode="numeric" value={form.additional_number} onChange={(e) => setField("additional_number", e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="5678" className="h-9 tabular-nums" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="party-postal">{ar ? "الرمز البريدي" : "Postal code"}</Label>
+                  <Input id="party-postal" dir="ltr" inputMode="numeric" value={form.postal_code} onChange={(e) => setField("postal_code", e.target.value.replace(/\D/g, "").slice(0, 5))} placeholder="12345" className="h-9 tabular-nums" />
+                </div>
+              </div>
+            </fieldset>
 
             {editTarget && (
               <div className="space-y-1.5">
@@ -584,7 +646,7 @@ export function PartiesManager({ kind }: { kind: PartyKind }) {
               <Button
                 onClick={() => void handleSubmitForm()}
                 disabled={isSavingForm || !form.name_ar.trim()}
-                className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800"
+                className="bg-elite-blue-600 hover:bg-elite-blue-700"
               >
                 {isSavingForm ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 {t.common.save}
@@ -613,7 +675,7 @@ export function PartiesManager({ kind }: { kind: PartyKind }) {
             <Button
               onClick={() => void handleDelete()}
               disabled={isDeleting}
-              className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800"
+              className="bg-red-600 hover:bg-red-700"
             >
               {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
               {ar ? "حذف" : "Delete"}

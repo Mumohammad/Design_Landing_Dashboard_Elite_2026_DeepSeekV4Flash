@@ -152,7 +152,7 @@ export default function UsersSettingsPage() {
         </TabsList>
 
         <TabsContent value="users" className="mt-4">
-          <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+          <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -204,10 +204,10 @@ export default function UsersSettingsPage() {
         </TabsContent>
 
         <TabsContent value="invites" className="mt-4 space-y-4">
-          <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm">
+          <Card className="rounded-2xl border border-border/50 bg-card shadow-sm">
             <CardHeader className="pb-4">
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-elite-blue-600/10">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl text-elite-blue-600 dark:text-elite-blue-300">
                   <UserPlus className="h-5 w-5 text-elite-blue-600" />
                 </div>
                 <div>
@@ -249,7 +249,7 @@ export default function UsersSettingsPage() {
                 <Button
                   type="submit"
                   disabled={isInviting}
-                  className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800"
+                  className="bg-elite-blue-600 hover:bg-elite-blue-700"
                 >
                   {isInviting ? <LoadingSpinner className="h-4 w-4" /> : <Send className="h-4 w-4" />}
                   {ar ? "إرسال الدعوة" : "Send invite"}
@@ -266,7 +266,7 @@ export default function UsersSettingsPage() {
             </CardContent>
           </Card>
 
-          <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+          <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
             <CardHeader className="pb-3">
               <CardTitle className="text-base">{ar ? "الدعوات المعلقة" : "Pending invites"}</CardTitle>
             </CardHeader>

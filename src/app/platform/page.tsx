@@ -19,28 +19,27 @@ const steps = [
 export default function PlatformPage() {
   return (
     <main className="min-h-screen bg-[#f6f8fb] text-slate-900">
-      <header className="sticky top-0 z-50 border-b border-slate-200/70 bg-white/80 backdrop-blur-xl">
+      <header className="sticky top-0 z-50 border-b border-slate-200/70 bg-white/80">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
           <Link href="/landing" className="flex items-center gap-2.5 font-bold">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[#1E5A99] to-[#E87D3E] text-white"><Building2 className="h-5 w-5" /></span>
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl text-elite-blue-600 dark:text-elite-blue-300"><Building2 className="h-5 w-5" /></span>
             <span><LocalizedText text="نخبة التطوير" /> <span className="text-slate-400 font-medium">· <LocalizedText text="Company platform" /></span></span>
           </Link>
           <div className="flex items-center gap-2 sm:gap-3"><LanguageToggle />
             <Link href="/platform/admin" className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-bold text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"><ShieldCheck className="h-4 w-4" /> <LocalizedText text="الإدارة" /></Link>
             <Link href="/platform/login" className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-100"><LogIn className="h-4 w-4" /> <LocalizedText text="Sign in" /></Link>
-            <Link href="/platform/register" className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-[#1E5A99] to-[#174a7e] px-4 py-2 text-sm font-bold text-white shadow-lg shadow-[#1E5A99]/25 transition hover:shadow-xl"><Rocket className="h-4 w-4" /> <LocalizedText text="سجّل شركتك" /></Link>
+            <Link href="/platform/register" className="inline-flex items-center gap-1.5 rounded-xl bg-[#1E5A99] px-4 py-2 text-sm font-bold text-white shadow-[#1E5A99]/25 transition"><Rocket className="h-4 w-4" /> <LocalizedText text="سجّل شركتك" /></Link>
           </div>
         </div>
       </header>
 
       <section className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_10%,rgba(30,90,153,.08),transparent_40%),radial-gradient(circle_at_15%_30%,rgba(232,125,62,.07),transparent_35%)]" />
         <div className="relative mx-auto max-w-6xl px-6 py-20 text-center md:py-28">
           <span className="inline-flex items-center gap-2 rounded-full border border-[#1E5A99]/20 bg-[#1E5A99]/5 px-4 py-1.5 text-xs font-bold text-[#1E5A99]"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#E87D3E]" /> <LocalizedText text="منصة إدارة الأسطول للشركات" /></span>
-          <h1 className="mx-auto mt-7 max-w-3xl text-4xl font-extrabold leading-[1.15] tracking-tight sm:text-5xl xl:text-6xl"><LocalizedText text="مساحة عمل شركتك." /> <span className="bg-gradient-to-r from-[#1E5A99] to-[#E87D3E] bg-clip-text text-transparent"><LocalizedText text="باسمك، وهويتك، وبياناتك." /></span></h1>
+          <h1 className="mx-auto mt-7 max-w-3xl text-4xl font-extrabold leading-[1.15] tracking-tight sm:text-5xl xl:text-6xl"><LocalizedText text="مساحة عمل شركتك." /> <span className="text-[#1E5A99]"><LocalizedText text="باسمك، وهويتك، وبياناتك." /></span></h1>
           <p className="mx-auto mt-6 max-w-2xl text-lg leading-8 text-slate-500"><LocalizedText text="كل شركة تحصل على لوحة التحكم الكاملة بهويتها الخاصة — السائقون والمركبات والرواتب والمصروفات والتقارير، معزولة تمامًا ومحمية بأمان مؤسسي." /></p>
           <div className="mt-10 flex flex-col justify-center gap-3 sm:flex-row">
-            <Link href="/platform/register" className="group inline-flex items-center justify-center gap-2.5 rounded-2xl bg-gradient-to-r from-[#1E5A99] to-[#174a7e] px-8 py-4 text-sm font-bold text-white shadow-2xl shadow-[#1E5A99]/30 transition hover:scale-[1.02] hover:shadow-[#1E5A99]/45 active:scale-[0.98]"><LocalizedText text="ابدأ التجربة المجانية" /> <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-1" /></Link>
+            <Link href="/platform/register" className="group inline-flex items-center justify-center gap-2.5 rounded-2xl bg-[#1E5A99] px-8 py-4 text-sm font-bold text-white shadow-[#1E5A99]/30 transition hover:scale-[1.02] hover:shadow-[#1E5A99]/45 active:scale-[0.98]"><LocalizedText text="ابدأ التجربة المجانية" /> <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-1" /></Link>
             <Link href="/platform/login" className="inline-flex items-center justify-center gap-2.5 rounded-2xl border border-slate-200 bg-white px-8 py-4 text-sm font-bold text-slate-700 shadow-sm transition hover:border-[#1E5A99]/40 hover:bg-[#1E5A99]/5"><LayoutDashboard className="h-4 w-4" /> <LocalizedText text="دخول إلى لوحة التحكم" /></Link>
           </div>
           <p className="mt-5 text-xs font-semibold text-slate-400"><LocalizedText text="14 يومًا مجانًا · بدون بطاقة ائتمان · إعداد في دقيقتين" /></p>
@@ -48,11 +47,11 @@ export default function PlatformPage() {
       </section>
 
       <section className="mx-auto max-w-6xl px-6 py-16">
-        <div className="mx-auto max-w-2xl text-center"><p className="text-xs font-bold uppercase tracking-[0.2em] text-[#E87D3E]"><LocalizedText text="لماذا الشركات تختارنا" /></p><h2 className="mt-3 text-3xl font-extrabold tracking-tight sm:text-4xl"><LocalizedText text="بنية متعددة الشركات بحكم التصميم" /></h2></div>
+        <div className="mx-auto max-w-2xl text-center"><p className="text-xs font-bold text-[#E87D3E]"><LocalizedText text="لماذا الشركات تختارنا" /></p><h2 className="mt-3 text-3xl font-extrabold tracking-tight sm:text-4xl"><LocalizedText text="بنية متعددة الشركات بحكم التصميم" /></h2></div>
         <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
           {features.map(f => (
-            <div key={f.title} className="group rounded-3xl border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:border-[#1E5A99]/30 hover:shadow-xl hover:shadow-[#1E5A99]/10">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[#1E5A99] to-[#E87D3E] text-white shadow-lg shadow-[#1E5A99]/20 transition group-hover:scale-110"><f.icon className="h-5 w-5" /></div>
+            <div key={f.title} className="group rounded-3xl border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:border-[#1E5A99]/30 hover:shadow-[#1E5A99]/10">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl transition group-hover:scale-110 text-elite-blue-600 dark:text-elite-blue-300"><f.icon className="h-5 w-5" /></div>
               <h3 className="mt-5 font-extrabold"><LocalizedText text={f.title} /></h3>
               <p className="mt-2 text-sm leading-6 text-slate-500"><LocalizedText text={f.desc} /></p>
             </div>
@@ -62,11 +61,11 @@ export default function PlatformPage() {
 
       <section className="border-y border-slate-200/70 bg-white py-16">
         <div className="mx-auto max-w-6xl px-6">
-          <div className="mx-auto max-w-2xl text-center"><p className="text-xs font-bold uppercase tracking-[0.2em] text-[#1E5A99]"><LocalizedText text="كيف تبدأ" /></p><h2 className="mt-3 text-3xl font-extrabold tracking-tight sm:text-4xl"><LocalizedText text="ثلاث خطوات وتنطلق" /></h2></div>
+          <div className="mx-auto max-w-2xl text-center"><p className="text-xs font-bold text-[#1E5A99]"><LocalizedText text="كيف تبدأ" /></p><h2 className="mt-3 text-3xl font-extrabold tracking-tight sm:text-4xl"><LocalizedText text="ثلاث خطوات وتنطلق" /></h2></div>
           <div className="mt-12 grid gap-5 md:grid-cols-3">
             {steps.map(s => (
               <div key={s.n} className="relative rounded-3xl border border-slate-200 bg-[#f6f8fb] p-7">
-                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-[#1E5A99] to-[#E87D3E] text-lg font-extrabold text-white shadow-lg shadow-[#1E5A99]/25">{s.n}</span>
+                <span className="flex h-11 w-11 items-center justify-center rounded-2xl text-lg font-extrabold text-elite-blue-600 dark:text-elite-blue-300">{s.n}</span>
                 <h3 className="mt-5 text-lg font-extrabold"><LocalizedText text={s.title} /></h3>
                 <p className="mt-2 text-sm leading-6 text-slate-500"><LocalizedText text={s.desc} /></p>
               </div>
@@ -76,14 +75,12 @@ export default function PlatformPage() {
       </section>
 
       <section className="mx-auto max-w-6xl px-6 py-16">
-        <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-[#0c1f38] via-[#123a63] to-[#1E5A99] p-10 text-center sm:p-14">
-          <div className="absolute inset-0 bg-[radial-gradient(rgba(255,255,255,0.06)_1px,transparent_1px)] [background-size:18px_18px]" />
-          <div className="absolute -end-24 -top-24 h-72 w-72 rounded-full bg-[#E87D3E]/20 blur-[90px]" />
+        <div className="relative overflow-hidden rounded-[2rem] bg-[#0c1f38] p-10 text-center sm:p-14">
           <div className="relative">
             <h2 className="mx-auto max-w-2xl text-3xl font-extrabold leading-tight text-white sm:text-4xl"><LocalizedText text="جاهز تبني مساحة عمل شركتك؟" /></h2>
             <p className="mx-auto mt-4 max-w-xl text-base leading-7 text-white/60"><LocalizedText text="سجّل الآن وابدأ تجربتك المجانية — لوحة تحكمك بهويتك تنتظرك." /></p>
             <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
-              <Link href="/platform/register" className="group inline-flex items-center justify-center gap-2.5 rounded-2xl bg-gradient-to-r from-[#E87D3E] to-[#d96c2f] px-8 py-4 text-sm font-bold text-white shadow-2xl shadow-[#E87D3E]/30 transition hover:scale-[1.02] active:scale-[0.98]"><LocalizedText text="سجّل شركتك الآن" /> <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-1" /></Link>
+              <Link href="/platform/register" className="group inline-flex items-center justify-center gap-2.5 rounded-2xl bg-[#E87D3E] px-8 py-4 text-sm font-bold text-white shadow-[#E87D3E]/30 transition hover:scale-[1.02] active:scale-[0.98]"><LocalizedText text="سجّل شركتك الآن" /> <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-1" /></Link>
             </div>
             <div className="mt-8 flex flex-wrap items-center justify-center gap-6 text-xs text-white/45">
               <span className="flex items-center gap-1.5"><CheckCircle2 className="h-4 w-4 text-emerald-400" /> <LocalizedText text="عزل كامل للبيانات" /></span>

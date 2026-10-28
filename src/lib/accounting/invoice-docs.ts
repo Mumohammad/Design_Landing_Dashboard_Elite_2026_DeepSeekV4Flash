@@ -22,6 +22,7 @@ import { readFile } from "node:fs/promises"
 import path from "node:path"
 import { sumMoney } from "./decimal"
 import { renderInvoicePdf } from "./invoice-pdf"
+import { loadAuthorityQr } from "./zatca-document-qr"
 
 type ActionResult = {
   success: boolean
@@ -184,7 +185,10 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
       ? { ar: "فاتورة بيع", en: "Sales Invoice" }
       : { ar: "فاتورة شراء", en: "Purchase Invoice" }
 
-    // Verification QR — standard 5-field TLV payload (invoice-qr.ts).
+    // Printed QR: the cleared (standard) or EGS-stamped reported (simplified)
+    // QR from accepted ZATCA submission evidence when it exists; otherwise the
+    // internal 5-field TLV verification QR, explicitly disclosed as such.
+    const authorityQr = isSales ? await loadAuthorityQr(admin, currentUser.tenantId, inv.id) : null
     const payload = buildTaxQrPayload({
       sellerName: tenant?.name_ar ?? tenant?.name_en ?? "نخبة التطوير",
       sellerVatNumber: sellerVat,
@@ -192,7 +196,13 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
       total: Number(inv.total),
       vatAmount: Number(inv.vat_amount),
     })
-    const qrDataUrl = await qrPngDataUrl(payload)
+    const qrDataUrl = await qrPngDataUrl(authorityQr?.qrBase64 ?? payload)
+    const envLabel = authorityQr?.environment === "simulation" ? { ar: "بيئة المحاكاة", en: "simulation" } : { ar: "البيئة التجريبية", en: "sandbox" }
+    const qrNote = authorityQr
+      ? authorityQr.kind === "cleared"
+        ? { ar: `رمز من الفاتورة المُخلَّصة لدى ZATCA (${envLabel.ar}) · ليست فاتورة إنتاج`, en: `ZATCA-cleared QR (${envLabel.en}) · not a production invoice` }
+        : { ar: `رمز مختوم ومُبلّغ لـ ZATCA (${envLabel.ar}) · ليست فاتورة إنتاج`, en: `EGS-stamped reported QR (${envLabel.en}) · not a production invoice` }
+      : null
 
     const doc: InvoiceDocData = {
       kind: "invoice",
@@ -229,7 +239,8 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
       statusLabelAr: status.ar,
       statusLabelEn: status.en,
       qrDataUrl,
-      internalQr: true,
+      internalQr: !authorityQr,
+      qrNote,
       verifyUrl,
       generatedAt: timestamp,
     }
@@ -271,7 +282,7 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
       total: Number(inv.total),
       currency: inv.currency,
       issue_date: inv.issue_date,
-      qr_kind: "internal_unvalidated",
+      qr_kind: authorityQr ? `zatca_${authorityQr.environment}_${authorityQr.kind}` : "internal_unvalidated",
       qr_generated_at: timestamp,
       due_date: inv.due_date,
       party: party ?? null,
