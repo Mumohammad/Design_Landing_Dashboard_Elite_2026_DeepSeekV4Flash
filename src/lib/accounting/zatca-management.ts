@@ -24,6 +24,9 @@ export interface ZatcaStatus {
   streams: { egsSerial: string; environment: string; lastCounter: number; createdAt: string }[]
   certificates: { environment: string; kind: string; status: string; expiresAt: string | null; daysLeft: number | null }[]
   backlog: { pending: number; overdue: number; items: ZatcaBacklogItem[] }
+  /** Documents finalized before this time predate the EGS registration and are never submitted. */
+  goLiveAt: string | null
+  automation: { enabled: boolean; lastRunAt: string | null; lastResult: Record<string, unknown> | null } | null
 }
 
 const EVENT_TYPES = ["InvoiceFinalizedEvent", "CreditNoteIssuedEvent", "DebitNoteIssuedEvent"]
@@ -46,7 +49,7 @@ export async function getZatcaStatus(): Promise<{ success: boolean; error?: stri
     const environment = enabled ? zatcaConfiguredEnvironment() : null
     const admin = createAdminClient()
 
-    const [tenantRes, streamRes, csidRes, eventRes] = await Promise.all([
+    const [tenantRes, streamRes, csidRes, eventRes, automationRes] = await Promise.all([
       admin.from("tenants")
         .select("name_ar,name_en,legal_name,vat_number,cr_number,address,city,region,district,building_number,additional_number,postal_code,country")
         .eq("id", tenantId).maybeSingle<TenantPartyRow>(),
@@ -60,13 +63,21 @@ export async function getZatcaStatus(): Promise<{ success: boolean; error?: stri
         .select("source_id,event_type,created_at,payload")
         .eq("tenant_id", tenantId).in("event_type", EVENT_TYPES)
         .order("created_at", { ascending: false }).limit(BACKLOG_EVENT_LIMIT),
+      admin.from("zatca_automation")
+        .select("enabled,last_run_at,last_result")
+        .eq("tenant_id", tenantId).maybeSingle(),
     ])
 
     const seller = tenantRes.data ? sellerParty(tenantRes.data) : null
     const profileMissing = seller ? missingNationalAddress(seller, "seller", "standard") : ["tenant"]
     const vatValid = !!seller?.vatNumber && ZATCA_VAT_RE.test(seller.vatNumber)
 
-    const events: BacklogEvent[] = (eventRes.data ?? []).map((e) => ({
+    const streams = (streamRes.data ?? []) as { egs_serial: string; environment: string; last_counter: number; created_at: string }[]
+    const goLiveAt = streams.find((st) => st.environment === environment)?.created_at ?? null
+    const goLive = goLiveAt ? Date.parse(goLiveAt) : null
+    const events: BacklogEvent[] = (eventRes.data ?? [])
+      .filter((e) => goLive === null || Date.parse(e.created_at as string) >= goLive)
+      .map((e) => ({
       source_id: e.source_id as string, event_type: e.event_type as string, created_at: e.created_at as string,
       doc_ref: docRefFromPayload(e.payload),
     }))
@@ -80,7 +91,7 @@ export async function getZatcaStatus(): Promise<{ success: boolean; error?: stri
       transmissions = (data ?? []) as BacklogTransmission[]
     }
     // Backlog only applies once a gateway is configured; otherwise nothing is due.
-    const backlog = enabled ? computeZatcaBacklog(events, transmissions) : { pending: 0, overdue: 0, items: [] }
+    const backlog = enabled && goLiveAt ? computeZatcaBacklog(events, transmissions) : { pending: 0, overdue: 0, items: [] }
 
     return {
       success: true,
@@ -90,7 +101,13 @@ export async function getZatcaStatus(): Promise<{ success: boolean; error?: stri
         productionEnabled: false,
         profileMissing,
         vatValid,
-        streams: (streamRes.data ?? []).map((s) => ({
+        goLiveAt,
+        automation: automationRes.data ? {
+          enabled: !!automationRes.data.enabled,
+          lastRunAt: (automationRes.data.last_run_at as string | null) ?? null,
+          lastResult: (automationRes.data.last_result as Record<string, unknown> | null) ?? null,
+        } : null,
+        streams: streams.map((s) => ({
           egsSerial: s.egs_serial as string, environment: s.environment as string,
           lastCounter: Number(s.last_counter ?? 0), createdAt: s.created_at as string,
         })),

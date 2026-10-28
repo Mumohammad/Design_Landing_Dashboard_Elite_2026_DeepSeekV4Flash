@@ -78,7 +78,11 @@ The first live run exposed a CSR defect: the request body must be Base64 of the 
 - **Onboarding** (`onboardZatcaCsids`): 6-digit OTP; production refused; the environment must match the configured gateway. The seller VAT number and complete National Address are required (no demo values). An existing EGS stream's serial is reused for renewals so the ICV/PIH chain continues; otherwise `1-EliteDev|2-Dashboard|3-<uuid>`. Certificate validity dates are stored.
 - **Compliance checks** (`zatca-compliance-checks.ts`): before requesting the production CSID, six test documents (standard/simplified × invoice/credit/debit note) are signed with the compliance certificate on a private ICV/PIH chain with a synthetic buyer and sent to `/compliance/invoices`. All must be cleared (standard) or reported (simplified), otherwise onboarding stops and the results are audited and shown. They never touch the tenant's legal stream or ledger.
 - **Stream registration**: on success the `zatca_issuance_streams` row (genesis PIH, counter 0) is created once.
+- **Automatic submission**: finalizing a sales invoice or issuing a note prepares and submits it immediately (the preparation time is the legal issue time, within the DB's 300-second window). If the user lacks *accounting: approve*, the tenant's registered operator (`zatca_automation`, set at onboarding, re-authorized by `zatca_operator_authorized` on every run) is used. The daily Vercel cron `/api/cron/zatca` (CRON_SECRET bearer, fail-closed) retries anything pending.
+- **Go-live cutoff and idempotency**: documents finalized before the EGS stream was registered for the configured environment are never submitted. A document counts as done only when accepted *in that environment*; mock or other-environment acceptance is not evidence.
 - **Readiness panel**: the ZATCA tab shows tax-profile gaps, the EGS stream and ICV, certificate days left (warning ≤ 30 days, expired), and the submission backlog (`zatca-backlog.ts`): finalized documents without a reported/cleared transmission, with those open for more than 24 hours flagged overdue.
+
+See [ZATCA-GO-LIVE.md](ZATCA-GO-LIVE.md) for the step-by-step go-live runbook.
 
 ## Remaining implementation and release evidence
 

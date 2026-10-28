@@ -50,12 +50,25 @@ function preparedResult(value: unknown, tenant: string, source: string, type: Za
  * The DB validates source ownership/state/totals and atomically fences the
  * stream. Signing, onboarding, transmission and production remain unavailable.
  */
+export type ZatcaActor = { tenantId: string; authUserId: string }
+
 export async function prepareZatcaDocument(
   streamId: string, sourceId: string, input: PreparedInput,
 ): Promise<ZatcaPreparedDocument> {
   await requirePermission("accounting", "approve")
   const user = await getCurrentUser()
   if (!user) throw new Error("Not authenticated.")
+  return prepareZatcaDocumentAs(user, streamId, sourceId, input)
+}
+
+/**
+ * Same as prepareZatcaDocument for an already-authorized actor (the signed-in
+ * user, or the tenant's ZATCA operator for the scheduled run). The database
+ * re-checks that the actor is an active user of the tenant.
+ */
+export async function prepareZatcaDocumentAs(
+  user: ZatcaActor, streamId: string, sourceId: string, input: PreparedInput,
+): Promise<ZatcaPreparedDocument> {
   const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i
   if (!uuidPattern.test(streamId) || !uuidPattern.test(sourceId) || !["invoice", "credit_note", "debit_note"].includes(input.docType)) {
     throw new Error("Invalid ZATCA preparation identity.")

@@ -35,6 +35,7 @@ import { mapFinancialError, toCsv } from "@/lib/accounting/csv-utils"
 import { computeInvoiceTotals, type InvoiceLineInput } from "@/lib/accounting/invoice-math"
 import { runEventDispatcher } from "@/lib/accounting/dispatcher"
 import { runZatcaAdapter } from "@/lib/accounting/zatca"
+import { runZatcaForTenant } from "@/lib/accounting/zatca-adapter-core"
 import { rateLimitAccounting } from "@/lib/auth/rate-limit"
 import { getErrorDefinition } from "@/lib/errors/error-codes"
 
@@ -117,6 +118,20 @@ export async function deleteInvoiceDraft(input: { id: string; expected_updated_a
 
 // Issuance/approval use caller-bound transactions; a receipt makes retries of
 // the same reviewed version safe without adopting older partial effects.
+/**
+ * Submit newly issued documents to ZATCA right away (so the preparation time
+ * is the issue time and B2C reporting starts inside the 24-hour window).
+ * Users without accounting:approve fall back to the tenant's registered
+ * ZATCA operator; the scheduled run retries anything still pending. Never
+ * fails the committed invoice decision.
+ */
+async function submitToZatcaAfterIssue(tenantId: string): Promise<void> {
+  try {
+    const own = await runZatcaAdapter()
+    if (!own.success) await runZatcaForTenant(tenantId)
+  } catch { /* Separate, gated transmission workflow; retried on schedule. */ }
+}
+
 export type InvoiceTransitionInput = { id: string; expected_updated_at: string }
 type TransitionResult = ActionResult & { errorAr?: string; postingPending?: boolean; replayed?: boolean }
 
@@ -168,7 +183,7 @@ async function transitionInvoice(operation: "issue" | "finalize", input: Invoice
         postingPending = !!posting.error || !["processed", "skipped_duplicate"].includes(posting.data?.processing_status ?? "")
       } catch { /* Preserve the committed result and disclose pending posting. */ }
       if (data.invoice_type === "sales") {
-        try { await runZatcaAdapter() } catch { /* Separate, production-gated transmission workflow. */ }
+        await submitToZatcaAfterIssue(user.tenantId)
       }
     }
     try { revalidatePath("/invoices"); revalidatePath("/accounting") } catch { /* Refresh reads the committed state. */ }
@@ -314,7 +329,7 @@ async function createInvoiceNote(kind: "credit" | "debit", input: CreditNoteInpu
     if (!data || !uuid.test(data.id ?? "") || !uuid.test(data.event_id ?? "") || data.kind !== kind
       || data.reference_invoice_id !== input.reference_invoice_id || typeof data.replayed !== "boolean"
       || data.posting_status !== "posted") return uncertain
-    try { await runZatcaAdapter() } catch { /* Separate gated transmission; no claim of authority acceptance. */ }
+    await submitToZatcaAfterIssue(user.tenantId)
     try { revalidatePath("/invoices"); revalidatePath("/accounting") } catch { /* Confirmed note remains committed. */ }
     return { success: true, id: data.id, replayed: data.replayed, postingPending: false }
   } catch { return uncertain }

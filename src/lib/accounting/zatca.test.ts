@@ -37,6 +37,7 @@ const mocks = vi.hoisted(() => ({
     raw: { sandbox: true },
   })),
   revalidatePath: vi.fn(),
+  adminRpc: vi.fn(async () => ({ data: true, error: null })),
   adminFrom: vi.fn(() => ({})),
   prepareZatcaDocument: vi.fn(async (_stream: string, _source: string, _input: Record<string, unknown>) => ({
     id: "11111111-1111-4111-8111-111111111111",
@@ -63,7 +64,7 @@ vi.mock("@/lib/auth/sessions", () => ({
 }))
 
 vi.mock("@/lib/supabase/admin", () => ({
-  createAdminClient: () => ({ from: mocks.adminFrom }),
+  createAdminClient: () => ({ from: mocks.adminFrom, rpc: mocks.adminRpc }),
 }))
 
 vi.mock("@/lib/accounting/csv-utils", () => ({
@@ -82,12 +83,16 @@ vi.mock("./zatca-transport", () => ({
   transmitToZatca: mocks.transmitToZatca,
 }))
 
+vi.mock("server-only", () => ({}))
+
+// The adapter core calls the actor-based primitives; drop the actor argument
+// so assertions keep checking the document arguments.
 vi.mock("./zatca-issuance", () => ({
-  prepareZatcaDocument: mocks.prepareZatcaDocument,
+  prepareZatcaDocumentAs: (_actor: unknown, ...args: unknown[]) => (mocks.prepareZatcaDocument as (...a: unknown[]) => unknown)(...args),
 }))
 
-vi.mock("./zatca-submission", () => ({
-  submitPreparedZatcaDocument: mocks.submitPreparedZatcaDocument,
+vi.mock("./zatca-submission-core", () => ({
+  submitPreparedZatcaDocumentAs: (_actor: unknown, ...args: unknown[]) => (mocks.submitPreparedZatcaDocument as (...a: unknown[]) => unknown)(...args),
 }))
 
 vi.mock("next/cache", () => ({
@@ -95,6 +100,7 @@ vi.mock("next/cache", () => ({
 }))
 
 import { runZatcaAdapter, getZatcaTransmission } from "./zatca"
+import { runZatcaForTenant } from "./zatca-adapter-core"
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -286,6 +292,24 @@ describe("runZatcaAdapter — network mode uses the prepared, signed submission 
     expect(mocks.prepareZatcaDocument).not.toHaveBeenCalled()
   })
 
+  it("never submits documents finalized before the EGS go-live (stream registration)", async () => {
+    networkAdmin({
+      financial_events: [{ id: "ev-1", event_type: "InvoiceFinalizedEvent", source_type: "invoice", source_id: SOURCE_ID, payload: {}, created_at: "2026-10-01T10:00:00Z" }],
+      zatca_issuance_streams: { id: "33333333-3333-4333-8333-333333333333", created_at: "2026-10-20T00:00:00Z" },
+    })
+    const res = await runZatcaAdapter()
+    expect(res).toMatchObject({ success: true, processed: 0, skipped: 1, failed: 0 })
+    expect(mocks.prepareZatcaDocument).not.toHaveBeenCalled()
+  })
+
+  it("does not treat a mock or other-environment acceptance as done for the configured gateway", async () => {
+    networkAdmin({ zatca_transmissions: { id: "tx-1", status: "reported", environment: null } })
+    expect(await runZatcaAdapter()).toMatchObject({ processed: 1, skipped: 0 })
+    vi.clearAllMocks(); mocks.getCurrentUser.mockResolvedValue(CURRENT_USER); mocks.getZatcaCsidCredential.mockResolvedValue(STORED_CSID)
+    networkAdmin({ zatca_transmissions: { id: "tx-1", status: "cleared", environment: "sandbox" } })
+    expect(await runZatcaAdapter()).toMatchObject({ processed: 0, skipped: 1 })
+  })
+
   it("requires a registered EGS issuance stream for the environment", async () => {
     networkAdmin({ zatca_issuance_streams: null })
     const res = await runZatcaAdapter()
@@ -303,5 +327,38 @@ describe("runZatcaAdapter — network mode uses the prepared, signed submission 
     const tx = writes.find((w) => w.table === "zatca_transmissions")?.value as Record<string, unknown>
     expect(tx.status).toBe("rejected")
     expect(tx.error_message).toBe("Rejected by ZATCA validation.")
+  })
+})
+
+describe("runZatcaForTenant — scheduled backstop on behalf of the registered operator", () => {
+  beforeEach(() => {
+    mocks.getZatcaCsidCredential.mockResolvedValue(STORED_CSID)
+    vi.stubEnv("ZATCA_MODE", "sandbox")
+    vi.stubEnv("ZATCA_API_BASE_URL", "https://gw-fatoora.zatca.gov.sa/e-invoicing/developer-portal")
+  })
+
+  it("does nothing without a registered operator", async () => {
+    networkAdmin({ zatca_automation: null })
+    const res = await runZatcaForTenant("tenant-0001")
+    expect(res).toMatchObject({ success: false, operator: false })
+    expect(mocks.prepareZatcaDocument).not.toHaveBeenCalled()
+  })
+
+  it("stops when the operator is no longer authorized", async () => {
+    networkAdmin({ zatca_automation: { operator_id: "auth-9", enabled: true } })
+    mocks.adminRpc.mockResolvedValueOnce({ data: false, error: null })
+    const res = await runZatcaForTenant("tenant-0001")
+    expect(res.error).toContain("no longer authorized")
+    expect(mocks.adminRpc).toHaveBeenCalledWith("zatca_operator_authorized", { p_tenant: "tenant-0001", p_user: "auth-9" })
+    expect(mocks.prepareZatcaDocument).not.toHaveBeenCalled()
+  })
+
+  it("submits pending documents as the operator and records the run", async () => {
+    const writes = networkAdmin({ zatca_automation: { operator_id: "auth-9", enabled: true } })
+    const res = await runZatcaForTenant("tenant-0001")
+    expect(res).toMatchObject({ success: true, processed: 1, operator: true })
+    expect(mocks.getCurrentUser).not.toHaveBeenCalled()
+    expect(writes.find((w) => w.table === "zatca_automation")?.value).toMatchObject({ last_result: { success: true, processed: 1 } })
+    expect((writes.find((w) => w.table === "zatca_transmissions")?.value as Record<string, unknown>).created_by).toBe("auth-9")
   })
 })

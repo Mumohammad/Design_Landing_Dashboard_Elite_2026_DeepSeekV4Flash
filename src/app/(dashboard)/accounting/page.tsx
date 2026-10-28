@@ -2202,6 +2202,16 @@ export default function AccountingPage() {
                           {st.environment} · ICV {st.lastCounter}<br />{st.egsSerial}
                         </div>
                       ))}
+                      {zatcaStatus.goLiveAt && (
+                        <div className="text-[11px] text-muted-foreground">
+                          {ar ? "بداية الربط:" : "Go-live:"} <span dir="ltr">{fmtDate(zatcaStatus.goLiveAt)}</span>
+                        </div>
+                      )}
+                      <div className="text-[11px] text-muted-foreground">
+                        {zatcaStatus.automation?.enabled
+                          ? (ar ? "الإرسال التلقائي مفعّل" : "Automatic submission on") + (zatcaStatus.automation.lastRunAt ? ` · ${fmtDate(zatcaStatus.automation.lastRunAt)}` : "")
+                          : (ar ? "الإرسال التلقائي غير مفعّل" : "Automatic submission off")}
+                      </div>
                     </div>
                     <div className="rounded-xl border border-border/50 bg-muted/30 p-3 space-y-1">
                       <div className="text-xs text-muted-foreground">{ar ? "صلاحية الشهادات" : "Certificate validity"}</div>

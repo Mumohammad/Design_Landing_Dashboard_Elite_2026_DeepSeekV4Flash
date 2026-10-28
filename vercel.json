@@ -29,5 +29,11 @@
   ],
   "git": {
     "deploymentEnabled": false
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/zatca",
+      "schedule": "0 21 * * *"
+    }
+  ]
 }

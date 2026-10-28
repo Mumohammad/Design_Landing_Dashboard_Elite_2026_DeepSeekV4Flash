@@ -12,6 +12,7 @@ vi.mock("@/lib/auth/rate-limit", () => ({ rateLimitAccounting: mocks.rate }))
 vi.mock("@/lib/auth/sessions", () => ({ writeAuditLog: mocks.audit }))
 vi.mock("@/lib/accounting/dispatcher", () => ({ runEventDispatcher: mocks.dispatch }))
 vi.mock("@/lib/accounting/zatca", () => ({ runZatcaAdapter: mocks.zatca }))
+vi.mock("@/lib/accounting/zatca-adapter-core", () => ({ runZatcaForTenant: vi.fn(async () => ({ success: false })) }))
 import { issueCreditNote, issueDebitNote } from "./invoices"
 import { getErrorDefinition } from "@/lib/errors/error-codes"
 

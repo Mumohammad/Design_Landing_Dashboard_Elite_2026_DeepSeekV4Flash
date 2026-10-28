@@ -326,8 +326,10 @@ describe("onboardZatcaCsids", () => {
       } })
     const streamBuilder = mockBuilder({ maybeSingleData: null })
     const csidBuilder = mockBuilder()
+    const automationBuilder = mockBuilder()
     mocks.adminFrom.mockImplementation(((table: string) =>
-      table === "tenants" ? tenantBuilder : table === "zatca_issuance_streams" ? streamBuilder : csidBuilder) as never)
+      table === "tenants" ? tenantBuilder : table === "zatca_issuance_streams" ? streamBuilder
+        : table === "zatca_automation" ? automationBuilder : csidBuilder) as never)
 
     const res = await onboardZatcaCsids({ environment: "sandbox", otp: "123456" })
 
@@ -356,6 +358,8 @@ describe("onboardZatcaCsids", () => {
       csidSecret: "cc-secret",
     })
     expect(streamBuilder.insert).toHaveBeenCalledWith({ tenant_id: "tenant-0001", environment: "sandbox", egs_serial: res.egsSerial })
+    // The onboarding user becomes the scheduled-run operator.
+    expect(automationBuilder.upsert).toHaveBeenCalledWith(expect.objectContaining({ tenant_id: "tenant-0001", enabled: true }), { onConflict: "tenant_id" })
 
     const audit = mocks.writeAuditLog.mock.calls[0][0]
     expect(audit.action).toBe("zatca_onboarded")
