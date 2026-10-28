@@ -23,6 +23,20 @@ WHERE t.source_id IS NULL AND t.doc_type = 'debit_note'
 -- new key never collides with them.
 UPDATE public.zatca_transmissions SET source_id = invoice_id WHERE source_id IS NULL;
 
+-- Writers that predate this column (older deployments during a rolling
+-- release) keep working: an invoice row's source is the invoice itself.
+CREATE OR REPLACE FUNCTION public.zatca_transmissions_default_source()
+RETURNS trigger LANGUAGE plpgsql SET search_path = '' AS $$
+BEGIN
+  IF NEW.source_id IS NULL THEN NEW.source_id := NEW.invoice_id; END IF;
+  RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION public.zatca_transmissions_default_source() FROM PUBLIC, anon, authenticated;
+DROP TRIGGER IF EXISTS trg_zatca_transmissions_default_source ON public.zatca_transmissions;
+CREATE TRIGGER trg_zatca_transmissions_default_source
+  BEFORE INSERT ON public.zatca_transmissions
+  FOR EACH ROW EXECUTE FUNCTION public.zatca_transmissions_default_source();
+
 ALTER TABLE public.zatca_transmissions ALTER COLUMN source_id SET NOT NULL;
 DROP INDEX IF EXISTS public.idx_zatca_transmissions_tenant_invoice;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_zatca_transmissions_tenant_source

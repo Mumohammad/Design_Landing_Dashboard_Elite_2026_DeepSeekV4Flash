@@ -1,5 +1,5 @@
 BEGIN;
-SELECT plan(14);
+SELECT plan(15);
 -- National Address (migration 20261028131000)
 SELECT has_column('public','tenants','building_number','Seller building number column');
 SELECT has_column('public','tenants','postal_code','Seller postal code column');
@@ -18,5 +18,6 @@ SELECT ok(NOT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public' AND ind
 -- Riyadh-local IssueDate/IssueTime (migration 20261028130000)
 SELECT ok(pg_get_functiondef('public.record_zatca_issuance(uuid,uuid,text,uuid,uuid,timestamptz,bigint,text,text,text,text,uuid)'::regprocedure) LIKE '%AT TIME ZONE ''Asia/Riyadh''%'
   AND pg_get_functiondef('public.record_zatca_issuance(uuid,uuid,text,uuid,uuid,timestamptz,bigint,text,text,text,text,uuid)'::regprocedure) NOT LIKE '%AT TIME ZONE ''UTC''%','Issuance checks the Riyadh-local issue date/time');
+SELECT has_trigger('public','zatca_transmissions','trg_zatca_transmissions_default_source','Legacy writers default source_id to the invoice');
 SELECT * FROM finish();
 ROLLBACK;
