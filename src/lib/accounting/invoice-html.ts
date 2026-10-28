@@ -20,6 +20,8 @@ export interface InvoiceDocData {
   internalQr: boolean
   /** Disclosure for a ZATCA-environment QR (sandbox/simulation evidence). */
   qrNote?: { ar: string; en: string } | null
+  /** B2C sales (buyer without a VAT number) print as a Simplified Tax Invoice. */
+  simplified?: boolean
   /** Embedded licensed font keeps Arabic shaping consistent in saved PDFs. */
   fontDataUrl?: string
   bankIban?: string | null; bankName?: string | null; bankBeneficiary?: string | null
@@ -122,7 +124,7 @@ small { display: block; font-size: 7.5pt; color: #53697b; font-weight: 400; }
 </style></head><body><main class="doc">
 <header class="header">
   <div class="brand">${imageSource(d.logoDataUrl) ? `<img class="logo" src="${imageSource(d.logoDataUrl)}" alt="${esc(d.companyNameAr)}" />` : ""}<div><h1>${esc(d.companyNameAr || d.companyNameEn)}</h1>${d.companyNameEn && d.companyNameAr ? `<p lang="en" dir="ltr">${esc(d.companyNameEn)}</p>` : ""}</div></div>
-  <div class="identity"><h2 class="title">${d.kind === "invoice" ? label("فاتورة ضريبية", "Tax Invoice") : label(esc(d.docTypeAr), esc(d.docTypeEn))}</h2><bdi class="invoice-number" dir="ltr">${esc(d.invoiceNumber)}</bdi><div class="status${exceptionalStatus ? " exceptional" : ""}">${esc(d.statusLabelAr)} / ${esc(d.statusLabelEn)}</div></div>
+  <div class="identity"><h2 class="title">${d.kind === "invoice" ? (d.simplified ? label("فاتورة ضريبية مبسطة", "Simplified Tax Invoice") : label("فاتورة ضريبية", "Tax Invoice")) : label(esc(d.docTypeAr), esc(d.docTypeEn))}</h2><bdi class="invoice-number" dir="ltr">${esc(d.invoiceNumber)}</bdi><div class="status${exceptionalStatus ? " exceptional" : ""}">${esc(d.statusLabelAr)} / ${esc(d.statusLabelEn)}</div></div>
 </header>
 <section class="dates"><div>${label("تاريخ الإصدار", "Issue date")}<strong><bdi>${esc(date(d.issueDate))}</bdi></strong></div>${d.dueDate ? `<div>${label("تاريخ الاستحقاق", "Due date")}<strong><bdi>${esc(date(d.dueDate))}</bdi></strong></div>` : ""}<div>${label("العملة", "Currency")}<strong><bdi>${esc(d.currency)}</bdi></strong></div>${d.referenceNumber ? `<div>${label("مرجع المستند", "Document reference")}<strong><bdi>${esc(d.referenceNumber)}</bdi></strong></div>` : ""}</section>
 <section class="parties"><div><h2 class="party-title">${label("من", "From")}</h2><p class="party-name">${esc(d.companyNameAr || d.companyNameEn)}</p><div class="party-detail" dir="auto">${esc([d.companyAddress, d.companyCity].filter(Boolean).join("\n"))}</div>${d.companyVatNumber ? `<div class="detail-line">الرقم الضريبي / VAT: <bdi dir="ltr">${esc(d.companyVatNumber)}</bdi></div>` : ""}${d.companyCrNumber ? `<div class="detail-line">س.ت / CR: <bdi dir="ltr">${esc(d.companyCrNumber)}</bdi></div>` : ""}${d.companyPhone ? `<div class="detail-line"><bdi dir="ltr">${esc(d.companyPhone)}</bdi></div>` : ""}</div>

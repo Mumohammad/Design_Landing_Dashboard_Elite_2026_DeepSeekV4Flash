@@ -33,6 +33,8 @@ type ActionResult = {
   verifyUrl?: string
 }
 
+const FINAL_SALES_STATUSES = new Set(["finalized", "paid", "partially_paid", "overdue", "credited"])
+
 const STATUS_LABELS: Record<string, { ar: string; en: string }> = {
   draft: { ar: "مسودة", en: "Draft" },
   issued: { ar: "صادرة", en: "Issued" },
@@ -70,6 +72,7 @@ type InvoiceRow = {
   total: number
   vat_rate: number
   notes: string | null
+  finalized_at?: string | null
 }
 
 type LineRow = {
@@ -115,7 +118,7 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
 
     const { data: inv, error: invErr } = await admin
       .from("invoices")
-      .select("id,invoice_number,invoice_type,status,customer_id,supplier_id,issue_date,due_date,currency,subtotal,discount,vat_amount,total,vat_rate,notes")
+      .select("id,invoice_number,invoice_type,status,customer_id,supplier_id,issue_date,due_date,currency,subtotal,discount,vat_amount,total,vat_rate,notes,finalized_at")
       .eq("id", invoiceId)
       .eq("tenant_id", currentUser.tenantId)
       .is("deleted_at", null)
@@ -189,10 +192,16 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
     // QR from accepted ZATCA submission evidence when it exists; otherwise the
     // internal 5-field TLV verification QR, explicitly disclosed as such.
     const authorityQr = isSales ? await loadAuthorityQr(admin, currentUser.tenantId, inv.id) : null
+    // Phase 1 (generation): a finalized sales invoice is an issued e-invoice
+    // carrying the 5-field TLV QR stamped with its issue (finalization) time.
+    // Nothing is submitted to ZATCA in this mode; drafts/issued copies keep
+    // the explicit "internal · unvalidated" disclosure.
+    const phase1 = isSales && FINAL_SALES_STATUSES.has(inv.status) && !!inv.finalized_at
+    const simplified = isSales && !/^3\d{13}3$/.test(party?.tax_number ?? "")
     const payload = buildTaxQrPayload({
       sellerName: tenant?.name_ar ?? tenant?.name_en ?? "نخبة التطوير",
       sellerVatNumber: sellerVat,
-      timestamp,
+      timestamp: phase1 ? new Date(inv.finalized_at!).toISOString() : timestamp,
       total: Number(inv.total),
       vatAmount: Number(inv.vat_amount),
     })
@@ -202,7 +211,9 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
       ? authorityQr.kind === "cleared"
         ? { ar: `رمز من الفاتورة المُخلَّصة لدى ZATCA (${envLabel.ar}) · ليست فاتورة إنتاج`, en: `ZATCA-cleared QR (${envLabel.en}) · not a production invoice` }
         : { ar: `رمز مختوم ومُبلّغ لـ ZATCA (${envLabel.ar}) · ليست فاتورة إنتاج`, en: `EGS-stamped reported QR (${envLabel.en}) · not a production invoice` }
-      : null
+      : phase1
+        ? { ar: "رمز الفاتورة الإلكترونية (المرحلة الأولى) · لم تُرسل إلى ZATCA", en: "E-invoice QR (Phase 1) · not submitted to ZATCA" }
+        : null
 
     const doc: InvoiceDocData = {
       kind: "invoice",
@@ -239,8 +250,9 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
       statusLabelAr: status.ar,
       statusLabelEn: status.en,
       qrDataUrl,
-      internalQr: !authorityQr,
+      internalQr: !authorityQr && !phase1,
       qrNote,
+      simplified,
       verifyUrl,
       generatedAt: timestamp,
     }

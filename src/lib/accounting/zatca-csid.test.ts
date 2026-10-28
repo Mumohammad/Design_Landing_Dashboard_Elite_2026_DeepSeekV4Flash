@@ -359,7 +359,7 @@ describe("onboardZatcaCsids", () => {
     })
     expect(streamBuilder.insert).toHaveBeenCalledWith({ tenant_id: "tenant-0001", environment: "sandbox", egs_serial: res.egsSerial })
     // The onboarding user becomes the scheduled-run operator.
-    expect(automationBuilder.upsert).toHaveBeenCalledWith(expect.objectContaining({ tenant_id: "tenant-0001", enabled: true }), { onConflict: "tenant_id" })
+    expect(automationBuilder.upsert).toHaveBeenCalledWith(expect.objectContaining({ tenant_id: "tenant-0001", enabled: false }), { onConflict: "tenant_id", ignoreDuplicates: true })
 
     const audit = mocks.writeAuditLog.mock.calls[0][0]
     expect(audit.action).toBe("zatca_onboarded")

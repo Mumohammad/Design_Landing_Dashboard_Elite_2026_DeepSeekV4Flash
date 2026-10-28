@@ -106,7 +106,10 @@ type InvoiceRow = {
  * Run the ZATCA adapter: process pending ZATCA-relevant events through the
  * transform → transmit → record pipeline. Never throws — returns a summary.
  */
-export async function runZatcaAdapterAs(currentUser: ZatcaActor, opts: { revalidate?: boolean } = {}): Promise<ZatcaAdapterSummary> {
+export async function runZatcaAdapterAs(
+  currentUser: ZatcaActor,
+  opts: { revalidate?: boolean; sourceIds?: string[] } = {},
+): Promise<ZatcaAdapterSummary> {
   try {
 
     const admin = createAdminClient()
@@ -141,6 +144,8 @@ export async function runZatcaAdapterAs(currentUser: ZatcaActor, opts: { revalid
         .limit(BATCH_SIZE + 1)
 
       if (evCursor) evQuery = evQuery.gt("id", evCursor)
+      // Manual "Send to ZATCA" for selected documents only.
+      if (opts.sourceIds) evQuery = evQuery.in("source_id", opts.sourceIds)
 
       const { data: batch, error: evErr } = await evQuery
       if (evErr) return { success: false, error: mapFinancialError(evErr.message) }
