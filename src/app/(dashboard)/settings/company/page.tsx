@@ -61,6 +61,10 @@ export default function CompanySettingsPage() {
   const [address, setAddress] = useState("")
   const [city, setCity] = useState("")
   const [region, setRegion] = useState("")
+  const [buildingNumber, setBuildingNumber] = useState("")
+  const [additionalNumber, setAdditionalNumber] = useState("")
+  const [district, setDistrict] = useState("")
+  const [postalCode, setPostalCode] = useState("")
   const [country, setCountry] = useState("")
   const [phone, setPhone] = useState("")
   const [email, setEmail] = useState("")
@@ -87,6 +91,10 @@ export default function CompanySettingsPage() {
         setAddress(data.address ?? "")
         setCity(data.city ?? "")
         setRegion(data.region ?? "")
+        setBuildingNumber(data.building_number ?? "")
+        setAdditionalNumber(data.additional_number ?? "")
+        setDistrict(data.district ?? "")
+        setPostalCode(data.postal_code ?? "")
         setCountry(data.country ?? "")
         setPhone(data.phone ?? "")
         setEmail(data.email ?? "")
@@ -113,6 +121,10 @@ export default function CompanySettingsPage() {
         address: address.trim() || null,
         city: city.trim() || null,
         region: region.trim() || null,
+        building_number: buildingNumber.trim() || null,
+        additional_number: additionalNumber.trim() || null,
+        district: district.trim() || null,
+        postal_code: postalCode.trim() || null,
         country: country.trim() || null,
         phone: phone.trim() || null,
         email: email.trim() || null,
@@ -221,8 +233,12 @@ export default function CompanySettingsPage() {
               placeholder="300000000000003"
             />
             <div className="sm:col-span-2">
-              <FormField id="address" label={ar ? "العنوان" : "Address"} value={address} onChange={setAddress} dir="auto" />
+              <FormField id="address" label={ar ? "الشارع (العنوان الوطني)" : "Street (National Address)"} value={address} onChange={setAddress} dir="auto" />
             </div>
+            <FormField id="district" label={ar ? "الحي" : "District"} value={district} onChange={setDistrict} dir="auto" />
+            <FormField id="buildingNumber" label={ar ? "رقم المبنى" : "Building number"} value={buildingNumber} onChange={(v) => setBuildingNumber(v.replace(/\D/g, "").slice(0, 4))} dir="ltr" placeholder="1234" />
+            <FormField id="additionalNumber" label={ar ? "الرقم الإضافي" : "Additional number"} value={additionalNumber} onChange={(v) => setAdditionalNumber(v.replace(/\D/g, "").slice(0, 4))} dir="ltr" placeholder="5678" />
+            <FormField id="postalCode" label={ar ? "الرمز البريدي" : "Postal code"} value={postalCode} onChange={(v) => setPostalCode(v.replace(/\D/g, "").slice(0, 5))} dir="ltr" placeholder="12345" />
             <FormField id="city" label={ar ? "المدينة" : "City"} value={city} onChange={setCity} dir="auto" />
             <FormField id="region" label={ar ? "المنطقة" : "Region"} value={region} onChange={setRegion} dir="auto" />
             <FormField id="country" label={ar ? "الدولة" : "Country"} value={country} onChange={setCountry} dir="ltr" />

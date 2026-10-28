@@ -38,6 +38,19 @@ const mocks = vi.hoisted(() => ({
   })),
   revalidatePath: vi.fn(),
   adminFrom: vi.fn(() => ({})),
+  prepareZatcaDocument: vi.fn(async (_stream: string, _source: string, _input: Record<string, unknown>) => ({
+    id: "11111111-1111-4111-8111-111111111111",
+    invoice_counter: 7,
+    invoice_hash: "HASH",
+    unsigned_xml: "<Invoice prepared/>",
+  })),
+  submitPreparedZatcaDocument: vi.fn(async (_id: string, _mode: string): Promise<Record<string, unknown>> => ({
+    success: true,
+    status: "cleared",
+    pipeline: "clearance",
+    warnings: [],
+    errors: [],
+  })),
 }))
 
 vi.mock("@/lib/auth/authorization", () => ({
@@ -67,6 +80,14 @@ vi.mock("./zatca-ubl", () => ({
 
 vi.mock("./zatca-transport", () => ({
   transmitToZatca: mocks.transmitToZatca,
+}))
+
+vi.mock("./zatca-issuance", () => ({
+  prepareZatcaDocument: mocks.prepareZatcaDocument,
+}))
+
+vi.mock("./zatca-submission", () => ({
+  submitPreparedZatcaDocument: mocks.submitPreparedZatcaDocument,
 }))
 
 vi.mock("next/cache", () => ({
@@ -196,3 +217,91 @@ describe("transmission detail boundary", () => {
 })
 
 vi.mock("@/lib/release/integrations", () => ({ integrationAvailable: () => true, INTEGRATION_UNAVAILABLE: "Unavailable" }))
+
+// ── Network mode: prepared + signed submission, never unsigned XML ─────────
+
+const SOURCE_ID = "22222222-2222-4222-8222-222222222222"
+const TENANT_ROW = {
+  name_ar: "شركة", name_en: "Co", legal_name: "Synthetic Co", vat_number: "399999999900003", cr_number: "1010010000",
+  address: "King Fahd Road", city: "Riyadh", region: "Riyadh", district: "Olaya", building_number: "1234",
+  additional_number: "5678", postal_code: "12345", country: "SA",
+}
+
+function tableBuilder(table: string, rows: Record<string, unknown>, writes: { table: string; op: string; value: unknown }[]) {
+  const single = () => Promise.resolve({ data: rows[table] ?? null, error: null })
+  const builder: Record<string, unknown> = {}
+  for (const m of ["select", "eq", "in", "order", "limit", "gt", "is"]) builder[m] = vi.fn(() => builder)
+  builder.maybeSingle = vi.fn(single)
+  builder.insert = vi.fn((value: unknown) => { writes.push({ table, op: "insert", value }); return Promise.resolve({ error: null }) })
+  builder.update = vi.fn((value: unknown) => { writes.push({ table, op: "update", value }); return builder })
+  builder.then = (resolve: (v: unknown) => void) =>
+    resolve(table === "financial_events" ? { data: rows.financial_events, error: null } : { data: rows[`${table}:list`] ?? [], error: null })
+  return builder
+}
+
+function networkAdmin(overrides: Record<string, unknown> = {}) {
+  const writes: { table: string; op: string; value: unknown }[] = []
+  const rows: Record<string, unknown> = {
+    financial_events: [{ id: "ev-1", event_type: "InvoiceFinalizedEvent", source_type: "invoice", source_id: SOURCE_ID, payload: {} }],
+    invoices: { id: SOURCE_ID, invoice_number: "INV-1", invoice_type: "sales", status: "finalized", customer_id: "cust-1", issue_date: "2026-10-28", currency: "SAR", subtotal: 100, discount: 0, vat_amount: 15, total: 115, vat_rate: 15 },
+    "invoice_lines:list": [{ line_no: 1, description: "Delivery", quantity: 1, unit_price: 100, discount: 0, amount: 100, vat_rate: 15, vat_amount: 15 }],
+    zatca_transmissions: null,
+    tenants: TENANT_ROW,
+    customers: { name_ar: "عميل", name_en: null, tax_number: "399999999800003", address: "Olaya St", city: "Riyadh", district: "Olaya", building_number: "4321", additional_number: null, postal_code: "54321", country_code: "SA" },
+    zatca_issuance_streams: { id: "33333333-3333-4333-8333-333333333333" },
+    ...overrides,
+  }
+  mocks.adminFrom.mockImplementation(((table: string) => tableBuilder(table, rows, writes)) as never)
+  return writes
+}
+
+describe("runZatcaAdapter — network mode uses the prepared, signed submission path", () => {
+  beforeEach(() => {
+    mocks.getZatcaCsidCredential.mockResolvedValue(STORED_CSID)
+    vi.stubEnv("ZATCA_MODE", "sandbox")
+    vi.stubEnv("ZATCA_API_BASE_URL", "https://gw-fatoora.zatca.gov.sa/e-invoicing/developer-portal")
+  })
+
+  it("prepares on the EGS stream, submits for clearance and records the issuance identity", async () => {
+    const writes = networkAdmin()
+    const res = await runZatcaAdapter()
+    expect(res).toMatchObject({ success: true, processed: 1, failed: 0, sandbox: false })
+    expect(mocks.transmitToZatca).not.toHaveBeenCalled()
+    expect(mocks.buildZatcaUblInvoice).not.toHaveBeenCalled()
+    const [stream, source, input] = mocks.prepareZatcaDocument.mock.calls[0]
+    expect(stream).toBe("33333333-3333-4333-8333-333333333333")
+    expect(source).toBe(SOURCE_ID)
+    expect(input).toMatchObject({ docType: "invoice", invoiceKind: "standard", invoiceNumber: "INV-1", deliveryDate: "2026-10-28" })
+    expect(mocks.submitPreparedZatcaDocument).toHaveBeenCalledWith("11111111-1111-4111-8111-111111111111", "submit")
+    const tx = writes.find((w) => w.table === "zatca_transmissions")?.value as Record<string, unknown>
+    expect(tx).toMatchObject({ status: "cleared", source_id: SOURCE_ID, zatca_uuid: "11111111-1111-4111-8111-111111111111", payload_xml: "<Invoice prepared/>", error_message: null })
+    expect(writes.find((w) => w.table === "invoices")?.value).toMatchObject({ zatca_status: "cleared" })
+  })
+
+  it("fails closed (no preparation) when the seller National Address is incomplete", async () => {
+    networkAdmin({ tenants: { ...TENANT_ROW, building_number: null, postal_code: null } })
+    const res = await runZatcaAdapter()
+    expect(res).toMatchObject({ success: true, processed: 0, failed: 1 })
+    expect(res.error).toContain("seller.building_number")
+    expect(mocks.prepareZatcaDocument).not.toHaveBeenCalled()
+  })
+
+  it("requires a registered EGS issuance stream for the environment", async () => {
+    networkAdmin({ zatca_issuance_streams: null })
+    const res = await runZatcaAdapter()
+    expect(res.failed).toBe(1)
+    expect(res.error).toContain("EGS issuance stream")
+    expect(mocks.submitPreparedZatcaDocument).not.toHaveBeenCalled()
+  })
+
+  it("records a rejected submission as rejected (never reported) and counts it as failed", async () => {
+    mocks.submitPreparedZatcaDocument.mockResolvedValueOnce({ success: false, status: "rejected", pipeline: "reporting", warnings: [], errors: [{ code: "BR-KSA-63" }] })
+    const writes = networkAdmin({ customers: null, invoices: { id: SOURCE_ID, invoice_number: "INV-2", invoice_type: "sales", status: "finalized", customer_id: null, issue_date: "2026-10-28", currency: "SAR", subtotal: 100, discount: 0, vat_amount: 15, total: 115, vat_rate: 15 } })
+    const res = await runZatcaAdapter()
+    expect(res.failed).toBe(1)
+    expect(mocks.prepareZatcaDocument.mock.calls[0][2]).toMatchObject({ invoiceKind: "simplified" })
+    const tx = writes.find((w) => w.table === "zatca_transmissions")?.value as Record<string, unknown>
+    expect(tx.status).toBe("rejected")
+    expect(tx.error_message).toBe("Rejected by ZATCA validation.")
+  })
+})

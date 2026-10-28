@@ -58,7 +58,7 @@ const DS = "http://www.w3.org/2000/09/xmldsig#"
 const XADES = "http://uri.etsi.org/01903/v1.3.2#"
 
 export class ZatcaSigningError extends Error {
-  constructor(readonly code: "CERTIFICATE" | "KEY_MISMATCH" | "XML" | "TIME") {
+  constructor(readonly code: "CERTIFICATE" | "KEY_MISMATCH" | "XML" | "TIME" | "CERT_EXPIRED") {
     super(`ZATCA signing failed: ${code}`)
   }
 }
@@ -231,6 +231,12 @@ export function signZatcaInvoice(input: ZatcaSignInput): ZatcaSignedInvoice {
   }
 
   const cert = loadCertificate(input.credentials.certificateBase64)
+  // signingTime is Riyadh-local wall-clock time (UTC+3, no DST). A CSID
+  // outside its validity window must be renewed, never used to stamp.
+  const signedAt = Date.parse(`${input.signingTime}+03:00`)
+  if (!(signedAt >= Date.parse(cert.validFrom) && signedAt <= Date.parse(cert.validTo))) {
+    throw new ZatcaSigningError("CERT_EXPIRED")
+  }
   let certificateKeyDer: Buffer
   try {
     const privateKey = createPrivateKey(input.credentials.privateKeyPem)

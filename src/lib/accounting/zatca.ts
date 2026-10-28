@@ -9,9 +9,15 @@
 // (zatca-transport.ts — sandbox mock by default), and records the outcome in
 // `zatca_transmissions` + the invoice `zatca_status` / `zatca_uuid`.
 //
-// Idempotency: one transmission row per (tenant, invoice_id, doc_type) via a
+// Idempotency: one transmission row per (tenant, doc_type, source_id) via a
 // UNIQUE index — replaying the adapter for an already-reported document is a
 // no-op. Failed/rejected transmissions are retried on the next run.
+//
+// Network modes (sandbox/simulation gateway configured) never send unsigned
+// XML: each document is prepared on the tenant's EGS issuance stream (ICV/PIH
+// chain, Riyadh-local issue time), signed with the stored CSID private key and
+// cleared (standard/B2B) or reported (simplified/B2C) via the prepared
+// submission path, which retains the signed/cleared artifacts.
 //
 // Scope guardrails (ZATCA-BOUNDARY.md): the adapter NEVER recomputes amounts
 // (it reads invoice + line + tax payloads), NEVER mutates financial totals,
@@ -26,11 +32,23 @@ import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
 import { writeAuditLog } from "@/lib/auth/sessions"
 import { mapFinancialError } from "@/lib/accounting/csv-utils"
-import { buildZatcaUblInvoice, type ZatcaInvoiceData, type ZatcaLine, type ZatcaParty } from "./zatca-ubl"
+import { buildZatcaUblInvoice, type ZatcaInvoiceData, type ZatcaLine } from "./zatca-ubl"
 import { transmitToZatca } from "./zatca-transport"
 import { getZatcaCsidCredential } from "./zatca-credentials"
 import { getZatcaNetworkBase } from "./zatca-config"
 import { isMockZatcaResponse } from "./zatca-evidence"
+import { prepareZatcaDocument } from "./zatca-issuance"
+import { submitPreparedZatcaDocument } from "./zatca-submission"
+import {
+  buyerParty,
+  invoiceKindFor,
+  missingNationalAddress,
+  sellerParty,
+  transmissionStatusFor,
+  ZATCA_VAT_RE,
+  type CustomerPartyRow,
+  type TenantPartyRow,
+} from "./zatca-adapter-input"
 
 export type ZatcaAdapterSummary = {
   success: boolean
@@ -83,28 +101,6 @@ type InvoiceRow = {
   vat_amount: number
   total: number
   vat_rate: number
-}
-
-type PartyRow = {
-  name_ar: string
-  name_en: string | null
-  tax_number: string | null
-  address: string | null
-  city: string | null
-}
-
-type TenantRow = {
-  name_ar: string
-  name_en: string | null
-  legal_name: string | null
-  vat_number: string | null
-  cr_number: string | null
-  address: string | null
-  city: string | null
-}
-
-function partyName(row: PartyRow): string {
-  return row.name_ar || row.name_en || ""
 }
 
 /**
@@ -170,7 +166,7 @@ export async function runZatcaAdapter(): Promise<ZatcaAdapterSummary> {
 
     for (const ev of allEvents) {
       try {
-        const outcome = await processEvent(admin, currentUser.tenantId, currentUser.authUserId, ev, storedCsid)
+        const outcome = await processEvent(admin, currentUser.tenantId, currentUser.authUserId, ev, storedCsid, networkBase ? environment : null)
         if (outcome === "processed") processed++
         else if (outcome === "skipped") skipped++
         else failed++
@@ -209,7 +205,8 @@ async function processEvent(
   tenantId: string,
   authUserId: string,
   ev: EventRow,
-  storedCsid: { csidBase64: string; secret: string; privateKeyPem: string | null } | null
+  storedCsid: { csidBase64: string; secret: string; privateKeyPem: string | null } | null,
+  networkEnvironment: "sandbox" | "simulation" | null
 ): Promise<Outcome> {
   const docType = ev.event_type === "InvoiceFinalizedEvent" ? "invoice"
     : ev.event_type === "CreditNoteIssuedEvent" ? "credit_note"
@@ -227,6 +224,8 @@ async function processEvent(
   let total = 0
   let lines: ZatcaLine[] = []
   let customerId: string | null = null
+  let referenceInvoiceNumber: string | undefined
+  let noteReason: string | undefined
 
   if (docType === "invoice") {
     const { data: inv, error: invErr } = await admin
@@ -271,7 +270,7 @@ async function processEvent(
     const refColumn = docType === "credit_note" ? "credit_note_number" : "debit_note_number"
     const { data: note, error: noteErr } = await admin
       .from(table)
-      .select(`id,${refColumn},reference_invoice_id,customer_id,issue_date,currency,subtotal,discount,vat_amount,total,lines`)
+      .select(`id,${refColumn},reference_invoice_id,customer_id,issue_date,currency,subtotal,discount,vat_amount,total,reason,lines`)
       .eq("id", ev.source_id)
       .eq("tenant_id", tenantId)
       .maybeSingle<{
@@ -284,9 +283,18 @@ async function processEvent(
         discount: number
         vat_amount: number
         total: number
+        reason: string | null
         lines: unknown
       }>()
     if (noteErr || !note) return "skipped"
+    const { data: refInv } = await admin
+      .from("invoices")
+      .select("invoice_number")
+      .eq("id", note.reference_invoice_id)
+      .eq("tenant_id", tenantId)
+      .maybeSingle<{ invoice_number: string }>()
+    referenceInvoiceNumber = refInv?.invoice_number
+    noteReason = note.reason?.trim() || (docType === "credit_note" ? "Adjustment" : "Additional charge")
 
     invoiceId = note.reference_invoice_id
     docRef = String(note[refColumn as keyof typeof note] ?? note.id)
@@ -312,102 +320,158 @@ async function processEvent(
     customerId = note.customer_id
   }
 
-  // Idempotency: an existing successful transmission skips this event.
+  // Idempotency: one transmission per source document (an invoice or the
+  // specific credit/debit note — several notes may reference one invoice).
   const { data: existing } = await admin
     .from("zatca_transmissions")
     .select("id,status")
     .eq("tenant_id", tenantId)
-    .eq("invoice_id", invoiceId)
     .eq("doc_type", docType)
+    .eq("source_id", ev.source_id)
     .maybeSingle<{ id: string; status: string }>()
   if (existing && (existing.status === "reported" || existing.status === "cleared")) {
     return "skipped"
   }
 
-  // Seller + buyer parties.
+  // Seller + buyer parties (structured National Address, migration 20261028131000).
   const { data: tenant } = await admin
     .from("tenants")
-    .select("name_ar,name_en,legal_name,vat_number,cr_number,address,city")
+    .select("name_ar,name_en,legal_name,vat_number,cr_number,address,city,region,district,building_number,additional_number,postal_code,country")
     .eq("id", tenantId)
-    .maybeSingle<TenantRow>()
+    .maybeSingle<TenantPartyRow>()
   if (!tenant) return "failed"
-  // Never replace a customer's missing tax identity with a demo VAT number.
-  if (!/^\d{15}$/.test(tenant.vat_number ?? "")) throw new Error("Configure the seller VAT number before preparing a ZATCA document.")
-  const sellerVat = tenant.vat_number!
+  const seller = sellerParty(tenant)
+  // Never replace a missing tax identity with a demo VAT number.
+  if (!ZATCA_VAT_RE.test(seller.vatNumber ?? "")) throw new Error("Configure the seller VAT number before preparing a ZATCA document.")
+  const sellerVat = seller.vatNumber!
 
   const { data: customer } = customerId
     ? await admin
         .from("customers")
-        .select("name_ar,name_en,tax_number,address,city")
+        .select("name_ar,name_en,tax_number,address,city,district,building_number,additional_number,postal_code,country_code")
         .eq("id", customerId)
-        .maybeSingle<PartyRow>()
+        .eq("tenant_id", tenantId)
+        .maybeSingle<CustomerPartyRow>()
     : { data: null }
-  const buyer: ZatcaParty = {
-    name: partyName((customer as PartyRow | null) ?? { name_ar: "عميل نقدي", name_en: "Walk-in customer", tax_number: null, address: null, city: null }),
-    vatNumber: (customer as PartyRow | null)?.tax_number ?? null,
-    address: (customer as PartyRow | null)?.address ?? null,
-    city: (customer as PartyRow | null)?.city ?? null,
-  }
+  const buyer = buyerParty(customer ?? null)
+  const invoiceKind = invoiceKindFor(buyer)
+  const deliveryDate = fmtDate(issueDate)
 
-  const sellerName = tenant.legal_name || tenant.name_ar || tenant.name_en || ""
-  const seller: ZatcaParty = {
-    name: sellerName,
-    vatNumber: sellerVat,
-    crNumber: tenant.cr_number ?? null,
-    address: tenant.address ?? null,
-    city: tenant.city ?? null,
-  }
+  let xml: string
+  let status: "reported" | "cleared" | "rejected" | "failed" | "pending"
+  let zatcaUuid: string | null
+  let raw: Record<string, unknown>
+  let failure: string | null = null
+  let transmittedAt: string | null = new Date().toISOString()
 
-  const ublData: ZatcaInvoiceData = {
-    docType,
-    invoiceNumber: docRef,
-    issueDate: fmtDate(issueDate),
-    issueTime: fmtTime(issueDate),
-    currency,
-    seller,
-    buyer,
-    lines,
-    subtotal,
-    discount,
-    vatAmount,
-    total,
-    qr: {
-      sellerName,
-      sellerVatNumber: sellerVat,
-      timestamp: `${fmtDate(issueDate)}T${fmtTime(issueDate)}Z`,
-      total,
+  if (networkEnvironment) {
+    const missing = [
+      ...missingNationalAddress(seller, "seller", invoiceKind).map((f) => `seller.${f}`),
+      ...missingNationalAddress(buyer, "buyer", invoiceKind).map((f) => `buyer.${f}`),
+    ]
+    if (missing.length) throw new Error(`${docRef}: complete the National Address before ZATCA submission (${missing.join(", ")}).`)
+    if (docType !== "invoice" && !referenceInvoiceNumber) throw new Error(`${docRef}: the referenced sales invoice could not be loaded.`)
+
+    const { data: stream } = await admin
+      .from("zatca_issuance_streams")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .eq("environment", networkEnvironment)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle<{ id: string }>()
+    if (!stream) throw new Error("Register an EGS issuance stream for this ZATCA environment before transmitting.")
+
+    // prepareZatcaDocument replays the stored artifact for an already
+    // prepared source, so retries never consume a new ICV or change the hash.
+    const prepared = await prepareZatcaDocument(stream.id, ev.source_id, {
+      docType,
+      invoiceKind,
+      invoiceNumber: docRef,
+      currency,
+      deliveryDate,
+      paymentMeansCode: "1",
+      ...(docType !== "invoice" ? { referenceInvoiceNumber, noteReason } : {}),
+      seller,
+      buyer,
+      lines,
+      subtotal,
+      discount,
       vatAmount,
-    },
+      total,
+    })
+    const result = await submitPreparedZatcaDocument(prepared.id, "submit")
+    xml = prepared.unsigned_xml
+    status = transmissionStatusFor(result)
+    zatcaUuid = prepared.id
+    raw = {
+      issuance_id: prepared.id,
+      invoice_counter: prepared.invoice_counter,
+      invoice_hash: prepared.invoice_hash,
+      environment: networkEnvironment,
+      pipeline: result.pipeline ?? null,
+      warnings: result.warnings ?? [],
+      errors: result.errors ?? [],
+    }
+    if (status === "failed" || status === "rejected") failure = result.error ?? "Rejected by ZATCA validation."
+    if (status === "failed") transmittedAt = null
+  } else {
+    // Offline mock (no gateway configured): unsigned preview payload only,
+    // classified as mock evidence by the transport response.
+    const ublData: ZatcaInvoiceData = {
+      docType,
+      invoiceKind,
+      invoiceNumber: docRef,
+      issueDate: fmtDate(issueDate),
+      issueTime: fmtTime(issueDate),
+      currency,
+      deliveryDate,
+      ...(docType !== "invoice" ? { referenceInvoiceNumber, noteReason, paymentMeansCode: "1" } : {}),
+      seller,
+      buyer,
+      lines,
+      subtotal,
+      discount,
+      vatAmount,
+      total,
+      qr: {
+        sellerName: seller.name,
+        sellerVatNumber: sellerVat,
+        timestamp: `${fmtDate(issueDate)}T${fmtTime(issueDate)}`,
+        total,
+        vatAmount,
+      },
+    }
+    xml = buildZatcaUblInvoice(ublData)
+    const response = await transmitToZatca({
+      xml,
+      pipeline: invoiceKind === "standard" ? "clearance" : "reporting",
+      docRef,
+      ...(storedCsid ? { credentials: storedCsid } : {}),
+    })
+    status = response.status
+    zatcaUuid = response.uuid
+    raw = response.raw
+    transmittedAt = response.receivedAt
   }
-  const xml = buildZatcaUblInvoice(ublData)
 
-  // Transmit (sandbox mock by default). When the tenant has a stored
-  // production CSID (migration 055), pass it as explicit credentials so the
-  // transport authenticates with the documented Basic auth instead of the
-  // sandbox mock — the env-only path still works for self-hosted setups.
-  const response = await transmitToZatca({
-    xml,
-    pipeline: "reporting",
-    docRef,
-    ...(storedCsid ? { credentials: storedCsid } : {}),
-  })
-
-  // Record the transmission (upsert so retries refresh the same row).
+  // Record the transmission (update in place so retries refresh the same row).
   const record: Record<string, unknown> = {
     tenant_id: tenantId,
     invoice_id: invoiceId,
+    source_id: ev.source_id,
     doc_type: docType,
     doc_ref: docRef,
     payload_xml: xml,
-    status: response.status,
-    zatca_uuid: response.uuid,
-    response: response.raw,
-    error_message: null,
-    transmitted_at: response.receivedAt,
+    status,
+    zatca_uuid: zatcaUuid,
+    response: raw,
+    error_message: failure,
+    transmitted_at: transmittedAt,
     updated_by: authUserId,
   }
   if (existing) {
-    await admin.from("zatca_transmissions").update(record).eq("id", existing.id)
+    await admin.from("zatca_transmissions").update(record).eq("id", existing.id).eq("tenant_id", tenantId)
   } else {
     record.created_by = authUserId
     const { error: insErr } = await admin.from("zatca_transmissions").insert(record)
@@ -419,12 +483,12 @@ async function processEvent(
   if (docType === "invoice") {
     await admin
       .from("invoices")
-      .update({ zatca_status: response.status, zatca_uuid: response.uuid, updated_by: authUserId })
+      .update({ zatca_status: status, zatca_uuid: zatcaUuid, updated_by: authUserId })
       .eq("id", invoiceId)
       .eq("tenant_id", tenantId)
   }
 
-  return "processed"
+  return status === "failed" || status === "rejected" ? "failed" : "processed"
 }
 
 /**

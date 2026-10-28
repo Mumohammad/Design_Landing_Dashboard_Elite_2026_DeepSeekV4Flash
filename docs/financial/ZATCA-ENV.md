@@ -48,12 +48,35 @@ The independent [Phase 2 QR investigation](ZATCA-QR.md) found that **3.0.8** put
 
 `src/lib/accounting/zatca-signer.ts` produces the XAdES enveloped signature in the SDK layout (certificate digest, SignedProperties digest, ECDSA signature over the invoice hash) and the nine-tag QR read back from the signed XML. `scripts/verify-zatca-app-signer.mjs <sdk>` validates application-signed simplified/standard invoices and notes with the official SDK 3.4.8 offline (Java 11), plus tamper and SignedProperties negative controls; all cases pass. `submitPreparedZatcaDocument` (server action) signs a prepared issuance with the tenant CSID, transmits it and appends the attempt to `zatca_submission_attempts` (append-only, service-role only).
 
-`scripts/verify-zatca-sandbox-live.mjs` (opt-in `ZATCA_LIVE_SANDBOX=yes`) runs the public developer-portal compliance flow. It has **not** been run: it makes live calls to the authority's sandbox and needs owner approval. The event-driven `zatca.ts` path still builds unsigned XML, so it now fails closed in network modes; wire it to the prepared issuance and signer before enabling.
+`scripts/verify-zatca-sandbox-live.mjs` (opt-in `ZATCA_LIVE_SANDBOX=yes`, synthetic data, public sandbox OTP) was run against the developer portal on 28 October 2026 with owner approval:
+
+| Step | Result |
+|---|---|
+| Compliance CSID (application-built CSR) | Issued |
+| Standard invoice / credit note / debit note — compliance check | `cleared`, validation PASS, 0 warnings, 0 errors |
+| Simplified invoice / credit note / debit note — compliance check | `reported`, validation PASS, 0 warnings, 0 errors |
+| Production CSID request | Issued |
+| Clearance/reporting with that CSID | Not exercised: the developer portal returns a fixed sample certificate not bound to the CSR key; the signer correctly refuses it (`KEY_MISMATCH`). Core-pipeline submission with a key-bound production CSID needs the simulation portal and the taxpayer's own onboarding. |
+
+The first live run exposed a CSR defect: the request body must be Base64 of the **PEM text** (`zatcaCsrRequestPayload`), and the CSR must mirror the SDK (subject C as PrintableString, OU/O/CN UTF8; extension request with only the certificate-template name and the SAN directory name SN/UID/title/registeredAddress/businessCategory; no basicConstraints/keyUsage). Both are fixed and unit-tested. This is developer-portal evidence only; it is not production onboarding or authority approval.
+
+### Event-driven adapter
+
+`runZatcaAdapter` (`zatca.ts`) no longer sends unsigned XML in network modes. Each finalized sales invoice/note is prepared on the tenant's EGS issuance stream (`prepareZatcaDocument`: ICV/PIH chain, replayed on retry so no counter is consumed twice), signed with the stored CSID key and cleared (buyer has a valid VAT number → standard) or reported (simplified) via `submitPreparedZatcaDocument`. It fails closed, before preparation, when the seller or a Saudi standard-invoice buyer lacks a complete National Address, when the seller VAT number is invalid, or when no EGS stream exists. Rejections and gateway failures are recorded as `rejected`/`failed`, never as reported. Offline mock mode is unchanged and still labelled mock.
+
+### Accounting fixes (28 October 2026)
+
+- **Issue date/time are Riyadh-local** (`20261028130000_zatca_issue_time_riyadh.sql`, `riyadhLocal`). Recording UTC put documents issued 21:00–24:00 UTC on the previous calendar day, i.e. in the wrong VAT period at month/quarter end, and disagreed with the QR timestamp. `issued_at` stays an absolute timestamp.
+- **One transmission per source document** (`20261028132000_zatca_transmission_source.sql`). The old key (tenant, invoice, doc type) filed notes under their reference invoice, so a second credit note against the same invoice was treated as already reported and never sent.
+- **Structured National Address** (`20261028131000_zatca_national_address.sql`): building/additional number, district and postal code on the company profile; city, district, building/additional number, postal code and country on customers and suppliers, with format checks in the database, server actions and forms. The adapter previously selected a non-existent `customers.city`, which silently fell back to a walk-in buyer.
+- **Printed QR from authority evidence** (`zatca-document-qr.ts`): a sales invoice PDF uses the QR from ZATCA's cleared XML (standard) or the EGS-stamped reported XML (simplified) from the latest accepted attempt, labelled with its sandbox/simulation environment; compliance checks never count. Otherwise the disclosed internal QR is used.
+- **CSID validity**: the signer refuses a certificate outside its validity window (`CERT_EXPIRED`) so expired CSIDs are renewed rather than used.
+- Company VAT number must be 15 digits starting and ending with 3.
 
 ## Remaining implementation and release evidence
 
-1. Persist genuine structured taxpayer/branch addresses and EGS identities; verify VAT registration with the business owner. Never fill production data with SDK sample values.
-2. Integrate the [non-production preparation ledger](ZATCA-ISSUANCE.md) into the genuine legal issuance workflow. The new ledger stores preparation UUID/time/counter/PIH/XML/source snapshots atomically, with independent note identities and tested concurrency. It does not establish historical legal issue times or yet retain signed/cleared artifacts and authority-attempt evidence.
+1. Enter the genuine taxpayer National Address and register EGS issuance streams per branch/device; verify the VAT registration with the business owner. Structured address columns, validation and forms now exist. Never fill production data with SDK sample values.
+2. The adapter now prepares, signs, submits and retains signed/cleared artifacts (`zatca_submission_attempts`). Still open: treating the preparation time as the legal issue time in the finalization workflow itself (today preparation happens when the adapter runs), and the 24-hour reporting deadline monitor for simplified documents.
 3. Expand the bounded application hash coverage as tax cases are added; implement the complete certificate-bound XAdES stamp and resolve the SDK/signature-standard discrepancy above. Validate application-produced signatures/QR with the current official SDK, including all supported tax and adjustment cases.
 4. Implement and validate the official JSON request/response contract before replacing the blocked transport. Preserve explicit authority status, validation results and cleared XML/QR, and reject ambiguous success.
 5. Complete real EGS compliance/simulation onboarding and all required invoice/note checks with genuine authorized credentials. Test retry/idempotency, rejection, certificate expiry/revocation and evidence retention.

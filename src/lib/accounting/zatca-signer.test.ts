@@ -78,6 +78,14 @@ describe("ZATCA XAdES signer", () => {
     expect(() => signZatcaInvoice({ ...base, unsignedXml: once.signedXml, credentials: { certificateBase64: cert2, privateKeyPem: kp.privateKeyPem } })).toThrow("XML")
   })
 
+  it("refuses to stamp with a CSID outside its validity window (renew before expiry)", () => {
+    const { kp, certificateBase64 } = syntheticCredential() // valid 2026-01-01 .. 2030-01-01 UTC
+    const base = { environment: "sandbox" as const, kind: "simplified" as const, unsignedXml: buildZatcaUblInvoice(invoice("simplified")), credentials: { certificateBase64, privateKeyPem: kp.privateKeyPem } }
+    expect(() => signZatcaInvoice({ ...base, signingTime: "2030-01-01T03:00:01" })).toThrow("CERT_EXPIRED")
+    expect(() => signZatcaInvoice({ ...base, signingTime: "2026-01-01T02:59:59" })).toThrow("CERT_EXPIRED")
+    expect(() => signZatcaInvoice({ ...base, signingTime: "2029-12-31T23:00:00" })).not.toThrow()
+  })
+
   it("reads QR fields from the document and converts UTC issue times to Saudi time", () => {
     expect(readZatcaQrSource(buildZatcaUblInvoice(invoice("standard")))).toEqual({ sellerName: party.name, sellerVatNumber: party.vatNumber, timestamp: "2026-10-18T09:30:00", total: "115.00", vatAmount: "15.00" })
     expect(zatcaQrTimestamp("2026-10-18", "22:30:00Z")).toBe("2026-10-19T01:30:00")

@@ -5,7 +5,7 @@ const mocks=vi.hoisted(()=>({permission:vi.fn(),user:vi.fn(),admin:vi.fn(),from:
 vi.mock("server-only",()=>({}))
 vi.mock("@/lib/auth/authorization",()=>({requirePermission:mocks.permission,getCurrentUser:mocks.user}))
 vi.mock("@/lib/supabase/admin",()=>({createAdminClient:mocks.admin}))
-import { prepareZatcaDocument } from "./zatca-issuance"
+import { prepareZatcaDocument, riyadhLocal } from "./zatca-issuance"
 
 const tenant="85000000-0000-4000-8000-000000000001", stream="85000000-0000-4000-8000-000000000002", source="85000000-0000-4000-8000-000000000003"
 const input={docType:"invoice" as const,invoiceNumber:"SYNTHETIC-1",invoiceKind:"simplified" as const,currency:"SAR",
@@ -54,6 +54,7 @@ describe("server-only non-production ZATCA preparation",()=>{
     expect(p.p_issued_at).toBe("2026-10-19T12:13:14Z")
     expect(p.p_xml).toContain(`<cbc:UUID>${result.id}</cbc:UUID>`)
     expect(p.p_xml).toContain("<cbc:IssueDate>2026-10-19</cbc:IssueDate>")
+    expect(p.p_xml).toContain("<cbc:IssueTime>15:13:14</cbc:IssueTime>")
     expect(p.p_xml).not.toContain("forged")
     expect(p.p_expected_counter).toBe(0)
     expect(p.p_canonical_xml).not.toContain("<cbc:ID>QR</cbc:ID>")
@@ -103,5 +104,15 @@ describe("server-only non-production ZATCA preparation",()=>{
   it("requires real-format VAT data instead of substituting a demo identity",async()=>{
     await expect(prepareZatcaDocument(stream,source,{...input,seller:{name:"No VAT",vatNumber:null}})).rejects.toThrow("seller VAT identity")
     expect(mocks.rpc).not.toHaveBeenCalled()
+  })
+})
+
+describe("riyadhLocal (ZATCA IssueDate/IssueTime)",()=>{
+  it("renders the Saudi calendar day so late-UTC documents land in the correct VAT period",()=>{
+    expect(riyadhLocal("2026-12-31T22:30:00Z")).toBe("2027-01-01T01:30:00")
+    expect(riyadhLocal("2026-10-19T12:13:14Z")).toBe("2026-10-19T15:13:14")
+  })
+  it("rejects invalid instants",()=>{
+    expect(()=>riyadhLocal("not-a-date")).toThrow("Invalid ZATCA issuance time.")
   })
 })

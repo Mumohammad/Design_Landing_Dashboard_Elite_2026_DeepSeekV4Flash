@@ -35,7 +35,18 @@ export type PartyInput = {
   email?: string | null
   /** ZATCA VAT registration number — exactly 15 digits when provided. */
   tax_number?: string | null
+  /** Street name (National Address). */
   address?: string | null
+  city?: string | null
+  district?: string | null
+  /** National Address building number — 4 digits. */
+  building_number?: string | null
+  /** National Address additional number — 4 digits. */
+  additional_number?: string | null
+  /** 5-digit postal code. */
+  postal_code?: string | null
+  /** ISO 3166-1 alpha-2, defaults to SA. */
+  country_code?: string | null
   credit_limit?: number | null
   /** Update-only — toggles the record's active state. */
   is_active?: boolean
@@ -76,6 +87,23 @@ function normalizeInput(
     return { ok: false, error: "Tax number must be exactly 15 digits." }
   }
 
+  const building = (input.building_number ?? "").trim()
+  if (building && !/^\d{4}$/.test(building)) {
+    return { ok: false, error: "Building number must be exactly 4 digits." }
+  }
+  const additional = (input.additional_number ?? "").trim()
+  if (additional && !/^\d{4}$/.test(additional)) {
+    return { ok: false, error: "Additional number must be exactly 4 digits." }
+  }
+  const postal = (input.postal_code ?? "").trim()
+  if (postal && !/^\d{5}$/.test(postal)) {
+    return { ok: false, error: "Postal code must be exactly 5 digits." }
+  }
+  const country = (input.country_code ?? "").trim().toUpperCase() || "SA"
+  if (!/^[A-Z]{2}$/.test(country)) {
+    return { ok: false, error: "Country code must be two letters (e.g. SA)." }
+  }
+
   const limit = input.credit_limit
   // NaN/Infinity must be rejected too — Postgres NUMERIC accepts NaN, and
   // neither `NaN < 0` nor the DB trigger (NaN <> NaN) would catch it here.
@@ -90,6 +118,12 @@ function normalizeInput(
     email: (input.email ?? "").trim() || null,
     tax_number: tax || null,
     address: (input.address ?? "").trim() || null,
+    city: (input.city ?? "").trim() || null,
+    district: (input.district ?? "").trim() || null,
+    building_number: building || null,
+    additional_number: additional || null,
+    postal_code: postal || null,
+    country_code: country,
     credit_limit: limit,
   }
   if (code) payload.code = code.toUpperCase()

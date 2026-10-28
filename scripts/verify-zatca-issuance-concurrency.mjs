@@ -49,13 +49,13 @@ export async function verifyIssuanceLedger(sql) {
     INSERT INTO public.zatca_issuance_streams(id,tenant_id,environment,egs_serial) VALUES ('${stream}','${tenant}','sandbox','SYNTHETIC-EGS');`)
   const party={name:"Synthetic seller",vatNumber:"399999999900003",address:"Synthetic street",buildingNumber:"1234",district:"Synthetic district",city:"Riyadh",postalCode:"12345",countryCode:"SA"}
   function statement(source,type,counter,previous,overrides={}) {
-    const id=randomUUID(), time=new Date().toISOString().replace(/\.\d{3}Z$/,"Z")
+    const id=randomUUID(), time=new Date().toISOString().replace(/\.\d{3}Z$/,"Z"), local=new Date(Date.parse(time)+3*3600_000).toISOString().slice(0,19)
     const index=type==="invoice"?invoices.indexOf(source):(type==="credit_note"?credits:debits).indexOf(source)
     const number=type==="invoice"?`SYNTHETIC-INV-${index}`:`SYNTHETIC-${type}_number-${index}`
     const data={docType:type,invoiceKind:"simplified",invoiceNumber:number,uuid:id,invoiceCounter:counter+1,previousInvoiceHash:previous,
-      issueDate:time.slice(0,10),issueTime:time.slice(11,19),currency:"SAR",seller:party,buyer:party,lines,subtotal:100,discount:0,vatAmount:15,total:115,
+      issueDate:local.slice(0,10),issueTime:local.slice(11,19),currency:"SAR",seller:party,buyer:party,lines,subtotal:100,discount:0,vatAmount:15,total:115,
       ...(type!=="invoice"?{referenceInvoiceNumber:"SYNTHETIC-INV-0",noteReason:"Synthetic adjustment"}:{}),
-      qr:{sellerName:party.name,sellerVatNumber:party.vatNumber,timestamp:time,total:115,vatAmount:15},...overrides.data}
+      qr:{sellerName:party.name,sellerVatNumber:party.vatNumber,timestamp:local,total:115,vatAmount:15},...overrides.data}
     const xml=buildZatcaUblInvoice(data), canonical=canonicalizeZatcaInvoice(xml)
     return `SELECT public.record_zatca_issuance('${tenant}','${overrides.stream??stream}',${literal(type)},'${source}','${id}',${literal(overrides.time??time)},${counter},${literal(previous)},${literal(xml)},${literal(canonical)},${literal(overrides.hash??computeInvoiceHash(xml))},'${overrides.actor??actor}');`
   }

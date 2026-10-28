@@ -21,6 +21,13 @@ export interface ZatcaPreparedDocument {
   unsigned_xml: string
 }
 
+/** Riyadh-local `YYYY-MM-DDTHH:mm:ss` for an absolute UTC instant. */
+export function riyadhLocal(isoUtc: string): string {
+  const t = Date.parse(isoUtc)
+  if (!Number.isFinite(t)) throw new Error("Invalid ZATCA issuance time.")
+  return new Date(t + 3 * 3600_000).toISOString().slice(0, 19)
+}
+
 type PreparedInput = Omit<ZatcaInvoiceData, "uuid" | "invoiceCounter" | "previousInvoiceHash" | "issueDate" | "issueTime" | "qr">
 
 function preparedResult(value: unknown, tenant: string, source: string, type: ZatcaDocType, environment: string): ZatcaPreparedDocument {
@@ -77,13 +84,17 @@ export async function prepareZatcaDocument(
     throw new Error("A valid seller VAT identity is required for ZATCA preparation.")
   }
   const issuedAt = new Date().toISOString().replace(/\.\d{3}Z$/, "Z")
+  // IssueDate/IssueTime are the seller's Riyadh-local date and time (UTC+3,
+  // no DST) so the VAT period follows the Saudi calendar day; the QR
+  // timestamp uses the same local wall-clock value (signer contract).
+  const local = riyadhLocal(issuedAt)
   const documentId = randomUUID()
   const data: ZatcaInvoiceData = {
     ...input, uuid: documentId, invoiceCounter: counter + 1,
     previousInvoiceHash: stream.last_invoice_hash,
-    issueDate: issuedAt.slice(0, 10), issueTime: issuedAt.slice(11, 19),
+    issueDate: local.slice(0, 10), issueTime: local.slice(11, 19),
     qr: { sellerName: input.seller.name, sellerVatNumber: input.seller.vatNumber,
-      timestamp: issuedAt, total: input.total, vatAmount: input.vatAmount },
+      timestamp: local, total: input.total, vatAmount: input.vatAmount },
   }
   const xml = buildZatcaUblInvoice(data)
   const { data: stored, error } = await admin.rpc("record_zatca_issuance", {
