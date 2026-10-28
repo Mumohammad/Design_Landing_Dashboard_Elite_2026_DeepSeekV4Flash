@@ -21,12 +21,8 @@ export interface ZatcaPreparedDocument {
   unsigned_xml: string
 }
 
-/** Riyadh-local `YYYY-MM-DDTHH:mm:ss` for an absolute UTC instant. */
-export function riyadhLocal(isoUtc: string): string {
-  const t = Date.parse(isoUtc)
-  if (!Number.isFinite(t)) throw new Error("Invalid ZATCA issuance time.")
-  return new Date(t + 3 * 3600_000).toISOString().slice(0, 19)
-}
+export { riyadhLocal } from "./zatca-issuance-time"
+import { riyadhLocal } from "./zatca-issuance-time"
 
 type PreparedInput = Omit<ZatcaInvoiceData, "uuid" | "invoiceCounter" | "previousInvoiceHash" | "issueDate" | "issueTime" | "qr">
 

@@ -4,7 +4,7 @@ Production integration is incomplete and disabled in code. Adding credentials or
 
 ## Current gates
 
-`src/lib/release/integrations.ts` rejects application onboarding and submission before database access. `zatca-config.ts` independently rejects production mode, including when `ZATCA_PRODUCTION_ENABLED=true`.
+`src/lib/release/integrations.ts` opens ZATCA onboarding and submission **only** when a valid non-production gateway is configured (`ZATCA_MODE=sandbox|simulation` plus the matching official URL, `zatcaNonProductionEnabled()`); otherwise both are rejected before database access. `zatca-config.ts` independently rejects production mode, including when `ZATCA_PRODUCTION_ENABLED=true`. The browser cannot read these variables, so the accounting ZATCA tab uses the server action `getZatcaStatus()` (`zatca-management.ts`) to decide what is enabled.
 
 | Configuration | Transport behavior |
 |---|---|
@@ -73,10 +73,17 @@ The first live run exposed a CSR defect: the request body must be Base64 of the 
 - **CSID validity**: the signer refuses a certificate outside its validity window (`CERT_EXPIRED`) so expired CSIDs are renewed rather than used.
 - Company VAT number must be 15 digits starting and ending with 3.
 
+### Onboarding and monitoring (28 October 2026)
+
+- **Onboarding** (`onboardZatcaCsids`): 6-digit OTP; production refused; the environment must match the configured gateway. The seller VAT number and complete National Address are required (no demo values). An existing EGS stream's serial is reused for renewals so the ICV/PIH chain continues; otherwise `1-EliteDev|2-Dashboard|3-<uuid>`. Certificate validity dates are stored.
+- **Compliance checks** (`zatca-compliance-checks.ts`): before requesting the production CSID, six test documents (standard/simplified × invoice/credit/debit note) are signed with the compliance certificate on a private ICV/PIH chain with a synthetic buyer and sent to `/compliance/invoices`. All must be cleared (standard) or reported (simplified), otherwise onboarding stops and the results are audited and shown. They never touch the tenant's legal stream or ledger.
+- **Stream registration**: on success the `zatca_issuance_streams` row (genesis PIH, counter 0) is created once.
+- **Readiness panel**: the ZATCA tab shows tax-profile gaps, the EGS stream and ICV, certificate days left (warning ≤ 30 days, expired), and the submission backlog (`zatca-backlog.ts`): finalized documents without a reported/cleared transmission, with those open for more than 24 hours flagged overdue.
+
 ## Remaining implementation and release evidence
 
 1. Enter the genuine taxpayer National Address and register EGS issuance streams per branch/device; verify the VAT registration with the business owner. Structured address columns, validation and forms now exist. Never fill production data with SDK sample values.
-2. The adapter now prepares, signs, submits and retains signed/cleared artifacts (`zatca_submission_attempts`). Still open: treating the preparation time as the legal issue time in the finalization workflow itself (today preparation happens when the adapter runs), and the 24-hour reporting deadline monitor for simplified documents.
+2. The adapter now prepares, signs, submits and retains signed/cleared artifacts (`zatca_submission_attempts`). The 24-hour backlog monitor now exists in the ZATCA tab. Still open: treating the preparation time as the legal issue time in the finalization workflow itself (today preparation happens when the adapter runs), and a scheduled run/alert rather than the manual adapter button.
 3. Expand the bounded application hash coverage as tax cases are added; implement the complete certificate-bound XAdES stamp and resolve the SDK/signature-standard discrepancy above. Validate application-produced signatures/QR with the current official SDK, including all supported tax and adjustment cases.
 4. Implement and validate the official JSON request/response contract before replacing the blocked transport. Preserve explicit authority status, validation results and cleared XML/QR, and reject ambiguous success.
 5. Complete real EGS compliance/simulation onboarding and all required invoice/note checks with genuine authorized credentials. Test retry/idempotency, rejection, certificate expiry/revocation and evidence retention.

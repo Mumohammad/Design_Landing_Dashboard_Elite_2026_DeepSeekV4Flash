@@ -3,11 +3,11 @@
 // Signs a prepared (immutable) ZATCA issuance with the tenant's CSID and
 // submits it to the configured NON-PRODUCTION gateway. Every attempt,
 // accepted or rejected, is appended to zatca_submission_attempts.
-import { X509Certificate } from "node:crypto"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
 import { writeAuditLog } from "@/lib/auth/sessions"
 import { getZatcaNetworkBase } from "./zatca-config"
+import { certificateFromToken } from "./zatca-cert"
 import { getZatcaCsidCredential } from "./zatca-credentials"
 import { signZatcaInvoice, ZatcaSigningError } from "./zatca-signer"
 import { transmitToZatca, ZatcaTransportError, type ZatcaPipeline, type ZatcaValidationMessage } from "./zatca-transport"
@@ -26,20 +26,6 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 /** Riyadh wall-clock time, YYYY-MM-DDTHH:mm:ss, for xades:SigningTime. */
 function riyadhNow(): string {
   return new Date(Date.now() + 3 * 3600_000).toISOString().slice(0, 19)
-}
-
-/** binarySecurityToken is Base64 of the certificate's Base64 text. */
-async function certificateFromToken(token: string): Promise<string> {
-  const decoded = Buffer.from(token, "base64").toString("utf8").replace(/-----[^-]+-----|\s/g, "")
-  for (const candidate of [decoded, token]) {
-    try {
-      new X509Certificate(Buffer.from(candidate, "base64"))
-      return candidate
-    } catch {
-      /* try the next encoding */
-    }
-  }
-  throw new ZatcaSigningError("CERTIFICATE")
 }
 
 /**
@@ -80,7 +66,7 @@ export async function submitPreparedZatcaDocument(
       environment,
       kind: simplified ? "simplified" : "standard",
       unsignedXml: issuance.unsigned_xml,
-      credentials: { certificateBase64: await certificateFromToken(credential.csidBase64), privateKeyPem: credential.privateKeyPem },
+      credentials: { certificateBase64: certificateFromToken(credential.csidBase64), privateKeyPem: credential.privateKeyPem },
       signingTime: riyadhNow(),
     })
     if (signed.invoiceHash !== issuance.invoice_hash) return { success: false, error: "Prepared document hash mismatch." }

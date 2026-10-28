@@ -25,6 +25,20 @@ describe("release integration boundaries", () => {
     for (const name of ["wps", "zatca", "webhooks"] as const) expect(integrationAvailable(name)).toBe(false)
   })
 
+  it("enables ZATCA only for an explicit, valid non-production gateway", () => {
+    vi.stubEnv("ZATCA_MODE", "sandbox")
+    vi.stubEnv("ZATCA_API_BASE_URL", "https://gw-fatoora.zatca.gov.sa/e-invoicing/developer-portal")
+    expect(integrationAvailable("zatca")).toBe(true)
+    expect(integrationAvailable("wps")).toBe(false)
+    expect(integrationAvailable("webhooks")).toBe(false)
+    vi.stubEnv("ZATCA_MODE", "simulation")
+    expect(integrationAvailable("zatca")).toBe(false) // URL does not match the simulation portal
+    vi.stubEnv("ZATCA_API_BASE_URL", "https://gw-fatoora.zatca.gov.sa/e-invoicing/simulation")
+    expect(integrationAvailable("zatca")).toBe(true)
+    vi.stubEnv("ZATCA_API_BASE_URL", "https://evil.example/e-invoicing/simulation")
+    expect(integrationAvailable("zatca")).toBe(false)
+  })
+
   it("rejects WPS generation and ZATCA submission/onboarding before database access", async () => {
     const denied = { success: false, error: INTEGRATION_UNAVAILABLE }
     expect(await generateWpsFile(2026, 10)).toEqual(denied)

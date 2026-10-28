@@ -21,6 +21,10 @@ import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
 import { writeAuditLog } from "@/lib/auth/sessions"
 import { generateZatcaKeyPair, buildZatcaCsr, ZATCA_CERT_TEMPLATES, type ZatcaCsrInput } from "./zatca-crypto"
 import { requestComplianceCsid, requestProductionCsid } from "./zatca-onboarding"
+import { getZatcaNetworkBase, zatcaConfiguredEnvironment } from "./zatca-config"
+import { certificateFromToken, certificateValidity } from "./zatca-cert"
+import { runZatcaComplianceChecks, type ComplianceCheckResult } from "./zatca-compliance-checks"
+import { missingNationalAddress, sellerParty, type TenantPartyRow } from "./zatca-adapter-input"
 
 export type ZatcaCsidEnvironment = "sandbox" | "simulation" | "production"
 export type ZatcaCsidKind = "compliance" | "production"
@@ -160,18 +164,16 @@ export async function listZatcaCsids(): Promise<{
 // ── Onboarding orchestrator ────────────────────────────────────────────────
 
 export interface OnboardZatcaInput {
-  /** Target environment — selects the CSR certificateTemplate. */
+  /** Target environment — must match the configured non-production gateway. */
   environment: ZatcaCsidEnvironment
-  /**
-   * One-time password from the Fatoora portal (compliance step). In the
-   * sandbox any value is accepted by the mock (and historically by the
-   * sandbox API); simulation/production require the real portal OTP.
-   */
+  /** One-time password from the Fatoora portal (compliance step). */
   otp: string
-  /** Override CSR fields that aren't stored on the tenant (defaults apply). */
+  /** EGS unit name (CSR OU/CN), e.g. the branch or device. */
   organizationUnit?: string
   commonName?: string
+  /** EGS serial `1-<solution>|2-<model>|3-<serial>`; reused for renewals. */
   serialNumber?: string
+  /** Invoice types the EGS issues: "1100" standard + simplified (default). */
   title?: string
   businessCategory?: string
 }
@@ -182,24 +184,26 @@ export interface OnboardZatcaResult {
   sandbox?: boolean
   complianceSaved?: boolean
   productionSaved?: boolean
+  checks?: ComplianceCheckResult[]
+  egsSerial?: string
 }
 
+const OTP_RE = /^\d{6}$/
+const TITLE_RE = /^[01]{4}$/
+
 /**
- * Run the full onboarding flow for the current tenant and persist both CSIDs:
+ * Onboard (or renew) the tenant's EGS unit and persist both CSIDs:
  *
- *   1. Load tenant identity (VAT no., legal name, address) for the CSR.
- *   2. Generate a fresh secp256k1 keypair; build the ZATCA CSR (certificate
- *      template per environment).
- *   3. requestComplianceCsid (OTP header) → save compliance CSID + key.
- *   4. requestProductionCsid (Basic auth from the compliance CSID) → save
- *      production CSID + key.
+ *   1. Validate the seller identity: VAT number and complete National Address
+ *      (no demo/sample values are ever substituted).
+ *   2. Generate a fresh secp256k1 keypair and the SDK-compatible CSR; an
+ *      existing EGS stream's serial is reused so the ICV/PIH chain continues.
+ *   3. Compliance CSID (OTP) → persist with its validity window.
+ *   4. Gateway modes: pass the compliance checks for every document type the
+ *      EGS issues, signed with the compliance certificate.
+ *   5. Production CSID → persist; register the EGS issuance stream.
  *
- * accounting:approve (same as the adapter). The private key is persisted
- * with the CSID so the transport can sign payloads per tenant — it never
- * reaches the browser (same service-role-only model as the cert/secret).
- *
- * In sandbox mode (no ZATCA_API_BASE_URL) the onboarding transport returns a
- * deterministic mock, so this action is exercisable offline end-to-end.
+ * accounting:approve. The private key never reaches the browser.
  */
 export async function onboardZatcaCsids(input: OnboardZatcaInput): Promise<OnboardZatcaResult> {
   if (!integrationAvailable("zatca")) return { success: false, error: INTEGRATION_UNAVAILABLE }
@@ -207,72 +211,127 @@ export async function onboardZatcaCsids(input: OnboardZatcaInput): Promise<Onboa
     await requirePermission("accounting", "approve")
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
-    if (!input.otp) return { success: false, error: "OTP is required for the compliance step." }
+    if (!OTP_RE.test(input.otp ?? "")) return { success: false, error: "Enter the 6-digit OTP from the Fatoora portal." }
+    if (input.environment === "production") return { success: false, error: "Production onboarding is disabled." }
+    const configured = zatcaConfiguredEnvironment()
+    const base = getZatcaNetworkBase()
+    if (configured && input.environment !== configured) {
+      return { success: false, error: `The configured ZATCA gateway is ${configured}; onboard that environment.` }
+    }
+    const environment = input.environment
+    const title = input.title ?? "1100"
+    if (!TITLE_RE.test(title) || title.startsWith("00")) return { success: false, error: "Invalid EGS invoice-type flags." }
 
     const admin = createAdminClient()
 
-    // 1. Tenant identity for the CSR.
+    // 1. Seller identity (National Address, migration 20261028131000).
     const { data: tenant } = await admin
       .from("tenants")
-      .select("name_en,legal_name,vat_number,address,city,country")
+      .select("name_ar,name_en,legal_name,vat_number,cr_number,address,city,region,district,building_number,additional_number,postal_code,country")
       .eq("id", currentUser.tenantId)
-      .maybeSingle<{
-        name_en: string | null
-        legal_name: string | null
-        vat_number: string | null
-        address: string | null
-        city: string | null
-        country: string | null
-      }>()
+      .maybeSingle<TenantPartyRow>()
     if (!tenant) return { success: false, error: "Tenant not found." }
+    const seller = sellerParty(tenant)
+    const missing = missingNationalAddress(seller, "seller", "standard")
+    if (missing.length) {
+      return { success: false, error: `Complete the company tax profile before onboarding (${missing.join(", ")}).` }
+    }
+    const vatNumber = seller.vatNumber!
+    const orgName = seller.name
 
-    const orgName = tenant.legal_name || tenant.name_en || ""
-    const vatNumber = /^\d{15}$/.test(tenant.vat_number ?? "") ? tenant.vat_number! : "310122993400001"
-    const registeredAddress = [tenant.address, tenant.city].filter(Boolean).join(", ") || "Riyadh"
+    // Reuse the existing EGS identity for renewals (same ICV/PIH chain).
+    const { data: stream } = await admin
+      .from("zatca_issuance_streams")
+      .select("id,egs_serial")
+      .eq("tenant_id", currentUser.tenantId)
+      .eq("environment", environment)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle<{ id: string; egs_serial: string }>()
+    const egsSerial = stream?.egs_serial || input.serialNumber?.trim() || `1-EliteDev|2-Dashboard|3-${randomUUID()}`
+    if (!/^1-[^|]{1,60}\|2-[^|]{1,60}\|3-[^|]{1,80}$/.test(egsSerial)) {
+      return { success: false, error: "EGS serial must look like 1-<solution>|2-<model>|3-<serial>." }
+    }
 
     // 2. Fresh keypair + CSR (template selected by environment).
     const keyPair = generateZatcaKeyPair()
+    const unit = input.organizationUnit?.trim() || tenant.city || "Main Branch"
     const csrInput: ZatcaCsrInput = {
-      country: tenant.country || "SA",
-      organizationUnit: input.organizationUnit || "EGS",
-      organization: orgName || "Elite",
-      commonName: input.commonName || orgName || "Elite EGS",
-      serialNumber: input.serialNumber || `1-TST|2-TST|3-${randomUUID()}`,
+      country: seller.countryCode || "SA",
+      organizationUnit: unit,
+      organization: orgName,
+      commonName: input.commonName?.trim() || `EGS-${vatNumber}`,
+      serialNumber: egsSerial,
       uid: vatNumber,
-      title: input.title || "1100",
-      registeredAddress,
-      businessCategory: input.businessCategory || "Business",
-      certificateTemplate: ZATCA_CERT_TEMPLATES[input.environment],
+      title,
+      registeredAddress: [seller.buildingNumber, seller.address, seller.district, seller.city].filter(Boolean).join(" "),
+      businessCategory: input.businessCategory?.trim() || "Logistics",
+      certificateTemplate: ZATCA_CERT_TEMPLATES[environment],
     }
     const csr = buildZatcaCsr(csrInput, keyPair)
 
     // 3. Compliance CSID → persist.
     const cc = await requestComplianceCsid({ csr, otp: input.otp })
+    const ccValidity = certificateValidity(cc.csidBase64)
     const complianceSaved = await saveZatcaCsidInternal(admin, currentUser, {
-      environment: input.environment,
+      environment,
       kind: "compliance",
       csidBase64: cc.csidBase64,
       secret: cc.secret,
       privateKey: keyPair.privateKeyPem,
       requestId: cc.requestId,
+      issuedAt: ccValidity?.validFrom ?? null,
+      expiresAt: ccValidity?.validTo ?? null,
     })
     if (!complianceSaved.success) return complianceSaved
 
-    // 4. Production CSID → persist.
+    // 4. Compliance checks (gateway modes only — the offline mock has no API).
+    let checks: ComplianceCheckResult[] | undefined
+    if (base) {
+      const summary = await runZatcaComplianceChecks({
+        seller,
+        environment,
+        certificateBase64: certificateFromToken(cc.csidBase64),
+        privateKeyPem: keyPair.privateKeyPem,
+        credentials: { csidBase64: cc.csidBase64, secret: cc.secret },
+      })
+      checks = summary.results
+      if (!summary.passed) {
+        await writeAuditLog({
+          tenantId: currentUser.tenantId, actorId: currentUser.authUserId, module: "accounting",
+          action: "zatca_compliance_checks_failed", entityType: "zatca_csids",
+          newValues: { environment, results: checks.map((r) => ({ kind: r.kind, docType: r.docType, status: r.status, errors: r.errors.map((e) => e.code ?? "") })) },
+        })
+        return { success: false, error: "ZATCA compliance checks did not pass. Review the results and the company tax profile.", complianceSaved: true, checks, egsSerial }
+      }
+    }
+
+    // 5. Production CSID → persist.
     const pc = await requestProductionCsid({
       complianceRequestId: cc.requestId,
       csidBase64: cc.csidBase64,
       csidSecret: cc.secret,
     })
+    const pcValidity = certificateValidity(pc.csidBase64)
     const productionSaved = await saveZatcaCsidInternal(admin, currentUser, {
-      environment: input.environment,
+      environment,
       kind: "production",
       csidBase64: pc.csidBase64,
       secret: pc.secret,
       privateKey: keyPair.privateKeyPem,
       requestId: cc.requestId,
+      issuedAt: pcValidity?.validFrom ?? null,
+      expiresAt: pcValidity?.validTo ?? null,
     })
     if (!productionSaved.success) return productionSaved
+
+    // Register the EGS issuance stream (genesis PIH, counter 0) once.
+    if (!stream) {
+      const { error: streamError } = await admin
+        .from("zatca_issuance_streams")
+        .insert({ tenant_id: currentUser.tenantId, environment, egs_serial: egsSerial })
+      if (streamError && streamError.code !== "23505") return { success: false, error: "Unable to register the EGS issuance stream." }
+    }
 
     await writeAuditLog({
       tenantId: currentUser.tenantId,
@@ -281,9 +340,12 @@ export async function onboardZatcaCsids(input: OnboardZatcaInput): Promise<Onboa
       action: "zatca_onboarded",
       entityType: "zatca_csids",
       newValues: {
-        environment: input.environment,
+        environment,
         sandbox: Boolean(cc.sandbox && pc.sandbox),
         vat: vatNumber,
+        egs_serial: egsSerial,
+        renewal: Boolean(stream),
+        compliance_checks: checks ? "passed" : "not_applicable_offline",
       },
     })
 
@@ -292,6 +354,8 @@ export async function onboardZatcaCsids(input: OnboardZatcaInput): Promise<Onboa
       sandbox: Boolean(cc.sandbox && pc.sandbox),
       complianceSaved: true,
       productionSaved: true,
+      checks,
+      egsSerial,
     }
   } catch (e) {
     return { success: false, error: errorMessage(e) }
