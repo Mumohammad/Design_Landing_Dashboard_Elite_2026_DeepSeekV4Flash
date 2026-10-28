@@ -18,7 +18,7 @@ function syntheticCredential() {
     sbjpubkey: KEYUTIL.getKey(kp.publicKeyPem),
     sigalg: "SHA256withECDSA",
     cakey: KEYUTIL.getKey(kp.privateKeyPem),
-  })
+  } as unknown as ConstructorParameters<typeof KJUR.asn1.x509.Certificate>[0])
   const certificateBase64 = cert.getPEM().replace(/-----[^-]+-----|\s/g, "")
   return { kp, certificateBase64 }
 }

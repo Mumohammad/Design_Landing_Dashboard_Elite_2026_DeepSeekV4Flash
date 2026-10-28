@@ -80,10 +80,10 @@ describe("non-production gateway submission", () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ validationResults: { status: "PASS" }, clearanceStatus: "NOT_CLEARED" }), { status: 200 }))
     vi.stubGlobal("fetch", fetchMock)
     expect((await transmitToZatca({ ...signed, pipeline: "clearance" })).status).toBe("rejected")
-    expect(fetchMock.mock.calls[0][0]).toMatch(/\/invoices\/clearance\/single$/)
+    expect((fetchMock.mock.calls as unknown as [string][])[0][0]).toMatch(/\/invoices\/clearance\/single$/)
     fetchMock.mockImplementationOnce(async () => new Response(JSON.stringify({ validationResults: { status: "PASS" }, reportingStatus: "REPORTED" }), { status: 200 }))
     expect((await transmitToZatca({ ...signed, pipeline: "compliance" })).status).toBe("reported")
-    expect(fetchMock.mock.calls[1][0]).toMatch(/\/compliance\/invoices$/)
+    expect((fetchMock.mock.calls as unknown as [string][])[1][0]).toMatch(/\/compliance\/invoices$/)
   })
 
   it("rejects validation errors and maps gateway faults without echoing bodies", async () => {

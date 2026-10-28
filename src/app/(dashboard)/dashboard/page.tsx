@@ -76,7 +76,8 @@ export default function DashboardPage() {
     if (isRefresh) setRefreshing(true)
     else setInitialLoading(true)
     try {
-      const snap = await getDashboardSnapshot(f)
+      // An explicit refresh bypasses the 60-second server cache.
+      const snap = await getDashboardSnapshot(f, { fresh: isRefresh })
       if (requestId.current === id) {
         setSnapshot(snap)
         setLoadError(false)

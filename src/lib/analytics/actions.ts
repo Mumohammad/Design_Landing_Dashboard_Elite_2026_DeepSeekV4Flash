@@ -19,6 +19,7 @@ import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUser } from "@/lib/auth/authorization"
 import { rollupCodSessions } from "@/lib/payroll/payroll-utils"
 import { getFinancialKpis } from "@/lib/accounting/kpis"
+import { CACHE_TTL, cacheGet, cacheInvalidate, cacheKey } from "@/lib/cache"
 import {
   aggregateApprovalsDepth,
   buildMetric,
@@ -101,6 +102,7 @@ const dashboardFiltersSchema = z.object({
 
 export async function getDashboardSnapshot(
   rawFilters: DashboardFilters,
+  options?: { fresh?: boolean },
 ): Promise<DashboardSnapshot> {
   const filters = dashboardFiltersSchema.parse(rawFilters ?? {})
   const supabase = await createClient()
@@ -111,6 +113,19 @@ export async function getDashboardSnapshot(
       throw new RateLimitError(rl.resetAt, 30)
     }
   }
+  const currentUser = user ? await getCurrentUser() : null
+  if (!user || !currentUser) return buildDashboardSnapshot(filters, supabase)
+  // The snapshot is read through the caller's RLS client, so the cache entry
+  // belongs to this tenant AND this user; nobody else can be served it.
+  const key = cacheKey("dashboard", currentUser.tenantId, user.id, filters)
+  if (options?.fresh === true) await cacheInvalidate(key)
+  return cacheGet(key, () => buildDashboardSnapshot(filters, supabase), CACHE_TTL.dashboard)
+}
+
+async function buildDashboardSnapshot(
+  filters: z.infer<typeof dashboardFiltersSchema>,
+  supabase: Awaited<ReturnType<typeof createClient>>,
+): Promise<DashboardSnapshot> {
   const now = new Date()
   const days = PERIOD_DAYS[filters.period]
   const start = startOfDay(subDays(now, days - 1))
