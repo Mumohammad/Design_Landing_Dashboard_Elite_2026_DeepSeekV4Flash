@@ -112,7 +112,7 @@ function ApprovalsInner() {
     { label: isAr ? "قرارات معلقة" : "Pending decisions", value: data?.kpis.total ?? "—", icon: ClipboardCheck, color: "#1E5A99" },
     { label: isAr ? "مصروفات" : "Expenses", value: data?.kpis.expenses ?? "—", icon: ExternalLink, color: "#E87D3E" },
     { label: isAr ? "إجازات" : "Leave requests", value: data?.kpis.leaves ?? "—", icon: Clock, color: "#0EA5E9" },
-    { label: isAr ? "طلبات توظيف" : "Applications", value: data?.kpis.applications ?? "—", icon: ClipboardCheck, color: "#6366F1" },
+    { label: isAr ? "طلبات توظيف" : "Applications", value: data?.kpis.applications ?? "—", icon: ClipboardCheck, color: "#0F766E" },
   ]
 
   const requesterOf = (r: ApprovalQueueRow): string =>
@@ -232,7 +232,7 @@ function ApprovalsInner() {
   return (
     <div className="px-4 py-4 lg:px-6">
       {/* Server filters apply to the complete permitted pending queue. */}
-      <div className="mb-4 space-y-3 rounded-2xl border border-border/50 bg-card/60 px-4 py-3 backdrop-blur-sm">
+      <div className="mb-4 space-y-3 rounded-2xl border border-border/50 bg-card/60 px-4 py-3">
         <div className="grid grid-cols-2 items-end gap-3 sm:flex sm:flex-wrap">
           <div className="col-span-2 grid gap-1.5 sm:w-40">
             <span className="text-sm text-muted-foreground">{isAr ? "نوع القرار" : "Decision type"}</span>

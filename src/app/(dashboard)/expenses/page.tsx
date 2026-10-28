@@ -31,7 +31,7 @@ const TYPE_META: Record<string, { ar: string; en: string; className: string }> =
   fuel: { ar: "وقود", en: "Fuel", className: "bg-amber-500/15 text-amber-600 border-amber-500/20" },
   advance: { ar: "سلفة", en: "Advance", className: "bg-blue-500/15 text-blue-600 border-blue-500/20" },
   operational: { ar: "تشغيلي", en: "Operational", className: "bg-gray-500/15 text-gray-600 border-gray-500/20" },
-  platform_commission: { ar: "عمولة", en: "Commission", className: "bg-purple-500/15 text-purple-600 border-purple-500/20" },
+  platform_commission: { ar: "عمولة", en: "Commission", className: "bg-teal-500/15 text-teal-600 border-teal-500/20" },
   maintenance: { ar: "صيانة", en: "Maintenance", className: "bg-orange-500/15 text-orange-600 border-orange-500/20" },
   other: { ar: "أخرى", en: "Other", className: "bg-gray-500/15 text-gray-600 border-gray-500/20" },
 }
@@ -354,7 +354,7 @@ export default function ExpensesPage() {
               <Button
                 onClick={() => void handleCreate()}
                 disabled={isSaving || Number(formAmount || 0) <= 0 || !formDate}
-                className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800"
+                className="bg-elite-blue-600 hover:bg-elite-blue-700"
               >
                 {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}<LocalizedText text="Save expense" /></Button>
               <Button variant="ghost" onClick={() => setCreateOpen(false)}>
@@ -410,7 +410,7 @@ export default function ExpensesPage() {
               <Button
                 onClick={() => void handleApprove()}
                 disabled={isApproving || !validApprovalRate}
-                className="bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800"
+                className="bg-emerald-600 hover:bg-emerald-700"
               >
                 {isApproving ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />}<LocalizedText text="Approve" /></Button>
               <Button variant="ghost" onClick={() => setApproveTarget(null)}><LocalizedText text="Cancel" /></Button>

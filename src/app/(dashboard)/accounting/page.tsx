@@ -297,7 +297,7 @@ const PERIOD_STATUS: Record<string, { ar: string; en: string; className: string 
   open: { ar: "مفتوحة", en: "Open", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/20" },
   closing: { ar: "قيد الإغلاق", en: "Closing", className: "bg-amber-500/15 text-amber-600 border-amber-500/20" },
   closed: { ar: "مغلقة", en: "Closed", className: "bg-gray-500/15 text-gray-600 border-gray-500/20" },
-  reopened: { ar: "أعيد فتحها", en: "Reopened", className: "bg-purple-500/15 text-purple-600 border-purple-500/20" },
+  reopened: { ar: "أعيد فتحها", en: "Reopened", className: "bg-teal-500/15 text-teal-600 border-teal-500/20" },
 }
 
 const MONTH_NAMES_AR = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"]
@@ -1257,13 +1257,13 @@ export default function AccountingPage() {
     null
   )
 
-  const dialogBtn = "inline-flex h-8 items-center gap-1.5 rounded-xl bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 px-3 text-xs font-medium text-white shadow-sm transition-all hover:from-elite-blue-700 hover:to-elite-blue-800"
+  const dialogBtn = "inline-flex h-8 items-center gap-1.5 rounded-xl bg-elite-blue-600 px-3 text-xs font-medium text-white shadow-sm transition-all hover:bg-elite-blue-700"
 
   return (
     <div className="px-4 lg:px-6 py-4 space-y-6 page-enter">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-white shadow-lg shadow-emerald-500/25">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl text-elite-blue-600 dark:text-elite-blue-300">
             <Calculator className="h-5 w-5" />
           </div>
           <div>
@@ -1413,7 +1413,7 @@ export default function AccountingPage() {
                     <Button
                       type="submit"
                       disabled={isPosting || lines.some((l) => !l.account_id) || (!asDraft && !isBalanced)}
-                      className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800"
+                      className="bg-elite-blue-600 hover:bg-elite-blue-700"
                     >
                       {isPosting ? <LoadingSpinner className="h-4 w-4" /> : asDraft ? <Send className="h-4 w-4" /> : <Save className="h-4 w-4" />}
                       {asDraft ? (ar ? "حفظ كمسودة" : "Save draft") : (ar ? "ترحيل القيد" : "Post entry")}
@@ -1479,7 +1479,7 @@ export default function AccountingPage() {
         ) : (
           <>
             <TabsContent value="journal" className="mt-4">
-              <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+              <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                 <TableShell headers={["", "Ref", ar ? "التاريخ" : "Date", ar ? "الوصف" : "Description", ar ? "النوع" : "Type", ar ? "الحالة" : "Status", ar ? "إجراء" : "Action"]}>
                   {journals.length === 0 && <EmptyRow colSpan={7} text={ledger.search.trim() ? (ar ? "لا توجد قيود تطابق البحث." : "No journal entries match this search.") : (ar ? "لا توجد قيود بعد. أنشئ قيداً جديداً." : "No journal entries yet. Create one.")} />}
                   {journals.map((j) => {
@@ -1512,7 +1512,7 @@ export default function AccountingPage() {
                         <td className="px-4 py-3 font-mono text-xs" dir="ltr">{j.entry_ref}</td>
                         <td className="px-4 py-3 text-xs" dir="ltr">{fmtDate(j.entry_date)}</td>
                         <td className="px-4 py-3">{j.description_ar ?? j.description_en ?? "—"}</td>
-                        <td className="px-4 py-3 text-xs uppercase" dir="ltr">{j.entry_type}</td>
+                        <td className="px-4 py-3 text-xs" dir="ltr">{j.entry_type}</td>
                         <td className="px-4 py-3">
                           <div className="flex flex-wrap items-center gap-1.5">
                             <Badge className={s.className}>{ar ? s.ar : s.en}</Badge>
@@ -1557,7 +1557,7 @@ export default function AccountingPage() {
                             {canReverse && (
                               <button
                                 onClick={() => { setReversalTarget(j); setReversalDesc(""); setReversalDate(new Date().toISOString().slice(0, 10)) }}
-                                className="inline-flex h-7 items-center gap-1 rounded-lg border border-purple-500/25 bg-purple-500/10 px-2 text-xs font-medium text-purple-600 transition-colors hover:bg-purple-500/20"
+                                className="inline-flex h-7 items-center gap-1 rounded-lg border border-teal-500/25 bg-teal-500/10 px-2 text-xs font-medium text-teal-600 transition-colors hover:bg-teal-500/20"
                               >
                                 <RotateCcw className="h-3 w-3" />
                                 {ar ? "عكس" : "Reverse"}
@@ -1633,7 +1633,7 @@ export default function AccountingPage() {
             </TabsContent>
 
             <TabsContent value="trial" className="mt-4">
-              <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+              <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                 <TableShell headers={[ar ? "الرمز" : "Code", ar ? "الاسم" : "Name", ar ? "النوع" : "Type", ar ? "مدين" : "Debit", ar ? "دائن" : "Credit", ar ? "الرصيد" : "Balance"]}>
                   {trial.length === 0 && <EmptyRow colSpan={6} text={ar ? "لا توجد قيود مرحّلة بعد." : "No posted entries yet."} />}
                   {trial.map((r) => (
@@ -1652,7 +1652,7 @@ export default function AccountingPage() {
 
             <TabsContent value="receivables" className="mt-4">
               <div className="space-y-4">
-                <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+                <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                   <CardHeader className="pb-3 flex-row items-center justify-between">
                     <CardTitle className="text-base">{ar ? "الذمم المدينة" : "Receivables"}</CardTitle>
                     <Dialog open={openDialogs["receivable"]} onOpenChange={(o) => { if (!isSavingRcv) setOpenDialogs((p) => ({ ...p, receivable: o })) }}>
@@ -1696,7 +1696,7 @@ export default function AccountingPage() {
                             <p data-testid="receivable-preview" className="text-xs text-muted-foreground" dir="ltr"><LocalizedText text="VAT:" />{fmtMoney(rcvPreview.vat)} <LocalizedText text="· Total:" /> {fmtMoney(rcvPreview.total)}<LocalizedText text="SAR" /></p>
                           )}
                           <div className="flex items-center gap-3">
-                            <Button type="submit" disabled={isSavingRcv} className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800">
+                            <Button type="submit" disabled={isSavingRcv} className="bg-elite-blue-600 hover:bg-elite-blue-700">
                               {isSavingRcv ? <LoadingSpinner className="h-4 w-4" /> : <Save className="h-4 w-4" />}
                               {t.common.save}
                             </Button>
@@ -1731,7 +1731,7 @@ export default function AccountingPage() {
             </TabsContent>
 
             <TabsContent value="payables" className="mt-4">
-              <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+              <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                 <TableShell headers={[ar ? "الفاتورة" : "Invoice", ar ? "التاريخ" : "Date", ar ? "الاستحقاق" : "Due", ar ? "المبلغ" : "Amount", "VAT", ar ? "الإجمالي" : "Total", ar ? "المدفوع" : "Paid", ar ? "الحالة" : "Status"]}>
                   {payables.length === 0 && <EmptyRow colSpan={8} text={ledger.search.trim() ? (ar ? "لا توجد ذمم دائنة تطابق البحث." : "No payables match this search.") : (ar ? "لا توجد ذمم دائنة." : "No payables.")} />}
                   {payables.map((r) => {
@@ -1781,7 +1781,7 @@ export default function AccountingPage() {
                     <p className="text-sm text-muted-foreground">{ar ? "إجماليات جميع الفترات المسجلة بالريال السعودي؛ تشمل التسويات المعتمدة فقط." : "Totals across all recorded periods in SAR; finalized adjustments only."}</p>
                     <div className="grid gap-3 sm:grid-cols-4">
                       {items.map((it) => (
-                        <div key={it.label} className="rounded-2xl border border-border/50 bg-card/80 px-4 py-3 shadow-sm">
+                        <div key={it.label} className="rounded-2xl border border-border/50 bg-card px-4 py-3 shadow-sm">
                           <p className="text-[11px] font-medium text-muted-foreground">{it.label}</p>
                           <p dir="ltr" className={`mt-0.5 break-all text-lg font-bold tabular-nums ${ar ? "text-right" : "text-left"} ${it.cls}`}>{it.value}</p>
                         </div>
@@ -1793,7 +1793,7 @@ export default function AccountingPage() {
               })()}
 
               {/* Per-period reconciliation (Phase 11) */}
-              <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+              <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                 <CardHeader className="pb-3 flex-row items-center justify-between flex-wrap gap-2">
                   <div>
                     <CardTitle className="text-base">{ar ? "التسوية حسب الفترة" : "Reconciliation by period"}</CardTitle>
@@ -1836,7 +1836,7 @@ export default function AccountingPage() {
               </Card>
 
               {/* VAT return (Phase 12) */}
-              <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+              <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                 <CardHeader className="pb-3 flex-row items-center justify-between flex-wrap gap-2">
                   <div>
                     <CardTitle className="text-base">{ar ? "إقرار ضريبة القيمة المضافة" : "VAT Return"}</CardTitle>
@@ -1923,7 +1923,7 @@ export default function AccountingPage() {
               </Card>
 
               {/* Review items (pending_review) — Phase 11 */}
-              <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+              <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base">{ar ? "عناصر قيد المراجعة" : "Items awaiting review"}</CardTitle>
                   <CardDescription>
@@ -1994,7 +1994,7 @@ export default function AccountingPage() {
                         </button>
                       </div>
                       <div className="flex items-center gap-3">
-                        <Button onClick={() => void handleResolveReview()} disabled={resolveBusy} className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800">
+                        <Button onClick={() => void handleResolveReview()} disabled={resolveBusy} className="bg-elite-blue-600 hover:bg-elite-blue-700">
                           {resolveBusy ? <LoadingSpinner className="h-4 w-4" /> : <Check className="h-4 w-4" />}
                           {ar ? "تأكيد التصنيف" : "Confirm"}
                         </Button>
@@ -2006,7 +2006,7 @@ export default function AccountingPage() {
               </Dialog>
 
               <div className="grid gap-4 xl:grid-cols-2">
-                <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+                <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-base">{ar ? "ضريبة المخرجات (مبيعات)" : "Output VAT (Sales)"}</CardTitle>
                     <CardDescription>{ar ? "لا تُقابل مع المدخلات في نفس الدفتر" : "Never netted against input in the same ledger"}</CardDescription>
@@ -2025,7 +2025,7 @@ export default function AccountingPage() {
                   </TableShell>
                 </Card>
 
-                <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+                <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-base">{ar ? "ضريبة المدخلات (مشتريات ومصروفات)" : "Input VAT (Purchases & Expenses)"}</CardTitle>
                     <CardDescription>{ar ? "يُحتسب في صافي المركز ما كان قابلاً للاسترداد فقط" : "Only recoverable input counts toward the net position"}</CardDescription>
@@ -2055,7 +2055,7 @@ export default function AccountingPage() {
               </div>
 
               <div className="grid gap-4 xl:grid-cols-2">
-                <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+                <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-base">{ar ? "التسويات الضريبية" : "VAT Adjustments"}</CardTitle>
                     <CardDescription>{ar ? "إشعارات دائنة/مدينة وتصحيحات — نهائية وغير قابلة للتعديل" : "Credit/debit notes & corrections — finalized, immutable"}</CardDescription>
@@ -2075,7 +2075,7 @@ export default function AccountingPage() {
                   </TableShell>
                 </Card>
 
-                <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+                <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-base">{ar ? "فترات ضريبة القيمة المضافة" : "VAT Periods"}</CardTitle>
                     <CardDescription>{ar ? "فترة مفتوحة واحدة لكل شهر" : "One open period per month"}</CardDescription>
@@ -2103,7 +2103,7 @@ export default function AccountingPage() {
             </TabsContent>
 
             <TabsContent value="events" className="mt-4">
-              <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+              <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                 <CardHeader className="pb-3 flex-row items-center justify-between">
                   <div>
                     <CardTitle className="text-base">{ar ? "قائمة الأحداث المالية" : "Financial event queue"}</CardTitle>
@@ -2149,7 +2149,7 @@ export default function AccountingPage() {
                 <p>{ar ? "ربط ZATCA غير مكتمل. الإعداد والإرسال الإنتاجي معطلان." : "ZATCA integration is incomplete. Onboarding and production submissions are disabled."}</p>
                 <p>{ar ? "رمز الفاتورة الحالي داخلي. يلزم إكمال بيانات المنشأة وتسجيل وحدة إصدار الفواتير والتحقق من XML والتوقيع والرمز باستخدام أدوات الهيئة واختبارات الربط." : "The current invoice QR is internal. Company tax details, EGS onboarding, XML/signature/QR validation with the official tools, and integration tests are still required."}</p>
               </div>
-              <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+              <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                 <CardHeader className="pb-3 flex-row items-center justify-between">
                   <div>
                     <CardTitle className="text-base">{ar ? "شهادات CSID المخزّنة" : "Stored CSID credentials"}</CardTitle>
@@ -2199,7 +2199,7 @@ export default function AccountingPage() {
                         </p>
                       </div>
                       <div className="flex items-center gap-3">
-                        <Button onClick={() => void handleOnboardZatca()} disabled={!integrationAvailable("zatca") || onboardBusy || !onboardOtp.trim()} className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800">
+                        <Button onClick={() => void handleOnboardZatca()} disabled={!integrationAvailable("zatca") || onboardBusy || !onboardOtp.trim()} className="bg-elite-blue-600 hover:bg-elite-blue-700">
                           {onboardBusy ? <LoadingSpinner className="h-4 w-4" /> : <KeyRound className="h-4 w-4" />}
                           {ar ? "بدء الإعداد" : "Start onboarding"}
                         </Button>
@@ -2237,7 +2237,7 @@ export default function AccountingPage() {
                 )}
               </Card>
 
-              <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+              <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                 <CardHeader className="pb-3 flex-row items-center justify-between">
                   <div>
                     <CardTitle className="text-base">{ar ? "سجل إرسال ZATCA" : "ZATCA transmission log"}</CardTitle>
@@ -2307,7 +2307,7 @@ export default function AccountingPage() {
             </TabsContent>
 
             <TabsContent value="periods" className="mt-4">
-              <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+              <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base">{ar ? "الفترات المحاسبية" : "Accounting periods"}</CardTitle>
                   <CardDescription>
@@ -2343,7 +2343,7 @@ export default function AccountingPage() {
                             {p.status === "closed" && (
                               <button
                                 onClick={() => { setReopenTarget(p); setReopenReason("") }}
-                                className="inline-flex h-7 items-center gap-1 rounded-lg border border-purple-500/25 bg-purple-500/10 px-2 text-xs font-medium text-purple-600 transition-colors hover:bg-purple-500/20"
+                                className="inline-flex h-7 items-center gap-1 rounded-lg border border-teal-500/25 bg-teal-500/10 px-2 text-xs font-medium text-teal-600 transition-colors hover:bg-teal-500/20"
                               >
                                 <Unlock className="h-3 w-3" />
                                 {ar ? "إعادة فتح" : "Reopen"}
@@ -2376,7 +2376,7 @@ export default function AccountingPage() {
                   return (
                     <div className="grid gap-3 sm:grid-cols-4">
                       {items.map((it) => (
-                        <div key={it.label} className="rounded-2xl border border-border/50 bg-card/80 px-4 py-3 shadow-sm">
+                        <div key={it.label} className="rounded-2xl border border-border/50 bg-card px-4 py-3 shadow-sm">
                           <p className="text-[11px] font-medium text-muted-foreground">{it.label}</p>
                           <p dir="ltr" className={`mt-0.5 text-lg font-bold tabular-nums ${it.cls}`}>{it.value}</p>
                         </div>
@@ -2385,7 +2385,7 @@ export default function AccountingPage() {
                   )
                 })()}
 
-                <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+                <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                   <CardHeader className="pb-3 flex-row items-center justify-between">
                     <CardTitle className="text-base flex items-center gap-2"><Building2 className="h-4 w-4 text-elite-blue-600" />{ar ? "الحسابات البنكية" : "Bank accounts"}</CardTitle>
                     <Dialog open={bankDialogOpen} onOpenChange={(open) => { if (!bankBusy) setBankDialogOpen(open) }}>
@@ -2443,7 +2443,7 @@ export default function AccountingPage() {
                           </div>
                           {bankError && <p role="alert" className="text-sm text-destructive">{bankError}</p>}
                           <div className="flex items-center gap-3">
-                            <Button onClick={() => void handleCreateBank()} disabled={bankBusy} className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800">
+                            <Button onClick={() => void handleCreateBank()} disabled={bankBusy} className="bg-elite-blue-600 hover:bg-elite-blue-700">
                               {bankBusy ? <LoadingSpinner className="h-4 w-4" /> : <Save className="h-4 w-4" />}
                               {bankEdit ? (ar ? "حفظ التعديلات" : "Save changes") : (ar ? "إضافة" : "Add")}
                             </Button>
@@ -2496,7 +2496,7 @@ export default function AccountingPage() {
                   </DialogContent>
                 </Dialog>
 
-                <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+                <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                   <CardHeader className="pb-3 flex-row items-center justify-between">
                     <CardTitle className="text-base">{ar ? "المدفوعات" : "Finance payments"}</CardTitle>
                     <button onClick={openPayDialog} className={dialogBtn}>
@@ -2702,7 +2702,7 @@ export default function AccountingPage() {
                       </div>
 
                       <div className="flex items-center gap-3">
-                        <Button onClick={() => void handleRecordPayment()} disabled={payBusy} className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800">
+                        <Button onClick={() => void handleRecordPayment()} disabled={payBusy} className="bg-elite-blue-600 hover:bg-elite-blue-700">
                           {payBusy ? <LoadingSpinner className="h-4 w-4" /> : <Save className="h-4 w-4" />}
                           {ar ? "تسجيل وترحيل" : "Record & post"}
                         </Button>
@@ -2740,7 +2740,7 @@ export default function AccountingPage() {
               <Button
                 onClick={() => void handleReverse()}
                 disabled={isReversing}
-                className="bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800"
+                className="bg-teal-600 hover:bg-teal-700"
               >
                 {isReversing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
                 {ar ? "عكس القيد" : "Reverse entry"}
@@ -2772,7 +2772,7 @@ export default function AccountingPage() {
               <Button
                 onClick={() => void handleReject()}
                 disabled={isRejecting || !rejectReason.trim()}
-                className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800"
+                className="bg-red-600 hover:bg-red-700"
               >
                 {isRejecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}
                 {ar ? "رفض القيد" : "Reject entry"}
@@ -2804,7 +2804,7 @@ export default function AccountingPage() {
               <Button
                 onClick={() => void handleReopen()}
                 disabled={isReopening || !reopenReason.trim()}
-                className="bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800"
+                className="bg-teal-600 hover:bg-teal-700"
               >
                 {isReopening ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unlock className="h-4 w-4" />}
                 {ar ? "إعادة فتح الفترة" : "Reopen period"}

@@ -122,7 +122,7 @@ export function InviteUserDialog({
           <Button
             onClick={submit}
             disabled={busy}
-            className="bg-gradient-to-r from-elite-blue-500 to-elite-blue-600 text-white hover:from-elite-blue-600 hover:to-elite-blue-700"
+            className="bg-elite-blue-500 text-white hover:bg-elite-blue-600"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
             {isAr ? "إرسال الدعوة" : "Send invite"}

@@ -127,10 +127,10 @@ function MfaChallengeContent() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <Card className="w-full max-w-md rounded-2xl border border-border/50 bg-card/80 shadow-sm backdrop-blur-sm">
+      <Card className="w-full max-w-md rounded-2xl border border-border/50 bg-card shadow-sm">
         <CardHeader className="pb-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-elite-blue-600/10">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl text-elite-blue-600 dark:text-elite-blue-300">
               <ShieldCheck className="h-5 w-5 text-elite-blue-600" />
             </div>
             <div>
@@ -162,13 +162,13 @@ function MfaChallengeContent() {
                 value={code}
                 onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
                 onKeyDown={(e) => { if (e.key === "Enter") void handleVerify() }}
-                className="flex-1 rounded-xl text-center font-mono text-lg tracking-[0.3em]"
+                className="flex-1 rounded-xl text-center font-mono text-lg"
                 dir="ltr"
               />
               <Button
                 onClick={() => void handleVerify()}
                 disabled={verifying || code.length !== 6}
-                className="rounded-xl bg-gradient-to-r from-elite-blue-500 to-elite-blue-600 text-white"
+                className="rounded-xl bg-elite-blue-500 text-white"
               >
                 {verifying ? <LoadingSpinner className="h-4 w-4" /> : <ShieldCheck className="h-4 w-4" />}
               </Button>

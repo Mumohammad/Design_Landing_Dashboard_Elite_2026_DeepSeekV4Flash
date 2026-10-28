@@ -291,7 +291,7 @@ export function CreateDriverDialog({
         <form onSubmit={handleSubmit(onSubmit)} className="grid gap-6" noValidate>
           {/* Identity */}
           <fieldset className="grid gap-4 rounded-2xl border border-border/50 bg-muted/20 p-4 sm:grid-cols-2">
-            <legend className="px-2 text-xs font-bold uppercase tracking-wide text-elite-blue-600 dark:text-elite-blue-300">
+            <legend className="px-2 text-xs font-bold text-elite-blue-600 dark:text-elite-blue-300">
               {isAr ? "الهوية" : "Identity"}
             </legend>
             <Field label={isAr ? "الاسم الكامل (عربي)" : "Full name (Arabic)"} required error={errors.full_name_ar?.message}>
@@ -319,7 +319,7 @@ export function CreateDriverDialog({
 
           {/* Legal */}
           <fieldset className="grid gap-4 rounded-2xl border border-border/50 bg-muted/20 p-4 sm:grid-cols-2">
-            <legend className="px-2 text-xs font-bold uppercase tracking-wide text-elite-blue-600 dark:text-elite-blue-300">
+            <legend className="px-2 text-xs font-bold text-elite-blue-600 dark:text-elite-blue-300">
               {isAr ? "البيانات الرسمية" : "Legal documents"}
             </legend>
             <Field label={isAr ? "رقم الإقامة" : "Iqama number"} error={errors.iqama_number?.message}>
@@ -352,7 +352,7 @@ export function CreateDriverDialog({
 
           {/* Contact */}
           <fieldset className="grid gap-4 rounded-2xl border border-border/50 bg-muted/20 p-4 sm:grid-cols-2">
-            <legend className="px-2 text-xs font-bold uppercase tracking-wide text-elite-blue-600 dark:text-elite-blue-300">
+            <legend className="px-2 text-xs font-bold text-elite-blue-600 dark:text-elite-blue-300">
               {isAr ? "التواصل" : "Contact"}
             </legend>
             <Field label={isAr ? "الجوال الأساسي" : "Primary mobile"} required error={errors.primary_mobile?.message}>
@@ -377,7 +377,7 @@ export function CreateDriverDialog({
 
           {/* Employment */}
           <fieldset className="grid gap-4 rounded-2xl border border-border/50 bg-muted/20 p-4 sm:grid-cols-2">
-            <legend className="px-2 text-xs font-bold uppercase tracking-wide text-elite-blue-600 dark:text-elite-blue-300">
+            <legend className="px-2 text-xs font-bold text-elite-blue-600 dark:text-elite-blue-300">
               {isAr ? "التوظيف" : "Employment"}
             </legend>
             <Field label={isAr ? "الفئة" : "Category"} required error={errors.category?.message}>
@@ -481,7 +481,7 @@ export function CreateDriverDialog({
 
           {/* Payroll */}
           <fieldset className="grid gap-4 rounded-2xl border border-border/50 bg-muted/20 p-4 sm:grid-cols-2">
-            <legend className="px-2 text-xs font-bold uppercase tracking-wide text-elite-blue-600 dark:text-elite-blue-300">
+            <legend className="px-2 text-xs font-bold text-elite-blue-600 dark:text-elite-blue-300">
               {isAr ? "الراتب والبنك" : "Payroll & bank"}
             </legend>
             <Field label={isAr ? "الراتب الأساسي (ر.س)" : "Basic salary (SAR)"} error={errors.basic_salary?.message}>
@@ -503,7 +503,7 @@ export function CreateDriverDialog({
 
           {/* Notes */}
           <fieldset className="grid gap-2 rounded-2xl border border-border/50 bg-muted/20 p-4">
-            <legend className="px-2 text-xs font-bold uppercase tracking-wide text-elite-blue-600 dark:text-elite-blue-300">
+            <legend className="px-2 text-xs font-bold text-elite-blue-600 dark:text-elite-blue-300">
               {isAr ? "ملاحظات داخلية" : "Internal notes"}
             </legend>
             <Textarea {...register("internal_notes")} rows={3} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30" />
@@ -521,7 +521,7 @@ export function CreateDriverDialog({
             <Button
               type="submit"
               disabled={submitting}
-              className="bg-gradient-to-r from-elite-blue-500 to-elite-blue-700 text-white hover:from-elite-blue-600 hover:to-elite-blue-800"
+              className="bg-elite-blue-500 text-white hover:bg-elite-blue-600"
             >
               {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
               {isAr ? "إنشاء السائق" : "Create driver"}

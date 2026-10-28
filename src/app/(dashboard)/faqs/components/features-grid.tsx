@@ -28,7 +28,7 @@ export function FeaturesGrid({ features }: FeaturesGridProps) {
         const IconComponent = iconMap[feature.icon as keyof typeof iconMap]
         return (
           <article key={feature.id} className='group'>
-            <Card className='relative h-full overflow-hidden transition-all hover:shadow-md'>
+            <Card className='relative h-full overflow-hidden transition-all'>
               <CardContent className='px-6'>
                 <Badge variant='secondary' className='mb-4 inline-flex size-12 items-center justify-center'>
                   <IconComponent className='!size-5' aria-hidden='true' />

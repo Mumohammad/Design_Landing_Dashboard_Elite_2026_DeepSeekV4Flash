@@ -39,7 +39,7 @@ export function FleetSection() {
             <div className="card-premium h-full overflow-hidden p-0">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/50 px-6 py-4">
                 <div className="flex items-center gap-3">
-                  <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-purple-600 text-white shadow-lg shadow-violet-500/20">
+                  <span className="flex h-11 w-11 items-center justify-center rounded-2xl text-elite-blue-600 dark:text-elite-blue-300">
                     <CarFront className="h-5 w-5" />
                   </span>
                   <div>
@@ -48,7 +48,7 @@ export function FleetSection() {
                   </div>
                 </div>
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
-                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                   {c.fleet.statusValue}
                 </span>
               </div>
@@ -73,7 +73,7 @@ export function FleetSection() {
                     <span className="font-extrabold tabular-nums text-foreground">{c.fleet.availabilityValue}</span>
                   </div>
                   <div className="mt-2.5 h-2.5 overflow-hidden rounded-full bg-muted">
-                    <div className="h-full w-[96%] rounded-full bg-gradient-to-r from-elite-blue-500 via-elite-blue-400 to-elite-orange-500 transition-all duration-1000 ease-out" />
+                    <div className="h-full w-[96%] rounded-full bg-elite-blue-500 transition-all duration-1000 ease-out" />
                   </div>
                 </div>
               </div>
@@ -98,7 +98,7 @@ export function FleetSection() {
               </div>
 
               <div className="card-premium flex flex-1 flex-col justify-center p-6">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                <p className="text-xs font-semibold text-muted-foreground">
                   {c.hero.flowTitle}
                 </p>
                 <div className="mt-4 space-y-0">
@@ -108,7 +108,7 @@ export function FleetSection() {
                         className={cn(
                           "flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-[11px] font-extrabold transition-all duration-300",
                           i === arr.length - 1
-                            ? "bg-gradient-to-br from-elite-blue-500 to-elite-orange-500 text-white shadow-lg shadow-elite-blue-500/25"
+                            ? "bg-elite-blue-500 text-white shadow-elite-blue-500/25"
                             : "border border-border/60 bg-background text-muted-foreground"
                         )}
                       >
@@ -116,7 +116,7 @@ export function FleetSection() {
                       </span>
                       <span className="text-sm font-semibold text-foreground">{step}</span>
                       {i < arr.length - 1 && (
-                        <ArrowDown className="h-3.5 w-3.5 shrink-0 text-elite-orange-500 animate-pulse" />
+                        <ArrowDown className="h-3.5 w-3.5 shrink-0 text-elite-orange-500" />
                       )}
                     </div>
                   ))}

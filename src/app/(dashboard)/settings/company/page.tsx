@@ -178,10 +178,10 @@ export default function CompanySettingsPage() {
       )}
 
       <form action={formAction}>
-        <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm">
+        <Card className="rounded-2xl border border-border/50 bg-card shadow-sm">
           <CardHeader className="pb-4">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-elite-blue-600/10">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl text-elite-blue-600 dark:text-elite-blue-300">
                 <Building2 className="h-5 w-5 text-elite-blue-600" />
               </div>
               <div>
@@ -240,7 +240,7 @@ export default function CompanySettingsPage() {
         </Card>
 
         <div className="mt-5 flex items-center gap-3">
-          <Button type="submit" disabled={isPending || !nameAr.trim() || !nameEn.trim()} className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800">
+          <Button type="submit" disabled={isPending || !nameAr.trim() || !nameEn.trim()} className="bg-elite-blue-600 hover:bg-elite-blue-700">
             {isPending ? (
               <LoadingSpinner className="h-4 w-4" />
             ) : (
@@ -260,10 +260,10 @@ export default function CompanySettingsPage() {
       </form>
 
       <form action={wpsAction}>
-        <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm">
+        <Card className="rounded-2xl border border-border/50 bg-card shadow-sm">
           <CardHeader className="pb-4">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-elite-blue-600/10">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl text-elite-blue-600 dark:text-elite-blue-300">
                 <Landmark className="h-5 w-5 text-elite-blue-600" />
               </div>
               <div>
@@ -305,7 +305,7 @@ export default function CompanySettingsPage() {
               <Button
                 type="submit"
                 disabled={isSavingWps || !molReference.trim() || !wpsIban.trim()}
-                className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800"
+                className="bg-elite-blue-600 hover:bg-elite-blue-700"
               >
                 {isSavingWps ? <LoadingSpinner className="h-4 w-4" /> : <Save className="h-4 w-4" />}
                 {t.common.saveChanges}

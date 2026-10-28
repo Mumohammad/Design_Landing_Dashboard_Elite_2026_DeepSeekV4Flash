@@ -27,9 +27,9 @@ export function SiteHeader() {
 
   return (
     <>
-      <header className="sticky top-0 z-40 flex h-16 shrink-0 items-center border-b border-border/40 bg-background/70 backdrop-blur-2xl supports-[backdrop-filter]:bg-background/60 transition-all duration-200">
+      <header className="sticky top-0 z-40 flex h-16 shrink-0 items-center border-b border-border/40 bg-background transition-all duration-200">
         {/* Subtle animated gradient line at bottom */}
-        <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-elite-blue-500/30 to-transparent" />
+        <div className="absolute inset-x-0 bottom-0 h-px bg-transparent" />
         <div className="flex w-full items-center gap-3 px-4 py-2 lg:px-6">
           <SidebarTrigger className="-ml-1 hover:bg-muted/50 rounded-lg transition-colors" />
           <Separator orientation="vertical" className="mx-1 h-6 bg-border/50" />

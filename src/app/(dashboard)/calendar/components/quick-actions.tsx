@@ -138,7 +138,7 @@ export function QuickActions({
             </div>
             
             <div className="flex items-start gap-3">
-              <div className="w-2 h-2 bg-purple-500 rounded-full mt-2" />
+              <div className="w-2 h-2 bg-teal-500 rounded-full mt-2" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">Design Review</p>
                 <p className="text-xs text-muted-foreground">2:00 PM • Virtual</p>

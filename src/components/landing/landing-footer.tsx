@@ -59,7 +59,7 @@ export function LandingFooter() {
         <div className="grid gap-10 lg:grid-cols-6">
           <div className="space-y-4 lg:col-span-2">
             <div className="flex items-center gap-3">
-              <div className="relative flex items-center justify-center rounded-2xl bg-gradient-to-br from-elite-blue-500 via-elite-blue-400 to-elite-orange-500 shadow-lg shadow-elite-blue-500/20" style={{ width: 34, height: 34 }}>
+              <div className="relative flex items-center justify-center rounded-2xl bg-elite-blue-500 shadow-elite-blue-500/20" style={{ width: 34, height: 34 }}>
                 <Image alt={ui("Elite Development")} width={34} height={34} className="rounded-2xl object-cover" style={{ width: 34, height: 34 }} src="/logo.png" />
               </div>
               <div className="leading-tight">
@@ -67,7 +67,7 @@ export function LandingFooter() {
                 <p className="text-[11px] text-muted-foreground"><LocalizedText text="Elite Development" /></p>
               </div>
             </div>
-            <p className="max-w-sm text-sm leading-relaxed text-muted-foreground"><LocalizedText text="نظام التشغيل للعملية اللوجستية." /></p>
+            <p className="max-w-sm text-base leading-relaxed text-foreground/75"><LocalizedText text="نظام التشغيل للعملية اللوجستية." /></p>
             <div className="space-y-2 text-xs text-muted-foreground">
               <p className="flex items-center gap-2">
                 <MapPin className="h-3.5 w-3.5" aria-hidden="true" /><LocalizedText text="القصيم، المملكة العربية السعودية" /></p>

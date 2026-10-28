@@ -74,19 +74,18 @@ export function SuccessScreen({
       <div className="mx-auto flex max-w-xl flex-col items-center px-4 py-16 text-center">
         {/* Animated checkmark */}
         <div className="relative">
-          <div className="absolute inset-0 -m-4 rounded-full bg-emerald-500/20 blur-2xl" aria-hidden />
           <MotionCheck />
         </div>
 
         <h1 className="mt-8 text-3xl font-extrabold tracking-tight text-foreground">{dict.success.heading}</h1>
         <p className="mt-2 text-muted-foreground">{dict.success.message}</p>
 
-        <div className="mt-8 w-full rounded-2xl border border-border bg-card/70 p-6 shadow-sm">
-          <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+        <div className="mt-8 w-full rounded-2xl border border-border bg-card p-6 shadow-sm">
+          <p className="text-xs font-bold text-muted-foreground">
             {dict.success.applicationNumber}
           </p>
           <div className="mt-2 flex items-center justify-center gap-2">
-            <p className="font-mono text-2xl font-extrabold tracking-wide text-foreground">{applicationNumber}</p>
+            <p className="font-mono text-2xl font-extrabold text-foreground">{applicationNumber}</p>
             <button
               type="button"
               onClick={() => void copyNumber()}
@@ -134,7 +133,7 @@ export function SuccessScreen({
           </Button>
           <Button
             asChild
-            className="h-11 rounded-xl bg-gradient-to-r from-elite-blue-500 to-elite-blue-600 px-6 text-white shadow-lg shadow-elite-blue-500/25"
+            className="h-11 rounded-xl bg-elite-blue-500 px-6 text-white shadow-elite-blue-500/25"
           >
             <Link href="/landing">
               <RotateCcw className="h-4 w-4 rtl:-scale-x-100" /> {dict.success.returnHome}

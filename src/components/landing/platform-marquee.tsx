@@ -30,7 +30,7 @@ function LogoChip({ platform }: { platform: Platform }) {
   const isSvg = platform.src.endsWith(".svg")
   const imgClass = `${isSquare ? "h-9 w-9 rounded-lg object-contain" : "h-8 w-auto object-contain"}`
   return (
-    <div className="group flex h-24 w-44 shrink-0 flex-col items-center justify-center gap-2 rounded-2xl border border-border/60 bg-white px-4 shadow-sm shadow-black/[0.03] transition-all duration-300 hover:-translate-y-1 hover:border-elite-blue-500/40 hover:shadow-lg hover:shadow-elite-blue-500/10 dark:bg-card animate-chip-glow">
+    <div className="group flex h-24 w-44 shrink-0 flex-col items-center justify-center gap-2 rounded-2xl border border-border/60 bg-white px-4 shadow-black/[0.03] transition-all duration-300 hover:-translate-y-1 hover:border-elite-blue-500/40 hover:shadow-elite-blue-500/10 dark:bg-card animate-chip-glow">
       <span
         className={`flex items-center justify-center transition-transform duration-300 group-hover:scale-110 ${
           isSquare ? "h-9 w-9" : "h-8 w-auto"

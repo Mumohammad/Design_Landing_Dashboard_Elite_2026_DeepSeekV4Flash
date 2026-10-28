@@ -205,7 +205,7 @@ export function DriverCardPanel({ driverId, isAr }: { driverId: string; isAr: bo
                   {card.card_serial}
                 </span>
                 {statusLbl && (
-                  <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold", cardStatusCls[card.status])}>
+                  <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold", cardStatusCls[card.status])}>
                     {isAr ? statusLbl.ar : statusLbl.en}
                   </span>
                 )}

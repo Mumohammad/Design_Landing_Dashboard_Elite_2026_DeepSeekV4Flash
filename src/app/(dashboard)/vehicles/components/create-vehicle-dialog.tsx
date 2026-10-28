@@ -221,7 +221,7 @@ export function CreateVehicleDialog({
         <form onSubmit={handleSubmit(onSubmit)} className="grid gap-6" noValidate>
           {/* Identity */}
           <fieldset className="grid gap-4 rounded-2xl border border-border/50 bg-muted/20 p-4 sm:grid-cols-2">
-            <legend className="px-2 text-xs font-bold uppercase tracking-wide text-elite-blue-600 dark:text-elite-blue-300">
+            <legend className="px-2 text-xs font-bold text-elite-blue-600 dark:text-elite-blue-300">
               {isAr ? "البيانات الأساسية" : "Identity"}
             </legend>
             <Field label={isAr ? "رمز المركبة" : "Vehicle code"} error={errors.vehicle_code?.message}>
@@ -254,7 +254,7 @@ export function CreateVehicleDialog({
 
           {/* Identification */}
           <fieldset className="grid gap-4 rounded-2xl border border-border/50 bg-muted/20 p-4 sm:grid-cols-2">
-            <legend className="px-2 text-xs font-bold uppercase tracking-wide text-elite-blue-600 dark:text-elite-blue-300">
+            <legend className="px-2 text-xs font-bold text-elite-blue-600 dark:text-elite-blue-300">
               {isAr ? "البيانات الفنية" : "Identification"}
             </legend>
             <Field label={isAr ? "رقم الشاصي" : "Chassis number"} error={errors.chassis_number?.message}>
@@ -290,7 +290,7 @@ export function CreateVehicleDialog({
 
           {/* Status */}
           <fieldset className="grid gap-4 rounded-2xl border border-border/50 bg-muted/20 p-4 sm:grid-cols-3">
-            <legend className="px-2 text-xs font-bold uppercase tracking-wide text-elite-blue-600 dark:text-elite-blue-300">
+            <legend className="px-2 text-xs font-bold text-elite-blue-600 dark:text-elite-blue-300">
               {isAr ? "الحالة والتشغيل" : "Status & operation"}
             </legend>
             <Field label={isAr ? "الحالة" : "Status"} required error={errors.status?.message}>
@@ -340,7 +340,7 @@ export function CreateVehicleDialog({
 
           {/* Documents */}
           <fieldset className="grid gap-4 rounded-2xl border border-border/50 bg-muted/20 p-4 sm:grid-cols-2">
-            <legend className="px-2 text-xs font-bold uppercase tracking-wide text-elite-blue-600 dark:text-elite-blue-300">
+            <legend className="px-2 text-xs font-bold text-elite-blue-600 dark:text-elite-blue-300">
               {isAr ? "الوثائق والصلاحيات" : "Documents & validity"}
             </legend>
             <Field label={isAr ? "انتهاء التأمين" : "Insurance expiry"}>
@@ -365,7 +365,7 @@ export function CreateVehicleDialog({
 
           {/* Notes */}
           <fieldset className="grid gap-2 rounded-2xl border border-border/50 bg-muted/20 p-4">
-            <legend className="px-2 text-xs font-bold uppercase tracking-wide text-elite-blue-600 dark:text-elite-blue-300">
+            <legend className="px-2 text-xs font-bold text-elite-blue-600 dark:text-elite-blue-300">
               {isAr ? "ملاحظات" : "Notes"}
             </legend>
             <Textarea {...register("notes")} rows={3} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30" />
@@ -387,7 +387,7 @@ export function CreateVehicleDialog({
             <Button
               type="submit"
               disabled={submitting}
-              className="bg-gradient-to-r from-elite-blue-500 to-elite-blue-700 text-white hover:from-elite-blue-600 hover:to-elite-blue-800"
+              className="bg-elite-blue-500 text-white hover:bg-elite-blue-600"
             >
               {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
               {isAr ? "إنشاء المركبة" : "Create vehicle"}

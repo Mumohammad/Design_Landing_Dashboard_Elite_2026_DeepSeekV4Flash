@@ -203,7 +203,7 @@ export function PartiesManager({ kind }: { kind: PartyKind }) {
       label: ar ? "مسجل ضريبياً" : "With tax number",
       value: rows.filter((r) => r.tax_number).length,
       icon: ReceiptText,
-      color: "#8B5CF6",
+      color: "#0F766E",
     },
     {
       label: ar ? "متوسط حد الائتمان" : "Avg credit limit",
@@ -584,7 +584,7 @@ export function PartiesManager({ kind }: { kind: PartyKind }) {
               <Button
                 onClick={() => void handleSubmitForm()}
                 disabled={isSavingForm || !form.name_ar.trim()}
-                className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800"
+                className="bg-elite-blue-600 hover:bg-elite-blue-700"
               >
                 {isSavingForm ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 {t.common.save}
@@ -613,7 +613,7 @@ export function PartiesManager({ kind }: { kind: PartyKind }) {
             <Button
               onClick={() => void handleDelete()}
               disabled={isDeleting}
-              className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800"
+              className="bg-red-600 hover:bg-red-700"
             >
               {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
               {ar ? "حذف" : "Delete"}

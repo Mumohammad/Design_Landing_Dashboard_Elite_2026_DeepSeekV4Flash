@@ -55,12 +55,12 @@ function DefaultErrorFallback({ error, retry }: { error: Error; retry: () => voi
   const { t } = useTranslation()
   return (
     <div className="flex min-h-[400px] items-center justify-center p-6">
-      <div className="relative w-full max-w-md overflow-hidden rounded-2xl border border-border/50 bg-card/80 p-8 text-center backdrop-blur-sm shadow-xl">
+      <div className="relative w-full max-w-md overflow-hidden rounded-2xl border border-border/50 bg-card p-8 text-center">
         {/* Animated gradient accent */}
-        <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-red-500 via-amber-500 to-red-500" />
+        <div className="absolute inset-x-0 top-0 h-1 bg-red-500" />
 
         {/* Icon */}
-        <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-red-500/15 to-amber-500/15 shadow-lg shadow-red-500/10">
+        <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-red-500/15">
           <AlertTriangle className="h-7 w-7 text-red-500" />
         </div>
 
@@ -84,7 +84,7 @@ function DefaultErrorFallback({ error, retry }: { error: Error; retry: () => voi
             onClick={retry}
             variant="default"
             size="sm"
-            className="gap-2 rounded-xl bg-gradient-to-r from-elite-blue-500 to-elite-blue-600 text-white shadow-lg shadow-elite-blue-500/25 hover:from-elite-blue-600 hover:to-elite-blue-700"
+            className="gap-2 rounded-xl bg-elite-blue-500 text-white shadow-elite-blue-500/25 hover:bg-elite-blue-600"
           >
             <RefreshCcw className="h-3.5 w-3.5" />
             {t.common.retry}

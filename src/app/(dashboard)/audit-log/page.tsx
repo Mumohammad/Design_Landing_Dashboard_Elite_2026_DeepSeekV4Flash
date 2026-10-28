@@ -327,7 +327,7 @@ function AuditTrailInner() {
       )}
 
       {/* Filter + export toolbar (server-side filters — one capped page) */}
-      <div className="mb-4 space-y-3 rounded-2xl border border-border/50 bg-card/60 px-4 py-3 backdrop-blur-sm">
+      <div className="mb-4 space-y-3 rounded-2xl border border-border/50 bg-card/60 px-4 py-3">
         <div className="flex flex-wrap items-center gap-2">
           <Input
             type="date"

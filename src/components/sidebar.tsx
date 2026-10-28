@@ -20,7 +20,7 @@ export default function Sidebar() {
   ];
 
   return (
-    <div className="w-64 bg-slate-800/50 backdrop-blur-sm border-r border-white/10 flex flex-col">
+    <div className="w-64 bg-slate-800/50 border-r border-white/10 flex flex-col">
       <div className="p-6">
         <h2 className="text-white font-bold text-xl">Elite Dashboard</h2>
       </div>

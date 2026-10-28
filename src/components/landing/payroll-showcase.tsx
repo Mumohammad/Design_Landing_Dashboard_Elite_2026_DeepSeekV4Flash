@@ -19,7 +19,7 @@ export function PayrollShowcase() {
         <Reveal>
           <div className="card-premium flex h-full flex-col overflow-hidden p-0">
             <div className="flex items-center gap-2.5 border-b border-border/50 bg-elite-blue-500/5 px-6 py-4">
-              <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-white shadow-lg shadow-emerald-500/20">
+              <span className="flex h-10 w-10 items-center justify-center rounded-2xl text-elite-blue-600 dark:text-elite-blue-300">
                 <HandCoins className="h-5 w-5" />
               </span>
               <div>
@@ -34,7 +34,7 @@ export function PayrollShowcase() {
                   className={cn(
                     "flex items-center justify-between gap-3 rounded-xl px-4 py-3 transition-colors",
                     row.strong
-                      ? "bg-gradient-to-r from-elite-blue-500/10 to-elite-orange-500/10 ring-1 ring-inset ring-elite-blue-500/20"
+                      ? "bg-elite-blue-500/10 ring-1 ring-inset ring-elite-blue-500/20"
                       : "bg-background/50"
                   )}
                 >
@@ -59,7 +59,7 @@ export function PayrollShowcase() {
         <Reveal delay={120}>
           <div className="card-premium flex h-full flex-col overflow-hidden p-0">
             <div className="flex items-center gap-2.5 border-b border-border/50 px-6 py-4">
-              <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-elite-orange-500 to-elite-orange-600 text-white shadow-lg shadow-elite-orange-500/20">
+              <span className="flex h-10 w-10 items-center justify-center rounded-2xl text-elite-blue-600 dark:text-elite-blue-300">
                 <Settings2 className="h-5 w-5" />
               </span>
               <div>
@@ -75,7 +75,7 @@ export function PayrollShowcase() {
                     key={line.label}
                     className={cn(
                       "flex items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors",
-                      line.kind === "total" && "bg-gradient-to-r from-elite-blue-500/15 to-elite-orange-500/15 ring-1 ring-inset ring-elite-blue-500/25"
+                      line.kind === "total" && "bg-elite-blue-500/15 ring-1 ring-inset ring-elite-blue-500/25"
                     )}
                   >
                     <span className="flex items-center gap-2.5 text-muted-foreground">

@@ -1,11 +1,8 @@
 "use client"
 
-import * as React from "react"
 import Link from "next/link"
-import { Area, AreaChart, ResponsiveContainer } from "recharts"
-import { ArrowDownRight, ArrowUpRight, Minus, type LucideIcon } from "lucide-react"
+import { type LucideIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { useMeasuredSize } from "@/components/ui/chart"
 import { useTranslation } from "@/hooks/use-translation"
 import type { MetricValue } from "@/lib/analytics/types"
 import { useCountUp } from "./use-count-up"
@@ -14,10 +11,12 @@ import { formatNumber } from "./format"
 interface KpiCardProps {
   label: string
   metric: MetricValue
-  icon: LucideIcon
-  color: string
+  /** Kept for API compatibility; KPI tiles carry no icon (Taste Skill app-screen rules). */
+  icon?: LucideIcon
+  /** Kept for API compatibility; values are set in ink, not a per-tile hue. */
+  color?: string
   href?: string
-  /** Sparkline series (optional). */
+  /** Kept for API compatibility; trends live in their own charts, not sparklines. */
   spark?: number[]
   /** Delta unit: "%" (default) or "pp" for percentage points. */
   deltaUnit?: "pct" | "pp"
@@ -30,16 +29,12 @@ interface KpiCardProps {
 export function KpiCard({
   label,
   metric,
-  icon: Icon,
-  color,
   href,
-  spark,
   deltaUnit = "pct",
   currency = false,
   exactCurrency = false,
 }: KpiCardProps) {
   const { locale, t } = useTranslation()
-  const gradientId = React.useId().replace(/:/g, "")
   const display = useCountUp(metric.available && !exactCurrency ? metric.value : 0)
   const valueText = currency && exactCurrency
     ? new Intl.NumberFormat(locale === "ar" ? "ar-SA-u-nu-latn" : "en-US", {
@@ -61,122 +56,40 @@ export function KpiCard({
   const card = (
     <div
       className={cn(
-        "group relative card-premium overflow-hidden p-5 transition-all duration-300",
-        href && "cursor-pointer hover:-translate-y-1",
+        "h-full rounded-lg border border-border bg-card p-5",
+        href && "transition-colors hover:border-foreground/25",
       )}
     >
-      {/* Subtle gradient glow on hover */}
-      <div
-        className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-500 group-hover:opacity-100"
-        style={{
-          background: `radial-gradient(circle at 80% 20%, ${color}08 0%, transparent 60%)`,
-        }}
-      />
-
-      <div className="relative flex items-start justify-between gap-2">
-        <span className="text-[13px] font-semibold text-muted-foreground">{label}</span>
-        <span
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl transition-all duration-300 group-hover:scale-110 group-hover:shadow-lg"
-          style={{
-            backgroundColor: `${color}12`,
-            color,
-            boxShadow: `0 4px 12px -4px ${color}20`,
-          }}
-        >
-          <Icon className="h-5 w-5" />
-        </span>
-      </div>
-
-      <div className="relative mt-3 flex items-end justify-between gap-2">
-        <span className="text-2xl font-extrabold tabular-nums tracking-tight text-foreground sm:text-3xl">
-          {metric.available ? valueText : "N/A"}
-          {currency && metric.available && (
-            <span className="ms-1.5 text-sm font-semibold text-muted-foreground">
-              {locale === "ar" ? "ر.س" : "SAR"}
-            </span>
-          )}
-        </span>
-        {hasDelta && (
-          <span
-            className={cn(
-              "inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums transition-colors",
-              deltaPositive
-                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                : "bg-red-500/10 text-red-600 dark:text-red-400",
-            )}
-          >
-            {deltaPositive ? (
-              <ArrowUpRight className="h-3 w-3" />
-            ) : (
-              <ArrowDownRight className="h-3 w-3" />
-            )}
-            {deltaText}
+      <span className="text-sm font-medium text-muted-foreground">{label}</span>
+      <div className="mt-2 text-2xl font-semibold tabular-nums text-foreground sm:text-[28px]">
+        {metric.available ? valueText : "N/A"}
+        {currency && metric.available && (
+          <span className="ms-1.5 text-sm font-normal text-muted-foreground">
+            {locale === "ar" ? "ر.س" : "SAR"}
           </span>
         )}
       </div>
-
-      {spark && spark.length > 1 && metric.available ? (
-        <SparklineMount color={color} spark={spark} gradientId={gradientId} />
-      ) : (
-        <span className="mt-3 flex items-center gap-1.5 text-[11px] text-muted-foreground/70">
-          <Minus className="h-3 w-3" />
-          {t.dashboard.vsPreviousPeriod}
-        </span>
-      )}
+      <p className="mt-2 text-[13px] tabular-nums text-muted-foreground">
+        {hasDelta ? (
+          <>
+            <span className={cn("font-medium", deltaPositive ? "text-emerald-700 dark:text-emerald-400" : "text-red-700 dark:text-red-400")}>
+              {deltaPositive ? "+" : "−"}{deltaText}
+            </span>{" "}
+            {t.dashboard.vsPreviousPeriod}
+          </>
+        ) : (
+          <span aria-label={t.dashboard.vsPreviousPeriod}>— {t.dashboard.vsPreviousPeriod}</span>
+        )}
+      </p>
     </div>
   )
 
   if (href) {
     return (
-      <Link href={href} className="block focus-visible:outline-none" aria-label={label}>
+      <Link href={href} className="block h-full rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={label}>
         {card}
       </Link>
     )
   }
   return card
-}
-
-/**
- * Prompt M2: the sparkline mounts only after its wrapper reports a real
- * measured size (ResizeObserver) — recharts never sees a zero-size container,
- * so the "width(-1) and height(-1) of chart should be greater than 0"
- * console warning cannot occur, even while the dashboard skeleton swaps out
- * or the card animates in.
- */
-function SparklineMount({
-  color,
-  spark,
-  gradientId,
-}: {
-  color: string
-  spark: number[]
-  gradientId: string
-}) {
-  const { ref, size } = useMeasuredSize<HTMLDivElement>()
-  const ready = size.width > 0 && size.height > 0
-
-  return (
-    <div ref={ref} className="relative mt-3 h-10 w-full">
-      {ready ? (
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={spark.map((v, i) => ({ i, v }))} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
-            <defs>
-              <linearGradient id={`spark-${gradientId}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={color} stopOpacity={0.3} />
-                <stop offset="100%" stopColor={color} stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <Area
-              type="monotone"
-              dataKey="v"
-              stroke={color}
-              strokeWidth={2}
-              fill={`url(#spark-${gradientId})`}
-              isAnimationActive={false}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-      ) : null}
-    </div>
-  )
 }

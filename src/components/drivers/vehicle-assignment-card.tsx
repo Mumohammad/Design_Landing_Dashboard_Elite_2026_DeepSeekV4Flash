@@ -143,7 +143,7 @@ export function VehicleAssignmentCard({ driverId, isAr }: { driverId: string; is
   const v = assignment?.vehicles
 
   return (
-    <div className="rounded-2xl border border-border/50 bg-card/60 p-4 shadow-sm backdrop-blur-sm lg:col-span-2">
+    <div className="rounded-2xl border border-border/50 bg-card/60 p-4 shadow-sm lg:col-span-2">
       <div className="mb-3 flex items-center gap-2 border-b border-border/30 pb-3">
         <Car className="h-4 w-4 text-elite-blue-500" />
         <h3 className="text-sm font-semibold text-foreground">

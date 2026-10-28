@@ -169,7 +169,7 @@ export default function MfaSettingsPage() {
       </div>
 
       {/* Status Card */}
-      <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm">
+      <Card className="rounded-2xl border border-border/50 bg-card shadow-sm">
         <CardHeader className="pb-4">
           <div className="flex items-center gap-3">
             <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${
@@ -216,7 +216,7 @@ export default function MfaSettingsPage() {
             <Button
               onClick={handleEnroll}
               disabled={enrolling}
-              className="w-full rounded-xl bg-gradient-to-r from-elite-blue-500 to-elite-blue-600 text-white shadow-lg shadow-elite-blue-500/25"
+              className="w-full rounded-xl bg-elite-blue-500 text-white shadow-elite-blue-500/25"
             >
               {enrolling ? (
                 <LoadingSpinner className="h-4 w-4 mr-2" />
@@ -255,10 +255,10 @@ export default function MfaSettingsPage() {
 
       {/* Enrollment QR Code */}
       {qrSvg && (
-        <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm">
+        <Card className="rounded-2xl border border-border/50 bg-card shadow-sm">
           <CardHeader className="pb-4">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-elite-blue-600/10">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl text-elite-blue-600 dark:text-elite-blue-300">
                 <QrCode className="h-5 w-5 text-elite-blue-600" />
               </div>
               <div>
@@ -287,7 +287,7 @@ export default function MfaSettingsPage() {
             {/* Manual Entry Secret */}
             {secret && (
               <div className="rounded-xl border border-border/50 bg-muted/30 px-4 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <p className="text-[11px] font-semibold text-muted-foreground">
                   {ar ? "المعرف اليدوي" : "Manual entry key"}
                 </p>
                 <p className="mt-1 font-mono text-sm font-bold text-foreground break-all" dir="ltr">
@@ -311,14 +311,14 @@ export default function MfaSettingsPage() {
                   placeholder="000000"
                   value={verifyCode}
                   onChange={(e) => setVerifyCode(e.target.value.replace(/\D/g, ""))}
-                  className="flex-1 rounded-xl font-mono text-center text-lg tracking-[0.3em]"
+                  className="flex-1 rounded-xl font-mono text-center text-lg"
                   dir="ltr"
                 />
                 <Button
                   onClick={handleVerify}
                   aria-label={ar ? "تأكيد رمز التحقق" : "Verify authentication code"}
                   disabled={verifying || verifyCode.length !== 6}
-                  className="rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white"
+                  className="rounded-xl bg-emerald-500 text-white"
                 >
                   {verifying ? (
                     <LoadingSpinner className="h-4 w-4" />

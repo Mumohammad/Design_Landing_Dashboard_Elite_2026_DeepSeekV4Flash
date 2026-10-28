@@ -93,7 +93,7 @@ export default function PlatformsPage() {
   const kpiCards: KpiCardData[] = [
     { label: pm.kpiActive, value: rows.filter((r) => r.is_active).length, icon: CheckCircle2, color: "#10B981" },
     { label: pm.kpiTodayOrders, value: todayOrders, icon: LayoutTemplate, color: "#1E5A99" },
-    { label: pm.kpiMonthRevenue, value: monthRevenue.toFixed(0), icon: DollarSign, color: "#8B5CF6" },
+    { label: pm.kpiMonthRevenue, value: monthRevenue.toFixed(0), icon: DollarSign, color: "#0F766E" },
     { label: pm.kpiOutstanding, value: outstanding.toFixed(0), icon: AlertCircle, color: "#EF4444" },
   ]
 

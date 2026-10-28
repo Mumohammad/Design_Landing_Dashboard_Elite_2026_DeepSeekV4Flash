@@ -10,8 +10,8 @@ Production integration is incomplete and disabled in code. Adding credentials or
 |---|---|
 | No `ZATCA_MODE`, no gateway | Offline mock. Its `reported`/`cleared` values are simulated, with `sandbox: true` and `NOT_VALIDATED`. |
 | `ZATCA_MODE=mock` and a gateway URL | Error; credentials/URLs cannot silently enable networking. |
-| `sandbox` | Requires exactly `https://gw-fatoora.zatca.gov.sa/e-invoicing/developer-portal`. Invoice transport rejects before credential access/networking until signing/API validation is complete. Separate onboarding primitives remain development-only. |
-| `simulation` | Requires exactly `https://gw-fatoora.zatca.gov.sa/e-invoicing/simulation`. Invoice transport rejects before credential access/networking until signing/API validation is complete. Separate onboarding primitives remain development-only. |
+| `sandbox` | Requires exactly `https://gw-fatoora.zatca.gov.sa/e-invoicing/developer-portal`. Transport accepts only an application-stamped invoice (XAdES + Phase 2 QR from `zatca-signer.ts`) with its hash, UUID and a tenant CSID, then POSTs the official JSON envelope (`invoiceHash`, `uuid`, base64 `invoice`) to `/invoices/reporting/single`, `/invoices/clearance/single` or `/compliance/invoices` (Basic auth, `Accept-Version: V2`, no redirects, 30 s timeout). Status comes from the response body only. |
+| `simulation` | Requires exactly `https://gw-fatoora.zatca.gov.sa/e-invoicing/simulation`. Same contract as `sandbox`. |
 | `production` | Rejected, regardless of credentials or flags. |
 
 Gateway modes reject non-HTTPS URLs, other hosts/paths, credentials in URLs, ports, query strings and fragments. Missing or unsupported configuration never becomes a simulated success. The former invoice HTTP path was removed: a missing signature placeholder silently left XML unsigned, the body was not the required JSON envelope, and an HTTP success was incorrectly mapped to acceptance. Supplying a certificate/key cannot re-enable that path. Gateway bodies must remain excluded from errors/logs because they may contain invoice or credential data.
@@ -43,6 +43,12 @@ The suite builds standard/simplified invoices, credit notes, debit notes and dis
 The supplied SDK demonstration signature verifies with SHA256/ECDSA over the raw 32-byte invoice digest, not the former invented digest/time concatenation. That observation alone does not resolve the published XMLDSig requirement to bind canonical `SignedInfo`, including `SignedProperties`. The primitive helper is explicitly labeled SDK-observed, and cannot transmit an invoice. Complete certificate-bound XAdES/QR construction and this SDK/specification discrepancy remain unresolved before any official submission.
 
 The independent [Phase 2 QR investigation](ZATCA-QR.md) found that **3.0.8** puts SPKI in tag 7 and signature `r`/`s` in tags 8/9. That legacy finding does not apply to all versions: **3.4.8** uses the published signature/key/CA-signature assignments. Its UTC-source fixture supplies the independent positive comparison for the text-digest/signature candidate. The current SDK converts a zoned `IssueTime` to JVM-local QR time without a suffix; the harness pins `Asia/Riyadh` and explicitly chooses the offset-less UTC+03 convention. The candidate requires a time profile and never infers it. The preparation helper/ledger and legal issuance workflow still need integration with a verified time profile. No immutable preparations are rewritten and no print or submission path is enabled.
+
+## Application signer (Phase 2)
+
+`src/lib/accounting/zatca-signer.ts` produces the XAdES enveloped signature in the SDK layout (certificate digest, SignedProperties digest, ECDSA signature over the invoice hash) and the nine-tag QR read back from the signed XML. `scripts/verify-zatca-app-signer.mjs <sdk>` validates application-signed simplified/standard invoices and notes with the official SDK 3.4.8 offline (Java 11), plus tamper and SignedProperties negative controls; all cases pass. `submitPreparedZatcaDocument` (server action) signs a prepared issuance with the tenant CSID, transmits it and appends the attempt to `zatca_submission_attempts` (append-only, service-role only).
+
+`scripts/verify-zatca-sandbox-live.mjs` (opt-in `ZATCA_LIVE_SANDBOX=yes`) runs the public developer-portal compliance flow. It has **not** been run: it makes live calls to the authority's sandbox and needs owner approval. The event-driven `zatca.ts` path still builds unsigned XML, so it now fails closed in network modes; wire it to the prepared issuance and signer before enabling.
 
 ## Remaining implementation and release evidence
 

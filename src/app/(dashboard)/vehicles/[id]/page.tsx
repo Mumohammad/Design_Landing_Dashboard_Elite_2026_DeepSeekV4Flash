@@ -73,7 +73,7 @@ function Field({
   notSet: string
 }) {
   return (
-    <div className="rounded-xl border border-border/50 bg-card/60 backdrop-blur-sm p-3">
+    <div className="rounded-xl border border-border/50 bg-card/60 p-3">
       <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
       <dd className="mt-1 text-sm font-medium text-foreground break-words">
         {isEmpty(value) ? (
@@ -96,7 +96,7 @@ function SectionCard({
   children: ReactNode
 }) {
   return (
-    <div className="rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm shadow-sm p-5">
+    <div className="rounded-2xl border border-border/50 bg-card/60 shadow-sm p-5">
       <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold text-foreground">
         <Icon className="h-4 w-4 text-elite-blue-500" />
         {title}
@@ -285,7 +285,7 @@ export default function VehicleDetailPage() {
           <ArrowLeft className="mr-1.5 h-4 w-4 rtl:rotate-180" />
           {t.vehicles.backToList}
         </Button>
-        <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm py-16 text-center">
+        <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-border/50 bg-card/60 py-16 text-center">
           <AlertCircle className="h-8 w-8 text-muted-foreground/60" />
           <p className="text-base font-semibold text-foreground">
             {t.vehicles.notFoundTitle}
@@ -324,13 +324,13 @@ export default function VehicleDetailPage() {
       </Button>
 
       {/* Profile header */}
-      <div className="relative overflow-hidden rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm shadow-sm p-6">
+      <div className="relative overflow-hidden rounded-2xl border border-border/50 bg-card/60 shadow-sm p-6">
         <div
           className="absolute top-0 right-0 h-32 w-32 rounded-full opacity-[0.06]"
           style={{ backgroundColor: "#1E5A99", transform: "translate(30%, -30%)" }}
         />
         <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center">
-          <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-elite-blue-500 to-elite-blue-700 text-white shadow-lg shadow-elite-blue-500/20">
+          <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl text-elite-blue-600 dark:text-elite-blue-300">
             {vehicle.photo_url ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -577,7 +577,7 @@ function DocumentsTab({
       registration: "bg-elite-blue-500/15 text-elite-blue-700 dark:text-elite-blue-300",
       insurance: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
       inspection: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
-      operating_card: "bg-purple-500/15 text-purple-700 dark:text-purple-400",
+      operating_card: "bg-teal-500/15 text-teal-700 dark:text-teal-400",
       ownership: "bg-cyan-500/15 text-cyan-700 dark:text-cyan-400",
     }
     return map[type] ?? "bg-gray-500/15 text-gray-600 dark:text-gray-400"
@@ -593,7 +593,7 @@ function DocumentsTab({
         return (
           <div
             key={doc.id}
-            className="rounded-xl border border-border/50 bg-card/60 backdrop-blur-sm p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+            className="rounded-xl border border-border/50 bg-card/60 p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
           >
             <div className="flex items-center gap-3">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted/50">
@@ -696,7 +696,7 @@ function AssignmentsTab({
     <div className="space-y-4">
       {current.length > 0 && (
         <div>
-          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          <h4 className="mb-2 text-xs font-semibold text-muted-foreground">
             {t.vehicles.currentAssignment}
           </h4>
           <div className="space-y-2">
@@ -708,7 +708,7 @@ function AssignmentsTab({
       )}
       {past.length > 0 && (
         <div>
-          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          <h4 className="mb-2 text-xs font-semibold text-muted-foreground">
             {t.vehicles.pastAssignments}
           </h4>
           <div className="space-y-2">
@@ -733,7 +733,7 @@ function AssignmentCard({
 }) {
   const driverName = assignment.driver?.full_name_ar ?? assignment.driver?.driver_code ?? "—"
   return (
-    <div className="rounded-xl border border-border/50 bg-card/60 backdrop-blur-sm p-4">
+    <div className="rounded-xl border border-border/50 bg-card/60 p-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted/50">
@@ -870,7 +870,7 @@ function HandoverTab({
         return (
           <div
             key={form.id}
-            className="rounded-xl border border-border/50 bg-card/60 backdrop-blur-sm p-4"
+            className="rounded-xl border border-border/50 bg-card/60 p-4"
           >
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-3">
@@ -1030,7 +1030,7 @@ function MaintenanceTab({
       {events.map((ev) => (
         <div
           key={ev.id}
-          className="rounded-xl border border-border/50 bg-card/60 backdrop-blur-sm p-4"
+          className="rounded-xl border border-border/50 bg-card/60 p-4"
         >
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex items-start gap-3">
@@ -1127,7 +1127,7 @@ function OdometerTab({
     const map: Record<string, string> = {
       manual: "bg-gray-500/15 text-gray-600 dark:text-gray-400",
       gps: "bg-elite-blue-500/15 text-elite-blue-700 dark:text-elite-blue-300",
-      obd: "bg-purple-500/15 text-purple-700 dark:text-purple-400",
+      obd: "bg-teal-500/15 text-teal-700 dark:text-teal-400",
       import: "bg-cyan-500/15 text-cyan-700 dark:text-cyan-400",
     }
     return map[source] ?? "bg-gray-500/15 text-gray-600 dark:text-gray-400"
@@ -1151,7 +1151,7 @@ function OdometerTab({
               {i < logs.length - 1 && <div className="w-px flex-1 bg-border/50 my-1" />}
             </div>
             <div className="flex-1 pb-4">
-              <div className="rounded-xl border border-border/50 bg-card/60 backdrop-blur-sm p-3">
+              <div className="rounded-xl border border-border/50 bg-card/60 p-3">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <span className="text-sm font-semibold tabular-nums text-foreground">

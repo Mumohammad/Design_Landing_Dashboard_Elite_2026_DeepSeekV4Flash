@@ -70,7 +70,7 @@ export default function TermsPage() {
           <LocalizedText text="Back to home" />
         </Link>
         <div className="mt-8 flex items-center gap-3">
-          <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-elite-blue-500 to-elite-orange-500 text-white shadow-lg shadow-elite-blue-500/20">
+          <span className="flex h-12 w-12 items-center justify-center rounded-2xl text-elite-blue-600 dark:text-elite-blue-300">
             <Scale className="h-6 w-6" aria-hidden="true" />
           </span>
           <div>

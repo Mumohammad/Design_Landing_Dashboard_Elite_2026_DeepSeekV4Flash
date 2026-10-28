@@ -171,7 +171,7 @@ export function OpsPanel({
           >
             <ChartCard title={t.dashboard[tile.titleKey]} description={t.dashboard[tile.descKey]}>
               <div className="mb-2 flex items-center gap-2">
-                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-elite-blue-500/10 text-elite-blue-600 dark:text-elite-blue-400">
+                <span className="flex h-8 w-8 items-center justify-center rounded-xl text-elite-blue-600 dark:text-elite-blue-300">
                   <Icon className="h-4 w-4" />
                 </span>
               </div>

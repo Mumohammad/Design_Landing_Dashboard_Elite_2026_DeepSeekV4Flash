@@ -156,7 +156,7 @@ function FormTypeLabel({ type, isAr }: { type: string; isAr: boolean }) {
       className={
         type === "handover"
           ? "bg-elite-blue-500/15 text-elite-blue-700 dark:text-elite-blue-300"
-          : "bg-purple-500/15 text-purple-700 dark:text-purple-400"
+          : "bg-teal-500/15 text-teal-700 dark:text-teal-400"
       }
     >
       {isAr ? (type === "handover" ? "تسليم" : "استلام") : type === "handover" ? "Handover" : "Return"}
@@ -273,10 +273,10 @@ function DocumentsTab({ driverId, isAr }: DocumentsTabProps) {
       {rows.length === 0 ? (
         <EmptyState message={isAr ? "لا توجد مستندات لهذا السائق" : "No documents for this driver"} />
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm">
+        <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60">
           <table className="w-full min-w-[640px] text-start text-sm">
             <thead>
-              <tr className="border-b border-border/50 text-[10px] uppercase tracking-wide text-muted-foreground">
+              <tr className="border-b border-border/50 text-[11px] text-muted-foreground">
                 <th className="px-4 py-3 text-start font-semibold">{isAr ? "النوع" : "Type"}</th>
                 <th className="px-4 py-3 text-start font-semibold">{isAr ? "الرقم" : "Number"}</th>
                 <th className="px-4 py-3 text-start font-semibold">{isAr ? "الإصدار" : "Issued"}</th>
@@ -429,10 +429,10 @@ function CodTab({ driverId, isAr }: CodTabProps) {
   }
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm">
+    <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60">
       <table className="w-full min-w-[680px] text-start text-sm">
         <thead>
-          <tr className="border-b border-border/50 text-[10px] uppercase tracking-wide text-muted-foreground">
+          <tr className="border-b border-border/50 text-[11px] text-muted-foreground">
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "التاريخ" : "Date"}</th>
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "المنصة" : "Platform"}</th>
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "طلبات COD" : "COD Orders"}</th>
@@ -519,10 +519,10 @@ function SalaryTab({ driverId, isAr }: SalaryTabProps) {
   }
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm">
+    <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60">
       <table className="w-full min-w-[640px] text-start text-sm">
         <thead>
-          <tr className="border-b border-border/50 text-[10px] uppercase tracking-wide text-muted-foreground">
+          <tr className="border-b border-border/50 text-[11px] text-muted-foreground">
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "التاريخ الفعّال" : "Effective"}</th>
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "الراتب الأساسي" : "Basic"}</th>
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "السكن" : "Housing"}</th>
@@ -635,7 +635,7 @@ function ComplianceTab({ driver, isAr }: ComplianceTabProps) {
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      <div className="rounded-2xl border border-border/50 bg-card/60 p-5 backdrop-blur-sm">
+      <div className="rounded-2xl border border-border/50 bg-card/60 p-5">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-foreground">
             {isAr ? "اكتمال الملف" : "Profile completeness"}
@@ -659,7 +659,7 @@ function ComplianceTab({ driver, isAr }: ComplianceTabProps) {
               <span className="flex items-center gap-2 text-foreground/80">
                 <span
                   className={cn(
-                    "flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold",
+                    "flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold",
                     c.done
                       ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
                       : "bg-muted text-muted-foreground",
@@ -676,7 +676,7 @@ function ComplianceTab({ driver, isAr }: ComplianceTabProps) {
       </div>
 
       <div className="space-y-4">
-        <div className="rounded-2xl border border-border/50 bg-card/60 p-5 backdrop-blur-sm">
+        <div className="rounded-2xl border border-border/50 bg-card/60 p-5">
           <h3 className="text-sm font-semibold text-foreground">
             {isAr ? "مؤشرات المخاطر" : "Risk indicators"}
           </h3>
@@ -717,7 +717,7 @@ function ComplianceTab({ driver, isAr }: ComplianceTabProps) {
           </dl>
         </div>
 
-        <div className="rounded-2xl border border-border/50 bg-card/60 p-5 backdrop-blur-sm">
+        <div className="rounded-2xl border border-border/50 bg-card/60 p-5">
           <h3 className="text-sm font-semibold text-foreground">
             {isAr ? "وثائق تنتهي قريباً (30 يوم)" : "Expiring soon (30 days)"}
           </h3>
@@ -777,10 +777,10 @@ function AssignmentsTab({ driverId, isAr }: AssignmentsTabProps) {
   }
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm">
+    <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60">
       <table className="w-full min-w-[620px] text-start text-sm">
         <thead>
-          <tr className="border-b border-border/50 text-[10px] uppercase tracking-wide text-muted-foreground">
+          <tr className="border-b border-border/50 text-[11px] text-muted-foreground">
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "المركبة" : "Vehicle"}</th>
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "تاريخ التسليم" : "Assigned"}</th>
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "تاريخ الاستلام" : "Returned"}</th>
@@ -868,10 +868,10 @@ function HandoverTab({ driverId, isAr }: HandoverTabProps) {
   }
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm">
+    <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60">
       <table className="w-full min-w-[680px] text-start text-sm">
         <thead>
-          <tr className="border-b border-border/50 text-[10px] uppercase tracking-wide text-muted-foreground">
+          <tr className="border-b border-border/50 text-[11px] text-muted-foreground">
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "النوع" : "Type"}</th>
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "التاريخ" : "Date"}</th>
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "المركبة" : "Vehicle"}</th>
@@ -950,10 +950,10 @@ function MaintenanceTab({ driverId, isAr }: MaintenanceTabProps) {
   }
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm">
+    <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60">
       <table className="w-full min-w-[680px] text-start text-sm">
         <thead>
-          <tr className="border-b border-border/50 text-[10px] uppercase tracking-wide text-muted-foreground">
+          <tr className="border-b border-border/50 text-[11px] text-muted-foreground">
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "المركبة" : "Vehicle"}</th>
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "النوع" : "Type"}</th>
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "الوصف" : "Description"}</th>
@@ -1035,10 +1035,10 @@ function OdometerTab({ driverId, isAr }: OdometerTabProps) {
   }
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm">
+    <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60">
       <table className="w-full min-w-[620px] text-start text-sm">
         <thead>
-          <tr className="border-b border-border/50 text-[10px] uppercase tracking-wide text-muted-foreground">
+          <tr className="border-b border-border/50 text-[11px] text-muted-foreground">
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "المركبة" : "Vehicle"}</th>
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "القراءة" : "Reading"}</th>
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "التاريخ" : "Recorded"}</th>

@@ -64,7 +64,7 @@ function ProgressRail({
                 className={cn(
                   "flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 text-xs font-bold transition-all duration-300",
                   isDone && "border-emerald-500 bg-emerald-500 text-white",
-                  isCurrent && "border-elite-blue-500 bg-elite-blue-500 text-white shadow-md shadow-elite-blue-500/30",
+                  isCurrent && "border-elite-blue-500 bg-elite-blue-500 text-white shadow-elite-blue-500/30",
                   !isDone && !isCurrent && "border-muted-foreground/30 text-muted-foreground"
                 )}
               >
@@ -321,7 +321,7 @@ function ReviewPanel({
           type="button"
           onClick={() => void onSubmit()}
           disabled={phase === "validating" || phase === "submitting"}
-          className="flex h-12 items-center gap-2 rounded-xl bg-gradient-to-r from-elite-blue-500 to-elite-blue-600 px-8 text-sm font-bold text-white shadow-lg shadow-elite-blue-500/25 transition-all hover:from-elite-blue-600 hover:to-elite-blue-700 hover:shadow-elite-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60"
+          className="flex h-12 items-center gap-2 rounded-xl bg-elite-blue-500 px-8 text-sm font-bold text-white shadow-elite-blue-500/25 transition-all hover:bg-elite-blue-600 hover:shadow-elite-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {phase === "validating" && (
             <>
@@ -424,7 +424,7 @@ export function Wizard({
           </div>
           <div className="h-2 w-40 overflow-hidden rounded-full bg-muted">
             <div
-              className="h-full rounded-full bg-gradient-to-r from-elite-blue-500 to-elite-orange-500 transition-all duration-500"
+              className="h-full rounded-full bg-elite-blue-500 transition-all duration-500"
               style={{ width: `${((currentIndex + 1) / STEP_ORDER.length) * 100}%` }}
             />
           </div>
@@ -434,7 +434,7 @@ export function Wizard({
           {/* Journey rail (right panel on desktop becomes compact bar on mobile) */}
           <aside className="hidden lg:block">
             <div className="sticky top-24 rounded-2xl border border-border/60 bg-card/60 p-4">
-              <p className="mb-3 px-3 text-xs font-bold uppercase tracking-widest text-muted-foreground">
+              <p className="mb-3 px-3 text-xs font-bold text-muted-foreground">
                 {dict.steps.review === dict.steps.review ? dict.header.tagline : dict.header.tagline}
               </p>
               <ProgressRail current={current} completed={completed} />

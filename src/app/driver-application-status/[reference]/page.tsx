@@ -28,7 +28,7 @@ export default async function ApplicationStatusPage({
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
-      <header className="border-b border-border/60 bg-background/85 backdrop-blur-xl">
+      <header className="border-b border-border/60 bg-background">
         <div className="mx-auto flex h-16 max-w-3xl items-center gap-3 px-4">
           <LogoMark size={38} />
           <div className="leading-tight">

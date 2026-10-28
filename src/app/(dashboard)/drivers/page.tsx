@@ -119,7 +119,7 @@ const CATEGORY_META: Record<DriverCategory, { ar: string; en: string; className:
     ar: "كفيل نوع ٢",
     en: "Sponsored T2",
     className:
-      "bg-purple-500/15 text-purple-700 dark:text-purple-400 border border-purple-500/20",
+      "bg-teal-500/15 text-teal-700 dark:text-teal-400 border border-teal-500/20",
   },
   freelancer: {
     ar: "مستقل",
@@ -189,7 +189,7 @@ function DriverAvatarImage({ name, initial }: { name: string | null; initial: st
         />
       ) : null}
       {!photoUrl || imgFailed ? (
-        <span className="flex h-full w-full items-center justify-center bg-gradient-to-br from-elite-blue-500 to-elite-orange-500 text-xs font-semibold text-white">
+        <span className="flex h-full w-full items-center justify-center bg-elite-blue-500 text-xs font-semibold text-white">
           {initial}
         </span>
       ) : null}
@@ -469,7 +469,7 @@ export default function DriversPage() {
       }}
     >
       {/* Filter + export toolbar */}
-      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-border/50 bg-card/60 px-4 py-3 backdrop-blur-sm">
+      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-border/50 bg-card/60 px-4 py-3">
         <Select
           value={statusFilter}
           onValueChange={(v) => { setStatusFilter(v as "all" | DriverStatus); pagination.onPageChange(1) }}

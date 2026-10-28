@@ -55,7 +55,7 @@ export function DriverTargets({
                 title={b.bucket}
               >
                 <p className="text-sm font-bold tabular-nums text-foreground">{b.count}</p>
-                <p className="truncate text-[10px] text-muted-foreground">{b.bucket}</p>
+                <p className="truncate text-[11px] text-muted-foreground">{b.bucket}</p>
               </div>
             ))}
           </div>
@@ -72,13 +72,13 @@ export function DriverTargets({
                 className="group block rounded-lg p-1.5 transition-colors hover:bg-accent/50"
               >
                 <div className="flex items-center gap-3">
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-elite-blue-500 to-elite-orange-500 text-xs font-bold text-white">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-elite-blue-500 text-xs font-bold text-white">
                     {d.name.slice(0, 1)}
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-2">
                       <p className="truncate text-[13px] font-semibold text-foreground">{d.name}</p>
-                      <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold tabular-nums", s.text, s.bg)}>
+                      <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums", s.text, s.bg)}>
                         {formatNumber(locale, d.achievement)}%
                       </span>
                     </div>

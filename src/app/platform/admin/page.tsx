@@ -177,15 +177,15 @@ export default function PlatformAdminPage() {
       <div className="flex min-h-screen">
         <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-l border-white/10 bg-slate-900/50 md:flex">
           <div className="flex items-center gap-3 border-b border-white/10 px-5 py-5">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[#1E5A99] to-[#E87D3E]"><ShieldCheck className="h-5 w-5" /></span>
-            <div className="leading-tight"><p className="text-sm font-bold"><LocalizedText text="إدارة المنصة" /></p><p className="text-[10px] text-white/40">SaaS Control</p></div>
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl text-elite-blue-600 dark:text-elite-blue-300"><ShieldCheck className="h-5 w-5" /></span>
+            <div className="leading-tight"><p className="text-sm font-bold"><LocalizedText text="إدارة المنصة" /></p><p className="text-[11px] text-white/40">SaaS Control</p></div>
           </div>
           <div className="px-3"><LanguageToggle /></div>
           <nav className="flex-1 space-y-1 p-3">
             {nav.map(n => (
-              <button key={n.key} onClick={() => setSection(n.key)} className={`flex w-full items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-sm font-bold transition ${section === n.key ? 'bg-gradient-to-r from-[#1E5A99]/25 to-[#E87D3E]/15 text-white ring-1 ring-inset ring-[#1E5A99]/40' : 'text-white/55 hover:bg-white/5 hover:text-white'}`}>
+              <button key={n.key} onClick={() => setSection(n.key)} className={`flex w-full items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-sm font-bold transition ${section === n.key ? 'bg-[#1E5A99]/25 text-white ring-1 ring-inset ring-[#1E5A99]/40' : 'text-white/55 hover:bg-white/5 hover:text-white'}`}>
                 <n.icon className="h-4 w-4" /> {ui(n.label)}
-                {n.count !== undefined && <span className="ms-auto rounded-full bg-white/10 px-2 py-0.5 text-[10px] tabular-nums">{n.count}</span>}
+                {n.count !== undefined && <span className="ms-auto rounded-full bg-white/10 px-2 py-0.5 text-[11px] tabular-nums">{n.count}</span>}
               </button>
             ))}
           </nav>
@@ -195,7 +195,7 @@ export default function PlatformAdminPage() {
         </aside>
 
         <div className="min-w-0 flex-1">
-          <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b border-white/10 bg-slate-950/85 px-6 backdrop-blur-xl">
+          <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b border-white/10 bg-slate-950/85 px-6">
             <h1 className="text-lg font-extrabold">{nav.find(n => n.key === section)?.label}</h1>
             <button onClick={() => load()} className="rounded-lg border border-white/10 bg-white/5 p-2 transition hover:bg-white/10" title={ui("تحديث")}><RefreshCw className="h-4 w-4" /></button>
           </header>
@@ -205,15 +205,15 @@ export default function PlatformAdminPage() {
               <div className="space-y-6">
                 <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
                   {stats && [
-                    { label: ui("إجمالي الشركات"), value: stats.total, grad: 'from-[#1E5A99] to-[#2f7ac0]', icon: Building2 },
-                    { label: ui("نشطة"), value: stats.active, grad: 'from-emerald-500 to-teal-500', icon: PlayCircle },
-                    { label: ui("في التجربة"), value: stats.trial, grad: 'from-[#E87D3E] to-amber-500', icon: Rocket },
-                    { label: ui("معلّقة"), value: stats.suspended, grad: 'from-rose-500 to-rose-600', icon: PauseCircle },
-                    { label: ui("غير مدفوعة"), value: billingSummary?.unpaid_companies ?? 0, grad: 'from-orange-500 to-red-500', icon: BadgeDollarSign },
-                    { label: ui("جديدة هذا الشهر"), value: stats.new_this_month, grad: 'from-violet-500 to-purple-500', icon: TrendingUp },
+                    { label: ui("إجمالي الشركات"), value: stats.total, grad: 'bg-[#1E5A99]', icon: Building2 },
+                    { label: ui("نشطة"), value: stats.active, grad: 'bg-emerald-500', icon: PlayCircle },
+                    { label: ui("في التجربة"), value: stats.trial, grad: 'bg-[#E87D3E]', icon: Rocket },
+                    { label: ui("معلّقة"), value: stats.suspended, grad: 'bg-rose-500', icon: PauseCircle },
+                    { label: ui("غير مدفوعة"), value: billingSummary?.unpaid_companies ?? 0, grad: 'bg-orange-500', icon: BadgeDollarSign },
+                    { label: ui("جديدة هذا الشهر"), value: stats.new_this_month, grad: 'bg-teal-500', icon: TrendingUp },
                   ].map(c => (
                     <div key={c.label} className="rounded-2xl border border-white/10 bg-slate-900/60 p-5">
-                      <div className={`flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br ${c.grad} shadow-lg`}><c.icon className="h-5 w-5" /></div>
+                      <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${c.grad}`}><c.icon className="h-5 w-5" /></div>
                       <p className="mt-4 text-3xl font-extrabold tabular-nums">{c.value}</p>
                       <p className="mt-1 text-xs font-semibold text-white/50">{ui(c.label)}</p>
                     </div>
@@ -225,7 +225,7 @@ export default function PlatformAdminPage() {
                     <p className="text-sm font-bold"><LocalizedText text="التسجيلات — آخر 30 يومًا" /></p>
                     <div className="mt-5 flex h-36 items-end gap-1">
                       {(analytics?.registrations_by_day ?? []).map(d => (
-                        <div key={d.date} className="group relative flex-1 rounded-t bg-gradient-to-t from-[#1E5A99]/70 to-[#E87D3E]/70 transition hover:from-[#1E5A99] hover:to-[#E87D3E]" style={{ height: `${Math.max(4, (d.count / maxReg) * 100)}%` }} title={`${d.date}: ${d.count}`}></div>
+                        <div key={d.date} className="group relative flex-1 rounded-t bg-[#1E5A99]/70 transition hover:bg-[#1E5A99]" style={{ height: `${Math.max(4, (d.count / maxReg) * 100)}%` }} title={`${d.date}: ${d.count}`}></div>
                       ))}
                     </div>
                   </div>
@@ -261,12 +261,12 @@ export default function PlatformAdminPage() {
                         <button key={k} onClick={() => setFilter(k)} className={`px-3 py-2 text-xs font-bold transition ${filter === k ? 'bg-[#1E5A99] text-white' : 'bg-white/5 text-white/50 hover:bg-white/10'}`}>{l}</button>
                       ))}
                     </div>
-                    <button onClick={() => { setFormErr(''); setModal('create-company'); }} className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-[#E87D3E] to-[#d96c2f] px-4 py-2.5 text-sm font-bold shadow-lg shadow-[#E87D3E]/25 transition hover:scale-[1.02]"><Plus className="h-4 w-4" /><LocalizedText text="إضافة شركة" /></button>
+                    <button onClick={() => { setFormErr(''); setModal('create-company'); }} className="inline-flex items-center gap-1.5 rounded-xl bg-[#E87D3E] px-4 py-2.5 text-sm font-bold shadow-[#E87D3E]/25 transition hover:scale-[1.02]"><Plus className="h-4 w-4" /><LocalizedText text="إضافة شركة" /></button>
                   </div>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[900px] text-right">
-                    <thead><tr className="border-b border-white/10 text-[11px] uppercase tracking-wider text-white/40">
+                    <thead><tr className="border-b border-white/10 text-[11px] text-white/40">
                       <th className="px-5 py-3.5"><LocalizedText text="الشركة" /></th><th className="px-5 py-3.5"><LocalizedText text="الدومين" /></th><th className="px-5 py-3.5"><LocalizedText text="الحالة" /></th><th className="px-5 py-3.5"><LocalizedText text="الفوترة" /></th><th className="px-5 py-3.5"><LocalizedText text="المستخدمون" /></th><th className="px-5 py-3.5"><LocalizedText text="التسجيل" /></th><th className="px-5 py-3.5"><LocalizedText text="إجراءات" /></th>
                     </tr></thead>
                     <tbody>
@@ -282,7 +282,7 @@ export default function PlatformAdminPage() {
                                   // eslint-disable-next-line @next/next/no-img-element
                                   <img src={c.logo_url} alt="" className="h-9 w-9 rounded-xl border border-white/10 object-cover" />
                                 ) : (
-                                  <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[#1E5A99] to-[#E87D3E] text-sm font-extrabold">{(c.name_en || '؟').charAt(0)}</span>
+                                  <span className="flex h-9 w-9 items-center justify-center rounded-xl text-sm font-extrabold text-elite-blue-600 dark:text-elite-blue-300">{(c.name_en || '؟').charAt(0)}</span>
                                 )}
                                 <div className="leading-tight"><p className="font-bold">{c.name_en}</p><p className="text-[11px] text-white/40">{c.slug ?? '—'}</p></div>
                               </div>
@@ -315,11 +315,11 @@ export default function PlatformAdminPage() {
               <div className="rounded-2xl border border-white/10 bg-slate-900/60">
                 <div className="flex flex-col gap-4 border-b border-white/10 p-5 md:flex-row md:items-center md:justify-between">
                   <div><h2 className="text-lg font-extrabold"><LocalizedText text="كل المستخدمين" /></h2><p className="mt-0.5 text-xs text-white/45">{users.length}<LocalizedText text="مستخدم عبر" />{companies.length}<LocalizedText text="شركة" /></p></div>
-                  <button onClick={() => { setUserForm({ ...userForm, tenant_id: companies[0]?.id ?? '' }); setFormErr(''); setModal('create-user'); }} className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-[#1E5A99] to-[#174a7e] px-4 py-2.5 text-sm font-bold shadow-lg shadow-[#1E5A99]/25 transition hover:scale-[1.02]"><Plus className="h-4 w-4" /><LocalizedText text="إنشاء مستخدم" /></button>
+                  <button onClick={() => { setUserForm({ ...userForm, tenant_id: companies[0]?.id ?? '' }); setFormErr(''); setModal('create-user'); }} className="inline-flex items-center gap-1.5 rounded-xl bg-[#1E5A99] px-4 py-2.5 text-sm font-bold shadow-[#1E5A99]/25 transition hover:scale-[1.02]"><Plus className="h-4 w-4" /><LocalizedText text="إنشاء مستخدم" /></button>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[820px] text-right">
-                    <thead><tr className="border-b border-white/10 text-[11px] uppercase tracking-wider text-white/40">
+                    <thead><tr className="border-b border-white/10 text-[11px] text-white/40">
                       <th className="px-5 py-3.5"><LocalizedText text="المستخدم" /></th><th className="px-5 py-3.5"><LocalizedText text="الشركة" /></th><th className="px-5 py-3.5"><LocalizedText text="الدور" /></th><th className="px-5 py-3.5"><LocalizedText text="الحالة" /></th><th className="px-5 py-3.5"><LocalizedText text="آخر دخول" /></th><th className="px-5 py-3.5"><LocalizedText text="إجراءات" /></th>
                     </tr></thead>
                     <tbody>
@@ -353,13 +353,13 @@ export default function PlatformAdminPage() {
               <div className="space-y-6">
                 <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
                   {billingSummary && [
-                    { label: ui("معلّق التحصيل"), value: fmtMoney(billingSummary.pending_amount), grad: 'from-amber-500 to-orange-500' },
-                    { label: ui("متأخر"), value: fmtMoney(billingSummary.overdue_amount), grad: 'from-rose-500 to-red-500' },
-                    { label: ui("محصّل هذا الشهر"), value: fmtMoney(billingSummary.paid_this_month), grad: 'from-emerald-500 to-teal-500' },
-                    { label: ui("شركات غير مدفوعة"), value: billingSummary.unpaid_companies, grad: 'from-[#1E5A99] to-[#2f7ac0]' },
+                    { label: ui("معلّق التحصيل"), value: fmtMoney(billingSummary.pending_amount), grad: 'bg-amber-500' },
+                    { label: ui("متأخر"), value: fmtMoney(billingSummary.overdue_amount), grad: 'bg-rose-500' },
+                    { label: ui("محصّل هذا الشهر"), value: fmtMoney(billingSummary.paid_this_month), grad: 'bg-emerald-500' },
+                    { label: ui("شركات غير مدفوعة"), value: billingSummary.unpaid_companies, grad: 'bg-[#1E5A99]' },
                   ].map(c => (
                     <div key={c.label} className="rounded-2xl border border-white/10 bg-slate-900/60 p-5">
-                      <div className={`h-1.5 w-10 rounded-full bg-gradient-to-r ${c.grad}`}></div>
+                      <div className={`h-1.5 w-10 rounded-full ${c.grad}`}></div>
                       <p className="mt-4 text-2xl font-extrabold tabular-nums">{c.value}</p>
                       <p className="mt-1 text-xs font-semibold text-white/50">{ui(c.label)}</p>
                     </div>
@@ -368,11 +368,11 @@ export default function PlatformAdminPage() {
                 <div className="rounded-2xl border border-white/10 bg-slate-900/60">
                   <div className="flex items-center justify-between border-b border-white/10 p-5">
                     <h2 className="text-lg font-extrabold"><LocalizedText text="فواتير المنصة" /></h2>
-                    <button onClick={() => { setInvoiceForm({ ...invoiceForm, tenant_id: companies[0]?.id ?? '' }); setFormErr(''); setModal('create-invoice'); }} className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-[#E87D3E] to-[#d96c2f] px-4 py-2.5 text-sm font-bold shadow-lg shadow-[#E87D3E]/25 transition hover:scale-[1.02]"><Plus className="h-4 w-4" /><LocalizedText text="فاتورة جديدة" /></button>
+                    <button onClick={() => { setInvoiceForm({ ...invoiceForm, tenant_id: companies[0]?.id ?? '' }); setFormErr(''); setModal('create-invoice'); }} className="inline-flex items-center gap-1.5 rounded-xl bg-[#E87D3E] px-4 py-2.5 text-sm font-bold shadow-[#E87D3E]/25 transition hover:scale-[1.02]"><Plus className="h-4 w-4" /><LocalizedText text="فاتورة جديدة" /></button>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full min-w-[760px] text-right">
-                      <thead><tr className="border-b border-white/10 text-[11px] uppercase tracking-wider text-white/40">
+                      <thead><tr className="border-b border-white/10 text-[11px] text-white/40">
                         <th className="px-5 py-3.5"><LocalizedText text="الفاتورة" /></th><th className="px-5 py-3.5"><LocalizedText text="الشركة" /></th><th className="px-5 py-3.5"><LocalizedText text="المبلغ" /></th><th className="px-5 py-3.5"><LocalizedText text="الاستحقاق" /></th><th className="px-5 py-3.5"><LocalizedText text="الحالة" /></th><th className="px-5 py-3.5"><LocalizedText text="إجراء" /></th>
                       </tr></thead>
                       <tbody>
@@ -423,8 +423,8 @@ export default function PlatformAdminPage() {
       </div>
 
       {modal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={() => setModal(null)}>
-          <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-white/10 bg-slate-900 p-7 shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setModal(null)}>
+          <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-white/10 bg-slate-900 p-7" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-extrabold">
                 {modal === 'create-company' && ui("إضافة شركة جديدة")}
@@ -442,7 +442,7 @@ export default function PlatformAdminPage() {
                 {([['company_name', ui("اسم الشركة *")], ['domain', ui("الدومين *")], ['owner_email', ui("بريد المالك *")], ['owner_name', ui("اسم المالك")]] as const).map(([k, l]) => (
                   <div key={k}><label className="mb-1.5 block text-xs font-bold text-white/70">{l}</label><input required={l.endsWith('*')} value={companyForm[k]} onChange={e => setCompanyForm({ ...companyForm, [k]: e.target.value })} className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm focus:border-[#1E5A99] focus:outline-none" /></div>
                 ))}
-                <button disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#1E5A99] to-[#174a7e] px-4 py-3 text-sm font-bold disabled:opacity-60">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} {busy ? ui("جارٍ الإنشاء…") : ui("إنشاء ودعوة")}</button>
+                <button disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#1E5A99] px-4 py-3 text-sm font-bold disabled:opacity-60">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} {busy ? ui("جارٍ الإنشاء…") : ui("إنشاء ودعوة")}</button>
               </form>
             )}
 
@@ -452,7 +452,7 @@ export default function PlatformAdminPage() {
                 <div><label className="mb-1.5 block text-xs font-bold text-white/70"><LocalizedText text="الدومين" /></label><input value={editTarget.domain ?? ''} onChange={e => setEditTarget({ ...editTarget, domain: e.target.value })} className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm focus:border-[#1E5A99] focus:outline-none" dir="ltr" /></div>
                 <div><label className="mb-1.5 block text-xs font-bold text-white/70"><LocalizedText text="رابط الشعار" /></label><input value={editTarget.logo_url ?? ''} onChange={e => setEditTarget({ ...editTarget, logo_url: e.target.value })} className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm focus:border-[#1E5A99] focus:outline-none" dir="ltr" /></div>
                 <div><label className="mb-1.5 block text-xs font-bold text-white/70"><LocalizedText text="حالة الفوترة" /></label><select value={editTarget.billing_status} onChange={e => setEditTarget({ ...editTarget, billing_status: e.target.value })} className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm focus:border-[#1E5A99] focus:outline-none">{Object.entries(billingMeta).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select></div>
-                <button disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#1E5A99] to-[#174a7e] px-4 py-3 text-sm font-bold disabled:opacity-60">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} {busy ? ui("جارٍ الحفظ…") : 'حفظ التعديلات'}</button>
+                <button disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#1E5A99] px-4 py-3 text-sm font-bold disabled:opacity-60">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} {busy ? ui("جارٍ الحفظ…") : 'حفظ التعديلات'}</button>
               </form>
             )}
 
@@ -463,7 +463,7 @@ export default function PlatformAdminPage() {
                 <div><label className="mb-1.5 block text-xs font-bold text-white/70"><LocalizedText text="الاسم" /></label><input value={userForm.full_name} onChange={e => setUserForm({ ...userForm, full_name: e.target.value })} className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm focus:border-[#1E5A99] focus:outline-none" /></div>
                 <div><label className="mb-1.5 block text-xs font-bold text-white/70"><LocalizedText text="الدور" /></label><select value={userForm.role} onChange={e => setUserForm({ ...userForm, role: e.target.value })} className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm focus:border-[#1E5A99] focus:outline-none">{ROLES.map(r => <option key={r} value={r}>{ui(roleLabels[r])}</option>)}</select></div>
                 <div><label className="mb-1.5 block text-xs font-bold text-white/70"><LocalizedText text="كلمة مرور (اختياري — وإلا تصله دعوة)" /></label><input type="password" value={userForm.password} onChange={e => setUserForm({ ...userForm, password: e.target.value })} className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm focus:border-[#1E5A99] focus:outline-none" /></div>
-                <button disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#1E5A99] to-[#174a7e] px-4 py-3 text-sm font-bold disabled:opacity-60">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} {busy ? ui("جارٍ الإنشاء…") : ui("إنشاء المستخدم")}</button>
+                <button disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#1E5A99] px-4 py-3 text-sm font-bold disabled:opacity-60">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} {busy ? ui("جارٍ الإنشاء…") : ui("إنشاء المستخدم")}</button>
               </form>
             )}
 
@@ -473,7 +473,7 @@ export default function PlatformAdminPage() {
                 <div><label className="mb-1.5 block text-xs font-bold text-white/70"><LocalizedText text="المبلغ (ر.س) *" /></label><input required type="number" min="1" value={invoiceForm.amount} onChange={e => setInvoiceForm({ ...invoiceForm, amount: e.target.value })} className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm focus:border-[#1E5A99] focus:outline-none" dir="ltr" /></div>
                 <div><label className="mb-1.5 block text-xs font-bold text-white/70"><LocalizedText text="الفترة" /></label><input value={invoiceForm.period_label} onChange={e => setInvoiceForm({ ...invoiceForm, period_label: e.target.value })} placeholder={ui("سبتمبر 2026")} className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm focus:border-[#1E5A99] focus:outline-none" /></div>
                 <div><label className="mb-1.5 block text-xs font-bold text-white/70"><LocalizedText text="تاريخ الاستحقاق" /></label><input type="date" value={invoiceForm.due_date} onChange={e => setInvoiceForm({ ...invoiceForm, due_date: e.target.value })} className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm focus:border-[#1E5A99] focus:outline-none" dir="ltr" /></div>
-                <button disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#E87D3E] to-[#d96c2f] px-4 py-3 text-sm font-bold disabled:opacity-60">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} {busy ? ui("جارٍ الإنشاء…") : ui("إنشاء الفاتورة")}</button>
+                <button disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#E87D3E] px-4 py-3 text-sm font-bold disabled:opacity-60">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} {busy ? ui("جارٍ الإنشاء…") : ui("إنشاء الفاتورة")}</button>
               </form>
             )}
           </div>

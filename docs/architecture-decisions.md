@@ -184,6 +184,15 @@ This document records accepted technical decisions. Add a new numbered entry for
   - Where a correction needs business approval (e.g. exact payroll rule numbers, waiver thresholds), it is flagged at the relevant phase gate per ADR-008.
 - **Approval required:** No for documentation/adoption. Yes before the first migration that implements any correction (Phase 2 gate) and yes before payroll rule implementation (Phase 5 gate per ADR-008).
 
+## ADR-020 — Taste Skill design pass supersedes the ADR-015 decorative layer
+- **Status:** Accepted
+- **Date:** 2026-10-28
+- **Context:** The owner requested a design pass against the Taste Skill (Leonxlnx/taste-skill: `SKILL.md` and `references/app-screens.md`). Its house rules ban gradients, glows, glass/backdrop blur, decorative blobs and dot patterns, eyebrow pills, styled accent words, tracked uppercase labels, icons in tinted squares, sparklines on KPIs, rainbow palettes, violet/indigo accents and dark sidebars on light screens. ADR-015 had locked several of those (gradient CTAs, navy gradient sidebar, gradient avatar, decorative KPI circles).
+- **Decision:** Keep the brand palette (elite-blue, elite-orange), Cairo typography, the app shell structure, routes, data, test ids and the EnterpriseModulePage pattern. Replace the decorative layer: flat fills instead of gradients (`.gradient-*`, `.text-gradient-*`, `.gradient-avatar` now resolve to flat brand colours; `--sidebar-gradient` resolves to the light sidebar token), opaque surfaces instead of glass, no resting shadows outside floating UI (dialogs, menus, popovers, tooltips, sheets), no decorative blobs/dot patterns (`DotPattern` is a no-op), sentence-case labels with an 11px floor, plain outline icons in the one accent instead of coloured squares, KPI tiles as label → value → delta-in-words without icon or sparkline, teal instead of violet/indigo for data categories. Landing: left-aligned two-line h1 with no eyebrow or accent word, flat square buttons, section headings without eyebrows, running text at 16px+.
+- **Alternatives considered:** (a) Keep ADR-015 as is. Rejected by the owner's request. (b) A full visual redesign. Rejected: too much change at once, and it would break the established layout and component APIs.
+- **Consequences:** Class names such as `sidebar-gradient`, `card-premium` and `glass` stay as hooks (`scripts/verify-rtl.mjs` selects `aside.sidebar-gradient`) but no longer render gradients/glass. Mock product fragments on the landing page keep their table rules. Future UI work should run `node <taste-skill>/scripts/lint.mjs <paths> [--app]` before review.
+- **Approval required:** No.
+
 ## Decision template
 ```md
 ## ADR-XXX — Title

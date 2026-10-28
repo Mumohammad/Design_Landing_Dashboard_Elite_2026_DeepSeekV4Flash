@@ -56,7 +56,7 @@ export function DriverOrdersKpiCard({ driverId, isAr }: { driverId: string; isAr
 
   if (rows.length === 0) {
     return (
-      <div className="rounded-2xl border border-border/50 bg-card/60 p-4 shadow-sm backdrop-blur-sm lg:col-span-2">
+      <div className="rounded-2xl border border-border/50 bg-card/60 p-4 shadow-sm lg:col-span-2">
         <div className="mb-3 flex items-center gap-2 border-b border-border/30 pb-3">
           <Banknote className="h-4 w-4 text-elite-blue-500" />
           <h3 className="text-sm font-semibold text-foreground">
@@ -94,7 +94,7 @@ export function DriverOrdersKpiCard({ driverId, isAr }: { driverId: string; isAr
   const latest = periods[0]
 
   return (
-    <div className="rounded-2xl border border-border/50 bg-card/60 p-4 shadow-sm backdrop-blur-sm lg:col-span-2">
+    <div className="rounded-2xl border border-border/50 bg-card/60 p-4 shadow-sm lg:col-span-2">
       <div className="mb-3 flex items-center gap-2 border-b border-border/30 pb-3">
         <Banknote className="h-4 w-4 text-elite-blue-500" />
         <h3 className="text-sm font-semibold text-foreground">

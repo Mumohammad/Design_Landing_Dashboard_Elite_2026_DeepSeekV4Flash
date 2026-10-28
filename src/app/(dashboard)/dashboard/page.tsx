@@ -46,16 +46,11 @@ import { ScrollReveal, StaggerContainer } from "@/components/ui/scroll-reveal"
 
 const DEFAULT_FILTERS: DashboardFilters = { period: "30d", platform: "all", category: "all" }
 
-function SectionHeader({ icon: Icon, title, subtitle }: { icon: React.ElementType; title: string; subtitle?: string }) {
+function SectionHeader({ title, subtitle }: { icon?: React.ElementType; title: string; subtitle?: string }) {
   return (
-    <div className="flex items-center gap-3">
-      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-elite-blue-500/10 to-elite-orange-500/10">
-        <Icon className="h-4.5 w-4.5 text-elite-blue-600 dark:text-elite-blue-400" />
-      </div>
-      <div>
-        <h2 className="text-sm font-bold text-foreground">{title}</h2>
-        {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
-      </div>
+    <div>
+      <h2 className="text-base font-semibold text-foreground">{title}</h2>
+      {subtitle && <p className="mt-0.5 text-sm text-muted-foreground">{subtitle}</p>}
     </div>
   )
 }
@@ -144,8 +139,8 @@ export default function DashboardPage() {
 
       {loadError ? (
         <ScrollReveal direction="scale" delay={100}>
-          <div className="rounded-2xl border border-red-500/30 bg-red-500/5 p-8 text-center backdrop-blur-sm">
-            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-red-500/10">
+          <div className="rounded-2xl border border-red-500/30 bg-red-500/5 p-8 text-center">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl text-elite-blue-600 dark:text-elite-blue-300">
               <TriangleAlert className="h-6 w-6 text-red-500" />
             </div>
             <p className="text-sm font-semibold text-red-600 dark:text-red-400">{t.dashboard.unableToLoad}</p>
@@ -276,7 +271,7 @@ export default function DashboardPage() {
             <StaggerContainer staggerDelay={60} direction="up">
               <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
                 <KpiCard label={t.dashboard.openViolations} metric={k.openViolations} icon={TriangleAlert} color="#EF4444" href="/violations" />
-                <KpiCard label={t.dashboard.pendingApplications} metric={k.pendingApplications} icon={FileClock} color="#8B5CF6" href="/applications" />
+                <KpiCard label={t.dashboard.pendingApplications} metric={k.pendingApplications} icon={FileClock} color="#0F766E" href="/applications" />
                 <KpiCard label={t.dashboard.expiringDocuments} metric={k.expiringDocuments} icon={CalendarClock} color="#F59E0B" href="/drivers" />
                 <KpiCard label={t.dashboard.expiredDocuments} metric={k.expiredDocuments} icon={ShieldAlert} color="#EF4444" href="/drivers" />
               </div>

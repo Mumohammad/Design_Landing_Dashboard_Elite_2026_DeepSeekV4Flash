@@ -197,7 +197,7 @@ export default function ReportsPage() {
             <button
               onClick={handleGenerate}
               disabled={isGenerating}
-              className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 px-3.5 text-sm font-medium text-white shadow-sm transition-all hover:from-elite-blue-700 hover:to-elite-blue-800 disabled:opacity-50"
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-elite-blue-600 px-3.5 text-sm font-medium text-white shadow-sm transition-all hover:bg-elite-blue-700 disabled:opacity-50"
             >
               {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <FilePlus2 className="h-4 w-4" />}
               {ar ? "إنشاء تقرير" : "Generate report"}

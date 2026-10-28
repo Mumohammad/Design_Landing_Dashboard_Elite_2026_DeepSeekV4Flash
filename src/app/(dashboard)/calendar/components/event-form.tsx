@@ -47,7 +47,7 @@ const eventTypes = [
   { value: "event", label: "Event", color: "bg-green-500" },
   { value: "personal", label: "Personal", color: "bg-pink-500" },
   { value: "task", label: "Task", color: "bg-orange-500" },
-  { value: "reminder", label: "Reminder", color: "bg-purple-500" }
+  { value: "reminder", label: "Reminder", color: "bg-teal-500" }
 ]
 
 const timeSlots = [
@@ -288,7 +288,7 @@ export function EventForm({ event, open, onOpenChange, onSave, onDelete }: Event
                 {formData.attendees.map((attendee, index) => (
                   <Badge key={index} variant="secondary" className="flex items-center gap-2 px-2 py-1">
                     <Avatar className="w-5 h-5">
-                      <AvatarFallback className="text-[10px] font-medium">
+                      <AvatarFallback className="text-[11px] font-medium">
                         {attendee.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
                       </AvatarFallback>
                     </Avatar>

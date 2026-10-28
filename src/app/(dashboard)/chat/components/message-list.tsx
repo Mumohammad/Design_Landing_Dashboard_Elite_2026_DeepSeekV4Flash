@@ -215,7 +215,7 @@ export function MessageList({ messages, users, currentUserId = "current-user" }:
                                   key={idx}
                                   className={cn(
                                     "inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs border cursor-pointer",
-                                    "bg-background/90 backdrop-blur-sm shadow-sm"
+                                    "bg-background shadow-sm"
                                   )}
                                 >
                                   <span>{reaction.emoji}</span>

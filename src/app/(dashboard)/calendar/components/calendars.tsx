@@ -55,7 +55,7 @@ const enhancedCalendars: CalendarGroup[] = [
     name: "Favorites",
     items: [
       { id: "holidays", name: "Holidays", color: "bg-red-500", visible: true, type: "shared" },
-      { id: "birthdays", name: "Birthdays", color: "bg-purple-500", visible: true, type: "personal" }
+      { id: "birthdays", name: "Birthdays", color: "bg-teal-500", visible: true, type: "personal" }
     ]
   },
   {

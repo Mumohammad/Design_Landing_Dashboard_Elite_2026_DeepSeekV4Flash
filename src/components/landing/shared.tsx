@@ -73,27 +73,29 @@ export const iconMap: Record<IconKey, LucideIcon> = {
 }
 
 /** Per-icon gradient color tones for animated icon containers */
+/** Icons sit on the surface in the one accent colour: no tinted squares, no per-module hues. */
+const ICON_PLAIN = "bg-transparent text-elite-blue-600! dark:text-elite-blue-300! shadow-none h-auto! w-auto! justify-start! rounded-none"
 export const iconGradients: Record<string, string> = {
-  drivers: "from-blue-500 to-cyan-500",
-  fleet: "from-emerald-500 to-teal-500",
-  vehicles: "from-violet-500 to-purple-500",
-  orders: "from-amber-500 to-orange-500",
-  payroll: "from-emerald-500 to-green-500",
-  attendance: "from-blue-500 to-indigo-500",
-  violations: "from-red-500 to-rose-500",
-  maintenance: "from-orange-500 to-amber-500",
-  expenses: "from-cyan-500 to-blue-500",
-  documents: "from-indigo-500 to-violet-500",
-  compliance: "from-emerald-500 to-cyan-500",
-  reports: "from-blue-500 to-purple-500",
-  performance: "from-red-500 to-orange-500",
-  cost: "from-emerald-500 to-teal-500",
-  security: "from-violet-500 to-fuchsia-500",
-  audit: "from-blue-500 to-indigo-500",
-  rbac: "from-amber-500 to-orange-500",
-  bilingual: "from-cyan-500 to-blue-500",
-  check: "from-emerald-500 to-green-500",
-  banknote: "from-emerald-500 to-cyan-500",
+  drivers: ICON_PLAIN,
+  fleet: ICON_PLAIN,
+  vehicles: ICON_PLAIN,
+  orders: ICON_PLAIN,
+  payroll: ICON_PLAIN,
+  attendance: ICON_PLAIN,
+  violations: ICON_PLAIN,
+  maintenance: ICON_PLAIN,
+  expenses: ICON_PLAIN,
+  documents: ICON_PLAIN,
+  compliance: ICON_PLAIN,
+  reports: ICON_PLAIN,
+  performance: ICON_PLAIN,
+  cost: ICON_PLAIN,
+  security: ICON_PLAIN,
+  audit: ICON_PLAIN,
+  rbac: ICON_PLAIN,
+  bilingual: ICON_PLAIN,
+  check: ICON_PLAIN,
+  banknote: ICON_PLAIN,
 }
 
 export function formatNum(n: number, locale: string) {
@@ -188,7 +190,7 @@ export function Reveal({
   )
 }
 
-/* ─── Animated icon container with gradient and glow ─── */
+/* ─── Plain outline icon (no tinted container, no glow) ─── */
 export function IconBadge({
   iconKey,
   className,
@@ -201,93 +203,44 @@ export function IconBadge({
   dark?: boolean
 }) {
   const Icon = iconMap[iconKey as IconKey] || ShieldCheck
-  const gradient = iconGradients[iconKey] || "from-blue-500 to-cyan-500"
-
-  const sizeClasses = {
-    sm: "h-10 w-10 rounded-xl",
-    md: "h-12 w-12 rounded-2xl",
-    lg: "h-14 w-14 rounded-2xl",
-  }[size]
-
-  const iconSize = {
-    sm: "h-4 w-4",
-    md: "h-5 w-5",
-    lg: "h-6 w-6",
-  }[size]
-
+  const iconSize = { sm: "h-5 w-5", md: "h-5 w-5", lg: "h-6 w-6" }[size]
   return (
-    <div className={cn("relative", className)}>
-      <div
-        className={cn(
-          "flex items-center justify-center bg-gradient-to-br shadow-lg transition-all duration-300 group-hover:scale-110 group-hover:shadow-xl",
-          sizeClasses,
-          gradient,
-          dark ? "shadow-black/30 text-white" : "shadow-current/10 text-white"
-        )}
-      >
-        <Icon className={iconSize} />
-      </div>
-      <div
-        className={cn(
-          "absolute inset-0 -z-10 rounded-2xl opacity-0 blur-xl transition-all duration-500 group-hover:opacity-40",
-          dark ? "bg-white/20" : "bg-gradient-to-br",
-          !dark && gradient
-        )}
-      />
-    </div>
-  )
-}
-
-/* ─── Section tag (eyebrow pill) ─── */
-export function SectionTag({
-  children,
-  dark = false,
-}: {
-  children: React.ReactNode
-  dark?: boolean
-}) {
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-2 rounded-full border px-4 py-1.5 text-xs font-semibold tracking-wide",
-        dark
-          ? "border-white/15 bg-white/10 text-white backdrop-blur-sm"
-          : "border-elite-blue-500/30 bg-elite-blue-500/5 text-elite-blue-600 dark:text-elite-blue-300"
-      )}
-    >
-      <span className={cn("h-1.5 w-1.5 rounded-full", dark ? "bg-elite-orange-400 animate-pulse" : "bg-elite-blue-500 animate-pulse")} />
-      {children}
+    <span className={cn("inline-flex", className)} aria-hidden>
+      <Icon className={cn(iconSize, dark ? "text-white/80" : "text-elite-blue-600 dark:text-elite-blue-300")} strokeWidth={1.75} />
     </span>
   )
 }
 
+/* ─── Section tag: kept for API compatibility; eyebrow pills are not rendered. ─── */
+export function SectionTag(_props: { children: React.ReactNode; dark?: boolean }) {
+  return null
+}
+
 /* ─── Section heading block ─── */
 export function SectionHeading({
-  tag,
   title,
   subtitle,
   dark = false,
   className,
 }: {
-  tag: string
+  tag?: string
   title: string
   subtitle?: string
   dark?: boolean
   className?: string
 }) {
   return (
-    <Reveal className={cn("mx-auto max-w-3xl text-center", className)}>
-      <SectionTag dark={dark}>{tag}</SectionTag>
+    <Reveal className={cn("max-w-3xl text-start", className)}>
       <h2
         className={cn(
-          "mt-5 text-3xl font-extrabold tracking-tight sm:text-4xl lg:text-5xl",
+          "text-3xl font-bold leading-tight sm:text-4xl",
           dark ? "text-white" : "text-foreground"
         )}
       >
         {title}
       </h2>
       {subtitle && (
-        <p className={cn("mx-auto mt-4 max-w-2xl text-base leading-relaxed", dark ? "text-white/60" : "text-muted-foreground")}>
+        <p className={cn("mt-4 max-w-2xl text-lg leading-relaxed", dark ? "text-white/85" : "text-foreground/80")}>
           {subtitle}
         </p>
       )}
@@ -298,13 +251,7 @@ export function SectionHeading({
 /* ─── Small "demo data" marker ─── */
 export function DemoNote({ children, dark = false }: { children: React.ReactNode; dark?: boolean }) {
   return (
-    <p
-      className={cn(
-        "mt-6 flex items-center justify-center gap-2 text-center text-xs",
-        dark ? "text-white/40" : "text-muted-foreground"
-      )}
-    >
-      <span className={cn("h-1.5 w-1.5 rounded-full", dark ? "bg-white/40" : "bg-elite-orange-500")} />
+    <p className={cn("mt-6 text-sm", dark ? "text-white/75" : "text-muted-foreground")}>
       {children}
     </p>
   )

@@ -2,7 +2,6 @@
 
 import Image from "next/image"
 import { cn } from "@/lib/utils"
-import { DotPattern } from "@/components/dot-pattern"
 import { landingContent } from "@/lib/landing-content"
 import { useTranslation } from "@/hooks/use-translation"
 import { Reveal, SectionHeading, DemoNote, iconMap, iconGradients } from "./shared"
@@ -23,34 +22,23 @@ export function Driver360Section() {
 
   return (
     <section id="driver360" className="relative scroll-mt-24 overflow-hidden bg-elite-blue-950 py-24">
-      {/* Animated background orbs */}
-      <div className="absolute -start-32 top-1/3 h-80 w-80 rounded-full bg-elite-blue-500/15 blur-[120px] animate-float-slow" />
-      <div className="absolute -end-24 bottom-1/3 h-72 w-72 rounded-full bg-elite-orange-500/10 blur-[100px] animate-float-medium" />
-      <div className="absolute left-1/2 top-1/4 h-48 w-48 -translate-x-1/2 rounded-full bg-white/5 blur-[80px] animate-float-fast" />
 
-      <DotPattern
-        size="lg"
-        opacity="low"
-        fadeStyle="ellipse"
-        className="!bg-[radial-gradient(rgba(255,255,255,0.07)_1px,transparent_1px)]"
-      />
       <div className="relative mx-auto max-w-7xl px-4 lg:px-8">
         <SectionHeading dark tag={c.driver360.tag} title={c.driver360.title} subtitle={c.driver360.subtitle} />
 
         <div className="mt-14 grid gap-6 lg:grid-cols-5">
           {/* Driver profile card */}
           <Reveal className="lg:col-span-2">
-            <div className="h-full overflow-hidden rounded-2xl border border-white/15 bg-white/10 shadow-xl shadow-black/20 backdrop-blur-xl">
-              <div className="relative h-20 bg-gradient-to-r from-elite-blue-600/60 to-elite-orange-500/60">
-                <div className="absolute inset-0 bg-[radial-gradient(rgba(255,255,255,0.2)_1px,transparent_1px)] bg-[length:14px_14px]" />
+            <div className="h-full overflow-hidden rounded-2xl border border-white/15 bg-white/10">
+              <div className="relative h-20 bg-elite-blue-600/60">
               </div>
               <div className="px-6 pb-6">
                 <div className="-mt-9 flex items-end justify-between">
-                  <div className="flex h-[4.5rem] w-[4.5rem] items-center justify-center rounded-2xl border-4 border-elite-blue-950 bg-gradient-to-br from-elite-blue-500 to-elite-orange-500 text-2xl font-extrabold text-white shadow-xl shadow-elite-blue-500/20">
+                  <div className="flex h-[4.5rem] w-[4.5rem] items-center justify-center rounded-2xl border-4 border-elite-blue-950 bg-elite-blue-500 text-2xl font-extrabold text-white shadow-elite-blue-500/20">
                     {c.driver360.name.trim()[0]}
                   </div>
                   <span className="mb-2 inline-flex items-center gap-1.5 rounded-full border border-emerald-400/40 bg-emerald-400/15 px-3 py-1 text-[11px] font-bold text-emerald-300">
-                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
                     {c.driver360.status}
                   </span>
                 </div>
@@ -74,15 +62,15 @@ export function Driver360Section() {
                 <div className="mt-4 grid grid-cols-3 gap-2">
                   {c.driver360.stats.map((stat) => {
                     const Icon = iconMap[stat.icon]
-                    const gradient = iconGradients[stat.icon] || "from-blue-500 to-cyan-500"
+                    const gradient = iconGradients[stat.icon] || "bg-transparent text-elite-blue-600! dark:text-elite-blue-300! shadow-none h-auto! w-auto! justify-start! rounded-none"
                     const tone = stat.tone ?? "good"
                     return (
-                      <div key={stat.label} className="rounded-xl border border-white/15 bg-white/10 p-2.5 text-center transition-all duration-300 hover:-translate-y-0.5 hover:bg-white/15 hover:shadow-lg hover:shadow-white/5">
-                        <div className={cn("mx-auto mb-1.5 flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br", gradient, "text-white")}>
+                      <div key={stat.label} className="rounded-xl border border-white/15 bg-white/10 p-2.5 text-center transition-all duration-300 hover:-translate-y-0.5 hover:bg-white/15">
+                        <div className={cn("mx-auto mb-1.5 flex h-7 w-7 items-center justify-center rounded-lg", gradient, "text-white")}>
                           <Icon className="h-3.5 w-3.5" />
                         </div>
                         <p className="text-sm font-extrabold tabular-nums text-white">{stat.value}</p>
-                        <p className="text-[10px] text-white/60">{stat.label}</p>
+                        <p className="text-[11px] text-white/60">{stat.label}</p>
                       </div>
                     )
                   })}
@@ -93,35 +81,35 @@ export function Driver360Section() {
 
           {/* Relations diagram */}
           <Reveal delay={120} className="lg:col-span-3">
-            <div className="flex h-full flex-col rounded-2xl border border-white/15 bg-white/[0.08] p-6 shadow-xl shadow-black/20 backdrop-blur-xl sm:p-8">
+            <div className="flex h-full flex-col rounded-2xl border border-white/15 bg-white/[0.08] p-6 sm:p-8">
               <h3 className="text-lg font-extrabold text-white">{c.driver360.relationsTitle}</h3>
               <p className="mt-1 text-sm text-white/70">{c.driver360.relationsSubtitle}</p>
 
               <div className="mt-6 flex justify-center">
-                <div className="flex items-center gap-3 rounded-2xl border border-white/20 bg-gradient-to-r from-elite-blue-500/30 to-elite-orange-500/30 px-5 py-3 shadow-lg backdrop-blur-sm">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-elite-blue-500 to-elite-orange-500 text-sm font-extrabold text-white shadow-lg shadow-elite-blue-500/20">
+                <div className="flex items-center gap-3 rounded-2xl border border-white/20 bg-elite-blue-500/30 px-5 py-3">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-xl text-sm font-extrabold text-elite-blue-600 dark:text-elite-blue-300">
                     {c.driver360.name.trim()[0]}
                   </span>
                   <div className="leading-tight">
                     <p className="text-sm font-bold text-white">{c.driver360.name}</p>
-                    <p className="text-[10px] text-white/60">{c.driver360.id}</p>
+                    <p className="text-[11px] text-white/60">{c.driver360.id}</p>
                   </div>
                 </div>
               </div>
-              <div className="mx-auto h-8 w-px bg-gradient-to-b from-white/50 to-white/15" />
+              <div className="mx-auto h-8 w-px bg-white/50" />
 
               <div className="grid flex-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {c.driver360.relations.map((relation, i) => {
                   const Icon = iconMap[relation.icon]
-                  const gradient = iconGradients[relation.icon] || "from-blue-500 to-cyan-500"
+                  const gradient = iconGradients[relation.icon] || "bg-transparent text-elite-blue-600! dark:text-elite-blue-300! shadow-none h-auto! w-auto! justify-start! rounded-none"
                   return (
                     <div
                       key={relation.label}
-                      className="group rounded-xl border border-white/15 bg-white/10 p-4 transition-all duration-300 hover:-translate-y-1 hover:border-emerald-400/50 hover:bg-white/15 hover:shadow-lg hover:shadow-emerald-400/10"
+                      className="group rounded-xl border border-white/15 bg-white/10 p-4 transition-all duration-300 hover:-translate-y-1 hover:border-emerald-400/50 hover:bg-white/15"
                       style={{ transitionDelay: `${i * 20}ms` }}
                     >
                       <div className="flex items-center gap-2.5">
-                        <span className={cn("flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br text-white transition-all duration-300 group-hover:scale-110 group-hover:shadow-lg", gradient, "shadow-black/20")}>
+                        <span className={cn("flex h-8 w-8 items-center justify-center rounded-lg text-white transition-all duration-300 group-hover:scale-110", gradient, "")}>
                           <Icon className="h-4 w-4" />
                         </span>
                         <p className="text-sm font-bold text-white">{relation.label}</p>
@@ -133,7 +121,7 @@ export function Driver360Section() {
               </div>
 
               {/* Fleet on the move visual */}
-              <div className="relative mt-4 overflow-hidden rounded-2xl border border-white/15 shadow-lg shadow-black/30">
+              <div className="relative mt-4 overflow-hidden rounded-2xl border border-white/15">
                 <Image
                   src="/Bike-2026.png"
                   alt={c.driver360.note}
@@ -142,7 +130,7 @@ export function Driver360Section() {
                   className="aspect-[16/9] w-full object-cover object-center transition-transform duration-700 hover:scale-105"
                   sizes="(min-width: 1024px) 60vw, 100vw"
                 />
-                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-elite-blue-950/80 to-transparent px-4 pb-3 pt-10">
+                <div className="absolute inset-x-0 bottom-0 bg-elite-blue-950/80 px-4 pb-3 pt-10">
                   <p className="text-xs font-bold text-white">
                     {locale === "ar" ? "الأسطول في الطريق" : "The fleet on the move"}
                   </p>
@@ -165,9 +153,9 @@ export function Driver360Section() {
           <div className="mt-10 grid gap-5 md:grid-cols-3">
             {c.driver360.contracts.map((model, index) => (
               <Reveal key={model.title} delay={index * 100}>
-                <div className="group h-full rounded-2xl border border-white/15 bg-white/10 p-6 backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:border-emerald-400/50 hover:bg-white/15 hover:shadow-xl hover:shadow-emerald-400/5">
+                <div className="group h-full rounded-2xl border border-white/15 bg-white/10 p-6 transition-all duration-300 hover:-translate-y-1 hover:border-emerald-400/50 hover:bg-white/15">
                   <div className="flex items-center gap-2.5">
-                    <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500/40 to-elite-blue-500/40 text-lg font-extrabold text-white transition-transform duration-300 group-hover:scale-110">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-xl text-lg font-extrabold transition-transform duration-300 group-hover:scale-110 text-elite-blue-600 dark:text-elite-blue-300">
                       {index + 1}
                     </span>
                     <p className="font-bold text-white">{model.title}</p>
@@ -177,7 +165,7 @@ export function Driver360Section() {
                     {model.provided.map((item) => (
                       <span
                         key={item}
-                        className="rounded-full border border-white/15 bg-white/10 px-2.5 py-1 text-[10px] font-semibold text-white/80 transition-colors group-hover:bg-white/15"
+                        className="rounded-full border border-white/15 bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-white/80 transition-colors group-hover:bg-white/15"
                       >
                         {item}
                       </span>

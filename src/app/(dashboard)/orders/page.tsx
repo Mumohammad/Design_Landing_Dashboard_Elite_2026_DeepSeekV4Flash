@@ -115,7 +115,7 @@ export default function OrdersPage() {
       { label: t.orders.kpiDelivered, value: delivered, icon: PackageCheck, color: "#10B981" },
       { label: t.orders.kpiFailed, value: failed, icon: PackageX, color: "#EF4444" },
       { label: t.orders.kpiRevenue, value: `${revenue.toLocaleString("en-US", { maximumFractionDigits: 0 })}`, icon: DollarSign, color: "#1E5A99" },
-      { label: t.orders.kpiCompletion, value: `${completion}%`, icon: TrendingUp, color: "#8B5CF6" },
+      { label: t.orders.kpiCompletion, value: `${completion}%`, icon: TrendingUp, color: "#0F766E" },
     ]
   }, [rows, t])
 
