@@ -107,16 +107,21 @@ try {
     await verifyDashboardBusinessDate(page, appUrl)
   }
   if (process.env.VERIFY_APPROVALS === "1") {
-    stage = "approvals queue paging and privacy browser verification"
+    stage = "VAT position browser verification"
     const { verifyVatPosition } = await import("./verify-local-vat-position.mjs")
     await verifyVatPosition(page, admin, company.data.id, appUrl)
-    const { verifyApprovalsInbox } = await import("./verify-local-approvals.mjs")
-    await verifyApprovalsInbox(page, admin, company.data.id, appUrl)
   }
+  // Expenses asserts tenant-wide exact totals, so it runs before the approvals
+  // check, which now retains its synthetic expense evidence in the same tenant.
   if (process.env.VERIFY_EXPENSES === "1") {
     stage = "expense overview browser verification"
     const { verifyExpensesOverview } = await import("./verify-local-expenses.mjs")
     await verifyExpensesOverview(page, admin, company.data.id, appUrl)
+  }
+  if (process.env.VERIFY_APPROVALS === "1") {
+    stage = "approvals queue paging and privacy browser verification"
+    const { verifyApprovalsInbox } = await import("./verify-local-approvals.mjs")
+    await verifyApprovalsInbox(page, admin, company.data.id, appUrl)
   }
   if (process.env.VERIFY_RECEIVABLE_CRUD === "1") {
     stage = "manual receivable retry browser verification"
