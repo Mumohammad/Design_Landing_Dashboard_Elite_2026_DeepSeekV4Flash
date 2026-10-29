@@ -975,7 +975,6 @@ export async function createReceivable(input: {
     const rl = await rateLimitAccounting(currentUser.id)
     if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
 
-    const t0 = Date.now()
     log.info({ userId: currentUser.id, tenantId: currentUser.tenantId }, "createReceivable started")
 
     const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i

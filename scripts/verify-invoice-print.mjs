@@ -27,7 +27,7 @@ const data = {
 if (process.env.INVOICE_REFERENCE_DATA) Object.assign(data,JSON.parse(readFileSync(process.env.INVOICE_REFERENCE_DATA,'utf8').replace(/^\uFEFF/,'')))
 const html = exports.buildInvoiceHtml(data)
 writeFileSync(`${folder}/invoice.html`,html)
-const browser = await chromium.launch({headless:true})
+const browser = await chromium.launch({headless:true,...(process.env.INVOICE_CHROMIUM_EXECUTABLE_PATH?{executablePath:process.env.INVOICE_CHROMIUM_EXECUTABLE_PATH}:{})})
 try {
  const page=await browser.newPage({viewport:{width:816,height:1056}})
  await page.setContent(html)

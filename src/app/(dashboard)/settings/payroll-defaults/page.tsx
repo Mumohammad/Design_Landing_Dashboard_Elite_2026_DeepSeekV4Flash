@@ -10,12 +10,6 @@ import { Button } from "@/components/ui/button"
 import { AlertTriangle, Save, CheckCircle2, CreditCard } from "lucide-react"
 import { LoadingSpinner } from "@/components/ui/loading-spinner"
 
-const PAYROLL_KEYS = [
-  "payroll.default_working_days",
-  "payroll.saudi_minimum_wage",
-  "payroll.min_net_floor",
-  "payroll.waiver_threshold_admin",
-]
 
 function keyMeta(key: string, ar: boolean): { label: string; desc: string; unit?: string } {
   const map: Record<string, { ar: string; en: string; descAr: string; descEn: string; unit?: string }> = {

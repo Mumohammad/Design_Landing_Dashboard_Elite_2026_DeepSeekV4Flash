@@ -86,7 +86,7 @@ async function timeQuery(
 ): Promise<QueryTiming> {
   const start = performance.now()
   try {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+     
     const result = await fn()
     const durationMs = Math.round(performance.now() - start)
 

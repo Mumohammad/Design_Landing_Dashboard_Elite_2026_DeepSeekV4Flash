@@ -9,7 +9,6 @@
 // guarded export actions.
 
 import { useEffect, useState } from "react"
-import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
 import {
   listStatementPeriods,
@@ -80,7 +79,7 @@ function Td({
 }
 
 export function StatementsManager() {
-  const { t, locale } = useTranslation()
+  const { locale } = useTranslation()
   const ar = locale === "ar"
   const [periods, setPeriods] = useState<{ period_year: number; period_month: number }[]>([])
   const [period, setPeriod] = useState("")

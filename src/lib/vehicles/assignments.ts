@@ -43,7 +43,6 @@ export type AssignmentActionResult = {
 // sibling module — Client Components must not import a "use server" module.
 import {
   isAssignmentTransitionAllowed,
-  type VehicleAssignmentStatus,
 } from "./assignment-utils"
 
 function errorMessage(e: unknown): string {

@@ -3,7 +3,6 @@
 import * as React from "react"
 import { AlertTriangle, RefreshCcw, Home } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { cn } from "@/lib/utils"
 import { useTranslation } from "@/hooks/use-translation"
 import { REDIRECTS } from "@/lib/redirects"
 

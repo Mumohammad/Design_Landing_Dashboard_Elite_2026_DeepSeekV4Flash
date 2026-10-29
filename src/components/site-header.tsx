@@ -11,7 +11,7 @@ import { useTranslation } from "@/hooks/use-translation"
 
 export function SiteHeader() {
   const [searchOpen, setSearchOpen] = React.useState(false)
-  const { locale, setLocale, t } = useTranslation()
+  const { locale, setLocale } = useTranslation()
 
   React.useEffect(() => {
     const down = (e: KeyboardEvent) => {

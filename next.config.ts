@@ -32,7 +32,6 @@ const DASHBOARD_PATH_FALLBACK = process.env.DASHBOARD_PATH ?? "/dashboard"
 const LANDING_PATH = LANDING_URL.slice(LANDING_URL.indexOf("://") + 3).split("/").slice(1).length
   ? "/" + LANDING_URL.slice(LANDING_URL.indexOf("://") + 3).split("/").slice(1).join("/")
   : "/landing"
-const LANDING_HOST = LANDING_URL.slice(LANDING_URL.indexOf("://") + 3).split("/")[0]
 
 
 const nextConfig: NextConfig = {

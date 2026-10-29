@@ -3,10 +3,16 @@
 import Link from "next/link"
 import { useTranslation } from "@/hooks/use-translation"
 import {
-  Building2, Shield, ShieldCheck, Bell, Palette, CreditCard, KeyRound,
-  FileText, Users, Globe, Database, Clock, Lock, ArrowLeft
+  Building2,
+  Shield,
+  ShieldCheck,
+  CreditCard,
+  KeyRound,
+  FileText,
+  Users,
+  Globe,
+  ArrowLeft,
 } from "lucide-react"
-import { cn } from "@/lib/utils"
 import { ScrollReveal, StaggerContainer } from "@/components/ui/scroll-reveal"
 
 interface SettingCard {

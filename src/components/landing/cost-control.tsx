@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils"
 import { Plus, Equal, Coins, ReceiptText, ChartLine } from "lucide-react"
 import { landingContent } from "@/lib/landing-content"
 import { useTranslation } from "@/hooks/use-translation"
-import { Reveal, SectionHeading, iconMap, iconGradients } from "./shared"
+import { Reveal, SectionHeading } from "./shared"
 
 const cardIcons = [Coins, ReceiptText, ChartLine]
 const cardGradients = ["bg-transparent text-elite-blue-600! dark:text-elite-blue-300! shadow-none h-auto! w-auto! justify-start! rounded-none", "bg-transparent text-elite-blue-600! dark:text-elite-blue-300! shadow-none h-auto! w-auto! justify-start! rounded-none", "bg-transparent text-elite-blue-600! dark:text-elite-blue-300! shadow-none h-auto! w-auto! justify-start! rounded-none"]

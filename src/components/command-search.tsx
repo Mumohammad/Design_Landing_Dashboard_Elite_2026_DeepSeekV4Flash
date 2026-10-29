@@ -10,7 +10,6 @@ import {
   UsersRound,
   CarFront,
   CalendarClock,
-  PackageSearch,
   LayoutTemplate,
   HandCoins,
   WalletCards,
