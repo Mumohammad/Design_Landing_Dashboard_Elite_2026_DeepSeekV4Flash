@@ -134,8 +134,13 @@ export async function verifyOverviews(page, admin, tenantId, actorId, appUrl) {
     await page.unrouteAll({ behavior: 'ignoreErrors' })
     for (const [table, created] of Object.entries(ids)) {
       if (created.length) {
+        // Some records are now immutable history (hard delete is refused); the
+        // disposable tenant is retired by the outer runner, so retire instead.
         const result = await admin.from(table).delete().eq('tenant_id', tenantId).in('id', created)
-        if (result.error) throw new Error(`Could not clean up synthetic ${table} fixtures`)
+        if (result.error) {
+          const retired = await admin.from(table).update({ deleted_at: new Date().toISOString() }).eq('tenant_id', tenantId).in('id', created)
+          console.log(JSON.stringify({ check: 'overview fixture cleanup', table, deleteCode: result.error.code, retired: !retired.error }))
+        }
       }
     }
     // This helper exercises Arabic mobile screens, then returns the caller's
