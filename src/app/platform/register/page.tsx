@@ -4,11 +4,12 @@ import { LocalizedText, useUiText } from "@/components/localized-text"
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Building2, ArrowRight, Loader2, CheckCircle2, ArrowLeft, MailCheck } from 'lucide-react';
+import { Building2, ArrowRight, Loader2, CheckCircle2, ArrowLeft, MailCheck, ImageIcon } from 'lucide-react';
 import { REDIRECTS, withLocale } from '@/lib/redirects';
 import { useTranslation } from '@/hooks/use-translation';
 import { LanguageToggle } from '@/components/language-toggle';
 import { isValidNewPassword, newPasswordHint, MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH } from '@/lib/auth/password-policy';
+import { LOGO_ACCEPT, logoPrepMessage, prepareLogoFile } from '@/lib/branding/logo-client';
 
 type SubmitState =
   | { kind: 'idle' }
@@ -28,7 +29,7 @@ export default function RegisterPage() {
     domain: '',
     email: '',
     password: '',
-    logo_url: '',
+    logo_base64: '',
     brand_colors: '#1E5A99',
   });
 
@@ -170,7 +171,7 @@ export default function RegisterPage() {
             <div><label htmlFor="registration-domain" className="mb-2 block text-sm font-bold"><LocalizedText text="دومين الشركة *" /></label><input id="registration-domain" required type="text" value={formData.domain} onChange={e => setFormData({ ...formData, domain: e.target.value })} className={inputCls} placeholder="acme.com" dir="ltr" /></div>
             <div><label htmlFor="registration-email" className="mb-2 block text-sm font-bold"><LocalizedText text="البريد الإلكتروني للعمل *" /></label><input id="registration-email" required type="email" autoComplete="email" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} className={inputCls} placeholder="you@company.com" dir="ltr" /></div>
             <div><label className="mb-2 block text-sm font-bold" htmlFor="registration-password"><LocalizedText text="كلمة المرور *" /></label><input id="registration-password" required type="password" autoComplete="new-password" aria-describedby="registration-password-policy" value={formData.password} onChange={e => setFormData({ ...formData, password: e.target.value })} className={inputCls} placeholder={ui("10 أحرف على الأقل (أحرف وأرقام)")} minLength={MIN_PASSWORD_LENGTH} maxLength={MAX_PASSWORD_LENGTH} /><p id="registration-password-policy" className="mt-2 text-sm text-muted-foreground">{newPasswordHint(locale)}</p></div>
-            <div><label className="mb-2 block text-sm font-bold"><LocalizedText text="رابط شعار الشركة" /></label><input type="url" value={formData.logo_url} onChange={e => setFormData({ ...formData, logo_url: e.target.value })} className={inputCls} placeholder="https://cdn.example.com/logo.png" dir="ltr" /><p className="mt-1.5 text-xs text-slate-400"><LocalizedText text="ارفع الشعار إلى CDN والصق الرابط هنا." /></p></div>
+            <div><label htmlFor="registration-logo" className="mb-2 block text-sm font-bold"><LocalizedText text="شعار الشركة" /></label><div className="flex items-center gap-3"><div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-dashed border-slate-300 bg-slate-50">{formData.logo_base64 ? <img src={formData.logo_base64} alt="" className="h-full w-full object-contain" /> : <ImageIcon className="h-6 w-6 text-slate-400" />}</div><input id="registration-logo" type="file" accept={LOGO_ACCEPT} onChange={async e => { const file = e.target.files?.[0]; if (!file) { setFormData({ ...formData, logo_base64: '' }); return; } const prepared = await prepareLogoFile(file); if (!prepared.ok) { e.target.value = ''; setError(logoPrepMessage(prepared.error, locale === 'ar')); setFormData({ ...formData, logo_base64: '' }); return; } setError(''); setFormData({ ...formData, logo_base64: prepared.dataUrl }); }} className="block w-full text-sm text-slate-600 file:me-3 file:rounded-lg file:border-0 file:bg-[#1E5A99]/10 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-[#1E5A99] hover:file:bg-[#1E5A99]/15" /></div><p className="mt-1.5 text-xs text-slate-400"><LocalizedText text="PNG أو JPEG أو WebP حتى 5 ميجابايت — يظهر في الفواتير. يمكنك تغييره لاحقاً من الإعدادات." /></p></div>
             <div><label className="mb-2 block text-sm font-bold"><LocalizedText text="لون العلامة" /></label><div className="flex items-center gap-3"><input type="color" value={formData.brand_colors} onChange={e => setFormData({ ...formData, brand_colors: e.target.value })} className="h-11 w-16 cursor-pointer rounded-lg border border-slate-200 bg-white" /><input type="text" value={formData.brand_colors} onChange={e => setFormData({ ...formData, brand_colors: e.target.value })} className={inputCls} dir="ltr" /></div></div>
             <div className="pt-3"><button disabled={loading} type="submit" className="group flex w-full items-center justify-center gap-2 rounded-xl bg-[#1E5A99] px-6 py-3.5 font-bold text-white shadow-[#1E5A99]/25 transition hover:shadow-[#1E5A99]/35 disabled:opacity-60">{loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />} {locale === 'ar' ? (loading ? 'جارٍ إنشاء المساحة…' : 'أنشئ المساحة') : (loading ? 'Creating workspace…' : 'Create workspace')} {!loading && <ArrowRight className="h-4 w-4 -scale-x-100 transition-transform group-hover:-translate-x-0.5" />}</button></div>
             <p className="text-center text-xs leading-5 text-slate-400"><LocalizedText text="بالتسجيل أنت توافق على الشروط وسياسة الخصوصية. بعدها تسجّل الدخول من الصفحة الرئيسية مع التحقق بخطوتين." /></p>
