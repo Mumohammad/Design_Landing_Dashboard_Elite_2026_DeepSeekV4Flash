@@ -16,7 +16,7 @@ export async function verifyAccountingReads(page, appUrl) {
       ['Journal', 'journal_entries'], ['Trial balance', 'trial_balance'],
       ['Receivables', 'receivables'], ['Payables', 'payables'], ['VAT', 'vat_output_ledger'],
       ['Payments', 'finance_payments'], ['Periods', 'accounting_periods'],
-      ['Events', 'financial_events'], ['ZATCA', 'zatca_transmissions'],
+      ['Events', 'financial_events'], ['E-invoicing (ZATCA)', 'zatca_transmissions'],
       ['Journal', 'chart_of_accounts'], ['VAT', 'vat_reconciliation'], ['Payments', 'bank_accounts'],
       ['VAT', 'rpc/read_my_vat_position'],
     ]) {
