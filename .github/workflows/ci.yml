@@ -349,6 +349,17 @@ jobs:
         VERIFY_PASSWORD_FLOWS=1 VERIFY_APPROVALS=1 VERIFY_EXPENSES=1 VERIFY_RECEIVABLE_CRUD=1 VERIFY_INVOICE_CRUD=1 VERIFY_JOURNAL_CRUD=1 VERIFY_BANK_CRUD=1 VERIFY_OPERATIONS_CRUD=1 VERIFY_OVERVIEWS=1 node scripts/verify-local-mfa.mjs
         node scripts/verify-invoice-print.mjs
 
+    - name: Upload browser verification failure evidence
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: browser-verification-${{ github.sha }}-${{ github.run_attempt }}
+        path: |
+          supabase/.temp/*.png
+          *.png
+        if-no-files-found: ignore
+        retention-days: 3
+
     - name: Stop Supabase
       if: always()
       run: supabase stop 2>/dev/null || true
