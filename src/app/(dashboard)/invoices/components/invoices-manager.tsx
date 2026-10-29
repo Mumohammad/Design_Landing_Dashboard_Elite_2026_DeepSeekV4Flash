@@ -651,6 +651,7 @@ export function InvoicesManager() {
         isLoading={isLoading}
         loadError={loadError?(ar?"تعذر تحميل الفواتير وإجمالياتها. أعد المحاولة.":"Could not load invoices and their totals. Retry."):undefined}
         onRetry={()=>void load()}
+        retryLabel={ar ? "أعد المحاولة" : "Retry"}
         emptyStateMessage={ar ? "لا توجد فواتير بعد. أنشئ أول فاتورة." : "No invoices yet. Create your first invoice."}
       />
 
