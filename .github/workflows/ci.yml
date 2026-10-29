@@ -8,7 +8,7 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/production-modules-completion') }}
 
 permissions:
   contents: read
@@ -47,6 +47,11 @@ jobs:
 
     - name: Deploy config check
       run: node scripts/verify-deploy-config.mjs
+
+    - name: Preview isolation and historical archive checks
+      run: |
+        node --test scripts/preview-safety.test.mjs scripts/verify-staging-history.test.mjs scripts/assert-module-test-target.test.mjs scripts/verify-driver-evidence.test.mjs scripts/verify-driver-leave-lifecycle.test.mjs scripts/verify-platform-admin-users.test.mjs scripts/coordinated-acceptance.test.mjs scripts/verify-accounting-master-crud.test.mjs scripts/verify-invoice-reference-and-pages.test.mjs scripts/retire-release-acceptance.test.mjs scripts/write-release-evidence.test.mjs scripts/acceptance-fixture-ledgers.test.mjs scripts/finance-verification-contracts.test.mjs
+        node scripts/verify-staging-history.mjs
 
     # ── FX-10: every API route must self-guard or be explicitly allowlisted ──
 
@@ -92,10 +97,10 @@ jobs:
         # AWS AKIA…). Bare variable-name mentions (comments, error messages,
         # process.env reads) are not secrets and must not fail the build.
         # || true keeps grep's no-match exit code from failing the step under
-        # bash -eo pipefail. Matches are printed for debuggability.
-        MATCHES=$(grep -rnE "=[[:space:]]*['\"](eyJ[A-Za-z0-9_-]{20,}|sk_live_[A-Za-z0-9]{12,}|sk_test_[A-Za-z0-9]{12,}|AKIA[A-Z0-9]{16})['\"]" src/ --include="*.ts" --include="*.tsx" --include="*.js" || true)
+        # bash -eo pipefail. Only filenames are printed; matched secret values must never enter CI logs.
+        MATCHES=$(grep -rlE "=[[:space:]]*['\"](eyJ[A-Za-z0-9_-]{20,}|sk_live_[A-Za-z0-9]{12,}|sk_test_[A-Za-z0-9]{12,}|AKIA[A-Z0-9]{16})['\"]" src/ --include="*.ts" --include="*.tsx" --include="*.js" || true)
         if [ -n "$MATCHES" ]; then
-          echo "❌ Potential hardcoded secrets found:"
+          echo "❌ Files requiring hardcoded-secret review:"
           echo "$MATCHES"
           exit 1
         fi
@@ -153,7 +158,7 @@ jobs:
   # ── pgTAP RLS tests (independent release gate, needs Docker) ─────────────
   pgtap:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
 
     steps:
     - name: Checkout
@@ -344,6 +349,16 @@ jobs:
         VERIFY_PASSWORD_FLOWS=1 VERIFY_APPROVALS=1 VERIFY_EXPENSES=1 VERIFY_RECEIVABLE_CRUD=1 VERIFY_INVOICE_CRUD=1 VERIFY_JOURNAL_CRUD=1 VERIFY_BANK_CRUD=1 VERIFY_OPERATIONS_CRUD=1 VERIFY_OVERVIEWS=1 node scripts/verify-local-mfa.mjs
         node scripts/verify-invoice-print.mjs
 
+    - name: Upload browser verification failure evidence
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: browser-verification-${{ github.sha }}-${{ github.run_attempt }}
+        path: |
+          supabase/.temp/**/*.png
+        if-no-files-found: ignore
+        retention-days: 3
+
     - name: Stop Supabase
       if: always()
       run: supabase stop 2>/dev/null || true
@@ -402,3 +417,128 @@ jobs:
       run: |
         node scripts/wait-for-staging.mjs
         pnpm exec playwright test e2e/smoke.spec.ts e2e/locale-session.spec.ts e2e/public-surface.spec.ts --reporter=github
+
+
+  # Full synthetic acceptance is a separate, serialized staging mutation gate.
+  staging_acceptance:
+    needs: [ci, pgtap]
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/production-modules-completion'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    concurrency:
+      group: staging-full-acceptance-production-modules-completion
+      cancel-in-progress: false
+    env:
+      VERIFY_APP_URL: ${{ secrets.STAGING_URL }}
+      VERIFY_COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+    steps:
+    - name: Checkout exact trusted PR head
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
+        persist-credentials: false
+
+    - name: Install pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 10.27.0
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 24
+        cache: pnpm
+
+    - name: Install dependencies
+      run: pnpm install --frozen-lockfile
+
+    - name: Install Playwright Chromium
+      run: pnpm exec playwright install --with-deps chromium
+
+    - name: Validate isolated configuration and allocate owned run
+      id: acceptance_config
+      env:
+        SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+      run: |
+        node --input-type=module <<'NODE'
+        import fs from 'node:fs';
+        import { randomUUID } from 'node:crypto';
+        import { assertAcceptanceTarget } from './scripts/lib/coordinated-acceptance.mjs';
+        const required = ['VERIFY_APP_URL','VERIFY_COMMIT_SHA','NEXT_PUBLIC_SUPABASE_URL','NEXT_PUBLIC_SUPABASE_ANON_KEY','SUPABASE_SERVICE_ROLE_KEY'];
+        if (required.some(key => !process.env[key] || /[\r\n]/.test(process.env[key]))) throw Error('Complete isolated staging configuration required before fixtures');
+        assertAcceptanceTarget(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.VERIFY_APP_URL, process.env.VERIFY_COMMIT_SHA);
+        const runId = randomUUID();
+        fs.mkdirSync('supabase/.temp', { recursive: true });
+        const values = Object.fromEntries(required.map(key => [key, process.env[key]]));
+        fs.writeFileSync('supabase/.temp/staging-verification.env', Object.entries(values).map(([key,value]) => key+'='+JSON.stringify(value)).join('\n')+'\n', { flag:'wx', mode:0o600 });
+        fs.appendFileSync(process.env.GITHUB_ENV, 'VERIFY_RELEASE_RUN_ID='+runId+'\n');
+        fs.appendFileSync(process.env.GITHUB_OUTPUT, 'run_id='+runId+'\n');
+        console.log(JSON.stringify({ check:'allocated owned staging run', runId }));
+        NODE
+
+    - name: Run all nine unchanged staging acceptance groups
+      id: acceptance_process
+      timeout-minutes: 70
+      run: |
+        node --input-type=module <<'NODE'
+        import fs from 'node:fs';
+        import { spawn } from 'node:child_process';
+        import { setTimeout as delay } from 'node:timers/promises';
+        if (process.platform !== 'linux') throw Error('Linux acceptance process isolation required');
+        const child = spawn(process.execPath, ['scripts/verify-production-modules.mjs'], { detached:true, stdio:'inherit' });
+        let stopping = false;
+        const stop = async code => {
+          if (stopping) return;
+          stopping = true;
+          let drained = false;
+          try {
+            if (!Number.isSafeInteger(child.pid) || child.pid < 2) throw Error('Owned acceptance process group unavailable');
+            const group = -child.pid;
+            const alive = () => {
+              try { process.kill(group, 0); return true; }
+              catch (error) { if (error.code === 'ESRCH') return false; throw error; }
+            };
+            if (alive()) process.kill(group, 'SIGTERM');
+            for (let attempt = 0; attempt < 20 && alive(); attempt++) await delay(100);
+            if (alive()) process.kill(group, 'SIGKILL');
+            for (let attempt = 0; attempt < 20 && alive(); attempt++) await delay(100);
+            if (alive()) throw Error('Owned acceptance process group did not stop');
+            drained = true;
+          } catch {
+            console.error('Owned acceptance process group retirement unverified');
+            code = 1;
+          }
+          if (drained) fs.appendFileSync(process.env.GITHUB_OUTPUT, 'drained=true\n');
+          process.exit(code);
+        };
+        process.once('SIGINT', () => { void stop(130); });
+        process.once('SIGTERM', () => { void stop(143); });
+        child.once('error', () => { void stop(1); });
+        child.once('exit', code => { void stop(code ?? 1); });
+        NODE
+
+    - name: Retire every recorded actor for this exact owned run
+      id: acceptance_cleanup
+      if: always() && steps.acceptance_config.outputs.run_id != ''
+      timeout-minutes: 10
+      env:
+        SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+        ACCEPTANCE_PROCESS_DRAINED: ${{ steps.acceptance_process.outputs.drained }}
+      run: |
+        if [ "$ACCEPTANCE_PROCESS_DRAINED" != "true" ]; then
+          echo 'Owned acceptance process group retirement unverified'
+          exit 1
+        fi
+        node scripts/retire-release-acceptance.mjs
+
+    - name: Upload projected acceptance evidence
+      if: always() && steps.acceptance_cleanup.outputs.artifact_dir != ''
+      uses: actions/upload-artifact@v4
+      with:
+        name: staging-acceptance-${{ github.event.pull_request.head.sha }}-${{ github.run_attempt }}
+        path: ${{ steps.acceptance_cleanup.outputs.artifact_dir }}
+        if-no-files-found: warn
+        retention-days: 7
+        include-hidden-files: false

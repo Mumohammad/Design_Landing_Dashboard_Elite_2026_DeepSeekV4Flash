@@ -1,22 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyPlatformAdmin } from '@/lib/platform/admin-guard';
+import { fetchAllRows } from '@/lib/supabase/all-rows';
 
+type CompanyRow={id:string;name_en:string;name_ar:string|null;slug:string|null;domain:string|null;logo_url:string|null;status:string;plan:string;brand_colors:unknown;trial_ends_at:string|null;billing_status:string;created_at:string};
 export async function GET(req: NextRequest) {
   const guard = await verifyPlatformAdmin(req);
   if (!guard.ok) return NextResponse.json({ error: 'Forbidden' }, { status: guard.status });
-
-  const { data: tenants, error } = await guard.service
-    .from('tenants')
-    .select('id, name_en, name_ar, slug, domain, logo_url, status, plan, brand_colors, trial_ends_at, billing_status, created_at')
-    .is('deleted_at', null)
-    .order('created_at', { ascending: false });
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  const { data: users } = await guard.service.from('users').select('tenant_id');
-  const counts = new Map<string, number>();
-  for (const u of users ?? []) counts.set(u.tenant_id, (counts.get(u.tenant_id) ?? 0) + 1);
-
-  return NextResponse.json({ companies: (tenants ?? []).map(t => ({ ...t, users_count: counts.get(t.id) ?? 0 })) });
+  try {
+    const [tenants, users] = await Promise.all([
+      fetchAllRows<CompanyRow>(()=>guard.service.from('tenants').select('id, name_en, name_ar, slug, domain, logo_url, status, plan, brand_colors, trial_ends_at, billing_status, created_at').is('deleted_at',null).order('created_at',{ascending:false}).order('id')),
+      fetchAllRows<{tenant_id:string}>(()=>guard.service.from('users').select('tenant_id').is('deleted_at',null).order('id')),
+    ]);
+    if(tenants.error||users.error)return NextResponse.json({error:'The complete company list could not be loaded. Retry.'},{status:503});
+    const counts=new Map<string,number>();
+    for(const user of users.data??[])counts.set(user.tenant_id,(counts.get(user.tenant_id)??0)+1);
+    return NextResponse.json({companies:(tenants.data??[]).map(company=>({...company,users_count:counts.get(company.id)??0}))});
+  }catch{return NextResponse.json({error:'The complete company list could not be loaded. Retry.'},{status:503});}
 }
 
 export async function PATCH(req: NextRequest) {

@@ -1,459 +1,145 @@
 "use server"
 
-// Accounting Module 9 — Phase 4: Customers & Suppliers (parties).
-//
-// - createCustomer / createSupplier          accounting:create
-// - updateCustomer / updateSupplier          accounting:update
-// - setCustomerActive / setSupplierActive    accounting:update (toggle)
-// - deleteCustomer / deleteSupplier          accounting:update (soft-delete)
-// - exportCustomersCsv / exportSuppliersCsv  accounting:export
-//
-// Tables `customers`/`suppliers` exist since migration 027 (4-policy RLS,
-// codes defaulted from finance_doc_ref_seq). Validation is enforced at the
-// app layer here AND defensively by the validate_party() trigger (037):
-//   name_ar required · code 3-12 chars · tax_number 15 digits · limit ≥ 0
-//
-// All mutations write immutable audit_log rows and revalidate /accounting.
-
 import { revalidatePath } from "next/cache"
-import { createAdminClient } from "@/lib/supabase/admin"
+import { createClient } from "@/lib/supabase/server"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
-import { writeAuditLog } from "@/lib/auth/sessions"
-import { mapFinancialError, toCsv } from "@/lib/accounting/csv-utils"
-import { cacheGet, cacheInvalidate, CACHE_TTL } from "@/lib/cache"
-
-type ActionResult = { success: boolean; error?: string }
+import { rateLimitAccounting } from "@/lib/auth/rate-limit"
+import { cacheInvalidate } from "@/lib/cache"
+import { toCsv } from "./csv-utils"
+import { round2 } from "./invoice-math"
+import {
+  MASTER_EXPORT_MAX_BYTES, classifyMasterError, isMasterId, isMasterIntent, isMasterReview,
+  masterFailure, parseMasterMutationResult, readMasterPage, utf8ByteLength,
+  type MasterActionFailure, type MasterActionResult, type MasterIntent, type MasterReview, type PartyMasterRow,
+} from "./master-contract"
 
 export type PartyKind = "customers" | "suppliers"
-
 export type PartyInput = {
-  /** Optional on create — leave empty to let the DB sequence assign the code. */
-  code?: string | null
-  name_ar: string
-  name_en?: string | null
-  phone?: string | null
-  email?: string | null
-  /** ZATCA VAT registration number — exactly 15 digits when provided. */
-  tax_number?: string | null
-  /** Street name (National Address). */
-  address?: string | null
-  city?: string | null
-  district?: string | null
-  /** National Address building number — 4 digits. */
-  building_number?: string | null
-  /** National Address additional number — 4 digits. */
-  additional_number?: string | null
-  /** 5-digit postal code. */
-  postal_code?: string | null
-  /** ISO 3166-1 alpha-2, defaults to SA. */
-  country_code?: string | null
-  credit_limit?: number | null
-  /** Update-only — toggles the record's active state. */
-  is_active?: boolean
+  code?: string | null; name_ar: string; name_en?: string | null; phone?: string | null
+  email?: string | null; tax_number?: string | null; address?: string | null
+  credit_limit?: number | null; is_active?: boolean
+  /** Saudi National Address (ZATCA Phase 2 buyer/seller address). */
+  city?: string | null; district?: string | null; building_number?: string | null
+  additional_number?: string | null; postal_code?: string | null; country_code?: string | null
 }
-
-const CODE_RE = /^[A-Za-z0-9][A-Za-z0-9-]{2,11}$/
-const TAX_RE = /^\d{15}$/
-
-const PARTY_LABEL: Record<PartyKind, { ar: string; en: string }> = {
-  customers: { ar: "العميل", en: "customer" },
-  suppliers: { ar: "المورد", en: "supplier" },
+type NationalAddress = { city: string | null; district: string | null; building_number: string | null
+  additional_number: string | null; postal_code: string | null; country_code: string }
+const ADDRESS_KEYS = ["city", "district", "building_number", "additional_number", "postal_code", "country_code"] as const
+function normalizeAddress(input: PartyInput): NationalAddress | MasterActionFailure | null {
+  if (!ADDRESS_KEYS.some(key => key in input)) return null
+  const city = normalizedText(input.city, 127), district = normalizedText(input.district, 127)
+  const building = normalizedText(input.building_number, 4), additional = normalizedText(input.additional_number, 4)
+  const postal = normalizedText(input.postal_code, 5), country = normalizedText(input.country_code, 2)
+  if ([city, district, building, additional, postal, country].includes(false)) return masterFailure("MASTER_INVALID")
+  if ((building && !/^\d{4}$/.test(building)) || (additional && !/^\d{4}$/.test(additional))
+    || (postal && !/^\d{5}$/.test(postal)) || (country && !/^[A-Za-z]{2}$/.test(country))) return masterFailure("MASTER_INVALID")
+  return { city: city || null, district: district || null, building_number: building || null,
+    additional_number: additional || null, postal_code: postal || null, country_code: ((country || "SA") as string).toUpperCase() }
 }
-
-function codeColumn(kind: PartyKind): string {
-  return kind === "customers" ? "customer_code" : "supplier_code"
+type NormalizedParty = { code: string | null; name_ar: string; name_en: string | null; phone: string | null
+  email: string | null; tax_number: string | null; address: string | null; credit_limit: number | null; is_active?: boolean }
+function normalizedText(value: unknown, maximum: number): string | null | false {
+  if (value == null) return null
+  if (typeof value !== "string") return false
+  const text = value.trim()
+  return Array.from(text).length > maximum ? false : text || null
 }
-
-/**
- * Normalize + validate a party payload. Mirrors the DB trigger so most bad
- * input is caught before a round-trip; the trigger stays as defense-in-depth.
- */
-function normalizeInput(
-  input: PartyInput
-): { ok: true; payload: Record<string, unknown> } | { ok: false; error: string } {
-  const nameAr = (input.name_ar ?? "").trim()
-  if (!nameAr) {
-    return { ok: false, error: "An Arabic name is required." }
+function normalizeParty(input: PartyInput): NormalizedParty | MasterActionFailure {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return masterFailure("MASTER_INVALID")
+  const nameAr = normalizedText(input.name_ar, 200), nameEn = normalizedText(input.name_en, 200)
+  const phone = normalizedText(input.phone, 50), email = normalizedText(input.email, 254)
+  const address = normalizedText(input.address, 2000), tax = normalizedText(input.tax_number, 15)
+  const code = normalizedText(input.code, 12)
+  if (!nameAr || [nameEn, phone, email, address].includes(false)) return masterFailure("MASTER_INVALID")
+  if (code === false || (code && !/^[A-Za-z0-9][A-Za-z0-9-]{2,11}$/.test(code))) return masterFailure("MASTER_CODE_INVALID")
+  if (tax === false || (tax && !/^\d{15}$/.test(tax))) return masterFailure("MASTER_TAX_INVALID")
+  const credit = input.credit_limit ?? null
+  if (credit !== null) {
+    if (typeof credit !== "number" || !Number.isFinite(credit) || credit < 0) return masterFailure("MASTER_CREDIT_INVALID")
+    try { if (round2(credit) !== credit) return masterFailure("MASTER_CREDIT_INVALID") }
+    catch { return masterFailure("MASTER_CREDIT_INVALID") }
   }
-
-  // Code: optional on create (DB default), validated whenever provided.
-  const code = (input.code ?? "").trim()
-  if (code && !CODE_RE.test(code)) {
-    return { ok: false, error: "Code must be 3-12 characters (letters, digits, dashes)." }
-  }
-
-  const tax = (input.tax_number ?? "").trim()
-  if (tax && !TAX_RE.test(tax)) {
-    return { ok: false, error: "Tax number must be exactly 15 digits." }
-  }
-
-  const building = (input.building_number ?? "").trim()
-  if (building && !/^\d{4}$/.test(building)) {
-    return { ok: false, error: "Building number must be exactly 4 digits." }
-  }
-  const additional = (input.additional_number ?? "").trim()
-  if (additional && !/^\d{4}$/.test(additional)) {
-    return { ok: false, error: "Additional number must be exactly 4 digits." }
-  }
-  const postal = (input.postal_code ?? "").trim()
-  if (postal && !/^\d{5}$/.test(postal)) {
-    return { ok: false, error: "Postal code must be exactly 5 digits." }
-  }
-  const country = (input.country_code ?? "").trim().toUpperCase() || "SA"
-  if (!/^[A-Z]{2}$/.test(country)) {
-    return { ok: false, error: "Country code must be two letters (e.g. SA)." }
-  }
-
-  const limit = input.credit_limit
-  // NaN/Infinity must be rejected too — Postgres NUMERIC accepts NaN, and
-  // neither `NaN < 0` nor the DB trigger (NaN <> NaN) would catch it here.
-  if (limit != null && (!Number.isFinite(limit) || limit < 0)) {
-    return { ok: false, error: "Credit limit must be zero or a positive number." }
-  }
-
-  const payload: Record<string, unknown> = {
-    name_ar: nameAr,
-    name_en: (input.name_en ?? "").trim() || null,
-    phone: (input.phone ?? "").trim() || null,
-    email: (input.email ?? "").trim() || null,
-    tax_number: tax || null,
-    address: (input.address ?? "").trim() || null,
-    city: (input.city ?? "").trim() || null,
-    district: (input.district ?? "").trim() || null,
-    building_number: building || null,
-    additional_number: additional || null,
-    postal_code: postal || null,
-    country_code: country,
-    credit_limit: limit,
-  }
-  if (code) payload.code = code.toUpperCase()
-  return { ok: true, payload }
+  if (input.is_active !== undefined && typeof input.is_active !== "boolean") return masterFailure("MASTER_INVALID")
+  return { code: code ? code.toUpperCase() : null, name_ar: nameAr, name_en: nameEn as string | null,
+    phone: phone as string | null, email: email as string | null, tax_number: tax || null,
+    address: address as string | null, credit_limit: credit,
+    ...(input.is_active === undefined ? {} : { is_active: input.is_active }) }
 }
-
-function errorMessage(e: unknown): string {
-  return e instanceof Error ? e.message : "Unknown error"
+async function refreshParties(kind: PartyKind, tenantId: string): Promise<void> {
+  // The receipt already confirms the transaction. A cache failure must not
+  // misreport committed business data; the UI reloads its uncached caller page.
+  try { await cacheInvalidate("parties:" + kind + ":" + tenantId) } catch { /* best-effort invalidation */ }
+  try { revalidatePath("/accounting") } catch { /* the confirmed receipt remains retry-safe */ }
 }
-
-/** Bilingual not-found message from the taxonomy (CUS001 / SUP001). */
-function notFoundMessage(kind: PartyKind): string {
-  return mapFinancialError(`${kind === "customers" ? "CUS001" : "SUP001"}: not found`)
-}
-
-// ── Create ────────────────────────────────────────────────────────────────
-
-async function createParty(kind: PartyKind, input: PartyInput): Promise<ActionResult> {
+async function mutateParty(kind: PartyKind, action: "create" | "update" | "set_active" | "archive",
+  input: PartyInput | { is_active: boolean } | Record<string, never>, intent: MasterIntent | MasterReview, id?: string,
+): Promise<MasterActionResult> {
   try {
-    await requirePermission("accounting", "create")
-    const currentUser = await getCurrentUser()
-    if (!currentUser) return { success: false, error: "Not authenticated." }
-
-    const label = PARTY_LABEL[kind]
-    const norm = normalizeInput(input)
-    if (!norm.ok) return { success: false, error: norm.error }
-
-    const admin = createAdminClient()
-    const insertPayload: Record<string, unknown> = {
-      tenant_id: currentUser.tenantId,
-      ...norm.payload,
-      created_by: currentUser.authUserId,
-    }
-    // Only set the code column when the caller supplied one — otherwise the
-    // column DEFAULT (finance_doc_ref_seq) assigns the next number.
-    if (norm.payload.code) {
-      insertPayload[codeColumn(kind)] = norm.payload.code
-      delete insertPayload.code
-    }
-
-    const { data: row, error } = await admin.from(kind).insert(insertPayload).select("id").single()
-    if (error) {
-      if (error.code === "23505") {
-        return { success: false, error: `A ${label.en} with this code already exists.` }
-      }
-      return { success: false, error: mapFinancialError(error.message) }
-    }
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "accounting",
-      action: `${kind.slice(0, -1)}_created`,
-      entityType: kind,
-      entityId: row.id,
-      newValues: {
-        code: insertPayload[codeColumn(kind)] ?? null,
-        name_ar: norm.payload.name_ar,
-        tax_number: norm.payload.tax_number,
-        credit_limit: norm.payload.credit_limit,
-      },
+    await requirePermission("accounting", action === "create" ? "create" : "update")
+    const user = await getCurrentUser()
+    if (!user) return masterFailure("MASTER_FORBIDDEN")
+    if (!isMasterIntent(intent)) return masterFailure("MASTER_REQUEST_REQUIRED")
+    if (action !== "create" && (!isMasterId(id) || !isMasterReview(intent))) return masterFailure("MASTER_STALE")
+    let payload: NormalizedParty | { is_active: boolean } | Record<string, never>
+    let address: NationalAddress | null = null
+    if (action === "create" || action === "update") {
+      const normalized = normalizeParty(input as PartyInput)
+      if ("success" in normalized) return normalized
+      payload = normalized
+      const normalizedAddress = normalizeAddress(input as PartyInput)
+      if (normalizedAddress && "success" in normalizedAddress) return normalizedAddress
+      address = normalizedAddress
+    } else if (action === "set_active") {
+      if (typeof (input as { is_active?: unknown }).is_active !== "boolean") return masterFailure("MASTER_INVALID")
+      payload = { is_active: (input as { is_active: boolean }).is_active }
+    } else payload = {}
+    if (!(await rateLimitAccounting(user.id)).success) return masterFailure("MASTER_RATE_LIMIT")
+    const caller = await createClient()
+    const { data, error } = await caller.rpc("mutate_my_accounting_master", {
+      p_kind: kind, p_action: action, p_input: payload, p_id: id ?? null,
+      p_expected_updated_at: action === "create" ? null : (intent as MasterReview).expected_updated_at,
+      p_request_id: intent.request_id,
     })
-
-    revalidatePath("/accounting")
-    await cacheInvalidate(`parties:${kind}:${currentUser.tenantId}`)
-    return { success: true }
-  } catch (e) {
-    return { success: false, error: errorMessage(e) }
-  }
-}
-
-
-export async function createCustomer(input: PartyInput): Promise<ActionResult> {
-  return createParty("customers", input)
-}
-
-export async function createSupplier(input: PartyInput): Promise<ActionResult> {
-  return createParty("suppliers", input)
-}
-
-// ── Update ────────────────────────────────────────────────────────────────
-
-async function updateParty(
-  kind: PartyKind,
-  input: PartyInput & { id: string }
-): Promise<ActionResult> {
-  try {
-    await requirePermission("accounting", "update")
-    const currentUser = await getCurrentUser()
-    if (!currentUser) return { success: false, error: "Not authenticated." }
-
-    const label = PARTY_LABEL[kind]
-    const norm = normalizeInput(input)
-    if (!norm.ok) return { success: false, error: norm.error }
-
-    const admin = createAdminClient()
-    // Fetch existing row (service-role must scope by tenant + soft-delete).
-    const { data: existing, error: fetchError } = await admin
-      .from(kind)
-      .select("id,tenant_id,name_ar,name_en,tax_number,credit_limit,is_active")
-      .eq("id", input.id)
-      .eq("tenant_id", currentUser.tenantId)
-      .is("deleted_at", null)
-      .maybeSingle()
-
-    if (fetchError || !existing) {
-      return { success: false, error: notFoundMessage(kind) }
+    if (error) return masterFailure(classifyMasterError(error))
+    const receipt = parseMasterMutationResult(data, kind)
+    if ((id && receipt.id.toLowerCase() !== id.toLowerCase()) || ("code" in payload && payload.code && receipt.code !== payload.code)
+      || ("is_active" in payload && receipt.is_active !== payload.is_active) || receipt.archived !== (action === "archive")
+      || (action === "set_active" && receipt.is_active !== (payload as { is_active: boolean }).is_active)) return masterFailure("MASTER_UNAVAILABLE")
+    if (address) {
+      const saved = await caller.rpc("set_my_party_national_address", { p_kind: kind, p_id: receipt.id, p_input: address })
+      if (saved.error) { await refreshParties(kind, user.tenantId); return masterFailure(classifyMasterError(saved.error)) }
+      const stamp = (saved.data as { updated_at?: unknown } | null)?.updated_at
+      if (typeof stamp === "string") receipt.updated_at = stamp
     }
-
-    const updatePayload: Record<string, unknown> = {
-      ...norm.payload,
-      updated_by: currentUser.authUserId,
-      is_active: input.is_active ?? existing.is_active,
-    }
-    if (norm.payload.code) {
-      updatePayload[codeColumn(kind)] = norm.payload.code
-    }
-    delete updatePayload.code
-
-    const { error } = await admin
-      .from(kind)
-      .update(updatePayload)
-      .eq("id", input.id)
-      .eq("tenant_id", currentUser.tenantId)
-      .is("deleted_at", null)
-
-    if (error) {
-      if (error.code === "23505") {
-        return { success: false, error: `A ${label.en} with this code already exists.` }
-      }
-      return { success: false, error: mapFinancialError(error.message) }
-    }
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "accounting",
-      action: `${kind.slice(0, -1)}_updated`,
-      entityType: kind,
-      entityId: input.id,
-      oldValues: {
-        name_ar: existing.name_ar,
-        tax_number: existing.tax_number,
-        credit_limit: existing.credit_limit,
-        is_active: existing.is_active,
-      },
-      newValues: {
-        name_ar: norm.payload.name_ar,
-        tax_number: norm.payload.tax_number,
-        credit_limit: norm.payload.credit_limit,
-        is_active: updatePayload.is_active,
-      },
-    })
-
-    revalidatePath("/accounting")
-    return { success: true }
-  } catch (e) {
-    return { success: false, error: errorMessage(e) }
-  }
+    await refreshParties(kind, user.tenantId)
+    return { success: true, ...receipt }
+  } catch (error) { return masterFailure(classifyMasterError(error)) }
 }
-
-export async function updateCustomer(input: PartyInput & { id: string }): Promise<ActionResult> {
-  return updateParty("customers", input)
-}
-
-export async function updateSupplier(input: PartyInput & { id: string }): Promise<ActionResult> {
-  return updateParty("suppliers", input)
-}
-
-// ── Toggle active ─────────────────────────────────────────────────────────
-
-async function setPartyActive(
-  kind: PartyKind,
-  input: { id: string; is_active: boolean }
-): Promise<ActionResult> {
-  try {
-    await requirePermission("accounting", "update")
-    const currentUser = await getCurrentUser()
-    if (!currentUser) return { success: false, error: "Not authenticated." }
-
-    const admin = createAdminClient()
-    const { data: updated, error } = await admin
-      .from(kind)
-      .update({ is_active: input.is_active, updated_by: currentUser.authUserId })
-      .eq("id", input.id)
-      .eq("tenant_id", currentUser.tenantId)
-      .is("deleted_at", null)
-      .select("id")
-      .maybeSingle()
-
-    if (error) return { success: false, error: mapFinancialError(error.message) }
-    if (!updated) return { success: false, error: notFoundMessage(kind) }
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "accounting",
-      action: input.is_active ? `${kind.slice(0, -1)}_activated` : `${kind.slice(0, -1)}_deactivated`,
-      entityType: kind,
-      entityId: input.id,
-      newValues: { is_active: input.is_active },
-    })
-
-    revalidatePath("/accounting")
-    return { success: true }
-  } catch (e) {
-    return { success: false, error: errorMessage(e) }
-  }
-}
-
-export async function setCustomerActive(input: { id: string; is_active: boolean }): Promise<ActionResult> {
-  return setPartyActive("customers", input)
-}
-
-export async function setSupplierActive(input: { id: string; is_active: boolean }): Promise<ActionResult> {
-  return setPartyActive("suppliers", input)
-}
-
-// ── Soft-delete ───────────────────────────────────────────────────────────
-
-async function deleteParty(kind: PartyKind, input: { id: string }): Promise<ActionResult> {
-  try {
-    await requirePermission("accounting", "update")
-    const currentUser = await getCurrentUser()
-    if (!currentUser) return { success: false, error: "Not authenticated." }
-
-    const admin = createAdminClient()
-    const { data: updated, error } = await admin
-      .from(kind)
-      .update({ deleted_at: new Date().toISOString(), updated_by: currentUser.authUserId })
-      .eq("id", input.id)
-      .eq("tenant_id", currentUser.tenantId)
-      .is("deleted_at", null)
-      .select("id")
-      .maybeSingle()
-
-    if (error) return { success: false, error: mapFinancialError(error.message) }
-    if (!updated) return { success: false, error: notFoundMessage(kind) }
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "accounting",
-      action: `${kind.slice(0, -1)}_deleted`,
-      entityType: kind,
-      entityId: input.id,
-      newValues: { deleted_at: new Date().toISOString() },
-    })
-
-    revalidatePath("/accounting")
-    return { success: true }
-  } catch (e) {
-    return { success: false, error: errorMessage(e) }
-  }
-}
-
-export async function deleteCustomer(input: { id: string }): Promise<ActionResult> {
-  return deleteParty("customers", input)
-}
-
-export async function deleteSupplier(input: { id: string }): Promise<ActionResult> {
-  return deleteParty("suppliers", input)
-}
-
-// ── CSV export (BOM-prefixed so Excel renders Arabic) ─────────────────────
-
-async function exportPartiesCsv(kind: PartyKind): Promise<{ success: boolean; csv?: string; error?: string }> {
+export async function createCustomer(input: PartyInput, intent: MasterIntent): Promise<MasterActionResult> { return mutateParty("customers", "create", input, intent) }
+export async function createSupplier(input: PartyInput, intent: MasterIntent): Promise<MasterActionResult> { return mutateParty("suppliers", "create", input, intent) }
+export async function updateCustomer(id: string, input: PartyInput, review: MasterReview): Promise<MasterActionResult> { return mutateParty("customers", "update", input, review, id) }
+export async function updateSupplier(id: string, input: PartyInput, review: MasterReview): Promise<MasterActionResult> { return mutateParty("suppliers", "update", input, review, id) }
+export async function setCustomerActive(id: string, active: boolean, review: MasterReview): Promise<MasterActionResult> { return mutateParty("customers", "set_active", { is_active: active }, review, id) }
+export async function setSupplierActive(id: string, active: boolean, review: MasterReview): Promise<MasterActionResult> { return mutateParty("suppliers", "set_active", { is_active: active }, review, id) }
+export async function deleteCustomer(id: string, review: MasterReview): Promise<MasterActionResult> { return mutateParty("customers", "archive", {}, review, id) }
+export async function deleteSupplier(id: string, review: MasterReview): Promise<MasterActionResult> { return mutateParty("suppliers", "archive", {}, review, id) }
+type PartyExportResult = { success: true; csv: string } | MasterActionFailure
+async function exportParties(kind: PartyKind, search = ""): Promise<PartyExportResult> {
   try {
     await requirePermission("accounting", "export")
-    const currentUser = await getCurrentUser()
-    if (!currentUser) return { success: false, error: "Not authenticated." }
-
-    const codeCol = kind === "customers" ? "customer_code" : "supplier_code"
-    const admin = createAdminClient()
-
-    // Cache parties list for 2 min (hot path — read on accounting page visit)
-    const data = await cacheGet(
-      `parties:${kind}:${currentUser.tenantId}`,
-      async () => {
-        const { data, error } = await admin
-          .from(kind)
-          .select(`id,${codeCol},name_ar,name_en,phone,email,tax_number,address,credit_limit,is_active`)
-          .eq("tenant_id", currentUser.tenantId)
-          .is("deleted_at", null)
-          .order(codeCol, { ascending: true })
-        if (error) throw new Error(error.message)
-        return data ?? []
-      },
-      CACHE_TTL.chartOfAccounts
-    )
-
-    const rows = (data ?? []).map((r) => {
-      const row = r as unknown as Record<string, unknown>
-      return [
-        row[codeCol],
-        row.name_ar,
-        row.name_en ?? "",
-        row.phone ?? "",
-        row.email ?? "",
-        row.tax_number ?? "",
-        row.address ?? "",
-        row.credit_limit ?? "",
-        row.is_active ? "true" : "false",
-      ] as (string | number | boolean | null)[]
-    })
-
+    await requirePermission("accounting", "read")
+    const user = await getCurrentUser()
+    if (!user) return masterFailure("MASTER_FORBIDDEN")
+    if (!(await rateLimitAccounting(user.id)).success) return masterFailure("MASTER_RATE_LIMIT")
+    const caller = await createClient()
+    const result = await readMasterPage<PartyMasterRow>(caller, kind, { search, exporting: true })
     const csv = "\uFEFF" + toCsv(
-      ["code", "name_ar", "name_en", "phone", "email", "tax_number", "address", "credit_limit", "is_active"],
-      rows
+      ["code", "name_ar", "name_en", "phone", "email", "tax_number", "address", "building_number", "district", "city", "postal_code", "additional_number", "country_code", "credit_limit", "is_active"],
+      result.rows.map(row => [row.code, row.name_ar, row.name_en, row.phone, row.email, row.tax_number, row.address, row.building_number ?? null, row.district ?? null, row.city ?? null, row.postal_code ?? null, row.additional_number ?? null, row.country_code ?? "SA", row.credit_limit, row.is_active ? "true" : "false"]),
     )
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "accounting",
-      action: `${kind.slice(0, -1)}_list_exported`,
-      entityType: kind,
-      newValues: { rows: (data ?? []).length },
-    })
-
+    if (utf8ByteLength(csv) > MASTER_EXPORT_MAX_BYTES) return masterFailure("MASTER_EXPORT_LIMIT")
     return { success: true, csv }
-  } catch (e) {
-    return { success: false, error: errorMessage(e) }
-  }
+  } catch (error) { return masterFailure(classifyMasterError(error)) }
 }
-
-export async function exportCustomersCsv(): Promise<{ success: boolean; csv?: string; error?: string }> {
-  return exportPartiesCsv("customers")
-}
-
-export async function exportSuppliersCsv(): Promise<{ success: boolean; csv?: string; error?: string }> {
-  return exportPartiesCsv("suppliers")
-}
+export async function exportCustomersCsv(search = ""): Promise<PartyExportResult> { return exportParties("customers", search) }
+export async function exportSuppliersCsv(search = ""): Promise<PartyExportResult> { return exportParties("suppliers", search) }

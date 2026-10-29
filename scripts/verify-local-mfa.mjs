@@ -5,6 +5,8 @@ import { chromium, expect } from "@playwright/test"
 import { createClient } from "@supabase/supabase-js"
 import { createHmac, randomBytes, randomUUID } from "node:crypto"
 import { setTimeout } from "node:timers/promises"
+import fs from "node:fs"
+import path from "node:path"
 
 process.loadEnvFile(".env.local")
 const url = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL)
@@ -13,6 +15,10 @@ if (!["localhost", "127.0.0.1"].includes(url.hostname) || url.port !== "58321") 
 }
 const appUrl = process.env.LOCAL_APP_URL ?? "http://localhost:3107"
 if (!["http://localhost:3107", "http://localhost:3108"].includes(appUrl)) throw new Error("Local app target required")
+const verificationRunId=randomUUID()
+process.env.VERIFY_RELEASE_RUN_ID=verificationRunId
+process.env.VERIFY_EVIDENCE_DIR=path.resolve("supabase/.temp/local-browser-"+verificationRunId)
+fs.mkdirSync(process.env.VERIFY_EVIDENCE_DIR,{recursive:true})
 const admin = createClient(url.href, process.env.SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
 })
@@ -35,7 +41,7 @@ try {
   const email = `release-${id}@example.test`
   let password = `${randomBytes(20).toString("base64url")}1a`
   const owner = await admin.auth.admin.createUser({
-    email, password, email_confirm: true, app_metadata: { _invite_provisioned: true },
+    email, password, email_confirm: true, app_metadata: { _invite_provisioned: true, _release_acceptance_run: verificationRunId, _release_acceptance_group: "local_ci" },
   })
   if (owner.error) throw new Error("Auth fixture failed")
   const company = await admin.rpc("provision_company_atomic", {
@@ -51,7 +57,8 @@ try {
     const { verifyNewPasswordFlows } = await import("./verify-local-password-policy.mjs")
     await verifyNewPasswordFlows(browser, admin, appUrl, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
   }
-  const page = await browser.newPage()
+  const context = await browser.newContext()
+  const page = await context.newPage()
   page.setDefaultTimeout(20_000)
   let pageErrors = 0
   page.on("pageerror", () => { pageErrors++ })
@@ -100,16 +107,21 @@ try {
     await verifyDashboardBusinessDate(page, appUrl)
   }
   if (process.env.VERIFY_APPROVALS === "1") {
-    stage = "approvals queue paging and privacy browser verification"
+    stage = "VAT position browser verification"
     const { verifyVatPosition } = await import("./verify-local-vat-position.mjs")
     await verifyVatPosition(page, admin, company.data.id, appUrl)
-    const { verifyApprovalsInbox } = await import("./verify-local-approvals.mjs")
-    await verifyApprovalsInbox(page, admin, company.data.id, appUrl)
   }
+  // Expenses asserts tenant-wide exact totals, so it runs before the approvals
+  // check, which now retains its synthetic expense evidence in the same tenant.
   if (process.env.VERIFY_EXPENSES === "1") {
     stage = "expense overview browser verification"
     const { verifyExpensesOverview } = await import("./verify-local-expenses.mjs")
     await verifyExpensesOverview(page, admin, company.data.id, appUrl)
+  }
+  if (process.env.VERIFY_APPROVALS === "1") {
+    stage = "approvals queue paging and privacy browser verification"
+    const { verifyApprovalsInbox } = await import("./verify-local-approvals.mjs")
+    await verifyApprovalsInbox(page, admin, company.data.id, appUrl)
   }
   if (process.env.VERIFY_RECEIVABLE_CRUD === "1") {
     stage = "manual receivable retry browser verification"

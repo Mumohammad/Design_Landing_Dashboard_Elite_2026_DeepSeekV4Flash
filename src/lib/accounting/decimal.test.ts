@@ -22,3 +22,6 @@ describe("exact decimal arithmetic", () => {
     }
   })
 })
+
+it.each(["70368744177664.01","90071992547409.91","-70368744177664.01","-90071992547409.91"])("rejects a decimal whose cents cannot survive the UI Number boundary: %s",value=>{expect(()=>decimalRound(value)).toThrow("Decimal out of range")})
+it("retains exact large decimal values that round-trip at cents precision",()=>{expect(decimalRound("70368744177664.02")).toBe(70368744177664.02);expect(sumMoney("35000000000000.00","35000000000000.00")).toBe(70000000000000)})

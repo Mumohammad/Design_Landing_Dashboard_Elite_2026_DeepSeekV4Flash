@@ -13,10 +13,8 @@ CREATE TEMP TABLE storage_policy_matrix (
 INSERT INTO storage_policy_matrix VALUES
   ('driver-photos', 'SELECT', 'drivers', 'read'),
   ('driver-photos', 'INSERT', 'drivers', 'update'),
-  ('driver-photos', 'UPDATE', 'drivers', 'update'),
   ('driver-documents', 'SELECT', 'drivers', 'read'),
   ('driver-documents', 'INSERT', 'drivers', 'update'),
-  ('driver-documents', 'UPDATE', 'drivers', 'update'),
   ('vehicle-photos', 'SELECT', 'vehicles', 'read'),
   ('vehicle-photos', 'INSERT', 'vehicles', 'update'),
   ('vehicle-photos', 'UPDATE', 'vehicles', 'update'),
@@ -68,7 +66,7 @@ SELECT plan(
   (SELECT count(*)::integer * 2 FROM storage_policy_matrix)
   + (SELECT count(*)::integer * 4 FROM storage_write_matrix)
   + (SELECT count(*)::integer * 4 FROM storage_read_matrix)
-  + 9
+  + 15
 );
 
 SELECT ok(
@@ -106,6 +104,13 @@ SELECT ok(
 )
 FROM storage_policy_matrix m ORDER BY m.bucket_id, m.command_name;
 
+-- Driver evidence is append-only: read/upload remain authorized, while
+-- replacements finalize a fresh object through the reviewed driver RPC.
+SELECT is(
+ (SELECT count(*)::integer FROM pg_policies p WHERE p.schemaname='storage' AND p.tablename='objects' AND p.cmd='UPDATE' AND (coalesce(p.qual,'')||coalesce(p.with_check,'')) LIKE '%'||bucket||'%'),
+ 0,format('%s has no in-place UPDATE policy',bucket)
+) FROM unnest(ARRAY['driver-photos','driver-documents']) bucket;
+
 -- Authorized role: each human-writable bucket accepts an own-tenant path.
 RESET ROLE;
 SET LOCAL ROLE authenticated;
@@ -125,6 +130,21 @@ SELECT lives_ok(
   format('authorized role may insert into %s', m.bucket_id)
 )
 FROM storage_write_matrix m ORDER BY m.bucket_id;
+
+-- Even the authorized uploading GM cannot change stored evidence metadata
+-- in place. RLS UPDATE without a policy returns zero rows rather than success.
+WITH changed AS (
+ UPDATE storage.objects SET metadata='{"mimetype":"application/octet-stream","overwrite":true}'::jsonb
+ WHERE bucket_id='driver-photos' AND name='00000000-0000-0000-0000-000000000001/078-driver-photos-valid.jpg' RETURNING id
+) SELECT is(count(*)::integer,0,'authorized driver photo uploader cannot overwrite existing object') FROM changed;
+WITH changed AS (
+ UPDATE storage.objects SET metadata='{"mimetype":"application/octet-stream","overwrite":true}'::jsonb
+ WHERE bucket_id='driver-documents' AND name='00000000-0000-0000-0000-000000000001/078-driver-documents-valid.pdf' RETURNING id
+) SELECT is(count(*)::integer,0,'authorized driver document uploader cannot overwrite existing object') FROM changed;
+SELECT is(
+ (SELECT metadata FROM storage.objects WHERE bucket_id=m.bucket_id AND name='00000000-0000-0000-0000-000000000001/078-'||m.bucket_id||'-valid.'||m.extension),
+ jsonb_build_object('mimetype',m.mime_type),format('%s retains original stored object metadata',m.bucket_id)
+) FROM storage_write_matrix m WHERE bucket_id IN('driver-photos','driver-documents') ORDER BY bucket_id;
 
 -- A valid own-tenant prefix cannot replace the required permission.
 RESET ROLE;

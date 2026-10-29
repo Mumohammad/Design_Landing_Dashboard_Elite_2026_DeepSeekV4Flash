@@ -3,7 +3,7 @@ import { createHash } from "node:crypto"
 const mocks = vi.hoisted(() => ({ permission: vi.fn(), user: vi.fn(), from: vi.fn(), storage: vi.fn(),
   upload: vi.fn(), sign: vi.fn(), audit: vi.fn(), read: vi.fn(), render: vi.fn(), queries: [] as Array<{table:string; builder:Record<string, ReturnType<typeof vi.fn>>}>,
   results: {} as Record<string, {data:unknown;error:unknown}>, existing: null as unknown, existingError: null as unknown,
-  saveError: null as unknown,
+  saveError: null as unknown, fonts: vi.fn(),
 }))
 vi.mock("server-only", () => ({}))
 vi.mock("@/lib/auth/authorization", () => ({ requirePermission: mocks.permission, getCurrentUser: mocks.user }))
@@ -11,7 +11,7 @@ vi.mock("@/lib/auth/sessions", () => ({ writeAuditLog: mocks.audit }))
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => ({ from: mocks.from, storage: { from: mocks.storage } }) }))
 vi.mock("./zatca-document-qr", () => ({ loadAuthorityQr: async () => null }))
 vi.mock("node:fs/promises", () => ({ readFile: mocks.read }))
-vi.mock("./invoice-pdf", () => ({ renderInvoicePdf: mocks.render }))
+vi.mock("./invoice-pdf", () => ({ renderInvoicePdf: mocks.render, loadInvoiceReferenceFonts: mocks.fonts }))
 vi.mock("./invoice-qr", () => ({ buildTaxQrPayload: vi.fn(), qrPngDataUrl: async () => "data:image/png;base64,AAAA" }))
 import { generateInvoiceDocument } from "./invoice-docs"
 const invoiceId="80111111-1111-4111-8111-111111111111"
@@ -23,6 +23,7 @@ beforeEach(() => {
   mocks.user.mockResolvedValue({tenantId:"tenant-a",authUserId:"auth-a"})
   mocks.read.mockResolvedValue(Buffer.from("asset"))
   mocks.render.mockResolvedValue(pdf)
+  mocks.fonts.mockResolvedValue({})
   mocks.upload.mockResolvedValue({error:null})
   mocks.sign.mockResolvedValue({data:{signedUrl:"https://example.test/private.pdf"},error:null})
   mocks.storage.mockReturnValue({upload:mocks.upload,createSignedUrl:mocks.sign})
@@ -63,10 +64,21 @@ describe("retained invoice PDFs",()=>{
     const record=mocks.queries.find(query=>query.table==="generated_documents"&&query.builder.insert.mock.calls.length)
     expect(record?.builder.insert).toHaveBeenCalledWith(expect.objectContaining({
       tenant_id:"tenant-a",file_url:"https://example.test/private.pdf",
-      generated_data:expect.objectContaining({file_format:"pdf",pdf_sha256:hash,qr_kind:"internal_unvalidated"}),
+      generated_data:expect.objectContaining({file_format:"pdf",layout_version:"reference-a4-2",font_source:"system_or_cairo",pdf_sha256:hash,qr_kind:"internal_unvalidated"}),
     }))
     expect(mocks.render.mock.calls[0][0]).toContain('aria-label="SAR 0.30"')
     expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({tenantId:"tenant-a",entityId:"document-a"}))
+  })
+  it("uses only operator-loaded reference fonts and fails before rendering when configured fonts are invalid",async()=>{
+    mocks.fonts.mockResolvedValueOnce({referenceFontDataUrl:"data:font/ttf;base64,AAAA",referenceBoldFontDataUrl:"data:font/ttf;base64,BBBB"})
+    expect((await generateInvoiceDocument(invoiceId)).success).toBe(true)
+    expect(mocks.render.mock.calls[0][0]).toContain('format("truetype"); font-weight: 400')
+    const record=mocks.queries.find(query=>query.table==="generated_documents"&&query.builder.insert.mock.calls.length)
+    expect(record?.builder.insert).toHaveBeenCalledWith(expect.objectContaining({generated_data:expect.objectContaining({font_source:"protected_reference"})}))
+    mocks.render.mockClear();mocks.upload.mockClear()
+    mocks.fonts.mockRejectedValueOnce(new Error("Invoice reference fonts are unavailable or invalid"))
+    expect((await generateInvoiceDocument(invoiceId)).success).toBe(false)
+    expect(mocks.render).not.toHaveBeenCalled();expect(mocks.upload).not.toHaveBeenCalled()
   })
   it("never renders or uploads without permission and an assured current user",async()=>{
     mocks.permission.mockRejectedValueOnce(new Error("Forbidden"))
@@ -117,5 +129,24 @@ describe("retained invoice PDFs",()=>{
     mocks.saveError={message:"Save failed"}
     expect((await generateInvoiceDocument(invoiceId)).success).toBe(false)
     expect(mocks.audit).not.toHaveBeenCalled()
+  })
+})
+
+describe("reference fields from persisted invoice records",()=>{
+  it("hydrates the distinct item name and full price while hiding the financial due date by default",async()=>{
+    mocks.results.invoice_lines={data:[{line_no:1,item_name:"Item & name",description:"Separate description",quantity:1,unit_price:72225.2082,amount:72225.21,discount:0,vat_rate:15,vat_amount:10833.78}],error:null}
+    expect((await generateInvoiceDocument(invoiceId)).success).toBe(true)
+    const html=mocks.render.mock.calls[0][0]
+    expect(html).toContain('class="text" dir="auto">Item &amp; name')
+    expect(html).toContain('class="text" dir="auto">Separate description')
+    expect(html).toContain('72,225.2082')
+    expect(html).not.toContain('Due Date')
+    expect(mocks.queries.find(query=>query.table==='invoice_lines')?.builder.select).toHaveBeenCalledWith(expect.stringContaining('item_name'))
+  })
+  it("prints the persisted due date only when explicitly enabled",async()=>{
+    mocks.results.invoices.data={...(mocks.results.invoices.data as object),show_due_date:true}
+    expect((await generateInvoiceDocument(invoiceId)).success).toBe(true)
+    expect(mocks.render.mock.calls[0][0]).toContain('Due Date')
+    expect(mocks.render.mock.calls[0][0]).toContain('20/10/2026')
   })
 })

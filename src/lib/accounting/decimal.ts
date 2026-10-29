@@ -35,7 +35,11 @@ function asNumber(coefficient: bigint, scale: number): number {
   }
   const sign = coefficient < ZERO ? "-" : ""
   const digits = (coefficient < ZERO ? -coefficient : coefficient).toString().padStart(scale + 1, "0")
-  return Number(scale ? `${sign}${digits.slice(0, -scale)}.${digits.slice(-scale)}` : `${sign}${digits}`)
+  const result=Number(scale ? `${sign}${digits.slice(0, -scale)}.${digits.slice(-scale)}` : `${sign}${digits}`)
+  // An integer coefficient can be safe while its decimal Number loses a cent.
+  // Existing UI boundaries accept numbers, so reject any non-round-tripping value.
+  if(!Number.isFinite(result)||quantize(parse(result),scale)!==coefficient)throw new Error("Decimal out of range")
+  return result
 }
 
 export function decimalRound(value: DecimalInput, scale = 2): number {
@@ -43,7 +47,13 @@ export function decimalRound(value: DecimalInput, scale = 2): number {
 }
 
 export function sumMoney(...values: DecimalInput[]): number {
-  return asNumber(values.reduce((sum, value) => sum + quantize(parse(value), 2), ZERO), 2)
+  return sumMoneyValues(values)
+}
+
+export function sumMoneyValues(values: Iterable<DecimalInput>): number {
+  let total = ZERO
+  for (const value of values) total += quantize(parse(value), 2)
+  return asNumber(total, 2)
 }
 
 export function multiplyMoney(left: DecimalInput, right: DecimalInput): number {

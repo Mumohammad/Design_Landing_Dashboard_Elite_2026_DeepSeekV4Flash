@@ -5,7 +5,7 @@
 // from vehicle_odometer_logs, and the maintenance server actions.
 
 import { LocalizedText } from "@/components/localized-text"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useMemo, useState } from "react"
 import { useTranslation } from "@/hooks/use-translation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -24,6 +24,7 @@ import {
   updateMaintenanceEvent,
   completeMaintenanceEvent,
   cancelMaintenanceEvent,
+  archiveMaintenanceEvent,
 } from "@/lib/maintenance/actions"
 import { Loader2 } from "lucide-react"
 
@@ -42,6 +43,7 @@ export interface DriverOption {
 }
 
 export interface MaintenanceEventRow {
+  version: number
   id: string
   vehicle_id: string
   maintenance_type: string
@@ -61,24 +63,16 @@ export interface MaintenanceEventRow {
   driver: { full_name_ar: string | null; full_name_en: string | null } | null
 }
 
-type DialogKind = "create" | "edit" | "complete" | "cancel" | null
+type DialogKind = "create" | "edit" | "complete" | "cancel" | "archive" | null
 
-const TYPES = ["preventive", "emergency", "periodic", "repair"] as const
+type MaintenanceType = "preventive" | "emergency" | "periodic" | "repair"
 
 function vehicleLabel(v: VehicleOption, isAr: boolean): string {
   const name = isAr ? `${v.make ?? ""} ${v.model ?? ""}`.trim() : `${v.make ?? ""} ${v.model ?? ""}`.trim()
   return `${v.plate_number ?? "—"} · ${name || (isAr ? "مركبة" : "Vehicle")}`
 }
 
-export function EventDialogs({
-  kind,
-  event,
-  vehicles,
-  drivers,
-  defaultOdometer,
-  onClose,
-  onDone,
-}: {
+type EventDialogsProps = {
   kind: DialogKind
   event: MaintenanceEventRow | null
   vehicles: VehicleOption[]
@@ -86,79 +80,61 @@ export function EventDialogs({
   defaultOdometer: number | null
   onClose: () => void
   onDone: (msg: string | null) => void
-}) {
+}
+
+export function EventDialogs(props: EventDialogsProps) {
+  if (props.kind === null) return null
+  return <EventDialogForm key={JSON.stringify([props.kind, props.event])} {...props} />
+}
+
+function EventDialogForm({
+  kind,
+  event,
+  vehicles,
+  drivers,
+  defaultOdometer,
+  onClose,
+  onDone,
+}: EventDialogsProps) {
   const { t } = useTranslation()
   const m = t.maintenanceModule
   const vm = t.vehicles
   const isAr = t.common.status === "الحالة"
 
   // create/edit form state
-  const [vehicleId, setVehicleId] = useState("")
+  const [vehicleId, setVehicleId] = useState(kind === "create" ? "" : event?.vehicle_id ?? "")
   const [driverId, setDriverId] = useState("")
-  const [type, setType] = useState<(typeof TYPES)[number]>("preventive")
-  const [fault, setFault] = useState("")
-  const [provider, setProvider] = useState("")
-  const [cost, setCost] = useState("")
-  const [parts, setParts] = useState("")
-  const [odometer, setOdometer] = useState("")
-  const [nextKm, setNextKm] = useState("")
-  const [nextDate, setNextDate] = useState("")
-  const [notes, setNotes] = useState("")
+  const [type, setType] = useState<MaintenanceType>(kind === "create" ? "preventive" : (event?.maintenance_type as MaintenanceType) ?? "preventive")
+  const [fault, setFault] = useState(kind === "create" ? "" : event?.fault_description ?? "")
+  const [provider, setProvider] = useState(kind === "create" ? "" : event?.provider ?? "")
+  const [cost, setCost] = useState(kind !== "create" && event?.cost != null ? String(event.cost) : "")
+  const [parts, setParts] = useState(kind === "create" ? "" : event?.parts_replaced ?? "")
+  const [odometer, setOdometer] = useState(kind === "complete" ? String(event?.odometer_at_service ?? defaultOdometer ?? "") : "")
+  const [nextKm, setNextKm] = useState(kind !== "create" && event?.next_service_km != null ? String(event.next_service_km) : "")
+  const [nextDate, setNextDate] = useState(kind === "create" ? "" : event?.next_service_date ?? "")
+  const [notes, setNotes] = useState(kind === "create" ? "" : event?.notes ?? "")
   const [cancelReason, setCancelReason] = useState("")
   const [busy, setBusy] = useState(false)
 
-  // Reset-on-open via the parent's session key (no setState-in-effect):
-  // when `kind`/event changes the parent remounts this dialog, so initial
-  // state derives from props directly. The effect below only handles the
-  // legacy case of the same dialog instance being re-opened for a DIFFERENT
-  // event while staying mounted.
-  const lastKey = useRef("")
-  const sessionKey = `${kind ?? ""}:${event?.id ?? ""}`
-  useEffect(() => {
-    if (lastKey.current === sessionKey) return
-    lastKey.current = sessionKey
-    if (kind === "create") {
-      setVehicleId("")
-      setDriverId("")
-      setType("preventive")
-      setFault("")
-      setProvider("")
-      setCost("")
-      setParts("")
-      setOdometer("")
-      setNextKm("")
-      setNextDate("")
-      setNotes("")
-      setCancelReason("")
-    } else if (kind === "edit" && event) {
-      setVehicleId(event.vehicle_id)
-      setType(event.maintenance_type as (typeof TYPES)[number])
-      setFault(event.fault_description ?? "")
-      setProvider(event.provider ?? "")
-      setCost(event.cost != null ? String(event.cost) : "")
-      setParts(event.parts_replaced ?? "")
-      setNextKm(event.next_service_km != null ? String(event.next_service_km) : "")
-      setNextDate(event.next_service_date ?? "")
-      setNotes(event.notes ?? "")
-      setCancelReason("")
-    } else if (kind === "complete" && event) {
-      setCost(event.cost != null ? String(event.cost) : "")
-      setOdometer(event.odometer_at_service != null ? String(event.odometer_at_service) : defaultOdometer != null ? String(defaultOdometer) : "")
-      setParts(event.parts_replaced ?? "")
-      setNotes(event.notes ?? "")
-    } else if (kind === "cancel" && event) {
-      setCancelReason("")
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind, event?.id])
-
   const selectedVehicle = useMemo(() => vehicles.find((v) => v.id === vehicleId) ?? null, [vehicles, vehicleId])
 
+  async function runMutation(operation: () => Promise<{success: boolean; error?: string}>) {
+    setBusy(true)
+    try {
+      const res = await operation()
+      onDone(res.success ? null : res.error ?? "Error")
+    } catch {
+      onDone(isAr ? "تعذر تأكيد تحديث الصيانة. أعد التحميل قبل المحاولة مجدداً." : "The maintenance update could not be confirmed. Reload before retrying.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function submitCreate() {
+    if (busy) return
     if (!vehicleId) return onDone(m.errVehicleRequired)
     if (fault.trim().length < 3) return onDone(m.errDescriptionRequired)
-    setBusy(true)
-    const res = await createMaintenanceEvent({
+    await runMutation(() => createMaintenanceEvent({
       vehicle_id: vehicleId,
       maintenance_type: type,
       reported_by_driver_id: driverId || null,
@@ -170,17 +146,15 @@ export function EventDialogs({
       next_service_km: nextKm ? Number(nextKm) : null,
       next_service_date: nextDate || null,
       notes: notes || null,
-    })
-    setBusy(false)
-    onDone(res.success ? null : res.error ?? "Error")
+    }))
   }
 
   async function submitEdit() {
-    if (!event) return
+    if (busy || !event) return
     if (fault.trim().length < 3) return onDone(m.errDescriptionRequired)
-    setBusy(true)
-    const res = await updateMaintenanceEvent({
+    await runMutation(() => updateMaintenanceEvent({
       id: event.id,
+      expected_version: event.version,
       maintenance_type: type,
       fault_description: fault,
       provider: provider || null,
@@ -189,57 +163,54 @@ export function EventDialogs({
       next_service_km: nextKm ? Number(nextKm) : null,
       next_service_date: nextDate || null,
       notes: notes || null,
-    })
-    setBusy(false)
-    onDone(res.success ? null : res.error ?? "Error")
+    }))
   }
 
   async function submitComplete() {
-    if (!event) return
+    if (busy || !event) return
     if (cost === "" || Number.isNaN(Number(cost))) return onDone(m.errCostRequired)
-    setBusy(true)
-    const res = await completeMaintenanceEvent({
+    await runMutation(() => completeMaintenanceEvent({
       id: event.id,
+      expected_version: event.version,
       cost: Number(cost),
       date_out: new Date().toISOString(),
       odometer_at_service: odometer ? Number(odometer) : null,
       parts_replaced: parts || null,
       notes: notes || null,
-    })
-    setBusy(false)
-    onDone(res.success ? null : res.error ?? "Error")
+    }))
   }
 
   async function submitCancel() {
-    if (!event) return
+    if (busy || !event) return
     if (cancelReason.trim().length < 3) return onDone(m.cancelReasonRequired)
-    setBusy(true)
-    const res = await cancelMaintenanceEvent({ id: event.id, reason: cancelReason })
-    setBusy(false)
-    onDone(res.success ? null : res.error ?? "Error")
+    await runMutation(() => kind==="archive" ? archiveMaintenanceEvent(event.id,event.version,cancelReason) : cancelMaintenanceEvent({ id: event.id,
+      expected_version: event.version, reason: cancelReason }))
   }
 
   const title =
     kind === "create" ? m.addEvent
     : kind === "edit" ? m.editEvent
     : kind === "complete" ? m.completeEvent
+    : kind === "archive" ? (isAr?"أرشفة حدث الصيانة":"Archive maintenance event")
     : kind === "cancel" ? m.cancelEvent
     : ""
   const desc =
     kind === "create" ? m.addEventDesc
     : kind === "edit" ? m.editEventDesc
     : kind === "complete" ? m.completeEventDesc
+    : kind === "archive" ? (isAr?"تُحفظ الأحداث السابقة. لا يمكن أرشفة الأعمال المكتملة.":"Previous records are retained. Completed work cannot be archived.")
     : kind === "cancel" ? m.cancelEventDesc
     : ""
 
   return (
-    <Dialog open={kind != null} onOpenChange={(o) => !o && onClose()}>
+    <Dialog open={kind != null} onOpenChange={(o) => { if (!o && !busy) onClose() }}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{desc}</DialogDescription>
         </DialogHeader>
 
+        <fieldset disabled={busy} className="contents">
         {(kind === "create" || kind === "edit") && (
           <div className="grid gap-3">
             {kind === "create" && (
@@ -285,7 +256,7 @@ export function EventDialogs({
               <Label>{vm.maintenanceType}</Label>
               <select aria-label={vm.maintenanceType}
                 value={type}
-                onChange={(e) => setType(e.target.value as (typeof TYPES)[number])}
+                onChange={(e) => setType(e.target.value as MaintenanceType)}
                 className="h-9 rounded-xl border border-border/50 bg-muted/30 px-3 text-sm"
               >
                 <option value="preventive">{vm.typePreventive}</option>
@@ -353,15 +324,17 @@ export function EventDialogs({
           </div>
         )}
 
-        {kind === "cancel" && event && (
+        {(kind === "cancel" || kind === "archive") && event && (
           <div className="grid gap-3">
-            <p className="text-sm text-muted-foreground">{m.confirmCancel}</p>
+            <p className="text-sm text-muted-foreground">{kind==="archive"?(isAr?"أدخل سبب الأرشفة.":"Enter the archive reason."):m.confirmCancel}</p>
             <div className="grid gap-1.5">
               <Label>{m.cancelReason} *</Label>
               <Textarea aria-label={m.cancelReason} value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} rows={2} />
             </div>
           </div>
         )}
+
+        </fieldset>
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={busy}>
@@ -372,7 +345,7 @@ export function EventDialogs({
             disabled={busy}
           >
             {busy && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-            {kind === "cancel" ? t.common.confirm : t.common.save}
+            {kind === "cancel" || kind === "archive" ? t.common.confirm : t.common.save}
           </Button>
         </DialogFooter>
       </DialogContent>

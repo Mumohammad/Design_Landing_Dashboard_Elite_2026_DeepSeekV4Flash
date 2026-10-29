@@ -9,7 +9,7 @@
 //      filter (fixture-dependent; skips gracefully when no vehicle exists)
 //   4. CSV export downloads a file (fixture-independent)
 //
-// Skips gracefully (test.skip) when fixtures (vehicles) are missing.
+// Fixture or persistence failures fail this release gate; they are never skipped.
 
 import { test as base, expect, type Page } from "@playwright/test"
 
@@ -58,19 +58,13 @@ test.describe("Maintenance module (Prompt O Part 1)", () => {
 
     // Open the create dialog.
     const addCta = page.getByRole("button", { name: /إضافة حدث صيانة|Add maintenance event/i }).first()
-    if (!(await addCta.isVisible().catch(() => false))) {
-      test.skip(true, "add-event CTA not visible (permission-gated)")
-      return
-    }
+    await expect(addCta).toBeVisible()
     await addCta.click()
 
     // Vehicle picker must offer tenant vehicles; skip when the tenant has none.
     const vehicleSelect = page.locator("select").first()
     const optionCount = await vehicleSelect.locator("option").count()
-    if (optionCount < 2) {
-      test.skip(true, "no seeded vehicles available (fixture-dependent)")
-      return
-    }
+    expect(optionCount,"seeded tenant vehicle required for maintenance acceptance").toBeGreaterThan(1)
     await vehicleSelect.selectOption({ index: 1 })
 
     // Fault description (required, min 3 chars).
@@ -80,14 +74,10 @@ test.describe("Maintenance module (Prompt O Part 1)", () => {
 
     // The new event lands in the list (status open).
     const newRow = page.locator("tr", { hasText: /e2e round-trip fault/ }).first()
-    await newRow.waitFor({ state: "visible", timeout: 15_000 }).catch(() => {})
-    if (!(await newRow.isVisible().catch(() => false))) {
-      test.skip(true, "created event did not appear (RLS/permission fixture gap)")
-      return
-    }
+    await expect(newRow,"created maintenance event must persist and become visible").toBeVisible({timeout:20_000})
 
     // Start work (open → in_progress).
-    await newRow.getByRole("button").first().click()
+    await newRow.getByTitle(/بدء|Start/i).click()
     await page.waitForTimeout(1200)
 
     // Complete the event via the row action (cost required).
@@ -101,10 +91,7 @@ test.describe("Maintenance module (Prompt O Part 1)", () => {
     // one via the status filter to confirm the terminal state stuck.
     await page.reload({ waitUntil: "domcontentloaded" })
     await page.waitForLoadState("networkidle", { timeout: 30_000 }).catch(() => {})
-    // The row may or may not be in the default window (500 rows) — assert no
-    // failed writes happened instead (the action toasts errors).
-    const errorBoundary = page.getByText(/An error occurred|حدث خطأ/).first()
-    expect(await errorBoundary.isVisible().catch(() => false)).toBe(false)
+    await expect(page.locator("tr",{hasText:/e2e round-trip fault/}).first().getByText(/مكتمل|Completed/i)).toBeVisible()
   })
 
   test("CSV export downloads a BOM file", async ({ authed: page }) => {
@@ -112,17 +99,11 @@ test.describe("Maintenance module (Prompt O Part 1)", () => {
     await page.waitForLoadState("networkidle", { timeout: 30_000 }).catch(() => {})
 
     const exportBtn = page.getByRole("button", { name: /تصدير|Export|CSV/i }).first()
-    if (!(await exportBtn.isVisible().catch(() => false))) {
-      test.skip(true, "export button not visible (permission-gated)")
-      return
-    }
-    const download = page.waitForEvent("download", { timeout: 15_000 }).catch(() => null)
+    await expect(exportBtn).toBeVisible()
+    const download = page.waitForEvent("download", { timeout: 15_000 })
     await exportBtn.click()
     const dl = await download
-    if (!dl) {
-      test.skip(true, "no download event (empty tenant or permission gap)")
-      return
-    }
+
     expect(dl.suggestedFilename()).toMatch(/maintenance-.*\.csv$/)
   })
 })

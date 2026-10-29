@@ -18,6 +18,9 @@ INSERT INTO public.invoices (id,tenant_id,customer_id,issue_date,due_date) VALUE
  ('82666666-6666-4666-8666-666666666666','82111111-1111-4111-8111-111111111111',
  '82555555-5555-4555-8555-555555555555','2026-10-11','2026-10-11');
 
+-- A bank binding resolves an active same-tenant asset regardless of currency.
+INSERT INTO public.chart_of_accounts(tenant_id,account_code,name_ar,name_en,account_type,normal_balance) VALUES('82111111-1111-4111-8111-111111111111','1100','SAR bank fixture','SAR bank fixture','asset','debit');
+
 -- Simulate pre-migration foreign records, then restore the exact new constraints.
 -- All fixture/schema changes below roll back at the end of this test.
 ALTER TABLE public.bank_accounts DROP CONSTRAINT accounting_currency_sar_only;

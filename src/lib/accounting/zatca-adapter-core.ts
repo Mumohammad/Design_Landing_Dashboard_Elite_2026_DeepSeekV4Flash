@@ -242,7 +242,7 @@ async function processEvent(
 
     const { data: lineRows, error: linesErr } = await admin
       .from("invoice_lines")
-      .select("line_no,description,quantity,unit_price,discount,amount,vat_rate,vat_amount")
+      .select("line_no,item_name,description,quantity,unit_price,discount,amount,vat_rate,vat_amount")
       .eq("invoice_id", inv.id)
       .order("line_no", { ascending: true })
     if (linesErr) return "failed"
@@ -257,6 +257,7 @@ async function processEvent(
     total = Number(inv.total)
     lines = (lineRows ?? []).map((l) => ({
       line_no: l.line_no,
+      item_name: l.item_name,
       description: l.description,
       quantity: Number(l.quantity),
       unit_price: Number(l.unit_price),
@@ -309,6 +310,7 @@ async function processEvent(
       const row = l as Record<string, unknown>
       return {
         line_no: Number(row.line_no ?? i + 1),
+        item_name: typeof row.item_name === "string" ? row.item_name : null,
         description: String(row.description ?? ""),
         quantity: Number(row.quantity ?? 1),
         unit_price: Number(row.unit_price ?? 0),

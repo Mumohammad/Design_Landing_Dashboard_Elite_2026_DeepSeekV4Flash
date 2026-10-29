@@ -44,6 +44,7 @@ import { EXPENSE_TYPES, RECOVERABILITY, type ExpenseVatRecoverability, type Expe
  */
 export async function approveExpense(input: {
   id: string
+  expectedVersion: number
   vat_rate?: number
   vat_recoverability?: ExpenseVatRecoverability
   approvalReason?: string
@@ -56,6 +57,7 @@ export async function approveExpense(input: {
     const rl = await rateLimitExpenses(currentUser.id)
     if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later.", errorAr: "تجاوزت عدد المحاولات المسموح. حاول لاحقاً." }
 
+    if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) return { success:false,error:"Reload the expense before approval.",errorAr:"أعد تحميل المصروف قبل اعتماده." }
     const surface = input.surface ?? "expenses"
     // The inbox has no VAT editor. Preserve the locked expense's stored rate
     // in the transaction instead of silently replacing exempt/reduced VAT by 15%.
@@ -76,16 +78,15 @@ export async function approveExpense(input: {
     // Lock the current expense, claim it once and commit the matching
     // payable, accounting event and approval audit in one transaction.
     const admin = createAdminClient()
-    const { data: rpcData, error: rpcErr } = await admin.rpc("approve_expense_with_context_atomic", {
-      p_tenant_id: currentUser.tenantId,
-      p_expense_id: input.id,
+    const caller = await createClient()
+    const { data: rpcData, error: rpcErr } = await caller.rpc("decide_expense_reviewed_atomic", {
+      p_id: input.id, p_expected_version: input.expectedVersion, p_decision: "approved",
       p_vat_rate: vatRate === null ? null : round2(vatRate),
-      p_vat_recoverability: input.vat_recoverability ?? null,
-      p_actor: currentUser.authUserId,
-      p_reason: reason,
-      p_surface: surface,
+      p_recoverability: input.vat_recoverability ?? null, p_reason: reason, p_surface: surface,
     })
     if (rpcErr) {
+      if (rpcErr.message.startsWith("EXP_EDIT_STALE")) return {success:false,error:"This expense changed. Reload and review its latest amounts before approval.",errorAr:"تغير المصروف. أعد تحميل أحدث المبالغ وراجعها قبل الاعتماد."}
+      if (rpcErr.message.startsWith("EXP_CANCELLED")) return {success:false,alreadyDecided:true,error:"This expense was cancelled. Review its current status.",errorAr:"أُلغي هذا المصروف. راجع حالته الحالية."}
       if (rpcErr.message.startsWith("EXP_REJECTED:")) return {
         success: false, alreadyDecided: true, error: "This expense was rejected. Review the refreshed decision.",
         errorAr: "رُفض هذا المصروف مسبقاً. راجع القرار بعد تحديث القائمة.",

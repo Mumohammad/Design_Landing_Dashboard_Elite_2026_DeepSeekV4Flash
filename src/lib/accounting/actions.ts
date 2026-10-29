@@ -29,7 +29,9 @@ import { calculateVat, sumMoney } from "@/lib/accounting/decimal"
 import { rateLimitAccounting, rateLimitAccountingImport } from "@/lib/auth/rate-limit"
 import { moduleLogger, logPerformance } from "@/lib/logger"
 import { emit } from "@/lib/webhooks/events"
-import { cacheGet, cacheInvalidate, CACHE_TTL } from "@/lib/cache"
+import { cacheInvalidate } from "@/lib/cache"
+
+import { MASTER_EXPORT_MAX_BYTES, MASTER_IMPORT_MAX_BYTES, MASTER_IMPORT_MAX_ROWS, classifyMasterError, isMasterDate, isMasterId, isMasterIntent, isMasterReview, masterFailure, parseMasterMutationResult, readMasterPage, utf8ByteLength, type ChartMasterRow, type MasterActionFailure, type MasterActionResult, type MasterIntent, type MasterReview } from "./master-contract"
 
 type ActionResult = { success: boolean; error?: string }
 
@@ -49,539 +51,215 @@ function errorMessage(e: unknown): string {
   return "Unknown error"
 }
 
-export async function createChartAccount(input: {
-  account_code: string
-  name_ar: string
-  name_en: string
-  account_type: AccountType
-  normal_balance: NormalBalance
-  parent_id?: string | null
-  is_contra?: boolean
-  description?: string | null
-}): Promise<ActionResult> {
-  try {
-    await requirePermission("accounting", "create")
-    const currentUser = await getCurrentUser()
-    if (!currentUser) return { success: false, error: "Not authenticated." }
-    const rl = await rateLimitAccounting(currentUser.id)
-    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
-
-    const code = input.account_code.trim()
-    if (!/^\d{3,6}$/.test(code)) {
-      return { success: false, error: "Account code must be 3-6 digits." }
-    }
-    if (!input.name_ar.trim() || !input.name_en.trim()) {
-      return { success: false, error: "Arabic and English names are required." }
-    }
-    if (!ACCOUNT_TYPES.includes(input.account_type)) {
-      return { success: false, error: "Invalid account type." }
-    }
-    const isContra = input.is_contra ?? false
-    if (!isContra && CONVENTIONAL_BALANCE[input.account_type] !== input.normal_balance) {
-      return {
-        success: false,
-        error: `A ${input.account_type} account normally carries a ${CONVENTIONAL_BALANCE[input.account_type]} balance. Mark it as a contra account to override.`,
-      }
-    }
-
-    const admin = createAdminClient()
-    const { data: row, error } = await admin
-      .from("chart_of_accounts")
-      .insert({
-        tenant_id: currentUser.tenantId,
-        account_code: code,
-        name_ar: input.name_ar.trim(),
-        name_en: input.name_en.trim(),
-        account_type: input.account_type,
-        normal_balance: input.normal_balance,
-        parent_id: input.parent_id || null,
-        is_contra: isContra,
-        description: input.description?.trim() || null,
-        created_by: currentUser.authUserId,
-      })
-      .select("id")
-      .single()
-
-    if (error) {
-      if (error.code === "23505") {
-        return { success: false, error: "An account with this code already exists." }
-      }
-      return { success: false, error: mapFinancialError(error.message) }
-    }
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "accounting",
-      action: "account_created",
-      entityType: "chart_of_accounts",
-      entityId: row.id,
-      newValues: {
-        account_code: code,
-        name_ar: input.name_ar,
-        account_type: input.account_type,
-        normal_balance: input.normal_balance,
-        parent_id: input.parent_id || null,
-        is_contra: isContra,
-      },
-    })
-
-    revalidatePath("/accounting")
-    await cacheInvalidate(`coa:${currentUser.tenantId}`)
-    return { success: true }
-  } catch (e) {
-    return { success: false, error: errorMessage(e) }
-  }
+export type ChartAccountInput = {
+  account_code: string; name_ar: string; name_en: string; account_type: AccountType
+  normal_balance: NormalBalance; parent_id?: string | null; is_contra?: boolean; description?: string | null
 }
-
-
-export async function updateChartAccount(input: {
-  account_id: string
-  account_code?: string
-  name_ar?: string
-  name_en?: string
-  account_type?: AccountType
-  normal_balance?: NormalBalance
-  parent_id?: string | null
-  is_contra?: boolean
-  is_active?: boolean
-  description?: string | null
-}): Promise<ActionResult> {
-  try {
-    await requirePermission("accounting", "update")
-    const currentUser = await getCurrentUser()
-    if (!currentUser) return { success: false, error: "Not authenticated." }
-    const rl = await rateLimitAccounting(currentUser.id)
-    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
-
-    const admin = createAdminClient()
-
-    // Fetch the existing row (service-role client must scope by tenant).
-    const { data: existing, error: fetchError } = await admin
-      .from("chart_of_accounts")
-      .select("id,tenant_id,account_code,name_ar,name_en,account_type,normal_balance,parent_id,is_contra,is_active,description,deleted_at")
-      .eq("id", input.account_id)
-      .eq("tenant_id", currentUser.tenantId)
-      .is("deleted_at", null)
-      .maybeSingle()
-
-    if (fetchError || !existing) {
-      return { success: false, error: "Account not found." }
-    }
-
-    const code = input.account_code !== undefined ? input.account_code.trim() : existing.account_code
-    if (!/^\d{3,6}$/.test(code)) {
-      return { success: false, error: "Account code must be 3-6 digits." }
-    }
-    const accountType: AccountType = (input.account_type ?? existing.account_type) as AccountType
-    if (!ACCOUNT_TYPES.includes(accountType)) {
-      return { success: false, error: "Invalid account type." }
-    }
-    const isContra = input.is_contra ?? existing.is_contra
-    if (!isContra && CONVENTIONAL_BALANCE[accountType] !== input.normal_balance && input.normal_balance !== undefined) {
-      return {
-        success: false,
-        error: `A ${accountType} account normally carries a ${CONVENTIONAL_BALANCE[accountType]} balance. Mark it as a contra account to override.`,
-      }
-    }
-
-    const { error } = await admin
-      .from("chart_of_accounts")
-      .update({
-        account_code: code,
-        name_ar: input.name_ar !== undefined ? input.name_ar.trim() : existing.name_ar,
-        name_en: input.name_en !== undefined ? input.name_en.trim() : existing.name_en,
-        account_type: accountType,
-        normal_balance: input.normal_balance ?? existing.normal_balance,
-        parent_id: input.parent_id !== undefined ? input.parent_id || null : existing.parent_id,
-        is_contra: isContra,
-        is_active: input.is_active ?? existing.is_active,
-        description: input.description !== undefined ? input.description?.trim() || null : existing.description,
-        updated_by: currentUser.authUserId,
-      })
-      .eq("id", input.account_id)
-      .eq("tenant_id", currentUser.tenantId)
-
-    if (error) {
-      if (error.code === "23505") {
-        return { success: false, error: "An account with this code already exists." }
-      }
-      return { success: false, error: mapFinancialError(error.message) }
-    }
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "accounting",
-      action: "account_updated",
-      entityType: "chart_of_accounts",
-      entityId: input.account_id,
-      oldValues: {
-        account_code: existing.account_code,
-        name_ar: existing.name_ar,
-        account_type: existing.account_type,
-        normal_balance: existing.normal_balance,
-        is_active: existing.is_active,
-      },
-      newValues: {
-        account_code: code,
-        name_ar: input.name_ar !== undefined ? input.name_ar.trim() : existing.name_ar,
-        account_type: accountType,
-        normal_balance: input.normal_balance ?? existing.normal_balance,
-        is_active: input.is_active ?? existing.is_active,
-        is_contra: isContra,
-      },
-    })
-
-    revalidatePath("/accounting")
-    await cacheInvalidate(`coa:${currentUser.tenantId}`)
-    return { success: true }
-  } catch (e) {
-    return { success: false, error: errorMessage(e) }
-  }
+export type ChartAccountUpdate = Partial<ChartAccountInput> & { account_id: string; is_active?: boolean } & MasterReview
+type MasterOperationResult<T> = ({ success: true } & T) | MasterActionFailure
+function masterText(value: unknown, maximum: number, required = false): string | null | false {
+  if (value == null) return required ? false : null
+  if (typeof value !== "string") return false
+  const normalized = value.trim()
+  return Array.from(normalized).length > maximum || (required && !normalized) ? false : normalized || null
 }
-
-export async function deactivateChartAccount(input: { account_id: string }): Promise<ActionResult> {
-  try {
-    await requirePermission("accounting", "update")
-    const currentUser = await getCurrentUser()
-    if (!currentUser) return { success: false, error: "Not authenticated." }
-    const rl = await rateLimitAccounting(currentUser.id)
-    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
-
-    const admin = createAdminClient()
-    const { error } = await admin
-      .from("chart_of_accounts")
-      .update({ is_active: false, updated_by: currentUser.authUserId })
-      .eq("id", input.account_id)
-      .eq("tenant_id", currentUser.tenantId)
-      .is("deleted_at", null)
-
-    if (error) {
-      return { success: false, error: mapFinancialError(error.message) }
-    }
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "accounting",
-      action: "account_deactivated",
-      entityType: "chart_of_accounts",
-      entityId: input.account_id,
-      newValues: { is_active: false },
-    })
-
-    revalidatePath("/accounting")
-    await cacheInvalidate(`coa:${currentUser.tenantId}`)
-    return { success: true }
-  } catch (e) {
-    return { success: false, error: errorMessage(e) }
+function normalizeChartInput(input: Partial<ChartAccountInput> & { is_active?: boolean }, creating: boolean): Record<string, unknown> | MasterActionFailure {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return masterFailure("MASTER_INVALID")
+  const payload: Record<string, unknown> = {}
+  if (creating || input.account_code !== undefined) {
+    const code = masterText(input.account_code, 6, true)
+    if (!code || !/^\d{3,6}$/.test(code)) return masterFailure("MASTER_CODE_INVALID")
+    payload.account_code = code
   }
+  for (const field of ["name_ar", "name_en"] as const) if (creating || input[field] !== undefined) {
+    const name = masterText(input[field], 200, true)
+    if (!name) return masterFailure("MASTER_INVALID")
+    payload[field] = name
+  }
+  if (creating || input.account_type !== undefined) {
+    if (!ACCOUNT_TYPES.includes(input.account_type as AccountType)) return masterFailure("MASTER_INVALID")
+    payload.account_type = input.account_type
+  }
+  if (creating || input.normal_balance !== undefined) {
+    if (input.normal_balance !== "debit" && input.normal_balance !== "credit") return masterFailure("MASTER_INVALID")
+    payload.normal_balance = input.normal_balance
+  }
+  if (creating || input.is_contra !== undefined) {
+    if (input.is_contra !== undefined && typeof input.is_contra !== "boolean") return masterFailure("MASTER_INVALID")
+    payload.is_contra = input.is_contra ?? false
+  }
+  if ((creating || input.is_contra === false) && payload.account_type && payload.normal_balance
+    && !payload.is_contra && CONVENTIONAL_BALANCE[payload.account_type as AccountType] !== payload.normal_balance) return masterFailure("MASTER_INVALID")
+  if (creating || input.parent_id !== undefined) {
+    if (!(input.parent_id == null || input.parent_id === "" || isMasterId(input.parent_id))) return masterFailure("MASTER_PARENT")
+    payload.parent_id = input.parent_id || null
+  }
+  if (creating || input.description !== undefined) {
+    const description = masterText(input.description, 1000)
+    if (description === false) return masterFailure("MASTER_INVALID")
+    payload.description = description
+  }
+  if (!creating && input.is_active !== undefined) {
+    if (typeof input.is_active !== "boolean") return masterFailure("MASTER_INVALID")
+    payload.is_active = input.is_active
+  }
+  return payload
 }
-
-// ── CSV helpers ────────────────────────────────────────────────────────────
-// parseCsv / toCsv / mapFinancialError now live in @/lib/accounting/csv-utils
-// (a plain module — see the import at the top). Reused by the parties and
-// invoice modules for import/export and bilingual error mapping.
-
-export async function exportChartAccountsCsv(): Promise<{ success: boolean; csv?: string; error?: string }> {
+async function refreshMasterChart(tenantId: string): Promise<void> {
+  // The validated receipt is authoritative even if ancillary refresh fails.
+  try { await cacheInvalidate("coa:" + tenantId) } catch { /* UI reload uses the uncached caller RPC */ }
+  try { revalidatePath("/accounting") } catch { /* never misreport the confirmed transaction */ }
+}
+async function mutateChart(
+  action: "create" | "update" | "set_active" | "archive",
+  input: (Partial<ChartAccountInput> & { account_id?: string; is_active?: boolean }) & MasterIntent & Partial<MasterReview>,
+): Promise<MasterActionResult> {
+  try {
+    await requirePermission("accounting", action === "create" ? "create" : "update")
+    const user = await getCurrentUser()
+    if (!user) return masterFailure("MASTER_FORBIDDEN")
+    if (!isMasterIntent(input)) return masterFailure("MASTER_REQUEST_REQUIRED")
+    if (action !== "create" && (!isMasterId(input.account_id) || !isMasterReview(input))) return masterFailure("MASTER_STALE")
+    const payload = action === "set_active" ? { is_active: false } : action === "archive" ? {} : normalizeChartInput(input, action === "create")
+    if ("success" in payload) return payload as MasterActionFailure
+    if (input.account_id && payload.parent_id === input.account_id) return masterFailure("MASTER_PARENT")
+    if (!(await rateLimitAccounting(user.id)).success) return masterFailure("MASTER_RATE_LIMIT")
+    const caller = await createClient()
+    const { data, error } = await caller.rpc("mutate_my_accounting_master", {
+      p_kind: "accounts", p_action: action, p_input: payload, p_id: action === "create" ? null : input.account_id,
+      p_expected_updated_at: action === "create" ? null : input.expected_updated_at, p_request_id: input.request_id,
+    })
+    if (error) return masterFailure(classifyMasterError(error))
+    const receipt = parseMasterMutationResult(data, "accounts")
+    if ((action !== "create" && receipt.id.toLowerCase() !== input.account_id?.toLowerCase()) || (payload.account_code && receipt.code !== payload.account_code)
+      || (typeof payload.is_active === "boolean" && receipt.is_active !== payload.is_active) || receipt.archived !== (action === "archive")
+      || (action === "set_active" && receipt.is_active)) return masterFailure("MASTER_UNAVAILABLE")
+    await refreshMasterChart(user.tenantId)
+    return { success: true, ...receipt }
+  } catch (error) { return masterFailure(classifyMasterError(error)) }
+}
+export async function createChartAccount(input: ChartAccountInput & MasterIntent): Promise<MasterActionResult> {
+  return mutateChart("create", input)
+}
+export async function updateChartAccount(input: ChartAccountUpdate): Promise<MasterActionResult> {
+  return mutateChart("update", input)
+}
+export async function deactivateChartAccount(input: { account_id: string } & MasterReview): Promise<MasterActionResult> {
+  return mutateChart("set_active", input)
+}
+export async function archiveChartAccount(input: { account_id: string } & MasterReview): Promise<MasterActionResult> {
+  return mutateChart("archive", input)
+}
+export async function exportChartAccountsCsv(search = ""): Promise<MasterOperationResult<{ csv: string }>> {
   try {
     await requirePermission("accounting", "export")
-    const currentUser = await getCurrentUser()
-    if (!currentUser) return { success: false, error: "Not authenticated." }
-    const rl = await rateLimitAccounting(currentUser.id)
-    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
-
-    const admin = createAdminClient()
-
-    // Cache chart of accounts for 5 min (hot path — read on every accounting page visit)
-    const data = await cacheGet(
-      `coa:${currentUser.tenantId}`,
-      async () => {
-        const { data, error } = await admin
-          .from("chart_of_accounts")
-          .select("id,account_code,name_ar,name_en,account_type,normal_balance,parent_id,is_contra,is_active,description")
-          .eq("tenant_id", currentUser.tenantId)
-          .is("deleted_at", null)
-          .order("account_code", { ascending: true })
-        if (error) throw new Error(error.message)
-        return data ?? []
-      },
-      CACHE_TTL.chartOfAccounts
-    )
-
-    const byId = new Map((data ?? []).map((a) => [a.id, a] as const))
-    const rows = (data ?? []).map((a) => {
-      const parent = a.parent_id ? byId.get(a.parent_id) : undefined
-      return [
-        a.account_code,
-        a.name_ar,
-        a.name_en,
-        a.account_type,
-        a.normal_balance,
-        parent?.account_code ?? "",
-        a.is_contra ? "true" : "false",
-        a.is_active ? "true" : "false",
-        a.description ?? "",
-      ]
-    })
-
-    // UTF-8 BOM so Excel renders Arabic correctly.
+    await requirePermission("accounting", "read")
+    const user = await getCurrentUser()
+    if (!user) return masterFailure("MASTER_FORBIDDEN")
+    if (!(await rateLimitAccounting(user.id)).success) return masterFailure("MASTER_RATE_LIMIT")
+    const caller = await createClient()
+    const page = await readMasterPage<ChartMasterRow>(caller, "accounts", { search, exporting: true })
     const csv = "\uFEFF" + toCsv(
       ["account_code", "name_ar", "name_en", "account_type", "normal_balance", "parent_code", "is_contra", "is_active", "description"],
-      rows
+      page.rows.map(row => [row.account_code, row.name_ar, row.name_en, row.account_type, row.normal_balance,
+        row.parent_code, row.is_contra ? "true" : "false", row.is_active ? "true" : "false", row.description]),
     )
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "accounting",
-      action: "chart_of_accounts_exported",
-      entityType: "chart_of_accounts",
-      newValues: { rows: (data ?? []).length },
-    })
-
+    if (utf8ByteLength(csv) > MASTER_EXPORT_MAX_BYTES) return masterFailure("MASTER_EXPORT_LIMIT")
     return { success: true, csv }
-  } catch (e) {
-    return { success: false, error: errorMessage(e) }
-  }
+  } catch (error) { return masterFailure(classifyMasterError(error)) }
 }
-
 export type CsvImportResult = {
-  success: boolean
-  imported?: number
-  skipped?: number
-  errors?: string[]
-  error?: string
+  success: boolean; imported?: number; skipped?: number; errors?: string[]
+  error?: string; errorAr?: string; errorCode?: MasterActionFailure["errorCode"]
 }
-
-export async function importChartAccountsCsv(input: { csv: string }): Promise<CsvImportResult> {
+export async function importChartAccountsCsv(csvText: string, intent: MasterIntent): Promise<CsvImportResult> {
   try {
     await requirePermission("accounting", "create")
-    const currentUser = await getCurrentUser()
-    if (!currentUser) return { success: false, error: "Not authenticated." }
-    const rl = await rateLimitAccountingImport(currentUser.id)
-    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
-
-    const parsed = parseCsv(input.csv)
-    if (parsed.length < 2) {
-      return { success: false, error: "CSV must contain a header row and at least one account." }
+    const user = await getCurrentUser()
+    if (!user) return masterFailure("MASTER_FORBIDDEN")
+    if (!isMasterIntent(intent)) return masterFailure("MASTER_REQUEST_REQUIRED")
+    if (typeof csvText !== "string") return masterFailure("MASTER_INVALID")
+    if (utf8ByteLength(csvText) > MASTER_IMPORT_MAX_BYTES) return masterFailure("MASTER_IMPORT_LIMIT")
+    const parsed = parseCsv(csvText)
+    if (parsed.length < 2) return masterFailure("MASTER_INVALID")
+    if (parsed.length - 1 > MASTER_IMPORT_MAX_ROWS) return masterFailure("MASTER_IMPORT_LIMIT")
+    const header = parsed[0].map(value => value.trim().toLowerCase())
+    if (new Set(header).size !== header.length || ["account_code", "name_ar", "name_en", "account_type", "normal_balance"].some(column => !header.includes(column))) return masterFailure("MASTER_INVALID")
+    const cell = (row: string[], name: string) => { const index = header.indexOf(name); return index < 0 ? "" : (row[index] ?? "").trim() }
+    const booleanCell = (row: string[], name: string, fallback: boolean) => {
+      if (!header.includes(name)) return fallback
+      const value = cell(row, name).toLowerCase()
+      return value === "true" ? true : value === "false" ? false : value
     }
-
-    const header = parsed[0].map((h) => h.trim().toLowerCase())
-    const idx = (name: string) => header.indexOf(name)
-    // indexOf returns -1 (never nullish), so plain lookups — no ?? fallbacks.
-    const col = {
-      code: idx("account_code"),
-      ar: idx("name_ar"),
-      en: idx("name_en"),
-      type: idx("account_type"),
-      balance: idx("normal_balance"),
-      parent: idx("parent_code"),
-      contra: idx("is_contra"),
-      active: idx("is_active"),
-      desc: idx("description"),
-    }
-    if (col.code < 0 || col.ar < 0 || col.en < 0 || col.type < 0 || col.balance < 0) {
-      return {
-        success: false,
-        error: "CSV must include columns: account_code, name_ar, name_en, account_type, normal_balance.",
-      }
-    }
-
-    const admin = createAdminClient()
-    const { data: existing } = await admin
-      .from("chart_of_accounts")
-      .select("account_code,id,parent_id")
-      .eq("tenant_id", currentUser.tenantId)
-      .is("deleted_at", null)
-
-    const codeToId = new Map<string, string>((existing ?? []).map((a) => [a.account_code, a.id]))
-    const imported: string[] = []
-    const errors: string[] = []
-
-    for (let r = 1; r < parsed.length; r++) {
-      const row = parsed[r]
-      const code = (row[col.code] ?? "").trim()
-      if (!/^\d{3,6}$/.test(code)) {
-        errors.push(`Row ${r + 1}: invalid code "${code}"`)
-        continue
-      }
-      if (codeToId.has(code)) {
-        // existing rows are skipped (idempotent re-import)
-        continue
-      }
-      const nameAr = (row[col.ar] ?? "").trim()
-      const nameEn = (row[col.en] ?? "").trim()
-      if (!nameAr || !nameEn) {
-        errors.push(`Row ${r + 1}: Arabic and English names are required`)
-        continue
-      }
-      const type = (row[col.type] ?? "").trim() as AccountType
-      if (!ACCOUNT_TYPES.includes(type)) {
-        errors.push(`Row ${r + 1}: invalid account_type "${row[col.type]}"`)
-        continue
-      }
-      const balance = (row[col.balance] ?? "").trim() as NormalBalance
-      if (balance !== "debit" && balance !== "credit") {
-        errors.push(`Row ${r + 1}: normal_balance must be debit or credit`)
-        continue
-      }
-      const isContra = col.contra >= 0 ? (row[col.contra] ?? "").trim().toLowerCase() === "true" : false
-      if (!isContra && CONVENTIONAL_BALANCE[type] !== balance) {
-        errors.push(`Row ${r + 1}: ${type} account normally carries a ${CONVENTIONAL_BALANCE[type]} balance`)
-        continue
-      }
-      // is_active round-trips from export (defaults to true when absent)
-      const isActive = col.active < 0 ? true : (row[col.active] ?? "true").trim().toLowerCase() !== "false"
-      // parent must resolve within existing accounts or earlier rows in the file
-      let parentId: string | null = null
-      const parentCode = col.parent >= 0 ? (row[col.parent] ?? "").trim() : ""
-      if (parentCode) {
-        parentId = codeToId.get(parentCode) ?? null
-        if (!parentId) {
-          errors.push(`Row ${r + 1}: parent_code "${parentCode}" not found`)
-          continue
-        }
-      }
-
-      const { data: inserted, error } = await admin
-        .from("chart_of_accounts")
-        .insert({
-          tenant_id: currentUser.tenantId,
-          account_code: code,
-          name_ar: nameAr,
-          name_en: nameEn,
-          account_type: type,
-          normal_balance: balance,
-          parent_id: parentId,
-          is_contra: isContra,
-          is_active: isActive,
-          description: col.desc >= 0 ? (row[col.desc] ?? "").trim() || null : null,
-          created_by: currentUser.authUserId,
-        })
-        .select("id")
-        .single()
-
-      if (error) {
-        errors.push(`Row ${r + 1} (${code}): ${mapFinancialError(error.message)}`)
-        continue
-      }
-      codeToId.set(code, inserted.id)
-      imported.push(code)
-    }
-
-    const skipped = parsed.length - 1 - imported.length - errors.length
-    if (imported.length > 0) {
-      await writeAuditLog({
-        tenantId: currentUser.tenantId,
-        actorId: currentUser.authUserId,
-        module: "accounting",
-        action: "chart_of_accounts_imported",
-        entityType: "chart_of_accounts",
-        newValues: { imported: imported.length, skipped, errors: errors.length },
-      })
-      revalidatePath("/accounting")
-    }
-
-    return { success: errors.length === 0, imported: imported.length, skipped, errors }
-  } catch (e) {
-    return { success: false, error: errorMessage(e) }
-  }
-}
-
-export async function initializeDefaultCoa(): Promise<ActionResult> {
-  try {
-    await requirePermission("accounting", "create")
-    const currentUser = await getCurrentUser()
-    if (!currentUser) return { success: false, error: "Not authenticated." }
-    const rl = await rateLimitAccounting(currentUser.id)
-    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
-
-    const admin = createAdminClient()
-    const { data, error } = await admin.rpc("ensure_default_chart_of_accounts", {
-      p_tenant_id: currentUser.tenantId,
-    })
-
-    if (error) return { success: false, error: error.message }
-
-    const inserted = Array.isArray(data) ? (data[0] as number | undefined) : (data as number | undefined)
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "accounting",
-      action: "default_chart_of_accounts_loaded",
-      entityType: "chart_of_accounts",
-      newValues: { inserted: inserted ?? 0 },
-    })
-
-    revalidatePath("/accounting")
-    return { success: true }
-  } catch (e) {
-    return { success: false, error: errorMessage(e) }
-  }
-}
-
-export async function postOpeningBalances(input: {
-  entry_date: string
-  lines: { account_id: string; description?: string; debit: number; credit: number }[]
-}): Promise<ActionResult> {
-  try {
-    await requirePermission("accounting", "create")
-    const currentUser = await getCurrentUser()
-    if (!currentUser) return { success: false, error: "Not authenticated." }
-    const rl = await rateLimitAccounting(currentUser.id)
-    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
-
-    const lines = input.lines.filter((l) => l.debit > 0 || l.credit > 0)
-    if (lines.length < 2) {
-      return { success: false, error: "Opening balances need at least two lines." }
-    }
-
-    const linesPayload = lines.map((l) => ({
-      account_id: l.account_id,
-      description: l.description?.trim() || null,
-      debit: round2(l.debit),
-      credit: round2(l.credit),
+    // Invalid rows stay in the batch for explicit per-row SQL errors. No
+    // application-level insert loop can commit a prefix before the batch audit.
+    const rows = parsed.slice(1).map(row => ({
+      account_code: cell(row, "account_code"), name_ar: cell(row, "name_ar"), name_en: cell(row, "name_en"),
+      account_type: cell(row, "account_type"), normal_balance: cell(row, "normal_balance"),
+      parent_code: cell(row, "parent_code") || null, is_contra: booleanCell(row, "is_contra", false),
+      is_active: booleanCell(row, "is_active", true), description: cell(row, "description") || null,
     }))
-
-    const admin = createAdminClient()
-    const { data, error } = await admin.rpc("post_journal_entry", {
-      p_tenant_id: currentUser.tenantId,
-      p_entry_date: input.entry_date,
-      p_description_ar: "رصيد افتتاحي",
-      p_description_en: "Opening balances",
-      p_created_by: currentUser.authUserId,
-      p_entry_type: "opening",
-      p_lines: linesPayload,
-    })
-
-    if (error) {
-      return { success: false, error: mapFinancialError(error.message) }
-    }
-
-    const row = Array.isArray(data) ? data[0] : data
-    if (!row?.out_entry_id) {
-      return { success: false, error: "Posting failed: no journal entry returned." }
-    }
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "accounting",
-      action: "opening_balances_posted",
-      entityType: "journal_entries",
-      entityId: row.out_entry_id,
-      newValues: { entry_ref: row.out_entry_ref, lines: lines.length },
-    })
-
-    revalidatePath("/accounting")
-    return { success: true }
-  } catch (e) {
-    return { success: false, error: errorMessage(e) }
-  }
+    if (utf8ByteLength(JSON.stringify(rows)) > MASTER_IMPORT_MAX_BYTES) return masterFailure("MASTER_IMPORT_LIMIT")
+    if (!(await rateLimitAccountingImport(user.id)).success) return masterFailure("MASTER_RATE_LIMIT")
+    const caller = await createClient()
+    const { data, error } = await caller.rpc("import_my_chart_accounts", { p_rows: rows, p_request_id: intent.request_id })
+    if (error) return masterFailure(classifyMasterError(error))
+    if (!data || !Number.isSafeInteger(data.imported) || data.imported < 0 || !Number.isSafeInteger(data.skipped) || data.skipped < 0
+      || !Array.isArray(data.errors) || data.errors.some((item: unknown) => typeof item !== "string" || item.length === 0 || item.length > 1000)
+      || data.imported + data.skipped + data.errors.length !== rows.length) return masterFailure("MASTER_UNAVAILABLE")
+    if (data.imported > 0) await refreshMasterChart(user.tenantId)
+    return { success: data.errors.length === 0, imported: data.imported, skipped: data.skipped, errors: data.errors }
+  } catch (error) { return masterFailure(classifyMasterError(error)) }
 }
-
+export async function initializeDefaultCoa(intent: MasterIntent): Promise<MasterOperationResult<{ inserted: number }>> {
+  try {
+    await requirePermission("accounting", "create")
+    const user = await getCurrentUser()
+    if (!user) return masterFailure("MASTER_FORBIDDEN")
+    if (!isMasterIntent(intent)) return masterFailure("MASTER_REQUEST_REQUIRED")
+    if (!(await rateLimitAccounting(user.id)).success) return masterFailure("MASTER_RATE_LIMIT")
+    const caller = await createClient()
+    const { data, error } = await caller.rpc("initialize_my_chart_accounts", { p_request_id: intent.request_id })
+    if (error) return masterFailure(classifyMasterError(error))
+    if (!data || !Number.isSafeInteger(data.inserted) || data.inserted < 0 || data.inserted > 28) return masterFailure("MASTER_UNAVAILABLE")
+    await refreshMasterChart(user.tenantId)
+    return { success: true, inserted: data.inserted }
+  } catch (error) { return masterFailure(classifyMasterError(error)) }
+}
+export async function postOpeningBalances(input: {
+  entry_date: string; lines: { account_id: string; description?: string; debit: number; credit: number }[]; request_id: string
+}): Promise<MasterOperationResult<{ out_entry_id: string; out_entry_ref: string }>> {
+  try {
+    await requirePermission("accounting", "create")
+    const user = await getCurrentUser()
+    if (!user) return masterFailure("MASTER_FORBIDDEN")
+    if (!isMasterIntent(input)) return masterFailure("MASTER_REQUEST_REQUIRED")
+    if (!isMasterDate(input.entry_date) || !Array.isArray(input.lines) || input.lines.length > 1000) return masterFailure("MASTER_INVALID")
+    const lines: { account_id: string; description: string | null; debit: number; credit: number }[] = []
+    for (const line of input.lines) {
+      if (!line || typeof line.debit !== "number" || typeof line.credit !== "number" || !Number.isFinite(line.debit)
+        || !Number.isFinite(line.credit) || line.debit < 0 || line.credit < 0 || round2(line.debit) !== line.debit
+        || round2(line.credit) !== line.credit || (line.debit > 0 && line.credit > 0)) return masterFailure("MASTER_INVALID")
+      const description = masterText(line.description, 1000)
+      if (description === false) return masterFailure("MASTER_INVALID")
+      if (line.debit === 0 && line.credit === 0) continue
+      if (!isMasterId(line.account_id)) return masterFailure("MASTER_INVALID")
+      lines.push({ account_id: line.account_id, description, debit: line.debit, credit: line.credit })
+    }
+    if (lines.length < 2 || sumMoney(...lines.map(line => line.debit)) !== sumMoney(...lines.map(line => line.credit))
+      || utf8ByteLength(JSON.stringify(lines)) > MASTER_IMPORT_MAX_BYTES) return masterFailure("MASTER_INVALID")
+    if (!(await rateLimitAccounting(user.id)).success) return masterFailure("MASTER_RATE_LIMIT")
+    const caller = await createClient()
+    const { data, error } = await caller.rpc("post_my_opening_balances", {
+      p_entry_date: input.entry_date, p_lines: lines, p_request_id: input.request_id,
+    })
+    if (error) return masterFailure(classifyMasterError(error))
+    if (!data || !isMasterId(data.out_entry_id) || typeof data.out_entry_ref !== "string"
+      || !data.out_entry_ref.trim() || data.out_entry_ref.length > 200) return masterFailure("MASTER_UNAVAILABLE")
+    await refreshMasterChart(user.tenantId)
+    return { success: true, out_entry_id: data.out_entry_id, out_entry_ref: data.out_entry_ref }
+  } catch (error) { return masterFailure(classifyMasterError(error)) }
+}
 // ── Phase 3 — Journal Engine actions ──────────────────────────────────────
 // Reversal, approval workflow, period close/reopen. All route through atomic
 // service-role RPCs (migration 034) — no partial states.

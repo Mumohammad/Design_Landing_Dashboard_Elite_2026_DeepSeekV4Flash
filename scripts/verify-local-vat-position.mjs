@@ -36,7 +36,7 @@ export async function verifyVatPosition(page, admin, tenantId, appUrl) {
     await expect(summary).toHaveCSS('direction', 'ltr')
     for (const value of ['61.50', '20.50', '9.40', '50.40']) await expect(summary.getByText(value, { exact: true })).toBeVisible()
     await expect(summary).toContainText('all recorded periods')
-    await expect(summary).toContainText('Detail lists below are limited')
+    await expect(summary).toContainText('Search and page through every record below; totals cover all recorded periods.')
     await summary.screenshot({ path: 'supabase/.temp/vat-position-desktop.png' })
 
     for (const [name, status, body] of [['unavailable', 503, '{"message":"Synthetic unavailable read"}'], ['malformed', 200, '{"net_position":"0"}']]) {
@@ -67,7 +67,8 @@ export async function verifyVatPosition(page, admin, tenantId, appUrl) {
     await summary.screenshot({ path: 'supabase/.temp/vat-position-mobile-ar.png' })
     console.log('PASS: complete VAT browser/API totals beyond 200/100 caps, finalized-only adjustments, exact net, unavailable/malformed reads with retry and Arabic mobile scope')
   } catch (error) {
-    console.error(JSON.stringify({ check: 'complete VAT position', stage, errorType: error.name }))
+    console.error(JSON.stringify({ check: 'complete VAT position', stage, errorType: error.name, operation: /expect\(locator\)\.[A-Za-z]+/.exec(error.message)?.[0], callsite: /verify-local-vat-position\.mjs:(\d+):(\d+)/.exec(error.stack)?.slice(1) }))
+    await page.screenshot({path:'supabase/.temp/vat-position-failure.png'}).catch(()=>{})
     throw Error(`VAT position verification failed: ${stage}`)
   } finally {
     await page.unroute(pattern)

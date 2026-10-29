@@ -10,6 +10,7 @@
 // All money passes through 2dp integer-minor arithmetic — no float drift.
 
 export type InvoiceLineInput = {
+  item_name?: string | null
   description: string
   quantity: number
   unit_price: number
@@ -18,6 +19,7 @@ export type InvoiceLineInput = {
 }
 
 export interface ComputedInvoiceLine {
+  item_name?: string | null
   line_no: number
   description: string
   quantity: number
@@ -91,10 +93,13 @@ export function computeInvoiceTotals(
     const desc = (l.description ?? "").trim()
     if (!desc || desc.length > 1000) throw new Error("INV002: line description must contain 1–1000 characters")
     const qtyMills = bounded(qty, 3, 0.001, 999999999.999)
-    const priceCents = bounded(price, 2, 0, 9999999999.99)
+    if (l.item_name != null && (typeof l.item_name !== "string" || l.item_name.trim().length > 200)) throw new Error("INV002: item name must contain at most 200 characters")
+    const itemName = l.item_name?.trim() || null
+    const priceUnits = bounded(price, 4, 0, 9999999999.99)
     const discountCents = bounded(disc, 2, 0, 9999999999.99)
     const rateBasis = bounded(vatRate, 2, 0, 100)
-    const gross = (qtyMills * priceCents + BigInt(500)) / BigInt(1000)
+    // Quantity uses 3dp and unit price 4dp; round their product once to cents.
+    const gross = (qtyMills * priceUnits + BigInt(50000)) / BigInt(100000)
     const amount = gross - discountCents
     if (amount < ZERO) throw new Error("INV002: discount exceeds line value")
     const vatAmount = (amount * rateBasis + BigInt(5000)) / BigInt(10000)
@@ -103,6 +108,7 @@ export function computeInvoiceTotals(
     vat += vatAmount
     return {
       line_no: i + 1,
+      ...(itemName ? { item_name: itemName } : {}),
       description: desc,
       quantity: qty,
       unit_price: price,

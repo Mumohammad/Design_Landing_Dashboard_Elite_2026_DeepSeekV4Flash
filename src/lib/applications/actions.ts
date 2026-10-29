@@ -6,93 +6,15 @@
 // - getDocumentDownloadUrl  hr:read → signed URL for a private document
 //
 // All reads in the UI go through the tenant-scoped RLS staff SELECT policies
-// from migration 029; mutations go through the service-role admin client after
-// a permission check. See docs/phase-2-auth-plan.md section 7.
+// from migration 029; decisions use the caller-bound review transaction.
 
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
-import { writeAuditLog } from "@/lib/auth/sessions"
-import { rateLimitApplications } from "@/lib/auth/rate-limit"
+import { mutateApplicationReview } from "./review-actions"
 import type { ApplicationStatus } from "@/types/applications"
 
-type ActionResult = { success: boolean; error?: string }
-
-const VALID_STATUSES: ApplicationStatus[] = [
-  "submitted",
-  "under_review",
-  "approved",
-  "rejected",
-]
-
-export async function reviewApplication(input: {
-  applicationId: string
-  status: ApplicationStatus
-  note?: string | null
-}): Promise<ActionResult> {
-  try {
-    await requirePermission("hr", "approve")
-    const currentUser = await getCurrentUser()
-    if (!currentUser) return { success: false, error: "Not authenticated." }
-    const rl = await rateLimitApplications(currentUser.id)
-    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
-
-    if (!VALID_STATUSES.includes(input.status)) {
-      return { success: false, error: "Invalid application status." }
-    }
-    if (input.status === "submitted") {
-      return { success: false, error: "Cannot move an application back to submitted." }
-    }
-
-    const admin = createAdminClient()
-
-    // Load the current row first (for the audit trail + tenant scoping).
-    const { data: app, error: fetchErr } = await admin
-      .from("driver_applications")
-      .select("id, tenant_id, status")
-      .eq("id", input.applicationId)
-      .maybeSingle()
-
-    if (fetchErr || !app) {
-      return { success: false, error: "Application not found." }
-    }
-    // Belt-and-braces tenant check: never allow cross-tenant status changes.
-    if (app.tenant_id !== currentUser.tenantId) {
-      return { success: false, error: "Application not found." }
-    }
-
-    const { error: updateErr } = await admin
-      .from("driver_applications")
-      .update({
-        status: input.status,
-        reviewed_by: currentUser.id,
-        reviewed_at: new Date().toISOString(),
-        review_note: input.note?.trim() || null,
-      })
-      .eq("id", app.id)
-      .eq("tenant_id", currentUser.tenantId)
-
-    if (updateErr) {
-      return { success: false, error: updateErr.message }
-    }
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "hr",
-      action: "application_reviewed",
-      entityType: "driver_applications",
-      entityId: app.id,
-      oldValues: { status: app.status },
-      newValues: { status: input.status, note: input.note?.trim() || null },
-    })
-
-    return { success: true }
-  } catch (e) {
-    return {
-      success: false,
-      error: e instanceof Error ? e.message : "Unknown error",
-    }
-  }
+export async function reviewApplication(input: {applicationId:string;expectedVersion:number;status:ApplicationStatus;note?:string|null}) {
+ return mutateApplicationReview({applicationId:input.applicationId,expectedVersion:input.expectedVersion,action:input.status,reason:input.note})
 }
 
 /**
@@ -133,7 +55,7 @@ export async function getDocumentDownloadUrl(
     }
 
     return { url: data.signedUrl }
-  } catch (e) {
-    return { error: e instanceof Error ? e.message : "Unknown error" }
+  } catch {
+    return { error: "Could not generate a download link." }
   }
 }

@@ -88,11 +88,6 @@ BEGIN
   VALUES (v_users, v_auth, v_tenant, 'acct-fixture@test.local', 'general_manager', 'active', false)
   ON CONFLICT (id) DO UPDATE SET role = 'general_manager', status = 'active', must_change_password = false;
 
-  -- Bank account (tenant A) for the in/out payment fixtures.
-  INSERT INTO public.bank_accounts (id, tenant_id, bank_name, account_name, iban)
-  VALUES (v_bank, v_tenant, 'بنك الاختبار', 'Accounting Fixture Account', 'SA0000000000000000000000')
-  ON CONFLICT (id) DO NOTHING;
-
   -- Customer (tenant A) for the direction='in' payment fixture.
   INSERT INTO public.customers (id, tenant_id, name_ar)
   VALUES (v_customer, v_tenant, 'عميل المحاسبة')
@@ -104,6 +99,11 @@ BEGIN
   ON CONFLICT (id) DO NOTHING;
   INSERT INTO public.chart_of_accounts (id, tenant_id, account_code, name_ar, name_en, account_type, normal_balance)
   VALUES (v_coa_rev, v_tenant, '4000', 'إيرادات الخدمات', 'Service Revenue', 'income', 'credit')
+  ON CONFLICT (id) DO NOTHING;
+
+  -- Bank account (tenant A) for the in/out payment fixtures.
+  INSERT INTO public.bank_accounts (id, tenant_id, bank_name, account_name, iban)
+  VALUES (v_bank, v_tenant, 'بنك الاختبار', 'Accounting Fixture Account', 'SA0000000000000000000000')
   ON CONFLICT (id) DO NOTHING;
 
   -- Journal entry + balanced lines (tenant A): the immutability fixtures.

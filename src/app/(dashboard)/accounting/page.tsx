@@ -2,6 +2,8 @@
 
 import Link from "next/link"
 import { LocalizedText } from "@/components/localized-text"
+import { printReportFromGesture } from "@/lib/accounting/report-print"
+import { integrationAvailable } from "@/lib/release/integrations"
 import { Fragment, Suspense, useCallback, useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { useActionState } from "react"
@@ -16,7 +18,12 @@ import { BankAccountPicker } from "@/components/accounting/bank-account-picker"
 import { LedgerToolbar } from "@/components/accounting/ledger-toolbar"
 import { ledgerQuery, isLedgerKind } from "@/lib/accounting/ledger-queries"
 import { useTablePage } from "@/hooks/use-table-page"
-import { calculateVat, decimalRound, sumMoney } from "@/lib/accounting/decimal"
+import { useAccountingPage } from "@/hooks/use-accounting-page"
+import { sumAccountingMoney } from "@/lib/accounting/paged-reads"
+import { AccountingPageControls, type AccountingPageState } from "@/components/accounting/accounting-page-controls"
+import { AccountingOptionPicker } from "@/components/accounting/accounting-option-picker"
+import { PaymentAllocationPicker } from "@/components/accounting/payment-allocation-picker"
+import { calculateVat, decimalRound, sumMoney, type DecimalInput } from "@/lib/accounting/decimal"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { LoadingSpinner } from "@/components/ui/loading-spinner"
@@ -100,24 +107,15 @@ interface PeriodRow {
   reopen_reason: string | null
 }
 
-interface AccountRow {
-  id: string
-  account_code: string
-  name_ar: string
-  name_en: string
-  account_type: string
-  normal_balance: string
-}
-
 interface ArApRow {
   id: string
   invoice_ref: string
   invoice_date: string
   due_date: string
-  amount: number
-  vat_amount: number
-  total_amount: number
-  paid_amount: number
+  amount: DecimalInput
+  vat_amount: DecimalInput
+  total_amount: DecimalInput
+  paid_amount: DecimalInput
   status: string
 }
 
@@ -127,9 +125,9 @@ interface TrialRow {
   name_en: string
   account_type: string
   normal_balance: string
-  total_debit: number | null
-  total_credit: number | null
-  net_balance: number | null
+  total_debit: DecimalInput | null
+  total_credit: DecimalInput | null
+  net_balance: DecimalInput | null
 }
 
 interface VatLedgerRow {
@@ -138,9 +136,9 @@ interface VatLedgerRow {
   period_month: number
   invoice_ref: string
   invoice_date: string
-  vat_base_amount: number
+  vat_base_amount: DecimalInput
   vat_rate: number
-  vat_amount: number
+  vat_amount: DecimalInput
   vat_recoverability?: string
 }
 
@@ -150,8 +148,8 @@ interface VatAdjustmentRow {
   period_month: number
   adjustment_type: string
   direction: string
-  base_amount: number
-  vat_amount: number
+  base_amount: DecimalInput
+  vat_amount: DecimalInput
   reason: string | null
   status: string
 }
@@ -168,7 +166,7 @@ interface PaymentRow {
   payment_ref: string
   direction: string
   payment_date: string
-  amount: number
+  amount: DecimalInput
   method: string
   reference: string | null
   status: string
@@ -189,12 +187,6 @@ interface BankAccountRow {
   opening_balance: number
   is_active: boolean
   coa_account_code?: string | null
-}
-
-interface OpenArApRow extends ArApRow {
-  party_name?: string | null
-  customer_id?: string | null
-  supplier_id?: string | null
 }
 
 interface PayAllocDraft {
@@ -225,9 +217,9 @@ interface VatReviewItem {
   id: string
   invoice_ref: string
   invoice_date: string
-  vat_base_amount: number
+  vat_base_amount: DecimalInput
   vat_rate: number
-  vat_amount: number
+  vat_amount: DecimalInput
   supplier_id: string | null
 }
 
@@ -259,14 +251,14 @@ interface VatReconRow {
   period_year: number
   period_month: number
   period_status: string | null
-  output_vat: number
-  recoverable_input_vat: number
-  non_recoverable_vat: number
-  pending_review_vat: number
-  adjustments_output: number
-  adjustments_input: number
+  output_vat: DecimalInput
+  recoverable_input_vat: DecimalInput
+  non_recoverable_vat: DecimalInput
+  pending_review_vat: DecimalInput
+  adjustments_output: DecimalInput
+  adjustments_input: DecimalInput
   pending_review_rows: number
-  net_position: number
+  net_position: DecimalInput
 }
 
 const TYPE_AR: Record<string, string> = {
@@ -352,25 +344,30 @@ function fmtDate(d: string | null): string {
   }
 }
 
-function fmtMoney(n: number | null | undefined): string {
-  return (n ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+function safeInputTotal(values: DecimalInput[]): number | null {
+  try { return sumMoney(...values) } catch { return null }
+}
+
+function fmtMoney(n: DecimalInput | null | undefined): string {
+  return typeof n === "string" ? formatVatMoney(n) : (n ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 function Th({ children }: { children: React.ReactNode }) {
   return <th className="px-4 py-3 text-start font-medium">{children}</th>
 }
 
-function TableShell({ headers, children }: { headers: string[]; children: React.ReactNode }) {
+function TableShell({ headers, children, page }: { headers: string[]; children: React.ReactNode; page?: AccountingPageState }) {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+    <div>
+      {page && <AccountingPageControls state={page} />}
+      {page?.loading ? <div role="status" className="flex justify-center p-6"><LoadingSpinner className="h-5 w-5" /></div> : page?.error ? null : <div className="overflow-x-auto"><table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border/60 text-start text-xs text-muted-foreground">
             {headers.map((h) => <Th key={h}>{h}</Th>)}
           </tr>
         </thead>
         <tbody>{children}</tbody>
-      </table>
+      </table></div>}
     </div>
   )
 }
@@ -419,23 +416,33 @@ function AccountingPageContent() {
     if (!isLedgerKind(tab)) throw new Error("Unsupported ledger")
     return ledgerQuery(createClient(), tab, term)
   }, [tab])
-  const ledger = useTablePage<JournalRow | ArApRow>(ledgerTab ? buildLedgerQuery : null)
+  const directLedger = useTablePage<JournalRow | ArApRow>(tab === "journal" ? buildLedgerQuery : null)
+  const monetaryLedger = useAccountingPage<JournalRow | ArApRow>(tab === "receivables" || tab === "payables" ? tab : null, loadRevision)
+  const ledger = tab === "journal" ? directLedger : monetaryLedger
+  const [payRefresh, setPayRefresh] = useState(0)
+  const [vatRefresh, setVatRefresh] = useState(0)
   const journals = ledger.rows as JournalRow[]
   const [expandedEntryId, setExpandedEntryId] = useState<string | null>(null)
   const [lineCache, setLineCache] = useState<Record<string, JournalLineRow[]>>({})
   const [linesBusy, setLinesBusy] = useState(false)
   const [linesError, setLinesError] = useState<string | null>(null)
-  const [accounts, setAccounts] = useState<AccountRow[]>([])
-  const [trial, setTrial] = useState<TrialRow[]>([])
+  const trialPage = useAccountingPage<TrialRow>(tab === "trial" ? "trial" : null, loadRevision)
+  const trial = trialPage.rows
   const receivables = ledger.rows as ArApRow[]
   const payables = ledger.rows as ArApRow[]
-  const [vatOutput, setVatOutput] = useState<VatLedgerRow[]>([])
-  const [vatInput, setVatInput] = useState<VatLedgerRow[]>([])
-  const [vatAdjustments, setVatAdjustments] = useState<VatAdjustmentRow[]>([])
-  const [vatPeriods, setVatPeriods] = useState<VatPeriodRow[]>([])
-  const [vatRecon, setVatRecon] = useState<VatReconRow[]>([])
+  const vatOutputPage = useAccountingPage<VatLedgerRow>(tab === "vat" ? "vat_output" : null, vatRefresh + loadRevision)
+  const vatOutput = vatOutputPage.rows
+  const vatInputPage = useAccountingPage<VatLedgerRow>(tab === "vat" ? "vat_input" : null, vatRefresh + loadRevision)
+  const vatInput = vatInputPage.rows
+  const vatAdjustmentsPage = useAccountingPage<VatAdjustmentRow>(tab === "vat" ? "vat_adjustments" : null, vatRefresh + loadRevision)
+  const vatAdjustments = vatAdjustmentsPage.rows
+  const vatPeriodsPage = useAccountingPage<VatPeriodRow>(tab === "vat" ? "vat_periods" : null, vatRefresh + loadRevision)
+  const vatPeriods = vatPeriodsPage.rows
+  const vatReconPage = useAccountingPage<VatReconRow>(tab === "vat" ? "vat_recon" : null, vatRefresh + loadRevision)
+  const vatRecon = vatReconPage.rows
   const [vatPosition, setVatPosition] = useState<VatPosition | null>(null)
-  const [vatReviewItems, setVatReviewItems] = useState<VatReviewItem[]>([])
+  const vatReviewItemsPage = useAccountingPage<VatReviewItem>(tab === "vat" ? "vat_review" : null, vatRefresh + loadRevision)
+  const vatReviewItems = vatReviewItemsPage.rows
   const [reconExporting, setReconExporting] = useState(false)
   const [reconPrinting, setReconPrinting] = useState(false)
   const [vatReturn, setVatReturn] = useState<VatReturnData | null>(null)
@@ -443,13 +450,16 @@ function AccountingPageContent() {
   const [returnExporting, setReturnExporting] = useState(false)
   const [returnPrinting, setReturnPrinting] = useState(false)
   const [returnLoading, setReturnLoading] = useState(false)
+  const [returnError, setReturnError] = useState(false)
   const [resolveTarget, setResolveTarget] = useState<VatReviewItem | null>(null)
+  const [resolveError,setResolveError]=useState<string|null>(null)
   const [resolveRecoverability, setResolveRecoverability] = useState<"recoverable" | "non_recoverable">("recoverable")
   const [resolveBusy, setResolveBusy] = useState(false)
-  const [vatRefresh, setVatRefresh] = useState(0)
-  const [events, setEvents] = useState<EventRow[]>([])
+  const eventsPage = useAccountingPage<EventRow>(tab === "events" ? "events" : null, loadRevision)
+  const events = eventsPage.rows
   const [dispatchBusy, setDispatchBusy] = useState(false)
-  const [zatcaRows, setZatcaRows] = useState<ZatcaTransmissionRow[]>([])
+  const zatcaRowsPage = useAccountingPage<ZatcaTransmissionRow>(tab === "zatca" ? "zatca" : null, loadRevision)
+  const zatcaRows = zatcaRowsPage.rows
   const [zatcaCsids, setZatcaCsids] = useState<ZatcaCsidSummary[]>([])
   const [zatcaBusy, setZatcaBusy] = useState(false)
   const [zatcaDetail, setZatcaDetail] = useState<ZatcaDetail | null>(null)
@@ -461,17 +471,14 @@ function AccountingPageContent() {
   const [zatcaStatus, setZatcaStatus] = useState<ZatcaStatus | null>(null)
   const zatcaEnabled = !!zatcaStatus?.enabled
   const [onboardChecks, setOnboardChecks] = useState<ComplianceCheckResult[] | null>(null)
-  const [payments, setPayments] = useState<PaymentRow[]>([])
+  const paymentsPage = useAccountingPage<PaymentRow>(tab === "payments" ? "payments" : null, payRefresh + loadRevision)
+  const payments = paymentsPage.rows
   const [bankAccounts, setBankAccounts] = useState<BankAccountRow[]>([])
   const [bankPage, setBankPage] = useState(0)
   const [bankCount, setBankCount] = useState(0)
   const [bankLoadError, setBankLoadError] = useState(false)
-  const [openAr, setOpenAr] = useState<OpenArApRow[]>([])
-  const [openAp, setOpenAp] = useState<OpenArApRow[]>([])
-  const [custOptions, setCustOptions] = useState<{ id: string; name: string }[]>([])
-  const [suppOptions, setSuppOptions] = useState<{ id: string; name: string }[]>([])
-  const [payRefresh, setPayRefresh] = useState(0)
-  const [periods, setPeriods] = useState<PeriodRow[]>([])
+  const periodsPage = useAccountingPage<PeriodRow>(tab === "periods" ? "periods" : null, loadRevision)
+  const periods = periodsPage.rows
 
   useEffect(() => {
     const controller = new AbortController()
@@ -480,173 +487,21 @@ function AccountingPageContent() {
       setLoadError(false)
       const supabase = createClient()
       try {
-      if (tab === "journal" || tab === "payments") {
-        const { data } = await supabase
-          .from("chart_of_accounts")
-          .select("id,account_code,name_ar,name_en,account_type,normal_balance")
-          .eq("is_active", true).is("deleted_at", null)
-          .order("account_code", { ascending: true })
-          .abortSignal(controller.signal).throwOnError()
-        requireAccountingRows(controller.signal, data)
-        setAccounts(data as AccountRow[])
-      }
-
-      if (tab === "trial") {
-        const { data } = await supabase.from("trial_balance").select("*").abortSignal(controller.signal).throwOnError()
-        requireAccountingRows(controller.signal, data)
-        setTrial(data as TrialRow[])
-      } else if (tab === "vat") {
-        const [outRes, inRes, adjRes, perRes, reconRes, reviewRes, position] = await Promise.all([
-          supabase
-            .from("vat_output_ledger")
-            .select("id,period_year,period_month,invoice_ref,invoice_date,vat_base_amount,vat_rate,vat_amount")
-            .order("invoice_date", { ascending: false })
-            .limit(200).abortSignal(controller.signal).throwOnError(),
-          supabase
-            .from("vat_input_ledger")
-            .select("id,period_year,period_month,invoice_ref,invoice_date,vat_base_amount,vat_rate,vat_amount,vat_recoverability")
-            .order("invoice_date", { ascending: false })
-            .limit(200).abortSignal(controller.signal).throwOnError(),
-          supabase
-            .from("vat_adjustments")
-            .select("id,period_year,period_month,adjustment_type,direction,base_amount,vat_amount,reason,status")
-            .is("deleted_at", null)
-            .order("period_year", { ascending: false })
-            .order("period_month", { ascending: false })
-            .limit(100).abortSignal(controller.signal).throwOnError(),
-          supabase
-            .from("vat_periods")
-            .select("id,period_year,period_month,status")
-            .is("deleted_at", null)
-            .order("period_year", { ascending: false })
-            .order("period_month", { ascending: false })
-            .limit(24).abortSignal(controller.signal).throwOnError(),
-          supabase
-            .from("vat_reconciliation")
-            .select("*")
-            .order("period_year", { ascending: false })
-            .order("period_month", { ascending: false }).limit(1000).abortSignal(controller.signal).throwOnError(),
-          supabase
-            .from("vat_input_ledger")
-            .select("id,invoice_ref,invoice_date,vat_base_amount,vat_rate,vat_amount,supplier_id")
-            .eq("vat_recoverability", "pending_review")
-            .order("invoice_date", { ascending: true })
-            .limit(200).abortSignal(controller.signal).throwOnError(),
-          readVatPosition(supabase, controller.signal),
-        ])
-        requireAccountingRows(controller.signal, outRes.data, inRes.data, adjRes.data, perRes.data, reconRes.data, reviewRes.data)
-        setVatPosition(position)
-        if (outRes.data) setVatOutput(outRes.data as VatLedgerRow[])
-        if (inRes.data) setVatInput(inRes.data as VatLedgerRow[])
-        if (adjRes.data) setVatAdjustments(adjRes.data as VatAdjustmentRow[])
-        if (perRes.data) setVatPeriods(perRes.data as VatPeriodRow[])
-        if (reconRes.data) setVatRecon(reconRes.data as VatReconRow[])
-        if (reviewRes.data) setVatReviewItems(reviewRes.data as unknown as VatReviewItem[])
+      if (tab === "vat") {
+        const position = await readVatPosition(supabase, controller.signal)
+        if (!controller.signal.aborted) setVatPosition(position)
       } else if (tab === "payments") {
-        const [payRes, bankRes, arRes, apRes, custRes, suppRes] = await Promise.all([
-          supabase
-            .from("finance_payments")
-            .select("id,payment_ref,direction,payment_date,amount,method,reference,status,payment_allocations(id),bank_accounts(bank_name),customers(name_ar,name_en),suppliers(name_ar,name_en)")
-            .is("deleted_at", null)
-            .order("payment_date", { ascending: false })
-            .limit(200).abortSignal(controller.signal).throwOnError(),
-          supabase
-            .from("bank_accounts")
-            .select("id,bank_name,account_name,iban,account_number,currency,opening_balance,is_active,coa_account_code,updated_at", { count: "exact" })
-            .is("deleted_at", null)
-            .order("bank_name", { ascending: true }).order("id", { ascending: true })
-            .range(bankPage * 50, bankPage * 50 + 49).abortSignal(controller.signal).throwOnError(),
-          supabase
-            .from("receivables")
-            .select("id,invoice_ref,invoice_date,due_date,amount,vat_amount,total_amount,paid_amount,status,customer_id,customers(name_ar,name_en)")
-            .is("deleted_at", null)
-            .in("status", ["open", "partially_paid", "overdue"])
-            .order("due_date", { ascending: true })
-            .limit(100).abortSignal(controller.signal).throwOnError(),
-          supabase
-            .from("payables")
-            .select("id,invoice_ref,invoice_date,due_date,amount,vat_amount,total_amount,paid_amount,status,supplier_id,suppliers(name_ar,name_en)")
-            .is("deleted_at", null)
-            .in("status", ["open", "partially_paid", "overdue"])
-            .order("due_date", { ascending: true })
-            .limit(100).abortSignal(controller.signal).throwOnError(),
-          supabase
-            .from("customers")
-            .select("id,name_ar,name_en")
-            .is("deleted_at", null)
-            .order("name_ar", { ascending: true })
-            .limit(200).abortSignal(controller.signal).throwOnError(),
-          supabase
-            .from("suppliers")
-            .select("id,name_ar,name_en")
-            .is("deleted_at", null)
-            .order("name_ar", { ascending: true })
-            .limit(200).abortSignal(controller.signal).throwOnError(),
-        ])
-        requireAccountingRows(controller.signal, payRes.data, bankRes.data, arRes.data, apRes.data, custRes.data, suppRes.data)
-        if (bankRes.count === null) throw new Error("Could not load accounting data")
-        if (payRes.data) setPayments(payRes.data as unknown as PaymentRow[])
-        setBankLoadError(!!bankRes.error)
-        if (bankRes.data) {
-          setBankAccounts(bankRes.data as BankAccountRow[])
-          setBankCount(bankRes.count ?? 0)
-          if (bankPage > 0 && (bankRes.count ?? 0) <= bankPage * 50) setBankPage(0)
-        }
-        if (arRes.data) {
-          setOpenAr(
-            (arRes.data as unknown as (ArApRow & { customers?: { name_ar: string | null; name_en: string | null } | null })[]).map((r) => ({
-              ...r,
-              party_name: r.customers ? (r.customers.name_ar ?? r.customers.name_en ?? null) : null,
-            }))
-          )
-        }
-        if (apRes.data) {
-          setOpenAp(
-            (apRes.data as unknown as (ArApRow & { suppliers?: { name_ar: string | null; name_en: string | null } | null })[]).map((r) => ({
-              ...r,
-              party_name: r.suppliers ? (r.suppliers.name_ar ?? r.suppliers.name_en ?? null) : null,
-            }))
-          )
-        }
-        if (custRes.data) {
-          setCustOptions((custRes.data as { id: string; name_ar: string | null; name_en: string | null }[]).map((c) => ({ id: c.id, name: c.name_ar ?? c.name_en ?? "" })))
-        }
-        if (suppRes.data) {
-          setSuppOptions((suppRes.data as { id: string; name_ar: string | null; name_en: string | null }[]).map((s) => ({ id: s.id, name: s.name_ar ?? s.name_en ?? "" })))
-        }
-      } else if (tab === "periods") {
-        const { data } = await supabase
-          .from("accounting_periods")
-          .select("id,period_year,period_month,status,opened_at,closed_at,reopen_reason")
-          .is("deleted_at", null)
-          .order("period_year", { ascending: false })
-          .order("period_month", { ascending: false })
-          .limit(60)
-          .abortSignal(controller.signal).throwOnError()
-        requireAccountingRows(controller.signal, data)
-        setPeriods(data as PeriodRow[])
-      } else if (tab === "events") {
-        const { data } = await supabase
-          .from("financial_events")
-          .select("id,idempotency_key,source_type,event_type,processing_status,event_date,created_at,processed_at,error_message")
-          .order("created_at", { ascending: false })
-          .limit(100)
-          .abortSignal(controller.signal).throwOnError()
-        requireAccountingRows(controller.signal, data)
-        setEvents(data as EventRow[])
+        const bankRes = await supabase.from("bank_accounts")
+          .select("id,bank_name,account_name,iban,account_number,currency,opening_balance,is_active,coa_account_code,updated_at", {count:"exact"})
+          .is("deleted_at",null).order("bank_name").order("id").range(bankPage*50,bankPage*50+49).abortSignal(controller.signal).throwOnError()
+        requireAccountingRows(controller.signal,bankRes.data)
+        if(bankRes.count === null) throw new Error("Could not load bank accounts")
+        setBankAccounts(bankRes.data as BankAccountRow[]); setBankCount(bankRes.count); setBankLoadError(false)
+        if(bankPage>0 && bankRes.count<=bankPage*50) setBankPage(0)
       } else if (tab === "zatca") {
-        const { data } = await supabase
-          .from("zatca_transmissions")
-          .select("id,doc_ref,doc_type,status,zatca_uuid,error_message,transmitted_at,created_at,is_mock:response->>sandbox")
-          .order("created_at", { ascending: false })
-          .limit(100)
-          .abortSignal(controller.signal).throwOnError()
-        requireAccountingRows(controller.signal, data)
-        setZatcaRows(data as ZatcaTransmissionRow[])
         const csids = await listZatcaCsids()
-        if (controller.signal.aborted) return
-        if (!csids.success || !csids.csids) throw new Error("Could not load accounting data")
-        requireAccountingRows(controller.signal, csids.csids)
+        if(controller.signal.aborted) return
+        if(!csids.success || !csids.csids) throw new Error("Could not load accounting data")
         setZatcaCsids(csids.csids)
         const status = await getZatcaStatus()
         if (controller.signal.aborted) return
@@ -668,21 +523,24 @@ function AccountingPageContent() {
   // main loader's `void (async () => {})()` pattern so state updates happen
   // inside the async context (lint react-hooks/set-state-in-effect).
   useEffect(() => {
-    if (tab !== "vat" || vatRecon.length === 0) return
+    if (tab !== "vat") return
+    let cancelled = false
     void (async () => {
-      const latest = `${vatRecon[0].period_year}-${String(vatRecon[0].period_month).padStart(2, "0")}`
+      const latest = new Date().toISOString().slice(0, 7)
       const period = vatReturnPeriod || latest
       setVatReturnPeriod((p) => (p || latest))
       if (!period) return
       const [year, month] = period.split("-").map(Number)
       if (!year || !month) return
-      setReturnLoading(true)
+      setReturnLoading(true); setReturnError(false)
       const res = await getVatReturn({ period_year: year, period_month: month })
-      setReturnLoading(false)
+      if(cancelled) return
+      setReturnLoading(false); setReturnError(!res.success)
       if (res.success && res.data) setVatReturn(res.data)
       else setVatReturn(null)
     })()
-  }, [tab, vatRecon, vatReturnPeriod, vatRefresh])
+    return ()=>{cancelled=true}
+  }, [tab, vatReturnPeriod, vatRefresh])
 
   // ── Create forms ────────────────────────────────────────────────────────
   const [openDialogs, setOpenDialogs] = useState<Record<string, boolean>>({})
@@ -735,9 +593,9 @@ function AccountingPageContent() {
     },
     null
   )
-  const totalDebit = lines.reduce((s, l) => s + Number(l.debit || 0), 0)
-  const totalCredit = lines.reduce((s, l) => s + Number(l.credit || 0), 0)
-  const isBalanced = Math.abs(totalDebit - totalCredit) < 0.001 && totalDebit > 0
+  const totalDebit = safeInputTotal(lines.map(l=>l.debit || "0"))
+  const totalCredit = safeInputTotal(lines.map(l=>l.credit || "0"))
+  const isBalanced = totalDebit !== null && totalCredit !== null && totalDebit === totalCredit && totalDebit > 0
   const updateLine = (key: number, patch: Partial<LineDraft>) =>
     setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)))
   const addLine = () =>
@@ -903,7 +761,7 @@ function AccountingPageContent() {
     setBusyPeriodId(null)
     if (res.success) {
       flash("ok", ar ? "تم إغلاق الفترة." : "Period closed.")
-      setPeriods((prev) => prev.map((x) => (x.id === p.id ? { ...x, status: "closed" } : x)))
+      periodsPage.reload()
     } else {
       flash("err", res.error ?? "Failed")
     }
@@ -918,22 +776,14 @@ function AccountingPageContent() {
     setReopenReason("")
     if (res.success) {
       flash("ok", ar ? "أعيد فتح الفترة." : "Period reopened.")
-      setPeriods((prev) => prev.map((x) => (x.id === reopenTarget.id ? { ...x, status: "reopened", reopen_reason: reopenReason } : x)))
+      periodsPage.reload()
     } else {
       flash("err", res.error ?? "Failed")
     }
   }
 
   // ── Event dispatcher (Phase 9) ──────────────────────────────────────────
-  async function reloadEvents() {
-    const supabase = createClient()
-    const { data } = await supabase
-      .from("financial_events")
-      .select("id,idempotency_key,source_type,event_type,processing_status,event_date,created_at,processed_at,error_message")
-      .order("created_at", { ascending: false })
-      .limit(100)
-    if (data) setEvents(data as EventRow[])
-  }
+  async function reloadEvents() { eventsPage.reload() }
 
   async function handleRunDispatcher() {
     setDispatchBusy(true)
@@ -953,19 +803,7 @@ function AccountingPageContent() {
   }
 
   // ── ZATCA adapter (Phase 15) ──────────────────────────────────────────
-  async function reloadZatca() {
-    const supabase = createClient()
-    const { data } = await supabase
-      .from("zatca_transmissions")
-      .select("id,doc_ref,doc_type,status,zatca_uuid,error_message,transmitted_at,created_at,is_mock:response->>sandbox")
-      .order("created_at", { ascending: false })
-      .limit(100)
-    if (data) setZatcaRows(data as ZatcaTransmissionRow[])
-    const csids = await listZatcaCsids()
-    if (csids.success && csids.csids) setZatcaCsids(csids.csids)
-    const status = await getZatcaStatus()
-    if (status.success && status.status) setZatcaStatus(status.status)
-  }
+  async function reloadZatca() { zatcaRowsPage.reload(); setLoadRevision(value=>value+1) }
 
   async function handleRunZatca() {
     setZatcaBusy(true)
@@ -1046,33 +884,27 @@ function AccountingPageContent() {
   }
 
   async function handlePrintVatRecon() {
+    if (reconPrinting) return
     setReconPrinting(true)
-    const res = await generateVatReconciliationReport()
-    setReconPrinting(false)
-    if (res.success && res.html) {
-      const win = window.open("", "_blank")
-      if (win) {
-        win.document.write(res.html)
-        win.document.close()
-        setTimeout(() => win.print(), 300)
-      }
-    } else {
-      flash("err", res.error ?? "Report failed")
-    }
+    try {
+      const result = await printReportFromGesture(() => generateVatReconciliationReport())
+      if (result === "blocked") flash("err", ar ? "اسمح بالنوافذ المنبثقة لهذا الموقع، ثم حاول طباعة التقرير مجدداً." : "Allow pop-ups for this site, then try printing the report again.")
+      else if (result === "failed") flash("err", ar ? "تعذر فتح تقرير التسوية. تحقق من الاتصال وحاول مجدداً." : "Could not open the reconciliation report. Check your connection and try again.")
+      else flash("ok", ar ? "فُتح التقرير للطباعة أو الحفظ بصيغة PDF." : "Report opened for printing or saving as PDF.")
+    } finally { setReconPrinting(false) }
   }
 
   async function handleResolveReview() {
-    if (!resolveTarget) return
-    setResolveBusy(true)
-    const res = await resolveVatReviewItem({ id: resolveTarget.id, recoverability: resolveRecoverability })
-    setResolveBusy(false)
-    if (res.success) {
-      flash("ok", ar ? "تم تصنيف البند." : "Review item classified.")
-      setResolveTarget(null)
-      setVatRefresh((k) => k + 1)
-    } else {
-      flash("err", res.error ?? "Failed")
-    }
+    if (!resolveTarget || resolveBusy) return
+    setResolveBusy(true);setResolveError(null)
+    try{
+      const res=await resolveVatReviewItem({id:resolveTarget.id,recoverability:resolveRecoverability})
+      if(!res.success){setResolveError(ar?res.errorAr??"تعذر تصنيف الضريبة. أعد التحميل وحاول مجدداً.":res.error??"VAT classification failed. Reload and try again.");return}
+      flash("ok",ar?"تم تصنيف البند وترحيله.":"VAT item classified and accounting verified.")
+      setResolveTarget(null);setVatRefresh(k=>k+1)
+    }catch{
+      setResolveError(ar?"تعذر تأكيد التصنيف. أعد تحميل البند وراجعه قبل المحاولة مجدداً.":"Classification could not be confirmed. Reload and review the item before retrying.")
+    }finally{setResolveBusy(false)}
   }
 
   // ── VAT return (Phase 12) handlers ──────────────────────────────────────
@@ -1097,22 +929,20 @@ function AccountingPageContent() {
   }
 
   async function handlePrintVatReturn() {
-    if (!vatReturnPeriod) return
+    if (!vatReturnPeriod || returnPrinting) return
     setReturnPrinting(true)
-    const [year, month] = vatReturnPeriod.split("-").map(Number)
-    const res = await generateVatReturnReport({ period_year: year, period_month: month })
-    setReturnPrinting(false)
-    if (res.success && res.html) {
-      const win = window.open("", "_blank")
-      if (win) {
-        win.document.write(res.html)
-        win.document.close()
-        setTimeout(() => win.print(), 300)
-      }
-      flash("ok", ar ? `تم إنشاء مستند ${res.docNumber}` : `Document ${res.docNumber} generated`)
-    } else {
-      flash("err", res.error ?? "Report failed")
-    }
+    try {
+      const [year, month] = vatReturnPeriod.split("-").map(Number)
+      let documentNumber: string | undefined
+      const result = await printReportFromGesture(async () => {
+        const generated = await generateVatReturnReport({ period_year: year, period_month: month })
+        documentNumber = generated.docNumber
+        return generated
+      })
+      if (result === "blocked") flash("err", ar ? "اسمح بالنوافذ المنبثقة لهذا الموقع، ثم حاول طباعة الإقرار مجدداً." : "Allow pop-ups for this site, then try printing the return again.")
+      else if (result === "failed") flash("err", ar ? "تعذر فتح الإقرار الضريبي. تحقق من الاتصال وحاول مجدداً." : "Could not open the VAT return. Check your connection and try again.")
+      else flash("ok", ar ? `فُتح الإقرار ${documentNumber ?? ""} للطباعة أو الحفظ بصيغة PDF.` : `VAT return ${documentNumber ?? ""} opened for printing or saving as PDF.`)
+    } finally { setReturnPrinting(false) }
   }
 
   // ── Payments ───────────────────────────────────────────────────────────
@@ -1131,26 +961,6 @@ function AccountingPageContent() {
   const [payAllocs, setPayAllocs] = useState<PayAllocDraft[]>([])
   const [payRequestId, setPayRequestId] = useState("")
 
-  function syncAllocList(dir: "in" | "out", partyId?: string) {
-    const rows = (dir === "in" ? openAr : openAp).filter((r) => {
-      if (!partyId) return true
-      return dir === "in" ? r.customer_id === partyId : r.supplier_id === partyId
-    })
-    setPayAllocs(
-      rows.map((r, i) => ({
-        key: i,
-        id: r.id,
-        receivable_id: dir === "in" ? r.id : null,
-        payable_id: dir === "out" ? r.id : null,
-        label: r.invoice_ref,
-        party: r.party_name ?? "",
-        outstanding: r.total_amount - r.paid_amount,
-        amount: "",
-        selected: false,
-      }))
-    )
-  }
-
   function openPayDialog() {
     setPayRequestId(crypto.randomUUID())
     setPayDirection("in")
@@ -1161,7 +971,7 @@ function AccountingPageContent() {
     setPayCustomer("")
     setPaySupplier("")
     setPayReference("")
-    syncAllocList("in")
+    setPayAllocs([])
     setPayDialogOpen(true)
   }
 
@@ -1366,20 +1176,7 @@ function AccountingPageContent() {
                   </div>
                   {lines.map((l, index) => (
                     <div key={l.key} className="grid grid-cols-[1fr_90px_90px_32px] items-center gap-2 px-3 py-2">
-                      <select
-                        aria-label={`${ar ? "الحساب" : "Account"} ${index + 1}`}
-                        required
-                        value={l.account_id}
-                        onChange={(e) => updateLine(l.key, { account_id: e.target.value })}
-                        className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      >
-                        <option value="">—</option>
-                        {accounts.map((a) => (
-                          <option key={a.id} value={a.id}>
-                            {a.account_code} · {a.name_ar}
-                          </option>
-                        ))}
-                      </select>
+                      <AccountingOptionPicker kind="accounts" value={l.account_id} onChange={value=>updateLine(l.key,{account_id:value})} id={"journal-account-"+l.key} label={(ar ? "الحساب" : "Account")+" "+(index+1)} ar={ar} />
                       <Input
                         type="number"
                         dir="ltr"
@@ -1425,8 +1222,8 @@ function AccountingPageContent() {
                   </button>
                   <div className="flex items-center gap-3 text-xs">
                     <span className="text-muted-foreground">{ar ? "المجموع" : "Totals"}:</span>
-                    <span dir="ltr" className="tabular-nums font-medium">{fmtMoney(totalDebit)}</span>
-                    <span dir="ltr" className="tabular-nums font-medium">{fmtMoney(totalCredit)}</span>
+                    <span dir="ltr" className="tabular-nums font-medium">{totalDebit === null ? "—" : fmtMoney(totalDebit)}</span>
+                    <span dir="ltr" className="tabular-nums font-medium">{totalCredit === null ? "—" : fmtMoney(totalCredit)}</span>
                     {isBalanced ? (
                       <span className="inline-flex items-center gap-1 text-emerald-600">
                         <CheckCircle2 className="h-3.5 w-3.5" /> {ar ? "متوازن" : "Balanced"}
@@ -1453,7 +1250,7 @@ function AccountingPageContent() {
                   <div className="flex items-center gap-3">
                     <Button
                       type="submit"
-                      disabled={isPosting || lines.some((l) => !l.account_id) || (!asDraft && !isBalanced)}
+                      disabled={isPosting || totalDebit === null || totalCredit === null || lines.some((l) => !l.account_id) || (!asDraft && !isBalanced)}
                       className="bg-elite-blue-600 hover:bg-elite-blue-700"
                     >
                       {isPosting ? <LoadingSpinner className="h-4 w-4" /> : asDraft ? <Send className="h-4 w-4" /> : <Save className="h-4 w-4" />}
@@ -1645,10 +1442,10 @@ function AccountingPageContent() {
                                     <tr className="font-semibold">
                                       <td colSpan={2} className="px-2 py-1.5">{ar ? "الإجمالي" : "Totals"}</td>
                                       <td className="px-2 py-1.5 text-end tabular-nums" dir="ltr">
-                                        {fmtMoney(lineCache[j.id].reduce((s, ln) => s + (ln.debit_amount ?? 0), 0))}
+                                        {fmtMoney(sumMoney(...lineCache[j.id].map(ln=>ln.debit_amount ?? 0)))}
                                       </td>
                                       <td className="px-2 py-1.5 text-end tabular-nums" dir="ltr">
-                                        {fmtMoney(lineCache[j.id].reduce((s, ln) => s + (ln.credit_amount ?? 0), 0))}
+                                        {fmtMoney(sumMoney(...lineCache[j.id].map(ln=>ln.credit_amount ?? 0)))}
                                       </td>
                                     </tr>
                                   </tbody>
@@ -1675,16 +1472,16 @@ function AccountingPageContent() {
 
             <TabsContent value="trial" className="mt-4">
               <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
-                <TableShell headers={[ar ? "الرمز" : "Code", ar ? "الاسم" : "Name", ar ? "النوع" : "Type", ar ? "مدين" : "Debit", ar ? "دائن" : "Credit", ar ? "الرصيد" : "Balance"]}>
+                <TableShell page={trialPage} headers={[ar ? "الرمز" : "Code", ar ? "الاسم" : "Name", ar ? "النوع" : "Type", ar ? "مدين" : "Debit", ar ? "دائن" : "Credit", ar ? "الرصيد" : "Balance"]}>
                   {trial.length === 0 && <EmptyRow colSpan={6} text={ar ? "لا توجد قيود مرحّلة بعد." : "No posted entries yet."} />}
                   {trial.map((r) => (
                     <tr key={r.account_code} className="border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors">
                       <td className="px-4 py-3 font-mono text-xs" dir="ltr">{r.account_code}</td>
-                      <td className="px-4 py-3 font-medium">{r.name_ar}</td>
+                      <td className="px-4 py-3 font-medium">{ar ? r.name_ar : r.name_en || r.name_ar}</td>
                       <td className="px-4 py-3 text-xs text-muted-foreground">{ar ? TYPE_AR[r.account_type] ?? r.account_type : r.account_type}</td>
                       <td className="px-4 py-3 text-xs tabular-nums" dir="ltr">{fmtMoney(r.total_debit)}</td>
                       <td className="px-4 py-3 text-xs tabular-nums" dir="ltr">{fmtMoney(r.total_credit)}</td>
-                      <td className={`px-4 py-3 text-xs font-medium tabular-nums ${(r.net_balance ?? 0) < 0 ? "text-red-600" : "text-emerald-600"}`} dir="ltr">{fmtMoney(r.net_balance)}</td>
+                      <td className={`px-4 py-3 text-xs font-medium tabular-nums ${Number(r.net_balance ?? 0) < 0 ? "text-red-600" : "text-emerald-600"}`} dir="ltr">{fmtMoney(r.net_balance)}</td>
                     </tr>
                   ))}
                 </TableShell>
@@ -1828,7 +1625,7 @@ function AccountingPageContent() {
                         </div>
                       ))}
                     </div>
-                    <p className="text-xs text-muted-foreground">{ar ? "قوائم التفاصيل أدناه محدودة: أحدث 200 قيد لكل سجل، و100 تسوية، و24 فترة، و1000 فترة تسوية ضريبية، وأقدم 200 بند للمراجعة. الإجماليات أعلاه مستقلة عن هذه الحدود." : "Detail lists below are limited: latest 200 entries per ledger, 100 adjustments, 24 periods, 1,000 reconciliation periods, and oldest 200 review items. Totals above are independent of these limits."}</p>
+                    <p className="text-xs text-muted-foreground">{ar ? "يمكن البحث والتنقل في جميع السجلات أدناه؛ الإجماليات تشمل جميع الفترات المسجلة." : "Search and page through every record below; totals cover all recorded periods."}</p>
                   </section>
                 )
               })()}
@@ -1851,7 +1648,7 @@ function AccountingPageContent() {
                     </button>
                   </div>
                 </CardHeader>
-                <TableShell headers={[ar ? "الفترة" : "Period", ar ? "الحالة" : "Status", ar ? "المخرجات" : "Output", ar ? "مدخلات قابلة للاسترداد" : "Rec. input", ar ? "غير قابلة للاسترداد" : "Non-rec.", ar ? "قيد المراجعة" : "Pending", ar ? "تسويات" : "Adjustments", ar ? "صافي المركز" : "Net position"]}>
+                <TableShell page={vatReconPage} headers={[ar ? "الفترة" : "Period", ar ? "الحالة" : "Status", ar ? "المخرجات" : "Output", ar ? "مدخلات قابلة للاسترداد" : "Rec. input", ar ? "غير قابلة للاسترداد" : "Non-rec.", ar ? "قيد المراجعة" : "Pending", ar ? "تسويات" : "Adjustments", ar ? "صافي المركز" : "Net position"]}>
                   {vatRecon.length === 0 && <EmptyRow colSpan={8} text={ar ? "لا توجد بيانات تسوية." : "No reconciliation data."} />}
                   {vatRecon.map((r) => (
                     <tr key={`${r.period_year}-${r.period_month}`} className="border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors">
@@ -1866,9 +1663,9 @@ function AccountingPageContent() {
                         {r.pending_review_rows > 0 ? `${fmtMoney(r.pending_review_vat)} (${r.pending_review_rows})` : fmtMoney(r.pending_review_vat)}
                       </td>
                       <td className="px-4 py-3 text-xs tabular-nums" dir="ltr">
-                        {fmtMoney(r.adjustments_output + r.adjustments_input)}
+                        {fmtMoney(sumAccountingMoney(r.adjustments_output, r.adjustments_input))}
                       </td>
-                      <td className={`px-4 py-3 text-xs font-bold tabular-nums ${r.net_position > 0 ? "text-red-600" : r.net_position < 0 ? "text-emerald-600" : "text-foreground"}`} dir="ltr">
+                      <td className={`px-4 py-3 text-xs font-bold tabular-nums ${Number(r.net_position) > 0 ? "text-red-600" : Number(r.net_position) < 0 ? "text-emerald-600" : "text-foreground"}`} dir="ltr">
                         {fmtMoney(r.net_position)}
                       </td>
                     </tr>
@@ -1888,18 +1685,7 @@ function AccountingPageContent() {
                     </CardDescription>
                   </div>
                   <div className="flex items-center gap-2">
-                    <select
-                      value={vatReturnPeriod}
-                      onChange={(e) => setVatReturnPeriod(e.target.value)}
-                      className="h-9 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      {vatRecon.length === 0 && <option value="">—</option>}
-                      {vatRecon.map((r) => (
-                        <option key={`${r.period_year}-${r.period_month}`} value={`${r.period_year}-${String(r.period_month).padStart(2, "0")}`}>
-                          {r.period_year}-{String(r.period_month).padStart(2, "0")} · {r.period_status ?? "—"}
-                        </option>
-                      ))}
-                    </select>
+                    <Input type="month" aria-label={ar ? "شهر الإقرار الضريبي" : "VAT return month"} value={vatReturnPeriod} onChange={e=>setVatReturnPeriod(e.target.value)} min="0001-01" max="9999-12" className="h-9 w-44" />
                     <button onClick={handleExportVatReturn} disabled={returnExporting} className={dialogBtn}>
                       {returnExporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowDownLeft className="h-3.5 w-3.5" />}
                       {ar ? "تصدير CSV" : "CSV"}
@@ -1914,7 +1700,7 @@ function AccountingPageContent() {
                   <div className="flex items-center justify-center px-4 pb-6 pt-2">
                     <LoadingSpinner className="h-5 w-5" />
                   </div>
-                ) : vatReturn ? (
+                ) : returnError ? (<div role="alert" className="flex flex-wrap items-center gap-2 px-4 pb-4 text-sm text-destructive"><span>{ar ? "تعذر تحميل الإقرار الضريبي." : "Could not load this VAT return."}</span><Button variant="outline" onClick={()=>setVatRefresh(value=>value+1)}>{ar ? "إعادة المحاولة" : "Retry"}</Button></div>) : vatReturn ? (
                   <div className="px-4 pb-4">
                     <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                       <div className="rounded-xl border border-border/50 bg-muted/20 p-3">
@@ -1973,7 +1759,7 @@ function AccountingPageContent() {
                       : "Input VAT awaiting manual classification — excluded from the net until classified"}
                   </CardDescription>
                 </CardHeader>
-                <TableShell headers={[ar ? "المرجع" : "Ref", ar ? "التاريخ" : "Date", ar ? "الأساس" : "Base", ar ? "النسبة" : "Rate", "VAT", ar ? "إجراء" : "Action"]}>
+                <TableShell page={vatReviewItemsPage} headers={[ar ? "المرجع" : "Ref", ar ? "التاريخ" : "Date", ar ? "الأساس" : "Base", ar ? "النسبة" : "Rate", "VAT", ar ? "إجراء" : "Action"]}>
                   {vatReviewItems.length === 0 && <EmptyRow colSpan={6} text={ar ? "لا توجد عناصر قيد المراجعة." : "No items awaiting review."} />}
                   {vatReviewItems.map((it) => (
                     <tr key={it.id} className="border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors">
@@ -1984,7 +1770,7 @@ function AccountingPageContent() {
                       <td className="px-4 py-3 text-xs font-medium tabular-nums" dir="ltr">{fmtMoney(it.vat_amount)}</td>
                       <td className="px-4 py-3">
                         <button
-                          onClick={() => { setResolveTarget(it); setResolveRecoverability("recoverable") }}
+                          onClick={() => { setResolveTarget(it); setResolveError(null); setResolveRecoverability("recoverable") }}
                           className="inline-flex h-7 items-center gap-1 rounded-lg border border-amber-500/25 bg-amber-500/10 px-2 text-xs font-medium text-amber-600 transition-colors hover:bg-amber-500/20"
                         >
                           {ar ? "تصنيف" : "Classify"}
@@ -1995,7 +1781,7 @@ function AccountingPageContent() {
                 </TableShell>
               </Card>
 
-              <Dialog open={!!resolveTarget} onOpenChange={(o) => { if (!o) setResolveTarget(null) }}>
+              <Dialog open={!!resolveTarget} onOpenChange={(o) => { if (!o&&!resolveBusy) {setResolveTarget(null);setResolveError(null)} }}>
                 <DialogContent className="max-w-md rounded-2xl">
                   <DialogHeader>
                     <DialogTitle>{ar ? "تصنيف بند قيد المراجعة" : "Classify review item"}</DialogTitle>
@@ -2014,7 +1800,7 @@ function AccountingPageContent() {
                       </div>
                       <div className="grid grid-cols-2 gap-2">
                         <button
-                          onClick={() => setResolveRecoverability("recoverable")}
+                          disabled={resolveBusy} onClick={() => {setResolveError(null);setResolveRecoverability("recoverable")}}
                           className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${
                             resolveRecoverability === "recoverable"
                               ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-600"
@@ -2024,7 +1810,7 @@ function AccountingPageContent() {
                           {ar ? "قابل للاسترداد" : "Recoverable"}
                         </button>
                         <button
-                          onClick={() => setResolveRecoverability("non_recoverable")}
+                          disabled={resolveBusy} onClick={() => {setResolveError(null);setResolveRecoverability("non_recoverable")}}
                           className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${
                             resolveRecoverability === "non_recoverable"
                               ? "border-red-500/40 bg-red-500/15 text-red-600"
@@ -2034,12 +1820,13 @@ function AccountingPageContent() {
                           {ar ? "غير قابل للاسترداد" : "Non-recoverable"}
                         </button>
                       </div>
+                      {resolveError?<p role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{resolveError}</p>:null}
                       <div className="flex items-center gap-3">
                         <Button onClick={() => void handleResolveReview()} disabled={resolveBusy} className="bg-elite-blue-600 hover:bg-elite-blue-700">
                           {resolveBusy ? <LoadingSpinner className="h-4 w-4" /> : <Check className="h-4 w-4" />}
                           {ar ? "تأكيد التصنيف" : "Confirm"}
                         </Button>
-                        <Button variant="ghost" onClick={() => setResolveTarget(null)}>{ar ? "إلغاء" : "Cancel"}</Button>
+                        <Button variant="ghost" disabled={resolveBusy} onClick={() => {setResolveTarget(null);setResolveError(null)}}>{ar ? "إلغاء" : "Cancel"}</Button>
                       </div>
                     </div>
                   )}
@@ -2052,7 +1839,7 @@ function AccountingPageContent() {
                     <CardTitle className="text-base">{ar ? "ضريبة المخرجات (مبيعات)" : "Output VAT (Sales)"}</CardTitle>
                     <CardDescription>{ar ? "لا تُقابل مع المدخلات في نفس الدفتر" : "Never netted against input in the same ledger"}</CardDescription>
                   </CardHeader>
-                  <TableShell headers={[ar ? "الفترة" : "Period", ar ? "الفاتورة" : "Invoice", ar ? "الأساس" : "Base", ar ? "النسبة" : "Rate", "VAT"]}>
+                  <TableShell page={vatOutputPage} headers={[ar ? "الفترة" : "Period", ar ? "الفاتورة" : "Invoice", ar ? "الأساس" : "Base", ar ? "النسبة" : "Rate", "VAT"]}>
                     {vatOutput.length === 0 && <EmptyRow colSpan={5} text={ar ? "لا توجد ضريبة مخرجات." : "No output VAT."} />}
                     {vatOutput.map((r) => (
                       <tr key={r.id} className="border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors">
@@ -2071,7 +1858,7 @@ function AccountingPageContent() {
                     <CardTitle className="text-base">{ar ? "ضريبة المدخلات (مشتريات ومصروفات)" : "Input VAT (Purchases & Expenses)"}</CardTitle>
                     <CardDescription>{ar ? "يُحتسب في صافي المركز ما كان قابلاً للاسترداد فقط" : "Only recoverable input counts toward the net position"}</CardDescription>
                   </CardHeader>
-                  <TableShell headers={[ar ? "الفترة" : "Period", ar ? "المرجع" : "Ref", ar ? "الأساس" : "Base", ar ? "النسبة" : "Rate", "VAT", ar ? "التصنيف" : "Class"]}>
+                  <TableShell page={vatInputPage} headers={[ar ? "الفترة" : "Period", ar ? "المرجع" : "Ref", ar ? "الأساس" : "Base", ar ? "النسبة" : "Rate", "VAT", ar ? "التصنيف" : "Class"]}>
                     {vatInput.length === 0 && <EmptyRow colSpan={6} text={ar ? "لا توجد ضريبة مدخلات." : "No input VAT."} />}
                     {vatInput.map((r) => (
                       <tr key={r.id} className="border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors">
@@ -2101,7 +1888,7 @@ function AccountingPageContent() {
                     <CardTitle className="text-base">{ar ? "التسويات الضريبية" : "VAT Adjustments"}</CardTitle>
                     <CardDescription>{ar ? "إشعارات دائنة/مدينة وتصحيحات — نهائية وغير قابلة للتعديل" : "Credit/debit notes & corrections — finalized, immutable"}</CardDescription>
                   </CardHeader>
-                  <TableShell headers={[ar ? "الفترة" : "Period", ar ? "النوع" : "Type", ar ? "الاتجاه" : "Direction", ar ? "الأساس" : "Base", "VAT", ar ? "السبب" : "Reason"]}>
+                  <TableShell page={vatAdjustmentsPage} headers={[ar ? "الفترة" : "Period", ar ? "النوع" : "Type", ar ? "الاتجاه" : "Direction", ar ? "الأساس" : "Base", "VAT", ar ? "السبب" : "Reason"]}>
                     {vatAdjustments.length === 0 && <EmptyRow colSpan={6} text={ar ? "لا توجد تسويات." : "No adjustments."} />}
                     {vatAdjustments.map((a) => (
                       <tr key={a.id} className="border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors">
@@ -2121,7 +1908,7 @@ function AccountingPageContent() {
                     <CardTitle className="text-base">{ar ? "فترات ضريبة القيمة المضافة" : "VAT Periods"}</CardTitle>
                     <CardDescription>{ar ? "فترة مفتوحة واحدة لكل شهر" : "One open period per month"}</CardDescription>
                   </CardHeader>
-                  <TableShell headers={[ar ? "الفترة" : "Period", ar ? "الحالة" : "Status"]}>
+                  <TableShell page={vatPeriodsPage} headers={[ar ? "الفترة" : "Period", ar ? "الحالة" : "Status"]}>
                     {vatPeriods.length === 0 && <EmptyRow colSpan={2} text={ar ? "لا توجد فترات." : "No periods."} />}
                     {vatPeriods.map((p) => (
                       <tr key={p.id} className="border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors">
@@ -2159,7 +1946,7 @@ function AccountingPageContent() {
                     {ar ? "تشغيل المعالج" : "Run dispatcher"}
                   </button>
                 </CardHeader>
-                <TableShell headers={[ar ? "المفتاح" : "Key", ar ? "النوع" : "Type", ar ? "التاريخ" : "Date", ar ? "الحالة" : "Status", ar ? "الخطأ" : "Error"]}>
+                <TableShell page={eventsPage} headers={[ar ? "المفتاح" : "Key", ar ? "النوع" : "Type", ar ? "التاريخ" : "Date", ar ? "الحالة" : "Status", ar ? "الخطأ" : "Error"]}>
                   {events.length === 0 && <EmptyRow colSpan={5} text={ar ? "لا توجد أحداث." : "No events."} />}
                   {events.map((e) => {
                     const s = EVENT_STATUS[e.processing_status] ?? EVENT_STATUS.pending
@@ -2455,7 +2242,7 @@ function AccountingPageContent() {
                     {ar ? "تشغيل المحوّل" : "Run adapter"}
                   </button>
                 </CardHeader>
-                <TableShell headers={[ar ? "المستند" : "Doc", ar ? "النوع" : "Type", ar ? "الحالة" : "Status", "UUID", ar ? "التاريخ" : "Date", ar ? "الخطأ" : "Error", ""]}>
+                <TableShell page={zatcaRowsPage} headers={[ar ? "المستند" : "Doc", ar ? "النوع" : "Type", ar ? "الحالة" : "Status", "UUID", ar ? "التاريخ" : "Date", ar ? "الخطأ" : "Error", ""]}>
                   {zatcaRows.length === 0 && <EmptyRow colSpan={7} text={ar ? "لا توجد سجلات. الإرسال معطل حتى اكتمال التحقق من الربط." : "No records. Submission is disabled until integration validation is complete."} />}
                   {zatcaRows.map((t) => {
                     const s = ZATCA_STATUS[t.status] ?? ZATCA_STATUS.not_transmitted
@@ -2517,7 +2304,7 @@ function AccountingPageContent() {
                     {ar ? "إغلاق الفترة يمنع أي ترحيلات جديدة؛ إعادة الفتح تتطلب سبباً" : "Closing a period blocks new postings; reopening requires a reason"}
                   </CardDescription>
                 </CardHeader>
-                <TableShell headers={[ar ? "الفترة" : "Period", ar ? "الحالة" : "Status", ar ? "تاريخ الفتح" : "Opened", ar ? "تاريخ الإغلاق" : "Closed", ar ? "السبب" : "Reason", ar ? "إجراء" : "Action"]}>
+                <TableShell page={periodsPage} headers={[ar ? "الفترة" : "Period", ar ? "الحالة" : "Status", ar ? "تاريخ الفتح" : "Opened", ar ? "تاريخ الإغلاق" : "Closed", ar ? "السبب" : "Reason", ar ? "إجراء" : "Action"]}>
                   {periods.length === 0 && <EmptyRow colSpan={6} text={ar ? "لا توجد فترات." : "No periods."} />}
                   {periods.map((p) => {
                     const s = PERIOD_STATUS[p.status] ?? PERIOD_STATUS.open
@@ -2533,7 +2320,7 @@ function AccountingPageContent() {
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1">
-                            {(p.status === "open" || p.status === "closing") && (
+                            {(p.status === "open" || p.status === "closing" || p.status === "reopened") && (
                               <button
                                 onClick={() => handleClosePeriod(p)}
                                 disabled={busyPeriodId === p.id}
@@ -2552,7 +2339,7 @@ function AccountingPageContent() {
                                 {ar ? "إعادة فتح" : "Reopen"}
                               </button>
                             )}
-                            {(p.status === "reopened" || p.status === "closed") && <span className="text-xs text-muted-foreground">—</span>}
+                            {p.status === "closed" && <span className="text-xs text-muted-foreground">—</span>}
                           </div>
                         </td>
                       </tr>
@@ -2566,15 +2353,13 @@ function AccountingPageContent() {
               <div className="space-y-4">
                 {/* Summary strip */}
                 {(() => {
-                  const inTotal = payments.filter((p) => p.direction === "in" && p.status !== "void").reduce((s, p) => s + Number(p.amount), 0)
-                  const outTotal = payments.filter((p) => p.direction === "out" && p.status !== "void").reduce((s, p) => s + Number(p.amount), 0)
-                  const arOut = openAr.reduce((s, r) => s + (r.total_amount - r.paid_amount), 0)
-                  const apOut = openAp.reduce((s, r) => s + (r.total_amount - r.paid_amount), 0)
+                  const summary = paymentsPage.summary
+                  const inTotal = summary?.inflow ?? "0", outTotal = summary?.outflow ?? "0", arOut = summary?.outstanding_ar ?? "0", apOut = summary?.outstanding_ap ?? "0"
                   const items = [
-                    { label: ar ? "المستلم (وارد)" : "Received (in)", value: fmtMoney(inTotal), cls: "text-emerald-600" },
-                    { label: ar ? "المدفوع (صادر)" : "Paid (out)", value: fmtMoney(outTotal), cls: "text-red-600" },
-                    { label: ar ? "ذمم مدينة مستحقة" : "Outstanding AR", value: fmtMoney(arOut), cls: "text-blue-600" },
-                    { label: ar ? "ذمم دائنة مستحقة" : "Outstanding AP", value: fmtMoney(apOut), cls: "text-amber-600" },
+                    { label: ar ? "المستلم (وارد)" : "Received (in)", value: summary ? fmtMoney(inTotal) : "—", cls: "text-emerald-600" },
+                    { label: ar ? "المدفوع (صادر)" : "Paid (out)", value: summary ? fmtMoney(outTotal) : "—", cls: "text-red-600" },
+                    { label: ar ? "ذمم مدينة مستحقة" : "Outstanding AR", value: summary ? fmtMoney(arOut) : "—", cls: "text-blue-600" },
+                    { label: ar ? "ذمم دائنة مستحقة" : "Outstanding AP", value: summary ? fmtMoney(apOut) : "—", cls: "text-amber-600" },
                   ]
                   return (
                     <div className="grid gap-3 sm:grid-cols-4">
@@ -2628,15 +2413,7 @@ function AccountingPageContent() {
                             </div>
                             <div className="space-y-1.5">
                               <Label htmlFor="bankCoa">{ar ? "حساب الدليل" : "CoA code"}</Label>
-                              <select
-                                id="bankCoa"
-                                value={bankCoa}
-                                onChange={(e) => setBankCoa(e.target.value)}
-                                className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                              >
-                                <option value="">{ar ? "اختر حساباً" : "Select account"}</option>
-                                {accounts.filter((account) => account.account_type === "asset").map((account) => <option key={account.id} value={account.account_code}>{account.account_code} · {ar ? account.name_ar : account.name_en}</option>)}
-                              </select>
+                              <AccountingOptionPicker kind="asset_accounts" code value={bankCoa} onChange={setBankCoa} id="bankCoa" label={ar ? "حساب الدليل" : "CoA code"} ar={ar} />
                             </div>
                           </div>
                           <div className="space-y-1.5">
@@ -2706,7 +2483,7 @@ function AccountingPageContent() {
                       <Plus className="h-3.5 w-3.5" />{ar ? "دفعة جديدة" : "New payment"}
                     </button>
                   </CardHeader>
-                  <TableShell headers={[ar ? "المرجع" : "Ref", ar ? "الاتجاه" : "Dir", ar ? "التاريخ" : "Date", ar ? "الطرف" : "Party", ar ? "المبلغ" : "Amount", ar ? "الطريقة" : "Method", ar ? "التخصيص" : "Alloc.", ar ? "الحالة" : "Status", ar ? "إجراء" : "Action"]}>
+                  <TableShell page={paymentsPage} headers={[ar ? "المرجع" : "Ref", ar ? "الاتجاه" : "Dir", ar ? "التاريخ" : "Date", ar ? "الطرف" : "Party", ar ? "المبلغ" : "Amount", ar ? "الطريقة" : "Method", ar ? "التخصيص" : "Alloc.", ar ? "الحالة" : "Status", ar ? "إجراء" : "Action"]}>
                     {payments.length === 0 && <EmptyRow colSpan={9} text={ar ? "لا توجد مدفوعات." : "No payments."} />}
                     {payments.map((p) => (
                       <tr key={p.id} className="border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors">
@@ -2777,13 +2554,13 @@ function AccountingPageContent() {
                     <div className="space-y-3">
                       <div className="grid grid-cols-2 gap-2">
                         <button
-                          onClick={() => { setPayDirection("in"); syncAllocList("in") }}
+                          onClick={() => { setPayDirection("in"); setPayAllocs([]) }}
                           className={`inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border text-sm font-medium transition-colors ${payDirection === "in" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600" : "border-border/60 bg-muted/30 text-muted-foreground hover:bg-muted/60"}`}
                         >
                           <ArrowDownLeft className="h-4 w-4" />{ar ? "استلام (وارد)" : "Receipt (in)"}
                         </button>
                         <button
-                          onClick={() => { setPayDirection("out"); syncAllocList("out") }}
+                          onClick={() => { setPayDirection("out"); setPayAllocs([]) }}
                           className={`inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border text-sm font-medium transition-colors ${payDirection === "out" ? "border-red-500/30 bg-red-500/10 text-red-600" : "border-border/60 bg-muted/30 text-muted-foreground hover:bg-muted/60"}`}
                         >
                           <ArrowUpRight className="h-4 w-4" />{ar ? "سداد (صادر)" : "Payment (out)"}
@@ -2816,81 +2593,22 @@ function AccountingPageContent() {
                         <BankAccountPicker value={payBank} onChange={setPayBank} ar={ar} disabled={payBusy} />
                       )}
 
-                      {payDirection === "in" ? (
-                        <div className="space-y-1.5">
-                          <Label htmlFor="payCustomer">{ar ? "العميل" : "Customer"}</Label>
-                          <select
-                            id="payCustomer"
-                            value={payCustomer}
-                            onChange={(e) => { setPayCustomer(e.target.value); syncAllocList("in", e.target.value || undefined) }}
-                            className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                          >
-                            <option value="">—</option>
-                            {custOptions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                          </select>
-                        </div>
-                      ) : (
-                        <div className="space-y-1.5">
-                          <Label htmlFor="paySupplier">{ar ? "المورد" : "Supplier"}</Label>
-                          <select
-                            id="paySupplier"
-                            value={paySupplier}
-                            onChange={(e) => { setPaySupplier(e.target.value); syncAllocList("out", e.target.value || undefined) }}
-                            className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                          >
-                            <option value="">—</option>
-                            {suppOptions.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                          </select>
-                        </div>
-                      )}
+                      <AccountingOptionPicker key={payDirection} kind={payDirection === "in" ? "customers" : "suppliers"} value={payDirection === "in" ? payCustomer : paySupplier}
+                        onChange={value=>{if(payDirection === "in") setPayCustomer(value); else setPaySupplier(value); setPayAllocs([])}}
+                        id={payDirection === "in" ? "payCustomer" : "paySupplier"} label={payDirection === "in" ? (ar ? "العميل" : "Customer") : (ar ? "المورد" : "Supplier")} ar={ar} disabled={payBusy} />
 
                       <div className="space-y-1.5">
                         <Label htmlFor="payAmount">{ar ? "المبلغ" : "Amount"}</Label>
                         <Input id="payAmount" type="number" dir="ltr" min="0" step="0.01" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} className="h-9 text-end tabular-nums" />
                       </div>
 
-                      <div className="space-y-1.5">
-                        <Label>{ar ? "التخصيصات" : "Allocations"}</Label>
-                        {payAllocs.length === 0 ? (
-                          <p className="rounded-lg border border-dashed border-border/60 px-3 py-4 text-center text-xs text-muted-foreground">
-                            {ar ? "لا توجد ذمم مستحقة — أنشئ فاتورة/مصروفاً أولاً" : "No outstanding AR/AP — create an invoice/expense first"}
-                          </p>
-                        ) : (
-                          <div className="max-h-52 space-y-1.5 overflow-auto rounded-lg border border-border/50 p-2">
-                            {payAllocs.map((a) => (
-                              <label key={a.key} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-muted/50">
-                                <input
-                                  type="checkbox"
-                                  checked={a.selected}
-                                  onChange={(e) =>
-                                    setPayAllocs((prev) => prev.map((x) => (x.key === a.key ? { ...x, selected: e.target.checked } : x)))
-                                  }
-                                  className="h-3.5 w-3.5 rounded border-border accent-elite-blue-600"
-                                />
-                                <span className="min-w-0 flex-1">
-                                  <span className="block truncate font-mono text-xs" dir="ltr">{a.label}</span>
-                                  <span className="block text-[11px] text-muted-foreground">{a.party || "—"} · {ar ? "متبقٍ" : "outstanding"}: {fmtMoney(a.outstanding)}</span>
-                                </span>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  disabled={!a.selected}
-                                  placeholder={String(a.outstanding)}
-                                  value={a.amount}
-                                  onChange={(e) => setPayAllocs((prev) => prev.map((x) => (x.key === a.key ? { ...x, amount: e.target.value } : x)))}
-                                  className="h-8 w-28 rounded-md border border-input bg-transparent px-2 text-end text-sm tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
-                                />
-                              </label>
-                            ))}
-                          </div>
-                        )}
-                      </div>
+                      <PaymentAllocationPicker direction={payDirection} partyId={payDirection === "in" ? payCustomer : paySupplier} selected={payAllocs} onChange={setPayAllocs} ar={ar} disabled={payBusy} />
 
                       {(() => {
-                        const allocSum = payAllocs.filter((a) => a.selected).reduce((s, a) => s + Number(a.amount || 0), 0)
+                        const allocSum = safeInputTotal(payAllocs.filter((a) => a.selected).map(a=>a.amount || "0"))
+                        if(allocSum === null || safeInputTotal([payAmount || "0"]) === null) return <p role="alert" className="text-sm text-destructive">{ar ? "أدخل مبالغ صحيحة ضمن الحدود المسموح بها." : "Enter valid amounts within the permitted limits."}</p>
                         const amount = Number(payAmount || 0)
-                        const balance = Math.round((amount - allocSum) * 100) / 100
+                        const balance = sumMoney(amount, -allocSum)
                         const diff = Math.abs(balance) > 0.01
                         return (
                           <p className={`text-xs ${diff ? "text-amber-600" : "text-emerald-600"}`} dir="ltr">

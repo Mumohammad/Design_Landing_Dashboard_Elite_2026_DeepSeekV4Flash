@@ -6,6 +6,7 @@ export type ApplicationStatus =
   | "under_review"
   | "approved"
   | "rejected"
+  | "withdrawn"
 
 export type ApplicationIdentityType = "iqama" | "national_id" | "passport"
 export type ApplicationWorkType = "full_time" | "freelancer"
@@ -79,6 +80,11 @@ export interface DriverApplication {
   consent_at: string | null
 
   status: ApplicationStatus
+  workflow_version: number
+  withdrawn_at: string | null
+  withdrawal_reason: string | null
+  archived_at: string | null
+  archive_reason: string | null
   reviewed_by: string | null
   reviewed_at: string | null
   review_note: string | null

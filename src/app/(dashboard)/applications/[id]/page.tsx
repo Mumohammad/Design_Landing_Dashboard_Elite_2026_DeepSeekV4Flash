@@ -11,8 +11,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import {
   getDocumentDownloadUrl,
-  reviewApplication,
 } from "@/lib/applications/actions"
+import { mutateApplicationReview } from "@/lib/applications/review-actions"
 import type {
   ApplicationStatus,
   DriverApplication,
@@ -59,6 +59,7 @@ const STATUS_META: Record<
     className:
       "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20",
   },
+  withdrawn: {ar:"مسحوب",en:"Withdrawn",className:"border border-border bg-muted text-muted-foreground"},
   rejected: {
     ar: "مرفوض",
     en: "Rejected",
@@ -153,7 +154,7 @@ export default function ApplicationDetailPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [note, setNote] = useState("")
-  const [busy, setBusy] = useState<ApplicationStatus | null>(null)
+  const [busy, setBusy] = useState<"under_review"|"approved"|"rejected"|"withdraw"|"archive"|"restore"|null>(null)
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
 
@@ -185,8 +186,8 @@ export default function ApplicationDetailPage() {
       ])
 
       if (cancelled) return
-      if (appRes.error) {
-        setError(appRes.error.message)
+      if (appRes.error || docRes.error) {
+        setError("Unable to load application details or documents")
         setApp(null)
       } else {
         setApp((appRes.data as DriverApplication | null) ?? null)
@@ -200,15 +201,13 @@ export default function ApplicationDetailPage() {
     }
   }, [id, reloadKey])
 
-  const handleReview = async (status: ApplicationStatus) => {
+  const handleReview = async (status: "under_review"|"approved"|"rejected"|"withdraw"|"archive"|"restore") => {
     if (!app || busy) return
     setBusy(status)
-    const result = await reviewApplication({
-      applicationId: app.id,
-      status,
-      note: note || null,
-    })
-    setBusy(null)
+    let result
+    try{result=await mutateApplicationReview({applicationId:app.id,expectedVersion:app.workflow_version,action:status,reason:note})}
+    catch{toast.error(isAr ? "تعذر تأكيد الإجراء. أعد تحميل الطلب قبل المحاولة مجدداً." : "Unable to confirm the action. Reload before retrying.");return}
+    finally{setBusy(null)}
     if (result.success) {
       toast.success(
         isAr
@@ -226,7 +225,7 @@ export default function ApplicationDetailPage() {
       setNote("")
       setReloadKey((k) => k + 1)
     } else {
-      toast.error(result.error || t.common.error)
+      toast.error((isAr ? result.errorAr : result.error) || t.common.error)
     }
   }
 
@@ -242,7 +241,7 @@ export default function ApplicationDetailPage() {
     }
   }
 
-  const isTerminal = app?.status === "approved" || app?.status === "rejected"
+  const isTerminal = app?.status === "approved" || app?.status === "rejected" || app?.status === "withdrawn"
 
   if (isLoading) {
     return (
@@ -271,10 +270,9 @@ export default function ApplicationDetailPage() {
         </Button>
         <div className="rounded-2xl border border-border/50 bg-card/60 p-8 text-center">
           <p className="text-sm text-muted-foreground">
-            {isAr
-              ? "تعذّر العثور على الطلب"
-              : "Application not found"}
+            {error ? (isAr ? "تعذر تحميل الطلب أو مستنداته. أعد المحاولة." : "Could not load the application or its documents. Try again.") : (isAr ? "تعذّر العثور على الطلب" : "Application not found")}
           </p>
+          {error && <Button variant="outline" className="mt-4 me-2" onClick={()=>setReloadKey(k=>k+1)}>{isAr ? "إعادة المحاولة" : "Retry"}</Button>}
           <Button
             variant="outline"
             size="sm"
@@ -684,6 +682,7 @@ export default function ApplicationDetailPage() {
       </div>
 
       {/* ── Review note (visible even after terminal review) ── */}
+      {app.archived_at && <p className="rounded-xl border px-4 py-3 text-sm text-muted-foreground">{isAr ? "طلب مؤرشف — " : "Archived application — "}{app.archive_reason}</p>}
       {app.review_note && (
         <div className="rounded-2xl border border-border/50 bg-card/60 p-4 shadow-sm">
           <p className="text-sm text-foreground/80">
@@ -696,14 +695,19 @@ export default function ApplicationDetailPage() {
       )}
 
       {/* ── Review action bar ── */}
-      {!isTerminal && (
-        <div className="sticky bottom-4 z-10 rounded-2xl border border-border/60 bg-card p-4">
+      {(
+
+        <div className="sticky bottom-[calc(6rem+env(safe-area-inset-bottom))] z-10 rounded-2xl border border-border/60 bg-card p-4 shadow-sm">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
             <div className="flex-1">
-              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                {isAr ? "ملاحظة (اختياري)" : "Review note (optional)"}
+              <label htmlFor="application-review-reason" className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                {isAr ? "سبب الإجراء (مطلوب، من 5 إلى 500 حرف)" : "Action reason (required, 5 to 500 characters)"}
               </label>
               <Textarea
+                id="application-review-reason"
+                minLength={5}
+                maxLength={500}
+                disabled={!!busy}
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 placeholder={
@@ -715,10 +719,11 @@ export default function ApplicationDetailPage() {
               />
             </div>
             <div className="flex flex-wrap gap-2">
+              {isTerminal ? <Button variant="outline" disabled={!!busy || note.trim().length<5} onClick={()=>handleReview(app.archived_at ? "restore" : "archive")}>{app.archived_at ? (isAr ? "إظهار في القائمة" : "Restore to list") : (isAr ? "أرشفة الطلب" : "Archive application")}</Button> : <>
               <Button
                 variant="outline"
                 onClick={() => handleReview("under_review")}
-                disabled={!!busy}
+                disabled={!!busy || note.trim().length<5 || app.status!=="submitted"}
                 className="gap-1.5"
               >
                 {busy === "under_review" ? (
@@ -731,7 +736,7 @@ export default function ApplicationDetailPage() {
               <Button
                 variant="destructive"
                 onClick={() => handleReview("rejected")}
-                disabled={!!busy}
+                disabled={!!busy || note.trim().length<5}
                 className="gap-1.5"
               >
                 {busy === "rejected" ? (
@@ -743,7 +748,7 @@ export default function ApplicationDetailPage() {
               </Button>
               <Button
                 onClick={() => handleReview("approved")}
-                disabled={!!busy}
+                disabled={!!busy || note.trim().length<5}
                 className="gap-1.5 bg-emerald-500 text-white hover:bg-emerald-600"
               >
                 {busy === "approved" ? (
@@ -753,6 +758,8 @@ export default function ApplicationDetailPage() {
                 )}
                 {isAr ? "قبول" : "Approve"}
               </Button>
+              <Button variant="outline" disabled={!!busy || note.trim().length<5} onClick={()=>handleReview("withdraw")}>{isAr ? "سحب الطلب" : "Withdraw application"}</Button>
+              </>}
             </div>
           </div>
         </div>

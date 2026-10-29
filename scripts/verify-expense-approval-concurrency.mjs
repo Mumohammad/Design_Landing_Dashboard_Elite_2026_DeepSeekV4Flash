@@ -5,20 +5,18 @@ import {resolve} from 'node:path'
 import {pathToFileURL} from 'node:url'
 
 export async function verifyExpenseApproval(sql){
-  const tenant=randomUUID(),actor=randomUUID(),ids=Array.from({length:7},()=>randomUUID())
+  const actor=randomUUID(),ids=Array.from({length:7},()=>randomUUID());let tenant
   let stage='synthetic approval setup'
   try{
-    await sql(`INSERT INTO public.tenants(id,name_ar,name_en,slug) VALUES('${tenant}','Approval fixture','Approval fixture','approval-${tenant}');
-      INSERT INTO auth.users(id,email,raw_app_meta_data,raw_user_meta_data)
-      VALUES('${actor}','${actor}@example.test','{"provider":"email","providers":["email"]}','{"_invite_provisioned":true}');
-      INSERT INTO public.users(id,auth_user_id,tenant_id,email,role,status,must_change_password)
-      VALUES(gen_random_uuid(),'${actor}','${tenant}','${actor}@example.test','general_manager','active',false);
-      INSERT INTO public.expense_category_mappings(tenant_id,expense_type,coa_account_code,vat_recoverability)
-      VALUES('${tenant}','fuel','5000','recoverable');
-      INSERT INTO public.expenses(id,tenant_id,expense_type,amount,expense_date)
-      VALUES ${ids.map(id=>`('${id}','${tenant}','fuel',100,'2026-10-19')`).join(',')};`)
-    const call=async(id=ids[0],rate=15.555,who=actor)=>{
-      const output=await sql(`BEGIN;SET LOCAL ROLE service_role;SELECT public.approve_expense_atomic('${tenant}','${id}',${rate},'recoverable','${who}');COMMIT;`)
+    await sql(`INSERT INTO auth.users(id,email,raw_app_meta_data,raw_user_meta_data) VALUES('${actor}','${actor}@example.test','{"provider":"email","providers":["email"],"_invite_provisioned":true}','{"_invite_provisioned":true}');`)
+    tenant=await sql(`SELECT public.provision_company_atomic('${actor}','{"name":"Approval fixture","slug":"approval-${actor}","domain":"approval-${actor}.example.test"}')->>'id';`)
+    assert.match(tenant,/^[a-f0-9-]{36}$/)
+    await sql(`UPDATE public.users SET must_change_password=false WHERE auth_user_id='${actor}';
+      INSERT INTO public.expenses(id,tenant_id,expense_type,amount,expense_date,created_by)
+      VALUES ${ids.map(id=>`('${id}','${tenant}','fuel',100,'2026-10-19','${actor}')`).join(',')};`)
+    const context=(who=actor,aal='aal2')=>`BEGIN;SET LOCAL ROLE authenticated;SELECT set_config('request.jwt.claims','${JSON.stringify({role:'authenticated',sub:who,aal})}',true);`
+    const call=async(id=ids[0],rate=15.555,who=actor,version=1,reason=null,surface='expenses')=>{
+      const output=await sql(context(who)+`SELECT public.decide_expense_reviewed_atomic('${id}',${version},'approved',${rate===null?'NULL':rate},'recoverable',${reason===null?'NULL':"'"+reason.replaceAll("'","''")+"'"},'${surface}');COMMIT;`)
       return JSON.parse(output.split('\n').find(line=>line.includes('"expense_id"')))
     }
     const counts=async id=>await sql(`SELECT (SELECT count(*) FROM public.payables WHERE tenant_id='${tenant}' AND source_entity_id='${id}')||'|'||
@@ -56,31 +54,38 @@ export async function verifyExpenseApproval(sql){
     assert.equal(await counts(ids[3]),'1|0|0')
     assert.equal(await sql(`SELECT is_approved FROM public.expenses WHERE id='${ids[3]}'`),'f')
     stage='actor and caller boundaries'
-    await assert.rejects(call(ids[4],15,randomUUID()),/EXP_AUTH/)
-    await assert.rejects(sql(`BEGIN;SET LOCAL ROLE service_role;SELECT public.approve_expense_with_context_atomic('${tenant}','${ids[4]}',15,'recoverable','${actor}',NULL,'approvals_inbox');COMMIT;`),/EXP_INPUT/)
-    for(const role of ['anon','authenticated'])await assert.rejects(sql(`BEGIN;SET LOCAL ROLE ${role};SELECT public.approve_expense_atomic('${tenant}','${ids[4]}',15,'recoverable','${actor}');ROLLBACK;`),/permission denied/)
-    for(const role of ['anon','authenticated'])await assert.rejects(sql(`BEGIN;SET LOCAL ROLE ${role};SELECT public.approve_expense_with_context_atomic('${tenant}','${ids[4]}',15,'recoverable','${actor}','Reason checked','approvals_inbox');ROLLBACK;`),/permission denied/)
-    const context=`BEGIN;SET LOCAL ROLE authenticated;SELECT set_config('request.jwt.claims','${JSON.stringify({role:'authenticated',sub:actor,aal:'aal2'})}',true);`
-    await assert.rejects(sql(context+`UPDATE public.expenses SET is_approved=true,approved_by='${actor}',approved_at=now() WHERE id='${ids[4]}';COMMIT;`),/EXP_MANAGED|permission denied/)
-    await assert.rejects(sql(context+`UPDATE public.expenses SET amount=1 WHERE id='${ids[0]}';COMMIT;`),/EXP_MANAGED|permission denied/)
-    await assert.rejects(sql(context+`DELETE FROM public.expenses WHERE id='${ids[0]}';COMMIT;`),/EXP_MANAGED|permission denied/)
+    await assert.rejects(call(ids[4],15,randomUUID()),/EXP_EDIT_FORBIDDEN/)
+    await assert.rejects(call(ids[4],15,actor,1,null,'approvals_inbox'),/EXP_INPUT/)
+    await assert.rejects(sql(context(actor,'aal1')+`SELECT public.decide_expense_reviewed_atomic('${ids[4]}',1,'approved',15,'recoverable',NULL,'expenses');COMMIT;`),/EXP_EDIT_FORBIDDEN/)
+    for(const role of ['anon','authenticated','service_role']){
+      await assert.rejects(sql(`BEGIN;SET LOCAL ROLE ${role};SELECT public.approve_expense_atomic('${tenant}','${ids[4]}',15,'recoverable','${actor}');ROLLBACK;`),/permission denied/)
+      await assert.rejects(sql(`BEGIN;SET LOCAL ROLE ${role};SELECT public.approve_expense_with_context_atomic('${tenant}','${ids[4]}',15,'recoverable','${actor}','Reason checked','approvals_inbox');ROLLBACK;`),/permission denied/)
+    }
+    for(const role of ['anon','service_role'])await assert.rejects(sql(`BEGIN;SET LOCAL ROLE ${role};SELECT public.decide_expense_reviewed_atomic('${ids[4]}',1,'approved',15,'recoverable',NULL,'expenses');ROLLBACK;`),/permission denied/)
+    await assert.rejects(sql(context()+`UPDATE public.expenses SET is_approved=true,approved_by='${actor}',approved_at=now() WHERE id='${ids[4]}';COMMIT;`),/EXP_MANAGED|permission denied/)
+    await assert.rejects(sql(context()+`UPDATE public.expenses SET amount=1 WHERE id='${ids[0]}';COMMIT;`),/EXP_MANAGED|permission denied/)
+    await assert.rejects(sql(context()+`DELETE FROM public.expenses WHERE id='${ids[0]}';COMMIT;`),/EXP_MANAGED|permission denied/)
     stage='inbox reason and stored reduced VAT commit with the approval'
-    await sql(`UPDATE public.expenses SET vat_rate=5 WHERE id='${ids[5]}';BEGIN;SET LOCAL ROLE service_role;SELECT public.approve_expense_with_context_atomic('${tenant}','${ids[5]}',NULL,'recoverable','${actor}','Receipts checked','approvals_inbox');COMMIT;`)
+    await sql(`UPDATE public.expenses SET vat_rate=5 WHERE id='${ids[5]}';`)
+    await call(ids[5],null,actor,2,'Receipts checked','approvals_inbox')
     assert.equal(await counts(ids[5]),'1|1|1')
     assert.equal(await sql(`SELECT entity_type||'|'||(new_values->>'reason')||'|'||(new_values->>'surface') FROM public.audit_log WHERE entity_id='${ids[5]}' AND action='expense_approved'`),'expense|Receipts checked|approvals_inbox')
     assert.equal(await sql(`SELECT vat_rate||'|'||vat_amount FROM public.expenses WHERE id='${ids[5]}'`),'5.00|5.00')
-    stage='approval waits for a pending historical edit and uses its committed amount'
+    stage='pending maker correction serializes and rejects the stale approval'
     const editor='expense-editor-'+ids[6]
-    const edit=sql(`SET application_name='${editor}';BEGIN;UPDATE public.expenses SET amount=200 WHERE id='${ids[6]}';SELECT pg_sleep(3);COMMIT;`)
-    // Observe the owned editor holding its row, rather than guessing when it starts.
+    const details=JSON.stringify({expense_type:'fuel',category:null,amount:200,expense_date:'2026-10-19',vendor:null,description:'Controlled pending correction',vat_rate:15.56})
+    const edit=sql(`SET application_name='${editor}';`+context()+`SELECT public.correct_pending_expense_atomic('${ids[6]}',1,'${randomUUID()}','update','${details}'::jsonb,'Correct original synthetic amount');SELECT pg_sleep(3);COMMIT;`)
     const deadline=Date.now()+10_000
     while(await sql(`SELECT count(*) FROM pg_stat_activity WHERE application_name='${editor}' AND wait_event='PgSleep'`)!=='1'){
       if(Date.now()>deadline)throw Error('Synthetic editor did not acquire its row')
+      await new Promise(resolve=>setTimeout(resolve,50))
     }
-    const latest=await call(ids[6]);await edit
+    await assert.rejects(call(ids[6]),/EXP_EDIT_STALE/);await edit
+    assert.equal(await counts(ids[6]),'0|0|0')
+    const latest=await call(ids[6],15.555,actor,2)
     assert.equal(Number(latest.amount),200);assert.equal(Number(latest.vat_amount),31.12);assert.equal(Number(latest.total),231.12)
     assert.equal(await sql(`SELECT amount||'|'||vat_amount||'|'||total_amount FROM public.payables WHERE tenant_id='${tenant}' AND source_entity_id='${ids[6]}'`),'200.00|31.12|231.12')
-    console.log('PASS: approval race creates one payable/event/audit; retained-rate VAT matches, pending edits serialize, audit rollback/recovery, inbox reason, stale event/payable rejection and actor/caller financial guards')
+    console.log('PASS: approval race creates one payable/event/audit; retained-rate VAT matches, pending corrections reject stale approvals then require current reviewed version, audit rollback/recovery, inbox reason, stale event/payable rejection and actor/caller financial guards')
   }catch(error){error.verificationStage=stage;throw error}
 }
 

@@ -1,8 +1,9 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { createClient } from "@/lib/supabase/client"
+import { fetchApplicationsPage } from "@/lib/applications/review-actions"
+import type { ApplicationsPageData } from "@/lib/applications/review-schema"
 import { useTranslation } from "@/hooks/use-translation"
 import {
   EnterpriseModulePage,
@@ -35,19 +36,6 @@ type ApplicationListItem = Pick<
   | "submitted_at"
 >
 
-const LIST_FIELDS = [
-  "id",
-  "application_number",
-  "full_name",
-  "mobile",
-  "city",
-  "work_type",
-  "driver_category",
-  "status",
-  "platform_codes",
-  "submitted_at",
-].join(", ")
-
 const STATUS_META: Record<
   ApplicationStatus,
   { ar: string; en: string; className: string }
@@ -70,6 +58,7 @@ const STATUS_META: Record<
     className:
       "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20",
   },
+  withdrawn: {ar:"مسحوب",en:"Withdrawn",className:"border border-border bg-muted text-muted-foreground"},
   rejected: {
     ar: "مرفوض",
     en: "Rejected",
@@ -105,78 +94,46 @@ export default function ApplicationsPage() {
   const router = useRouter()
   const isAr = locale === "ar"
 
-  const [applications, setApplications] = useState<ApplicationListItem[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [search, setSearch] = useState("")
-  const [statusFilter, setStatusFilter] = useState<ApplicationStatus | "all">(
-    "all"
-  )
-
-  useEffect(() => {
-    let cancelled = false
-    async function load() {
-      setIsLoading(true)
-      const supabase = createClient()
-      const { data, error } = await supabase
-        .from("driver_applications")
-        .select(LIST_FIELDS)
-        .order("created_at", { ascending: false })
-        .limit(200)
-
-      if (cancelled) return
-      if (error) {
-        console.error("Failed to load applications:", error)
-        setApplications([])
-      } else {
-        setApplications((data ?? []) as unknown as ApplicationListItem[])
-      }
-      setIsLoading(false)
-    }
-    load()
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    return applications.filter((a) => {
-      if (statusFilter !== "all" && a.status !== statusFilter) return false
-      if (!q) return true
-      return (
-        (a.full_name ?? "").toLowerCase().includes(q) ||
-        (a.application_number ?? "").toLowerCase().includes(q) ||
-        (a.mobile ?? "").includes(q) ||
-        (a.city ?? "").toLowerCase().includes(q)
-      )
-    })
-  }, [applications, search, statusFilter])
-
-  const countBy = (s: ApplicationStatus) =>
-    applications.filter((a) => a.status === s).length
-
+  const [data,setData]=useState<ApplicationsPageData|null>(null)
+  const [isLoading,setIsLoading]=useState(true)
+  const [loadError,setLoadError]=useState(false)
+  const [search,setSearch]=useState("")
+  const [statusFilter,setStatusFilter]=useState<ApplicationStatus|"all">("all")
+  const [archived,setArchived]=useState(false)
+  const [page,setPage]=useState(1)
+  const [revision,setRevision]=useState(0)
+  useEffect(()=>{
+   let cancelled=false
+   const timer=setTimeout(async()=>{
+    setIsLoading(true);setLoadError(false)
+    try{const result=await fetchApplicationsPage({search,status:statusFilter,archived,page,pageSize:25});if(!cancelled){setData(result);setIsLoading(false)}}
+    catch{if(!cancelled){setData(null);setLoadError(true);setIsLoading(false)}}
+   },search?250:0)
+   return()=>{cancelled=true;clearTimeout(timer)}
+  },[search,statusFilter,archived,page,revision])
+  const summary=data?.summary
   const kpiCards: KpiCardData[] = [
     {
       label: isAr ? "إجمالي الطلبات" : "Total Applications",
-      value: applications.length,
+      value: summary?.total ?? "—",
       icon: ClipboardList,
       color: "#1E5A99",
     },
     {
       label: isAr ? "بانتظار المراجعة" : "Pending Review",
-      value: countBy("submitted") + countBy("under_review"),
+      value: summary?.pending ?? "—",
       icon: Clock,
       color: "#F59E0B",
     },
     {
       label: t.common.approved,
-      value: countBy("approved"),
+      value: summary?.approved ?? "—",
       icon: CheckCircle2,
       color: "#10B981",
     },
     {
       label: t.common.rejected,
-      value: countBy("rejected"),
+      value: summary?.rejected ?? "—",
       icon: XCircle,
       color: "#EF4444",
     },
@@ -289,6 +246,7 @@ export default function ApplicationsPage() {
     { value: "under_review", label: isAr ? "قيد المراجعة" : "Under Review" },
     { value: "approved", label: isAr ? "مقبول" : "Approved" },
     { value: "rejected", label: isAr ? "مرفوض" : "Rejected" },
+    { value: "withdrawn", label: isAr ? "مسحوب" : "Withdrawn" },
   ]
 
   return (
@@ -303,13 +261,15 @@ export default function ApplicationsPage() {
         kpiCards={kpiCards}
         searchPlaceholder={isAr ? "ابحث بالاسم أو الرقم أو الجوال..." : "Search by name, number, or phone..."}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={value=>{setSearch(value.slice(0,200));setPage(1);setIsLoading(true)}}
         toolbarActions={
           <div className="flex flex-wrap gap-1 rounded-xl border border-border/50 bg-muted/20 p-1">
+            <label className="flex items-center gap-2 px-2 text-xs"><input type="checkbox" checked={archived} onChange={e=>{setArchived(e.target.checked);setPage(1);setIsLoading(true)}} />{isAr ? "السجل المؤرشف" : "Archived history"}</label>
             {statusTabs.map((tab) => (
               <button
                 key={tab.value}
-                onClick={() => setStatusFilter(tab.value)}
+                onClick={() => {setStatusFilter(tab.value);setPage(1);setIsLoading(true)}}
+                aria-pressed={statusFilter===tab.value}
                 className={cn(
                   "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
                   statusFilter === tab.value
@@ -323,7 +283,10 @@ export default function ApplicationsPage() {
           </div>
         }
         columns={columns}
-        data={filtered}
+        data={(data?.rows ?? []) as ApplicationListItem[]}
+        pagination={{totalRecords:data?.total??0,currentPage:data?.page??page,totalPages:data?.totalPages??1,onPageChange:value=>{setPage(value);setIsLoading(true)}}}
+        loadError={loadError ? (isAr ? "تعذر تحميل الطلبات وملخصها. أعد المحاولة." : "Could not load applications and their totals. Try again.") : undefined}
+        onRetry={()=>setRevision(value=>value+1)}
         isLoading={isLoading}
         onRowClick={(row) => router.push(`/applications/${row.id}`)}
         emptyStateMessage={

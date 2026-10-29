@@ -10,11 +10,8 @@
 --   CREATE EXTENSION IF NOT EXISTS pgtap;
 --   Run in a SINGLE TRANSACTION (psql --single-transaction) so that
 --     SET LOCAL ROLE and request.jwt.claims persist across statements.
---   Run against a disposable Supabase test database WITH fixtures:
---     - tenant_001 (UUID: 00000000-0000-0000-0000-000000000001)
---     - tenant_002 (UUID: 00000000-0000-0000-0000-000000000002)
---     - A user in tenant_001 with auth_user_id = 00000000-...-0001
---     - A user in tenant_002 with auth_user_id = 00000000-...-0002
+--   Run against a disposable Supabase test database. Synthetic fixture tenants,
+--   auth identities and DISTINCT profile IDs are created inside this rollback.
 --   Do NOT run against production.
 -- ====================================================================
 
@@ -25,13 +22,28 @@
 -- Simulate an authenticated user's JWT context
 BEGIN;
 
+-- Dedicated fixtures ensure authorization assertions reach real rows and never
+-- depend on identities or tenant configuration present in a production restore.
+SELECT set_config('request.jwt.claims','{}',true);
+INSERT INTO public.tenants(id,name_ar,name_en) VALUES
+ ('01000000-0000-4000-8000-000000000001','RLS fixture own','RLS fixture own'),
+ ('01000000-0000-4000-8000-000000000002','RLS fixture foreign','RLS fixture foreign');
+INSERT INTO auth.users(id,email,email_confirmed_at,raw_app_meta_data) VALUES
+ ('01000000-0000-4000-8000-000000000001','rls010-own@example.test',now(),'{"_invite_provisioned":true}'),
+ ('01000000-0000-4000-8000-000000000002','rls010-foreign@example.test',now(),'{"_invite_provisioned":true}'),
+ ('01000000-0000-4000-8000-000000000003','rls010-member@example.test',now(),'{"_invite_provisioned":true}');
+INSERT INTO public.users(id,auth_user_id,tenant_id,email,role,status,must_change_password) VALUES
+ ('01000000-0000-4000-8000-000000000011','01000000-0000-4000-8000-000000000001','01000000-0000-4000-8000-000000000001','rls010-own@example.test','general_manager','active',false),
+ ('01000000-0000-4000-8000-000000000012','01000000-0000-4000-8000-000000000002','01000000-0000-4000-8000-000000000002','rls010-foreign@example.test','general_manager','active',false),
+ ('01000000-0000-4000-8000-000000000013','01000000-0000-4000-8000-000000000003','01000000-0000-4000-8000-000000000001','rls010-member@example.test','supervisor','active',false);
+
 CREATE OR REPLACE FUNCTION _set_jwt(p_auth_user_id UUID, p_tenant_id UUID)
 RETURNS void AS $$
 BEGIN
   RESET ROLE;
   SET LOCAL ROLE authenticated;
   PERFORM set_config('request.jwt.claims',
-    json_build_object('sub', p_auth_user_id, 'role', 'authenticated')::text,
+    json_build_object('sub', p_auth_user_id, 'role', 'authenticated', 'aal', 'aal2')::text,
     true
   );
   -- Also set the app-level tenant claim used by get_my_tenant_id()
@@ -62,28 +74,12 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Simulate TABLE-OWNER context WITH authenticated JWT claims.
--- Used by trigger-enforcement tests (section 5): after migration 058 dropped
--- the authenticated users UPDATE policy, an "authenticated" UPDATE is a silent
--- RLS no-op and no AUTH00x exception would fire. The owner bypasses RLS so the
--- UPDATE reaches the row, while the trigger reads request.jwt.claims and
--- raises the guard.
-CREATE OR REPLACE FUNCTION _set_owner_claims(p_auth_user_id UUID)
-RETURNS void AS $$
-BEGIN
-  RESET ROLE;
-  SET LOCAL ROLE postgres;
-  PERFORM set_config('request.jwt.claims',
-    json_build_object('sub', p_auth_user_id, 'role', 'authenticated')::text,
-    true
-  );
-END;
-$$ LANGUAGE plpgsql;
-
 -- ═══════════════════════════════════════════════════════════════════
 -- Total test count (update when adding tests)
 -- ═══════════════════════════════════════════════════════════════════
-SELECT plan(109);
+SELECT plan(118);
+SELECT is((SELECT count(*)::integer FROM public.users WHERE id='01000000-0000-4000-8000-000000000011' AND auth_user_id='01000000-0000-4000-8000-000000000001' AND tenant_id='01000000-0000-4000-8000-000000000001'),1,'caller fixture has a real distinct profile and auth identity');
+SELECT is((SELECT count(*)::integer FROM public.users WHERE id='01000000-0000-4000-8000-000000000013' AND auth_user_id='01000000-0000-4000-8000-000000000003' AND tenant_id='01000000-0000-4000-8000-000000000001'),1,'role-assignment denial targets an existing same-tenant non-owner');
 
 -- ═══════════════════════════════════════════════════════════════════
 -- SECTION 1: STRUCTURAL — Every table has RLS enabled
@@ -353,44 +349,28 @@ SELECT is(has_table_privilege('anon', 'public.generated_documents', 'SELECT'), f
 SELECT _set_admin();
 
 -- ═══════════════════════════════════════════════════════════════════
--- SECTION 5: TRIGGER ENFORCEMENT — Self-escalation blocks
+-- SECTION 5: CALLER ENFORCEMENT — Real rows, governed RPCs and direct denial
 -- ═══════════════════════════════════════════════════════════════════
--- CONTEXT FIX: these run as the table OWNER with simulated JWT claims
--- (_set_owner_claims). The trigger reads request.jwt.claims — not the current
--- role — and after 058 the authenticated role has no users UPDATE policy, so
--- as "authenticated" the UPDATE would be a silent RLS no-op and no AUTH00x
--- exception would fire.
--- NO-OP GUARD FIX: seed users are general_manager/active, so each assertion
--- mutates to a DIFFERENT value (an IS NOT DISTINCT no-op never fires).
-
-SELECT _set_owner_claims('00000000-0000-0000-0000-000000000001'::uuid);
-
--- 5.1 Self-role escalation is blocked
+-- Caller-bound management replaced browser UPDATE access. Exercise the public
+-- boundary with MFA and real same-tenant records, rather than table-owner calls
+-- that could update zero rows while claiming to prove a trigger guard.
+SELECT _set_jwt('01000000-0000-4000-8000-000000000001','01000000-0000-4000-8000-000000000001');
+SELECT ok(public.get_my_tenant_id()='01000000-0000-4000-8000-000000000001'::uuid AND public.user_has_permission('users','update'),'denial caller is an authenticated authorized tenant owner');
 SELECT throws_ok(
-  $$UPDATE users SET role = 'admin' WHERE auth_user_id = '00000000-0000-0000-0000-000000000001'::uuid$$,
-  'P0001'::char(5), 'AUTH001: users cannot modify their own role',
-  'trigger blocks self-role escalation (AUTH001)'
-);
-
--- 5.2 Self-status escalation is blocked
+ $$SELECT public.mutate_managed_user('role',id,version,'{"role":"admin","reason":"Attempt own role mutation"}') FROM public.users WHERE auth_user_id='01000000-0000-4000-8000-000000000001'$$,
+ 'P0001','USR005: you cannot change your own role, account status or archive your account','caller boundary blocks self-role changes');
 SELECT throws_ok(
-  $$UPDATE users SET status = 'inactive' WHERE auth_user_id = '00000000-0000-0000-0000-000000000001'::uuid$$,
-  'P0001'::char(5), 'AUTH002: users cannot modify their own account status',
-  'trigger blocks self-status modification (AUTH002)'
-);
-
--- 5.3 GM role assignment is blocked
--- Precondition: AUTH005 fires only when OLD.role <> 'general_manager'; both
--- seed users are GMs, so demote fixture user 002 first (service context).
-SELECT _set_admin();
-UPDATE users SET role = 'supervisor' WHERE id = '00000000-0000-0000-0000-000000000002'::uuid;
-SELECT _set_owner_claims('00000000-0000-0000-0000-000000000001'::uuid);
-
+ $$SELECT public.mutate_managed_user('status',id,version,'{"status":"inactive","reason":"Attempt own status mutation"}') FROM public.users WHERE auth_user_id='01000000-0000-4000-8000-000000000001'$$,
+ 'P0001','USR005: you cannot change your own role, account status or archive your account','caller boundary blocks self-status changes');
 SELECT throws_ok(
-  $$UPDATE users SET role = 'general_manager' WHERE id = '00000000-0000-0000-0000-000000000002'::uuid$$,
-  'P0001'::char(5), 'AUTH005: assigning general_manager role is not permitted via direct UPDATE',
-  'trigger blocks GM role assignment (AUTH005)'
-);
+ $$SELECT public.mutate_managed_user('role',id,version,'{"role":"general_manager","reason":"Attempt unsupported owner promotion"}') FROM public.users WHERE auth_user_id='01000000-0000-4000-8000-000000000003'$$,
+ 'P0001','USR014: select a different supported non-owner role','caller boundary blocks general manager assignment');
+SELECT throws_ok($$UPDATE public.users SET role='admin' WHERE auth_user_id='01000000-0000-4000-8000-000000000001'$$,'42501',NULL,'direct authenticated self-role UPDATE is denied');
+SELECT throws_ok($$UPDATE public.users SET status='inactive' WHERE auth_user_id='01000000-0000-4000-8000-000000000001'$$,'42501',NULL,'direct authenticated self-status UPDATE is denied');
+SELECT throws_ok($$UPDATE public.users SET role='general_manager' WHERE auth_user_id='01000000-0000-4000-8000-000000000003'$$,'42501',NULL,'direct authenticated owner-assignment UPDATE is denied');
+SELECT ok((SELECT role='general_manager' AND status='active' AND version=1 FROM public.users WHERE auth_user_id='01000000-0000-4000-8000-000000000001'),'denied self mutations preserve role, status and version');
+SELECT ok((SELECT role='supervisor' AND status='active' AND version=1 FROM public.users WHERE auth_user_id='01000000-0000-4000-8000-000000000003'),'denied owner assignment preserves target role and version');
+SELECT is((SELECT count(*) FROM public.audit_log WHERE entity_id IN('01000000-0000-4000-8000-000000000011','01000000-0000-4000-8000-000000000013') AND action IN('user_role','user_status')),0::bigint,'denied management attempts do not write success audit events');
 
 -- 5.4 Trigger function source contains all security checks
 SELECT ok(
@@ -447,190 +427,190 @@ SELECT _set_admin();
 --   C) Auth INSERT on restricted tables is DENIED
 
 -- ── 6.1 Drivers ──
-SELECT _set_jwt('00000000-0000-0000-0000-000000000001'::uuid, '00000000-0000-0000-0000-000000000001'::uuid);
+SELECT _set_jwt('01000000-0000-4000-8000-000000000001'::uuid, '01000000-0000-4000-8000-000000000001'::uuid);
 SELECT ok(
-  (SELECT count(*)::int FROM drivers WHERE tenant_id = '00000000-0000-0000-0000-000000000001'::uuid) >= 0,
+  (SELECT count(*)::int FROM drivers WHERE tenant_id = '01000000-0000-4000-8000-000000000001'::uuid) >= 0,
   'drivers: same-tenant SELECT allowed'
 );
 
 SELECT ok(
-  (SELECT count(*)::int FROM drivers WHERE tenant_id = '00000000-0000-0000-0000-000000000002'::uuid) = 0,
+  (SELECT count(*)::int FROM drivers WHERE tenant_id = '01000000-0000-4000-8000-000000000002'::uuid) = 0,
   'drivers: cross-tenant SELECT denied'
 );
 
 -- ── 6.2 Vehicles ──
 SELECT ok(
-  (SELECT count(*)::int FROM vehicles WHERE tenant_id = '00000000-0000-0000-0000-000000000001'::uuid) >= 0,
+  (SELECT count(*)::int FROM vehicles WHERE tenant_id = '01000000-0000-4000-8000-000000000001'::uuid) >= 0,
   'vehicles: same-tenant SELECT allowed'
 );
 
 SELECT ok(
-  (SELECT count(*)::int FROM vehicles WHERE tenant_id = '00000000-0000-0000-0000-000000000002'::uuid) = 0,
+  (SELECT count(*)::int FROM vehicles WHERE tenant_id = '01000000-0000-4000-8000-000000000002'::uuid) = 0,
   'vehicles: cross-tenant SELECT denied'
 );
 
 -- ── 6.3 Attendance ──
 SELECT ok(
-  (SELECT count(*)::int FROM driver_attendance WHERE tenant_id = '00000000-0000-0000-0000-000000000001'::uuid) >= 0,
+  (SELECT count(*)::int FROM driver_attendance WHERE tenant_id = '01000000-0000-4000-8000-000000000001'::uuid) >= 0,
   'driver_attendance: same-tenant SELECT allowed'
 );
 
 SELECT ok(
-  (SELECT count(*)::int FROM driver_attendance WHERE tenant_id = '00000000-0000-0000-0000-000000000002'::uuid) = 0,
+  (SELECT count(*)::int FROM driver_attendance WHERE tenant_id = '01000000-0000-4000-8000-000000000002'::uuid) = 0,
   'driver_attendance: cross-tenant SELECT denied'
 );
 
 -- ── 6.4 Violations ──
 SELECT ok(
-  (SELECT count(*)::int FROM violations WHERE tenant_id = '00000000-0000-0000-0000-000000000001'::uuid) >= 0,
+  (SELECT count(*)::int FROM violations WHERE tenant_id = '01000000-0000-4000-8000-000000000001'::uuid) >= 0,
   'violations: same-tenant SELECT allowed'
 );
 
 SELECT ok(
-  (SELECT count(*)::int FROM violations WHERE tenant_id = '00000000-0000-0000-0000-000000000002'::uuid) = 0,
+  (SELECT count(*)::int FROM violations WHERE tenant_id = '01000000-0000-4000-8000-000000000002'::uuid) = 0,
   'violations: cross-tenant SELECT denied'
 );
 
 -- ── 6.5 Expenses ──
 SELECT ok(
-  (SELECT count(*)::int FROM expenses WHERE tenant_id = '00000000-0000-0000-0000-000000000001'::uuid) >= 0,
+  (SELECT count(*)::int FROM expenses WHERE tenant_id = '01000000-0000-4000-8000-000000000001'::uuid) >= 0,
   'expenses: same-tenant SELECT allowed'
 );
 
 SELECT ok(
-  (SELECT count(*)::int FROM expenses WHERE tenant_id = '00000000-0000-0000-0000-000000000002'::uuid) = 0,
+  (SELECT count(*)::int FROM expenses WHERE tenant_id = '01000000-0000-4000-8000-000000000002'::uuid) = 0,
   'expenses: cross-tenant SELECT denied'
 );
 
 -- ── 6.6 Invoices ──
 SELECT ok(
-  (SELECT count(*)::int FROM invoices WHERE tenant_id = '00000000-0000-0000-0000-000000000001'::uuid) >= 0,
+  (SELECT count(*)::int FROM invoices WHERE tenant_id = '01000000-0000-4000-8000-000000000001'::uuid) >= 0,
   'invoices: same-tenant SELECT allowed'
 );
 
 SELECT ok(
-  (SELECT count(*)::int FROM invoices WHERE tenant_id = '00000000-0000-0000-0000-000000000002'::uuid) = 0,
+  (SELECT count(*)::int FROM invoices WHERE tenant_id = '01000000-0000-4000-8000-000000000002'::uuid) = 0,
   'invoices: cross-tenant SELECT denied'
 );
 
 -- ── 6.7 Accounting (chart_of_accounts, journal_entries, customers) ──
 SELECT ok(
-  (SELECT count(*)::int FROM chart_of_accounts WHERE tenant_id = '00000000-0000-0000-0000-000000000001'::uuid) >= 0,
+  (SELECT count(*)::int FROM chart_of_accounts WHERE tenant_id = '01000000-0000-4000-8000-000000000001'::uuid) >= 0,
   'chart_of_accounts: same-tenant SELECT allowed'
 );
 
 SELECT ok(
-  (SELECT count(*)::int FROM chart_of_accounts WHERE tenant_id = '00000000-0000-0000-0000-000000000002'::uuid) = 0,
+  (SELECT count(*)::int FROM chart_of_accounts WHERE tenant_id = '01000000-0000-4000-8000-000000000002'::uuid) = 0,
   'chart_of_accounts: cross-tenant SELECT denied'
 );
 
 SELECT ok(
-  (SELECT count(*)::int FROM customers WHERE tenant_id = '00000000-0000-0000-0000-000000000001'::uuid) >= 0,
+  (SELECT count(*)::int FROM customers WHERE tenant_id = '01000000-0000-4000-8000-000000000001'::uuid) >= 0,
   'customers: same-tenant SELECT allowed'
 );
 
 SELECT ok(
-  (SELECT count(*)::int FROM customers WHERE tenant_id = '00000000-0000-0000-0000-000000000002'::uuid) = 0,
+  (SELECT count(*)::int FROM customers WHERE tenant_id = '01000000-0000-4000-8000-000000000002'::uuid) = 0,
   'customers: cross-tenant SELECT denied'
 );
 
 SELECT ok(
-  (SELECT count(*)::int FROM suppliers WHERE tenant_id = '00000000-0000-0000-0000-000000000001'::uuid) >= 0,
+  (SELECT count(*)::int FROM suppliers WHERE tenant_id = '01000000-0000-4000-8000-000000000001'::uuid) >= 0,
   'suppliers: same-tenant SELECT allowed'
 );
 
 SELECT ok(
-  (SELECT count(*)::int FROM suppliers WHERE tenant_id = '00000000-0000-0000-0000-000000000002'::uuid) = 0,
+  (SELECT count(*)::int FROM suppliers WHERE tenant_id = '01000000-0000-4000-8000-000000000002'::uuid) = 0,
   'suppliers: cross-tenant SELECT denied'
 );
 
 -- ── 6.8 Bank Accounts ──
 SELECT ok(
-  (SELECT count(*)::int FROM bank_accounts WHERE tenant_id = '00000000-0000-0000-0000-000000000001'::uuid) >= 0,
+  (SELECT count(*)::int FROM bank_accounts WHERE tenant_id = '01000000-0000-4000-8000-000000000001'::uuid) >= 0,
   'bank_accounts: same-tenant SELECT allowed'
 );
 
 SELECT ok(
-  (SELECT count(*)::int FROM bank_accounts WHERE tenant_id = '00000000-0000-0000-0000-000000000002'::uuid) = 0,
+  (SELECT count(*)::int FROM bank_accounts WHERE tenant_id = '01000000-0000-4000-8000-000000000002'::uuid) = 0,
   'bank_accounts: cross-tenant SELECT denied'
 );
 
 -- ── 6.9 HR ──
 SELECT ok(
-  (SELECT count(*)::int FROM performance_reviews WHERE tenant_id = '00000000-0000-0000-0000-000000000001'::uuid) >= 0,
+  (SELECT count(*)::int FROM performance_reviews WHERE tenant_id = '01000000-0000-4000-8000-000000000001'::uuid) >= 0,
   'performance_reviews: same-tenant SELECT allowed'
 );
 
 SELECT ok(
-  (SELECT count(*)::int FROM performance_reviews WHERE tenant_id = '00000000-0000-0000-0000-000000000002'::uuid) = 0,
+  (SELECT count(*)::int FROM performance_reviews WHERE tenant_id = '01000000-0000-4000-8000-000000000002'::uuid) = 0,
   'performance_reviews: cross-tenant SELECT denied'
 );
 
 -- ── 6.10 Templates & Documents ──
 SELECT ok(
-  (SELECT count(*)::int FROM document_templates WHERE tenant_id = '00000000-0000-0000-0000-000000000001'::uuid) >= 0,
+  (SELECT count(*)::int FROM document_templates WHERE tenant_id = '01000000-0000-4000-8000-000000000001'::uuid) >= 0,
   'document_templates: same-tenant SELECT allowed'
 );
 
 SELECT ok(
-  (SELECT count(*)::int FROM document_templates WHERE tenant_id = '00000000-0000-0000-0000-000000000002'::uuid) = 0,
+  (SELECT count(*)::int FROM document_templates WHERE tenant_id = '01000000-0000-4000-8000-000000000002'::uuid) = 0,
   'document_templates: cross-tenant SELECT denied'
 );
 
 -- ── 6.11 Audit Log ──
 SELECT ok(
-  (SELECT count(*)::int FROM audit_log WHERE tenant_id = '00000000-0000-0000-0000-000000000001'::uuid) >= 0,
+  (SELECT count(*)::int FROM audit_log WHERE tenant_id = '01000000-0000-4000-8000-000000000001'::uuid) >= 0,
   'audit_log: same-tenant SELECT allowed'
 );
 
 SELECT ok(
-  (SELECT count(*)::int FROM audit_log WHERE tenant_id = '00000000-0000-0000-0000-000000000002'::uuid) = 0,
+  (SELECT count(*)::int FROM audit_log WHERE tenant_id = '01000000-0000-4000-8000-000000000002'::uuid) = 0,
   'audit_log: cross-tenant SELECT denied'
 );
 
 -- ── 6.12 System Settings ──
 SELECT ok(
   (SELECT count(*)::int FROM system_settings
-   WHERE tenant_id = '00000000-0000-0000-0000-000000000001'::uuid) >= 0,
+   WHERE tenant_id = '01000000-0000-4000-8000-000000000001'::uuid) >= 0,
   'system_settings: same-tenant SELECT allowed'
 );
 
 SELECT ok(
   (SELECT count(*)::int FROM system_settings
-   WHERE tenant_id = '00000000-0000-0000-0000-000000000002'::uuid) = 0,
+   WHERE tenant_id = '01000000-0000-4000-8000-000000000002'::uuid) = 0,
   'system_settings: cross-tenant SELECT denied'
 );
 
 -- ── 6.13 Platform Payments ──
 SELECT ok(
-  (SELECT count(*)::int FROM platform_payments WHERE tenant_id = '00000000-0000-0000-0000-000000000001'::uuid) >= 0,
+  (SELECT count(*)::int FROM platform_payments WHERE tenant_id = '01000000-0000-4000-8000-000000000001'::uuid) >= 0,
   'platform_payments: same-tenant SELECT allowed'
 );
 
 SELECT ok(
-  (SELECT count(*)::int FROM platform_payments WHERE tenant_id = '00000000-0000-0000-0000-000000000002'::uuid) = 0,
+  (SELECT count(*)::int FROM platform_payments WHERE tenant_id = '01000000-0000-4000-8000-000000000002'::uuid) = 0,
   'platform_payments: cross-tenant SELECT denied'
 );
 
 -- ── 6.14 VAT ──
 SELECT ok(
-  (SELECT count(*)::int FROM vat_periods WHERE tenant_id = '00000000-0000-0000-0000-000000000001'::uuid) >= 0,
+  (SELECT count(*)::int FROM vat_periods WHERE tenant_id = '01000000-0000-4000-8000-000000000001'::uuid) >= 0,
   'vat_periods: same-tenant SELECT allowed'
 );
 
 SELECT ok(
-  (SELECT count(*)::int FROM vat_periods WHERE tenant_id = '00000000-0000-0000-0000-000000000002'::uuid) = 0,
+  (SELECT count(*)::int FROM vat_periods WHERE tenant_id = '01000000-0000-4000-8000-000000000002'::uuid) = 0,
   'vat_periods: cross-tenant SELECT denied'
 );
 
 -- ── 6.15 Reports ──
 SELECT ok(
-  (SELECT count(*)::int FROM report_generation_log WHERE tenant_id = '00000000-0000-0000-0000-000000000001'::uuid) >= 0,
+  (SELECT count(*)::int FROM report_generation_log WHERE tenant_id = '01000000-0000-4000-8000-000000000001'::uuid) >= 0,
   'report_generation_log: same-tenant SELECT allowed'
 );
 
 SELECT ok(
-  (SELECT count(*)::int FROM report_generation_log WHERE tenant_id = '00000000-0000-0000-0000-000000000002'::uuid) = 0,
+  (SELECT count(*)::int FROM report_generation_log WHERE tenant_id = '01000000-0000-4000-8000-000000000002'::uuid) = 0,
   'report_generation_log: cross-tenant SELECT denied'
 );
 
@@ -638,12 +618,12 @@ SELECT ok(
 -- SECTION 7: AUTH DENIED — Auth cannot INSERT/UPDATE restricted tables
 -- ═══════════════════════════════════════════════════════════════════
 
-SELECT _set_jwt('00000000-0000-0000-0000-000000000001'::uuid, '00000000-0000-0000-0000-000000000001'::uuid);
+SELECT _set_jwt('01000000-0000-4000-8000-000000000001'::uuid, '01000000-0000-4000-8000-000000000001'::uuid);
 
 -- Auth INSERT on roles must be denied (no INSERT policy after 058)
 SELECT throws_ok(
   $$INSERT INTO roles (id, name, name_en, name_ar, tenant_id)
-    VALUES (gen_random_uuid(), 'admin', 'Hack', 'اختراق', '00000000-0000-0000-0000-000000000001'::uuid)$$,
+    VALUES (gen_random_uuid(), 'admin', 'Hack', 'اختراق', '01000000-0000-4000-8000-000000000001'::uuid)$$,
   '42501', NULL,
   'auth INSERT on roles is denied (no policy after 058)'
 );
@@ -651,7 +631,7 @@ SELECT throws_ok(
 -- Auth INSERT on invites must be denied
 SELECT throws_ok(
   $$INSERT INTO invites (id, email, tenant_id, role, status, token_hash, expires_at)
-    VALUES (gen_random_uuid(), 'hack@test.com', '00000000-0000-0000-0000-000000000001'::uuid,
+    VALUES (gen_random_uuid(), 'hack@test.com', '01000000-0000-4000-8000-000000000001'::uuid,
             'admin', 'pending', 'fakehash', now() + interval '7 days')$$,
   '42501', NULL,
   'auth INSERT on invites is denied (no policy after 058)'
@@ -660,9 +640,9 @@ SELECT throws_ok(
 -- Auth INSERT on user_role_assignments must be denied
 SELECT throws_ok(
   $$INSERT INTO user_role_assignments (id, user_id, role_id, tenant_id)
-    VALUES (gen_random_uuid(), '00000000-0000-0000-0000-000000000001'::uuid,
+    VALUES (gen_random_uuid(), '01000000-0000-4000-8000-000000000001'::uuid,
             '00000000-0000-0000-0000-000000000099'::uuid,
-            '00000000-0000-0000-0000-000000000001'::uuid)$$,
+            '01000000-0000-4000-8000-000000000001'::uuid)$$,
   '42501', NULL,
   'auth INSERT on user_role_assignments is denied (no policy after 058)'
 );
@@ -670,8 +650,8 @@ SELECT throws_ok(
 -- Auth INSERT on tenant_memberships must be denied
 SELECT throws_ok(
   $$INSERT INTO tenant_memberships (id, user_id, tenant_id, is_primary)
-    VALUES (gen_random_uuid(), '00000000-0000-0000-0000-000000000001'::uuid,
-            '00000000-0000-0000-0000-000000000001'::uuid, false)$$,
+    VALUES (gen_random_uuid(), '01000000-0000-4000-8000-000000000001'::uuid,
+            '01000000-0000-4000-8000-000000000001'::uuid, false)$$,
   '42501', NULL,
   'auth INSERT on tenant_memberships is denied (no policy after 058)'
 );
@@ -679,7 +659,7 @@ SELECT throws_ok(
 -- Auth INSERT on journal_entries must be denied (036 hardening)
 SELECT throws_ok(
   $$INSERT INTO journal_entries (tenant_id, entry_ref, entry_date, description_en, status)
-    VALUES ('00000000-0000-0000-0000-000000000001'::uuid, 'TEST-001', current_date,
+    VALUES ('01000000-0000-4000-8000-000000000001'::uuid, 'TEST-001', current_date,
             'test', 'draft')$$,
   '42501', NULL,
   'auth INSERT on journal_entries is denied (service-role only after 036)'
@@ -688,7 +668,7 @@ SELECT throws_ok(
 -- Auth INSERT on journal_entry_lines must be denied (036 hardening)
 SELECT throws_ok(
   $$INSERT INTO journal_entry_lines (tenant_id, journal_entry_id, account_id, debit_amount, credit_amount)
-    VALUES ('00000000-0000-0000-0000-000000000001'::uuid,
+    VALUES ('01000000-0000-4000-8000-000000000001'::uuid,
             '00000000-0000-0000-0000-000000000099'::uuid,
             '00000000-0000-0000-0000-000000000098'::uuid, 100.00, 0)$$,
   '42501', NULL,
@@ -698,9 +678,9 @@ SELECT throws_ok(
 -- Auth INSERT on journal_approvals must be denied (036 hardening)
 SELECT throws_ok(
   $$INSERT INTO journal_approvals (tenant_id, journal_entry_id, approved_by, status)
-    VALUES ('00000000-0000-0000-0000-000000000001'::uuid,
+    VALUES ('01000000-0000-4000-8000-000000000001'::uuid,
             '00000000-0000-0000-0000-000000000099'::uuid,
-            '00000000-0000-0000-0000-000000000001'::uuid, 'approved')$$,
+            '01000000-0000-4000-8000-000000000001'::uuid, 'approved')$$,
   '42501', NULL,
   'auth INSERT on journal_approvals is denied (self-approval prevention)'
 );
@@ -708,7 +688,7 @@ SELECT throws_ok(
 -- Auth INSERT on financial_events must be denied (053 append-only)
 SELECT throws_ok(
   $$INSERT INTO financial_events (tenant_id, event_id, idempotency_key, event_type, source_type, source_id, event_date, payload)
-    VALUES ('00000000-0000-0000-0000-000000000001'::uuid, gen_random_uuid(), 'test-idem-' || gen_random_uuid()::text, 'test', 'test', '00000000-0000-0000-0000-000000000099'::uuid,
+    VALUES ('01000000-0000-4000-8000-000000000001'::uuid, gen_random_uuid(), 'test-idem-' || gen_random_uuid()::text, 'test', 'test', '00000000-0000-0000-0000-000000000099'::uuid,
             current_date, '{}'::jsonb)$$,
   '42501', NULL,
   'auth INSERT on financial_events is denied (append-only via service-role after 053)'
@@ -725,7 +705,7 @@ SELECT _set_admin();
 -- Service-role can INSERT into roles (used by invitation flow)
 SELECT lives_ok(
   $$INSERT INTO roles (id, name, name_en, name_ar, tenant_id, created_at)
-    VALUES (gen_random_uuid(), 'admin', 'Test SVC', 'اختبار', '00000000-0000-0000-0000-000000000001'::uuid, now())
+    VALUES (gen_random_uuid(), 'admin', 'Test SVC', 'اختبار', '01000000-0000-4000-8000-000000000001'::uuid, now())
     ON CONFLICT DO NOTHING$$,
   'service-role INSERT on roles succeeds'
 );
@@ -733,11 +713,12 @@ SELECT lives_ok(
 -- Cleanup
 DELETE FROM roles WHERE name_en = 'Test SVC';
 
--- Service-role can INSERT into journal_entries (used by RPCs)
+-- Service-role can INSERT into journal_entries (used by RPCs). created_by
+-- references auth.users, so resolve the auth identity from the distinct profile.
 SELECT lives_ok(
   $$INSERT INTO journal_entries (tenant_id, entry_ref, entry_date, description_en, status, created_by)
-    VALUES ('00000000-0000-0000-0000-000000000001'::uuid, 'SVC-TEST-001', current_date,
-            'service-role test', 'draft', '00000000-0000-0000-0000-000000000001'::uuid)
+    VALUES ('01000000-0000-4000-8000-000000000001'::uuid, 'SVC-TEST-001', current_date,
+            'service-role test', 'draft', (SELECT auth_user_id FROM public.users WHERE id='01000000-0000-4000-8000-000000000011'::uuid))
     ON CONFLICT DO NOTHING$$,
   'service-role INSERT on journal_entries succeeds'
 );
@@ -748,7 +729,7 @@ DELETE FROM journal_entries WHERE entry_ref = 'SVC-TEST-001';
 -- Service-role can INSERT into financial_events (used by dispatcher)
 SELECT lives_ok(
   $$INSERT INTO financial_events (tenant_id, event_id, event_type, source_type, source_id, payload, idempotency_key, event_date)
-    VALUES ('00000000-0000-0000-0000-000000000001'::uuid, gen_random_uuid(), 'test_svc', 'test', '00000000-0000-0000-0000-000000000099'::uuid,
+    VALUES ('01000000-0000-4000-8000-000000000001'::uuid, gen_random_uuid(), 'test_svc', 'test', '00000000-0000-0000-0000-000000000099'::uuid,
             '{}'::jsonb, 'test-svc-' || gen_random_uuid()::text, current_date)
     ON CONFLICT DO NOTHING$$,
   'service-role INSERT on financial_events succeeds'
@@ -761,7 +742,7 @@ DELETE FROM financial_events WHERE event_type = 'test_svc';
 -- SECTION 9: PERMISSIONS TABLE — Auth can read, all tenants share
 -- ═══════════════════════════════════════════════════════════════════
 
-SELECT _set_jwt('00000000-0000-0000-0000-000000000001'::uuid, '00000000-0000-0000-0000-000000000001'::uuid);
+SELECT _set_jwt('01000000-0000-4000-8000-000000000001'::uuid, '01000000-0000-4000-8000-000000000001'::uuid);
 
 SELECT ok(
   (SELECT count(*)::int FROM permissions) >= 0,
@@ -876,7 +857,6 @@ SELECT _set_admin();
 DROP FUNCTION IF EXISTS _set_jwt(UUID, UUID);
 DROP FUNCTION IF EXISTS _set_anon();
 DROP FUNCTION IF EXISTS _set_admin();
-DROP FUNCTION IF EXISTS _set_owner_claims(UUID);
 
 SELECT * FROM finish();
 

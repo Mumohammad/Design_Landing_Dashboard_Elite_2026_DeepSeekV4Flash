@@ -1,0 +1,25 @@
+import {beforeEach,describe,expect,it,vi} from "vitest"
+const f=vi.hoisted(()=>({rpc:vi.fn(),client:vi.fn(),permission:vi.fn(),user:vi.fn(),limit:vi.fn(),audit:vi.fn(),revalidate:vi.fn(),createOrder:vi.fn()}))
+vi.mock("@/lib/supabase/server",()=>({createClient:f.client}))
+vi.mock("@/lib/auth/authorization",()=>({requirePermission:f.permission,getCurrentUser:f.user}))
+vi.mock("@/lib/auth/rate-limit",()=>({rateLimitOrders:f.limit}))
+vi.mock("@/lib/auth/sessions",()=>({writeAuditLog:f.audit}))
+vi.mock("@/lib/orders/actions",()=>({createOrderEntry:f.createOrder}))
+vi.mock("next/cache",()=>({revalidatePath:f.revalidate}))
+import{upsertPlatform,deactivatePlatform,recordPlatformPayment,createDailyEntry,exportPlatformOrdersCsv,exportPlatformsCsv}from"./actions"
+const id="13500000-0000-4000-8000-000000000021",stamp="2026-10-22T12:00:00.000Z",platform={code:"FIXTURE",name_ar:"Platform fixture",rate_type:"flat" as const,rate_per_order:2.25}
+beforeEach(()=>{vi.clearAllMocks();f.permission.mockResolvedValue(undefined);f.user.mockResolvedValue({id:"app-user",tenantId:"tenant",authUserId:"auth"});f.limit.mockResolvedValue({success:true});f.client.mockResolvedValue({rpc:f.rpc});f.rpc.mockResolvedValue({data:{id,updated_at:stamp},error:null});f.audit.mockResolvedValue(undefined)})
+describe("Platform workflow actions",()=>{
+ it("creates through caller-bound RPC with no tenant/credentials payload",async()=>{expect(await upsertPlatform({...platform,api_credentials:{secret:"fixture"}} as typeof platform)).toMatchObject({success:true,id});expect(f.rpc).toHaveBeenCalledWith("save_delivery_platform",{p_input:platform,p_id:null,p_expected_updated_at:null})})
+ it("uses optimistic edit token",async()=>{await upsertPlatform({...platform,id,expected_updated_at:stamp,is_active:false});expect(f.rpc).toHaveBeenCalledWith("save_delivery_platform",expect.objectContaining({p_id:id,p_expected_updated_at:stamp}));expect(f.permission).toHaveBeenCalledWith("platforms","update")})
+ it("keeps deactivation separate from deletion",async()=>{expect((await deactivatePlatform(id,stamp)).success).toBe(true);expect(f.rpc).toHaveBeenCalledWith("save_delivery_platform",{p_input:{},p_id:id,p_expected_updated_at:stamp,p_deactivate:true})})
+ it("requires token before deactivation RPC",async()=>{expect((await deactivatePlatform(id,"invalid")).success).toBe(false);expect(f.rpc).not.toHaveBeenCalled()})
+ it("denies before opening a database client",async()=>{f.permission.mockRejectedValue(new Error("Denied"));expect((await upsertPlatform(platform)).success).toBe(false);expect(f.client).not.toHaveBeenCalled()})
+ it("returns a safe duplicate code explanation",async()=>{f.rpc.mockResolvedValue({data:null,error:{code:"23505",message:"private index info"}});expect(await upsertPlatform(platform)).toMatchObject({success:false,error:"A platform with this code already exists."})})
+ it("sends explicit versioned payment correction",async()=>{const payment={platform_id:id,period_year:2098,period_month:11,expected_amount:100,received_amount:20,payment_date:"2098-11-20",expected_updated_at:stamp};expect((await recordPlatformPayment(payment)).success).toBe(true);expect(f.rpc).toHaveBeenCalledWith("save_platform_payment",{p_input:payment})})
+ it("does not refresh rejected payment overwrite",async()=>{f.rpc.mockResolvedValue({data:null,error:{message:"PLATFORM_PAYMENT_EXISTS_OR_CHANGED"}});expect((await recordPlatformPayment({platform_id:id,period_year:2098,period_month:11,expected_amount:100,received_amount:0})).success).toBe(false);expect(f.revalidate).not.toHaveBeenCalled()})
+ it("rejects sub-cent payment amounts before RPC",async()=>{expect((await recordPlatformPayment({platform_id:id,period_year:2098,period_month:11,expected_amount:1.001,received_amount:0})).success).toBe(false);expect(f.rpc).not.toHaveBeenCalled()})
+ it("manual platform entry shares canonical order mutation",async()=>{f.createOrder.mockResolvedValue({success:true,id});const input={driver_id:id,platform_id:id,entry_date:"2098-11-15",orders_delivered:1};expect(await createDailyEntry(input)).toMatchObject({success:true,inserted:1});expect(f.createOrder).toHaveBeenCalledWith(input)})
+ it("exports all platform records from one snapshot",async()=>{f.rpc.mockResolvedValue({data:{platforms:[{...platform,id,is_active:false,name_en:null,sort_order:100}],payments:[]},error:null});const result=await exportPlatformsCsv();expect(result.success).toBe(true);expect(result.csv).toContain("platform,FIXTURE");expect(f.rpc).toHaveBeenCalledWith("export_delivery_platform_data",{})})
+ it("exports platform entries beyond the API row cap",async()=>{const row={entry_date:"2098-11-15",driver:{full_name_ar:"Fixture",full_name_en:null},orders_delivered:1,orders_failed:0,orders_returned:0,orders_cancelled:0,gross_revenue:2.25};f.rpc.mockResolvedValue({data:{entries:Array.from({length:1101},()=>row)},error:null});const result=await exportPlatformOrdersCsv(id,"2098-11");expect(result.success).toBe(true);expect(result.csv?.split("\n")).toHaveLength(1102);expect(f.audit).toHaveBeenCalledWith(expect.objectContaining({newValues:{month:"2098-11",rows:1101}}))})
+})

@@ -18,13 +18,17 @@
 //
 // Server-side only. Uses the service-role admin client for operations that
 // bypass RLS (invite acceptance — a public flow with no session, plus
-// audit_log writes via writeAuditLog) and the cookie-bound server client for
+// atomic audit writes) and the cookie-bound server client for
 // GM-scoped operations (create / revoke / list) where RLS enforces tenancy.
 
 import crypto from "crypto"
+import {z} from "zod"
+import {fetchAllRows} from "@/lib/supabase/all-rows"
+import {createClient} from "@/lib/supabase/server"
+import { sendInviteEmail } from "@/lib/auth/invite-email"
+import {USER_ROLES} from "@/lib/users/user-utils"
 
 import { requirePermission, getCurrentUser } from "@/lib/auth/authorization"
-import { writeAuditLog } from "@/lib/auth/sessions"
 import { rateLimit, getClientIp } from "@/lib/auth/rate-limit"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { hashInviteToken, verifyInviteToken } from "@/lib/auth/invite-tokens"
@@ -54,176 +58,36 @@ export type PendingInvite = {
   expires_at: string
 }
 
-type ActionResult = { success: boolean; error?: string; errorAr?: string }
+type ActionResult = { success: boolean; error?: string; errorAr?: string; delivery?:"queued"|"unavailable"; passwordPreserved?:true;notice?:string;noticeAr?:string }
 
 
-
-/**
- * Extract a human-readable message from an unknown thrown value. Avoids `any`
- * while surfacing `Error.message` (AuthorizationError sets this to its
- * English message via `super(messageEn)`).
- */
-function errorMessage(e: unknown): string {
-  if (e instanceof Error) return e.message
-  if (typeof e === "string") return e
-  return "An unexpected error occurred."
-}
 
 function nowIso(): string {
   return new Date().toISOString()
 }
 
 /**
- * Send the invite-acceptance email via the Resend HTTP API. Uses the global
- * `fetch` — no package dependency. Non-fatal: the caller logs failures and the
- * invite row stays pending so the GM can resend from /settings/users
- * (auth plan 6.3 step 10).
- *
- * TODO: replace the inline HTML with a proper bilingual React email template
- * (Design DNA — subject and body in both EN and AR).
- */
-async function sendInviteEmail(email: string, token: string, tokenId: string): Promise<void> {
-  const apiKey = process.env.RESEND_API_KEY
-  const fromEmail = process.env.RESEND_FROM_EMAIL
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL
-
-  if (!apiKey || !fromEmail || !appUrl) {
-    if (process.env.NODE_ENV !== "production") {
-      console.warn(
-        "[invites] Resend env vars missing — skipping invite email to",
-        email
-      )
-    }
-    return
-  }
-
-  // `tid` (token_id) is NOT secret — it is the O(1) lookup key (auth plan
-  // 6.7 strategy 2). The `token` is the secret; both are required to accept.
-  const acceptUrl = `${appUrl}/auth/accept-invite?tid=${encodeURIComponent(tokenId)}&token=${encodeURIComponent(token)}`
-
-  const html = `
-    <div style="font-family: sans-serif; max-width: 560px; margin: 0 auto;">
-      <h2>You're invited to EliteDev</h2>
-      <p>You have been invited to join EliteDev. Click the button below to accept your invite and set up your account.</p>
-      <p>
-        <a href="${acceptUrl}"
-           style="display: inline-block; padding: 12px 24px; background: #2563eb; color: #ffffff; text-decoration: none; border-radius: 6px;">
-          Accept invite
-        </a>
-      </p>
-      <p style="color: #6b7280; font-size: 12px;">
-        Or copy this link: ${acceptUrl}
-      </p>
-      <p style="color: #6b7280; font-size: 12px;">
-        This invite expires in 7 days.
-      </p>
-    </div>
-  `
-
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: fromEmail,
-      to: [email],
-      subject: "You're invited to EliteDev",
-      html,
-    }),
-  })
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => "")
-    throw new Error(`Resend API error ${res.status}: ${text}`)
-  }
-}
-
-/**
  * Issue a new invite. GM-only (`users.manage`).
  *
- * Generates a UUID token, stores only its SHA-256 hash, inserts the invite
+ * Generates a UUID token, stores only its bcrypt hash, inserts the invite
  * row scoped to the current user's tenant, sends the acceptance email via
  * Resend, and writes an audit_log row.
  */
-export async function createInvite(
-  email: string,
-  role: string
-): Promise<ActionResult> {
-  try {
-    await requirePermission("users", "manage")
-
-    const currentUser = await getCurrentUser()
-    if (!currentUser) {
-      return { success: false, error: "Not authenticated." }
-    }
-
-    // Use admin client — migration 058 dropped authenticated INSERT policy on invites.
-    const admin = createAdminClient()
-
-    // Reject duplicate pending invites for the same email.
-    const { data: existing, error: lookupError } = await admin
-      .from("invites")
-      .select("id")
-      .eq("email", email)
-      .eq("status", "pending")
-      .is("deleted_at", null)
-      .maybeSingle<IdRow>()
-
-    if (lookupError) throw lookupError
-    if (existing) {
-      return {
-        success: false,
-        error: "An invite is already pending for this email.",
-      }
-    }
-
-    const token = crypto.randomUUID()
-    const tokenId = crypto.randomUUID()
-    const tokenHash = await hashInviteToken(token)
-    const expiresAt = new Date(Date.now() + INVITE_TTL_MS).toISOString()
-
-    const { data: invite, error: insertError } = await admin
-      .from("invites")
-      .insert({
-        tenant_id: currentUser.tenantId,
-        email,
-        role,
-        token_id: tokenId,
-        token_hash: tokenHash,
-        status: "pending",
-        expires_at: expiresAt,
-        invited_by: currentUser.authUserId,
-      })
-      .select("id")
-      .single<IdRow>()
-
-    if (insertError) throw insertError
-    if (!invite) throw new Error("Failed to create invite row.")
-    const inviteId = invite.id
-
-    // Email delivery is non-fatal — log failures, keep the invite pending.
-    try {
-      await sendInviteEmail(email, token, tokenId)
-    } catch (err) {
-      console.error("[invites] Resend email failed:", err)
-    }
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "users",
-      action: "invite_created",
-      entityType: "invite",
-      entityId: inviteId,
-      newValues: { email, role },
-    })
-
-    return { success: true }
-  } catch (e) {
-    return { success: false, error: errorMessage(e) }
-  }
+export async function createInvite(email:string,role:string):Promise<ActionResult>{
+ try{
+  await requirePermission("users","manage")
+  const me=await getCurrentUser()
+  if(!me||me.role!=="general_manager")return{success:false,error:"Only the general manager can invite team members.",errorAr:"يمكن للمدير العام فقط دعوة أعضاء الفريق."}
+  const values=z.object({email:z.email().max(254).transform(v=>v.toLowerCase()),role:z.enum(USER_ROLES.filter(r=>r!=="general_manager"))}).safeParse({email:email.trim(),role})
+  if(!values.success)return{success:false,error:"Enter a valid email and choose a supported non-owner role.",errorAr:"أدخل بريداً إلكترونياً صالحاً واختر دوراً مدعوماً غير دور المدير العام."}
+  const token=crypto.randomUUID(),tokenId=crypto.randomUUID(),tokenHash=await hashInviteToken(token)
+  const client=await createClient()
+  const{data,error}=await client.rpc("issue_managed_invite",{p_email:values.data.email,p_role:values.data.role,p_token_id:tokenId,p_token_hash:tokenHash,p_expires_at:new Date(Date.now()+INVITE_TTL_MS).toISOString()})
+  if(error||!data?.id)return{success:false,error:error?.message?.startsWith("USR")?error.message:"The invitation could not be created. Try again.",errorAr:"تعذر إنشاء الدعوة. تحقق من الدور ومن عدم وجود دعوة سارية لهذا البريد، ثم أعد المحاولة."}
+  let delivered=false
+  try{delivered=await sendInviteEmail(values.data.email,token,tokenId)}catch{console.error("[invites] email delivery failed")}
+  return{success:true,delivery:delivered?"queued":"unavailable"}
+ }catch{return{success:false,error:"The invitation could not be created. Check your permissions and try again.",errorAr:"تعذر إنشاء الدعوة. تحقق من صلاحياتك وحاول مجدداً."}}
 }
 
 /**
@@ -239,9 +103,9 @@ export async function createInvite(
  *
  * CAVEAT: the admin client does not provide a transaction across
  * `auth.admin.createUser` and the custom-table inserts (auth plan 6.5). If
- * the `users` insert fails, a compensating `deleteUser` runs to avoid an
- * orphaned auth.users row. Downstream soft failures (role assignment) are
- * logged but do not block account creation.
+ * an external Auth response is lost, the durable invite-bound identity allows
+ * exact-ID recovery. Database profile, membership, role assignment, consumption
+ * and audit are atomic. No uncertain or concurrent operation deletes a login.
  */
 export async function acceptInvite(
   token: string,
@@ -264,6 +128,9 @@ export async function acceptInvite(
     if (!isValidNewPassword(password)) {
       return { success: false, error: newPasswordHint("en"), errorAr: newPasswordHint("ar") }
     }
+    const parsedIdentity=z.object({tid:z.uuid(),token:z.string().min(16).max(512),fullName:z.string().trim().min(1).max(150)}).safeParse({tid,token,fullName})
+    if(!parsedIdentity.success)return{success:false,error:"Invalid or expired invite token."}
+    fullName=parsedIdentity.data.fullName
     const admin = createAdminClient()
 
     // 1. Lookup by token_id (O(1) index). Generic error on miss to avoid
@@ -290,138 +157,62 @@ export async function acceptInvite(
       return { success: false, error: "Invalid or expired invite token." }
     }
 
-    // 2. Create the auth.users entry (admin client bypasses RLS).
-    //    email_confirm: true — the invite link proves email ownership.
-    // Mark the auth user as invite-provisioned so the hardened trigger
-    // (migration 060) does not reject or duplicate the provisioning.
-    const {
-      data: authUser,
-      error: authError,
-    } = await admin.auth.admin.createUser({
-      email: invite.email,
-      password,
-      email_confirm: true,
-      app_metadata: { _invite_provisioned: true },
-      user_metadata: {
-        full_name: fullName,
-      },
-    })
-
-    if (authError) throw authError
-    if (!authUser.user) {
-      throw new Error("Failed to create auth user.")
+    // Reject legacy owner invitations and archived/unconfigured presets before
+    // external Auth creation. The atomic RPC repeats this check under locks.
+    if(!USER_ROLES.includes(invite.role as typeof USER_ROLES[number])||invite.role==="general_manager")return{success:false,error:"Invalid or expired invite token."}
+    const roleCheck=await admin.from("roles").select("id").eq("tenant_id",invite.tenant_id).eq("name",invite.role).is("deleted_at",null).maybeSingle<IdRow>()
+    const tenantCheck=await admin.from("tenants").select("id").eq("id",invite.tenant_id).eq("status","active").is("deleted_at",null).maybeSingle<IdRow>()
+    if(roleCheck.error||!roleCheck.data||tenantCheck.error||!tenantCheck.data)return{success:false,error:"Invalid or expired invite token."}
+    const uncertain=():ActionResult=>({success:false,error:"Account setup could not be confirmed. Retry this invitation using the password from your first attempt, or contact your administrator. No password has been reset.",errorAr:"تعذر تأكيد إعداد الحساب. أعد محاولة قبول الدعوة باستخدام كلمة المرور من المحاولة الأولى، أو تواصل مع مسؤول النظام. لم تتم إعادة تعيين كلمة المرور."})
+    // Persist one random identity before the external Auth call. Concurrent and
+    // later token-verified attempts receive the same identity under a row lock.
+    const candidate=crypto.randomUUID()
+    const reserve=async()=>{try{const result=await admin.rpc("reserve_managed_invite_identity",{p_invite_id:invite.id,p_candidate_auth_user_id:candidate});return !result.error&&z.uuid().safeParse(result.data?.auth_user_id).success?result.data.auth_user_id as string:null}catch{return null}}
+    const authUserId=await reserve()??await reserve()
+    if(!authUserId)return uncertain()
+    type BoundIdentity={id:string;email?:string;email_confirmed_at?:string;app_metadata?:Record<string,unknown>}
+    const matches=(user:BoundIdentity)=>user.id===authUserId&&user.email?.trim().toLowerCase()===invite.email.trim().toLowerCase()&&!!user.email_confirmed_at&&user.app_metadata?._invite_provisioned===true&&user.app_metadata?._invite_id===invite.id&&user.app_metadata?._invite_tenant_id===invite.tenant_id
+    const exactIdentity=async():Promise<{user:BoundIdentity|null;missing:boolean}>=>{
+      try{const result=await admin.auth.admin.getUserById(authUserId);return{user:result.data?.user??null,missing:!result.data?.user&&(result.error?.code==="user_not_found"||result.error?.status===404)}}catch{return{user:null,missing:false}}
     }
-    const authUserId = authUser.user.id
-
-    // 3. Create the custom `users` row. On failure, compensate by deleting
-    //    the auth.users entry to avoid orphans (auth plan 6.5 step 6 caveat).
-    const { data: newUser, error: userError } = await admin
-      .from("users")
-      .insert({
-        auth_user_id: authUserId,
-        tenant_id: invite.tenant_id,
-        email: invite.email,
-        role: invite.role,
-        full_name_ar: fullName,
-        full_name_en: fullName,
-        status: "active",
-        must_change_password: false,
-        accepted_invite_at: nowIso(),
-      })
-      .select("id")
-      .single<IdRow>()
-
-    if (userError || !newUser) {
-      await admin
-        .auth.admin
-        .deleteUser(authUserId)
-        .catch((err: unknown) => {
-          console.error("[invites] compensating deleteUser failed:", err)
-        })
-      throw userError ?? new Error("Failed to create user row.")
-    }
-    const newUserId = newUser.id
-
-    // 4. tenant_memberships — hard fail; without it the account is unusable.
-    //    NOTE: the table has NO `role` column (it carries `is_primary`; the
-    //    role lives on `users.role` + `user_role_assignments.role_id`). An
-    //    earlier version inserted `role` here and every accept silently
-    //    failed with PGRST204 after creating the auth user + users row,
-    //    orphaning them. Fixed 2026-08-17 (E2E caught it).
-    const { error: membershipError } = await admin
-      .from("tenant_memberships")
-      .insert({
-        user_id: newUserId,
-        tenant_id: invite.tenant_id,
-      })
-
-    if (membershipError) throw membershipError
-
-    // 5. user_role_assignments — resolve role_id by name + tenant. Soft fail:
-    //    authorization.ts reads `users.role` directly, so a missing assignment
-    //    does not block access; it is logged for follow-up.
-    const { data: roleRow } = await admin
-      .from("roles")
-      .select("id")
-      .eq("name", invite.role)
-      .eq("tenant_id", invite.tenant_id)
-      .is("deleted_at", null)
-      .maybeSingle<IdRow>()
-
-    if (roleRow) {
-      const { error: assignmentError } = await admin
-        .from("user_role_assignments")
-        .insert({
-          user_id: newUserId,
-          role_id: roleRow.id,
-          tenant_id: invite.tenant_id,
-        })
-      if (assignmentError) {
-        console.error(
-          "[invites] user_role_assignments insert failed:",
-          assignmentError
-        )
+    let passwordPreserved=false
+    const existing=await exactIdentity()
+    if(existing.user){
+      if(!matches(existing.user))return uncertain()
+      passwordPreserved=true
+    }else{
+      if(!existing.missing)return uncertain()
+      let created:BoundIdentity|null=null
+      try{const result=await admin.auth.admin.createUser({
+        id:authUserId,email:invite.email,password,email_confirm:true,
+        app_metadata:{_invite_provisioned:true,_invite_id:invite.id,_invite_tenant_id:invite.tenant_id},
+        user_metadata:{full_name:fullName},
+      });if(!result.error)created=result.data?.user??null}catch{/* Reconcile a lost creation response by exact bound ID. */}
+      if(created){if(!matches(created))return uncertain()}
+      else{
+        const recovered=await exactIdentity()
+        if(!recovered.user||!matches(recovered.user))return uncertain()
+        // A duplicate race or lost response may have used an earlier password.
+        // Never reset that password or adopt an unrelated existing email.
+        passwordPreserved=true
       }
-    } else if (process.env.NODE_ENV !== "production") {
-      console.warn(
-        "[invites] role not found for assignment:",
-        invite.role
-      )
     }
+    const completed=():ActionResult=>passwordPreserved?{success:true,passwordPreserved:true,notice:"Your account is ready. Use the password from your first invitation attempt. If you do not remember it, use Forgot password on the sign-in page. Your password was not changed by this retry.",noticeAr:"حسابك جاهز. استخدم كلمة المرور من أول محاولة لقبول الدعوة. إذا لم تتذكرها، استخدم «نسيت كلمة المرور» في صفحة تسجيل الدخول. لم تغيّر هذه المحاولة كلمة المرور."}:{success:true}
 
-    // 6. Mark the invite accepted (prevents replay).
-    const { error: updateError } = await admin
-      .from("invites")
-      .update({
-        status: "accepted",
-        accepted_at: nowIso(),
-        accepted_by: authUserId,
-      })
-      .eq("id", invite.id)
+    // A response may be lost after commit. Both attempts finalize the same
+    // bound identity; no failure deletes an identity another request may use.
+    const args={p_invite_id:invite.id,p_auth_user_id:authUserId,p_full_name:fullName}
+    type ProvisionResult={data:{id?:string}|null;error:unknown}
+    const provision=async():Promise<ProvisionResult>=>{try{return await admin.rpc("accept_managed_invite",args)}catch{return{data:null,error:null}}}
+    const first=await provision()
+    if(first.data?.id&&!first.error)return completed()
+    const retry=await provision()
+    if(!retry.error&&retry.data?.id)return completed()
+    console.error("[invites] provisioning outcome needs reconciliation")
+    return uncertain()
 
-    if (updateError) throw updateError
-
-    // 7. Audit log (writeAuditLog uses the admin client and never throws).
-    //    actor_id references auth.users(id) — NOT the custom users row — so
-    //    pass the auth user id (newUserId would violate the FK; the custom id
-    //    is recorded below in newValues).
-    await writeAuditLog({
-      tenantId: invite.tenant_id,
-      actorId: authUserId,
-      module: "users",
-      action: "invite_accepted",
-      entityType: "invite",
-      entityId: invite.id,
-      newValues: {
-        user_id: newUserId,
-        auth_user_id: authUserId,
-        role: invite.role,
-      },
-    })
-
-    return { success: true }
-  } catch (e) {
-    return { success: false, error: errorMessage(e) }
+  } catch {
+    return { success: false, error: "The invitation could not be completed. Reload and try again.", errorAr: "تعذر إكمال الدعوة. أعد تحميل الصفحة وحاول مجدداً." }
   }
 }
 
@@ -432,37 +223,13 @@ export async function acceptInvite(
 export async function revokeInvite(inviteId: string): Promise<ActionResult> {
   try {
     await requirePermission("users", "manage")
-
-    const currentUser = await getCurrentUser()
-    if (!currentUser) {
-      return { success: false, error: "Not authenticated." }
-    }
-
-    // Use admin client — migration 058 dropped authenticated UPDATE policy on invites.
-    // Tenant scoping is enforced by requirePermission + getCurrentUser above.
-    const admin = createAdminClient()
-    const { error } = await admin
-      .from("invites")
-      .update({ status: "revoked" })
-      .eq("id", inviteId)
-      .eq("tenant_id", currentUser.tenantId)
-      .eq("status", "pending")
-
-    if (error) throw error
-
-    await writeAuditLog({
-      tenantId: currentUser.tenantId,
-      actorId: currentUser.authUserId,
-      module: "users",
-      action: "invite_revoked",
-      entityType: "invite",
-      entityId: inviteId,
-    })
-
-    return { success: true }
-  } catch (e) {
-    return { success: false, error: errorMessage(e) }
-  }
+    const me=await getCurrentUser()
+    if(!me||me.role!=="general_manager"||!z.uuid().safeParse(inviteId).success) return {success:false,error:"Only the general manager can revoke a valid pending invitation.",errorAr:"يمكن للمدير العام فقط إلغاء دعوة صالحة قيد الانتظار."}
+    const caller=await createClient()
+    const {data,error}=await caller.rpc("revoke_managed_invite",{p_id:inviteId})
+    if(error||!data?.id)return{success:false,error:"The invitation could not be revoked. Reload to check whether it was already accepted or revoked.",errorAr:"تعذر إلغاء الدعوة. أعد التحميل للتحقق مما إذا كانت قد قُبلت أو أُلغيت بالفعل."}
+    return{success:true}
+  }catch{return{success:false,error:"The invitation could not be revoked. Reload and try again.",errorAr:"تعذر إلغاء الدعوة. أعد التحميل وحاول مجدداً."}}
 }
 
 /**
@@ -479,13 +246,13 @@ export async function listPendingInvites(): Promise<PendingInvite[]> {
 
     // Use admin client for consistency with other invite operations.
     const admin = createAdminClient()
-    const { data, error } = await admin
+    const { data, error } = await fetchAllRows<{id:string;email:string;role:string;created_at:string;expires_at:string}>(()=>admin
       .from("invites")
       .select("id, email, role, created_at, expires_at")
       .eq("status", "pending")
       .eq("tenant_id", currentUser.tenantId)
       .is("deleted_at", null)
-      .order("created_at", { ascending: false })
+      .order("created_at", { ascending: false }).order("id"))
 
     if (error) throw error
 
@@ -505,9 +272,5 @@ export async function listPendingInvites(): Promise<PendingInvite[]> {
       invited_at: row.created_at,
       expires_at: row.expires_at,
     }))
-  } catch (e) {
-    // Signature returns an array; log and degrade to an empty list on error.
-    console.error("[invites] listPendingInvites failed:", e)
-    return []
-  }
+  } catch {throw new Error("Could not load invitations. Try again.")}
 }

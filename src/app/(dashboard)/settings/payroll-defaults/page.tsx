@@ -2,26 +2,26 @@
 
 import { useEffect, useState } from "react"
 import { useActionState } from "react"
+import { settingsMessage } from "@/lib/settings/schema"
 import { useTranslation } from "@/hooks/use-translation"
-import { updateSystemSettings, fetchPayrollDefaults, type PayrollSetting } from "@/lib/settings/actions"
+import { updateSystemSettings, fetchPayrollDefaults, type PayrollSetting, type SettingsActionResult } from "@/lib/settings/actions"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { AlertTriangle, Save, CheckCircle2, CreditCard } from "lucide-react"
+import { Save, CheckCircle2, CreditCard } from "lucide-react"
 import { LoadingSpinner } from "@/components/ui/loading-spinner"
-
 
 function keyMeta(key: string, ar: boolean): { label: string; desc: string; unit?: string } {
   const map: Record<string, { ar: string; en: string; descAr: string; descEn: string; unit?: string }> = {
     "payroll.default_working_days": {
       ar: "أيام العمل الافتراضية شهرياً",
       en: "Default working days / month",
-      descAr: "أساس احتساب الراتب الأساسي النسبي",
-      descEn: "Base for the prorated base salary",
+      descAr: "قيمة مرجعية تُراجع عند إعداد قواعد راتب السائق",
+      descEn: "Reference value reviewed when preparing driver pay rules",
     },
     "payroll.saudi_minimum_wage": {
-      ar: "الحد الأدنى لأجور السعوديين",
-      en: "Saudi minimum wage",
+      ar: "حد تنبيه الأجر للمواطنين",
+      en: "Saudi employee pay advisory",
       descAr: "تنبيه عند انخفاض صافي راتب المواطن السعودي عن هذا المبلغ",
       descEn: "Advisory when a Saudi national's net falls below this",
       unit: "SAR",
@@ -29,15 +29,8 @@ function keyMeta(key: string, ar: boolean): { label: string; desc: string; unit?
     "payroll.min_net_floor": {
       ar: "الحد الأدنى لصافي الراتب",
       en: "Minimum net payroll floor",
-      descAr: "حد أدنى إلزامي لصافي راتب أي سائق",
-      descEn: "Hard floor applied to any driver's net pay",
-      unit: "SAR",
-    },
-    "payroll.waiver_threshold_admin": {
-      ar: "حد إعفاء المسؤول",
-      en: "Admin waiver threshold",
-      descAr: "الحد الأقصى للمخالفة التي يمكن إعفاؤها دون موافقة المدير العام",
-      descEn: "Max violation amount waivable without GM approval",
+      descAr: "قيمة مرجعية للحد الأدنى تُراجع لكل قاعدة راتب",
+      descEn: "Reference floor reviewed for each driver pay rule",
       unit: "SAR",
     },
   }
@@ -56,13 +49,18 @@ export default function PayrollDefaultsSettingsPage() {
 
   const [rows, setRows] = useState<PayrollSetting[]>([])
   const [values, setValues] = useState<Record<string, string>>({})
+  const [version, setVersion] = useState(0)
+  const [canManage, setCanManage] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
 
   useEffect(() => {
     async function load() {
       try {
-        const list = await fetchPayrollDefaults()
+        const bundle = await fetchPayrollDefaults()
+        const list = bundle.rows
+        setVersion(bundle.configuration_version)
+        setCanManage(bundle.can_manage)
         if (!list.length) {
           setLoadError(true)
         } else {
@@ -79,13 +77,15 @@ export default function PayrollDefaultsSettingsPage() {
     load()
   }, [])
 
-  const [state, formAction, isPending] = useActionState(
-    async (_prev: { success: boolean; error?: string } | null, _form: FormData) => {
+  const [state, formAction, isPending] = useActionState<SettingsActionResult | null, FormData>(
+    async () => {
       const updates = Object.entries(values)
         .filter(([, v]) => v !== "")
         .map(([key, value]) => ({ key, value }))
       if (updates.length === 0) return { success: false, error: ar ? "لا توجد قيم للتحديث." : "Nothing to update." }
-      return updateSystemSettings(updates)
+      const result = await updateSystemSettings(updates, version)
+      if (result.success && result.configuration_version) setVersion(result.configuration_version)
+      return result
     },
     null
   )
@@ -100,30 +100,17 @@ export default function PayrollDefaultsSettingsPage() {
     )
   }
 
-  const minWage = Number(values["payroll.saudi_minimum_wage"] ?? 0)
-  const belowWageAdvisory = minWage > 0 && minWage < 4000
 
   return (
     <div className="page-enter px-4 lg:px-6 py-4 space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-foreground">{t.settings.payrollDefaults}</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          {ar ? "الضوابط الافتراضية المستخدمة في محرك حساب الرواتب" : "Defaults consumed by the payroll calculation engine"}
+          {ar ? "قيم مرجعية لإعداد قواعد رواتب السائقين واعتمادها" : "Reference values for preparing reviewed driver pay rules"}
         </p>
       </div>
 
-      {belowWageAdvisory && (
-        <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-700">
-          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
-          <p>
-            {ar
-              ? "الحد الأدنى لأجور السعوديين المعتمد هو 4000 ريال. القيمة الحالية أقل من ذلك وقد تشغّل تحذيرات التوظيف."
-              : "The official Saudi minimum wage for nationals is 4,000 SAR. The current value is below it, which may trigger compliance warnings."}
-          </p>
-        </div>
-      )}
-
-      <form action={formAction}>
+      <form action={formAction}><fieldset disabled={isPending || loadError || !canManage} className="min-w-0">
         <Card className="rounded-2xl border border-border/50 bg-card shadow-sm">
           <CardHeader className="pb-4">
             <div className="flex items-center gap-3">
@@ -162,13 +149,17 @@ export default function PayrollDefaultsSettingsPage() {
                     <p className="mt-0.5 text-xs text-muted-foreground">{meta.desc}</p>
                     {!isPublic && (
                       <span className="mt-1 inline-block rounded-full bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 text-[11px] text-amber-600">
-                        {ar ? "خاص — المدير العام فقط" : "Private — GM only"}
+                        {ar ? "خاص — مسؤولو الإعدادات" : "Private — settings managers"}
                       </span>
                     )}
                   </div>
                   <div className="flex items-center gap-2">
                     <Input
                       type="number"
+                      aria-label={meta.label}
+                      min={r.key === "payroll.default_working_days" ? 1 : 0}
+                      max={r.key === "payroll.default_working_days" ? 31 : 999999999.99}
+                      step={r.key === "payroll.default_working_days" ? "1" : "0.01"}
                       dir="ltr"
                       value={values[r.key] ?? ""}
                       onChange={(e) => setValues((prev) => ({ ...prev, [r.key]: e.target.value }))}
@@ -196,9 +187,9 @@ export default function PayrollDefaultsSettingsPage() {
               <CheckCircle2 className="h-4 w-4" /> {t.common.saved}
             </span>
           )}
-          {state?.error && <span className="text-sm text-red-500">{state.error}</span>}
+          {state?.error && <span className="text-sm text-red-500">{state.code ? settingsMessage(state.code, locale) : state.error}</span>}
         </div>
-      </form>
+      </fieldset></form>
     </div>
   )
 }

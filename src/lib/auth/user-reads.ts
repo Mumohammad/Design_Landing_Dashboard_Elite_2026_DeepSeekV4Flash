@@ -12,6 +12,7 @@
 //   4. Never exposes secret/lock fields to the client
 
 import { requirePermission, getCurrentUser } from "@/lib/auth/authorization"
+import {createClient} from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
 
 export type SafeUserRow = {
@@ -41,36 +42,16 @@ export type SecurityUserRow = {
 
 /**
  * Fetch user list for the /settings/users page.
- * Requires users.read permission. Uses the admin client to bypass RLS
- * (since migration 058 removed authenticated write policies, the admin
- * client ensures consistent reads regardless of future RLS changes).
+ * Requires users.read permission. Uses the caller-bound paged management
+ * RPC so tenant, permission and MFA checks remain enforced in the database.
  *
  * Excludes sensitive fields: two_factor_secret, locked_until, failed_login_attempts,
  * last_login_ip, password_changed_at.
  */
-export async function fetchUsersForSettings(): Promise<SafeUserRow[]> {
-  await requirePermission("users", "read")
-
-  const currentUser = await getCurrentUser()
-  if (!currentUser) return []
-
-  const admin = createAdminClient()
-  const { data, error } = await admin
-    .from("users")
-    .select(
-      "id, employee_code, full_name_ar, full_name_en, email, role, status, two_factor_enabled, must_change_password, last_login_at"
-    )
-    .eq("tenant_id", currentUser.tenantId)
-    .is("deleted_at", null)
-    .order("created_at", { ascending: false })
-    .limit(100)
-
-  if (error) {
-    console.error("[settings/users] fetchUsersForSettings failed:", error)
-    return []
-  }
-
-  return (data ?? []) as SafeUserRow[]
+export async function fetchUsersForSettings():Promise<SafeUserRow[]>{
+ await requirePermission("users","read")
+ const client=await createClient();const rows:SafeUserRow[]=[]
+ for(let page=1;;page++){const{data,error}=await client.rpc("list_managed_users",{p_surface:"users",p_page:page,p_page_size:100});if(error||!data||!Array.isArray(data.users))throw new Error("Could not load users. Try again.");rows.push(...data.users);if(rows.length>=data.total)return rows;if(!data.users.length)throw new Error("Incomplete user roster")}
 }
 
 /**
@@ -81,29 +62,10 @@ export async function fetchUsersForSettings(): Promise<SafeUserRow[]> {
  * failed_login_attempts is included here because it's needed for
  * the security dashboard display (lockout monitoring).
  */
-export async function fetchSecurityOverview(): Promise<SecurityUserRow[]> {
-  await requirePermission("users", "read")
-
-  const currentUser = await getCurrentUser()
-  if (!currentUser) return []
-
-  const admin = createAdminClient()
-  const { data, error } = await admin
-    .from("users")
-    .select(
-      "id, email, full_name_ar, role, status, two_factor_enabled, must_change_password, failed_login_attempts, last_login_at"
-    )
-    .eq("tenant_id", currentUser.tenantId)
-    .is("deleted_at", null)
-    .order("failed_login_attempts", { ascending: false })
-    .limit(100)
-
-  if (error) {
-    console.error("[security] fetchSecurityOverview failed:", error)
-    return []
-  }
-
-  return (data ?? []) as SecurityUserRow[]
+export async function fetchSecurityOverview():Promise<SecurityUserRow[]>{
+ await requirePermission("users","read")
+ const client=await createClient();const rows:SecurityUserRow[]=[]
+ for(let page=1;;page++){const{data,error}=await client.rpc("list_managed_users",{p_surface:"security",p_page:page,p_page_size:100});if(error||!data||!Array.isArray(data.users))throw new Error("Could not load users. Try again.");rows.push(...data.users);if(rows.length>=data.total)return rows;if(!data.users.length)throw new Error("Incomplete user roster")}
 }
 
 // ─── Audit Log ──────────────────────────────────────────────────────────
@@ -122,8 +84,8 @@ export type AuditLogRow = {
 /**
  * Fetch audit log entries for the /audit-log page.
  * Requires audit_log.read permission (or general_manager bypass).
- * Uses admin client to bypass RLS — audit logs are append-only and
- * read access is permission-gated at the application layer.
+ * Uses the caller-bound safe view, which enforces tenant, MFA, permission
+ * and metadata privacy independently in the database.
  */
 export async function fetchAuditLog(): Promise<AuditLogRow[]> {
   await requirePermission("audit_log", "read")
@@ -131,17 +93,17 @@ export async function fetchAuditLog(): Promise<AuditLogRow[]> {
   const currentUser = await getCurrentUser()
   if (!currentUser) return []
 
-  const admin = createAdminClient()
-  const { data, error } = await admin
-    .from("audit_log")
+  const caller = await createClient()
+  const { data, error } = await caller
+    .from("audit_log_safe")
     .select("id, module, entity_type, action, actor_id, ip_address, created_at, new_values")
     .eq("tenant_id", currentUser.tenantId)
     .order("created_at", { ascending: false })
     .limit(200)
 
   if (error) {
-    console.error("[audit-log] fetchAuditLog failed:", error)
-    return []
+    console.error("[audit-log] safe audit read failed")
+    throw new Error("Could not load audit history. Try again.")
   }
 
   return (data ?? []) as AuditLogRow[]

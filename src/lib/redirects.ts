@@ -122,14 +122,27 @@ export function toAbsoluteUrl(url: string, origin: string): string {
  * URLs allow-list, and it requires them to be absolute (scheme + host).
  * Use this for resetPasswordForEmail / signInWithOtp / signInWithOAuth.
  */
+function validatedEmailOrigin(raw: string | undefined): string {
+  if (!raw) throw new Error("Authentication email origin is not configured.")
+  let parsed: URL
+  try { parsed = new URL(raw) } catch { throw new Error("Authentication email origin is invalid.") }
+  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname)
+  if ((parsed.protocol !== "https:" && !(parsed.protocol === "http:" && loopback)) ||
+      parsed.username || parsed.password || parsed.search || parsed.hash) {
+    throw new Error("Authentication email origin is invalid.")
+  }
+  return parsed.origin
+}
+
 export function authCallbackUrlWithReturn(): string {
-  if (/^https?:\/\//i.test(REDIRECTS.authConfirmUrl)) {
-    return REDIRECTS.authConfirmUrl
-  }
-  if (typeof window !== "undefined") {
-    return `${window.location.origin}/auth/confirm`
-  }
-  return REDIRECTS.authConfirmUrl
+  // Email destinations are deployment configuration, never request Host/Origin.
+  // A relative server target would silently fall back to Supabase's Site URL.
+  const origin = /^https?:\/\//i.test(REDIRECTS.authConfirmUrl)
+    ? validatedEmailOrigin(REDIRECTS.authConfirmUrl)
+    : typeof window !== "undefined"
+      ? validatedEmailOrigin(window.location.origin)
+      : validatedEmailOrigin(process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXT_PUBLIC_SITE_URL)
+  return new URL("/auth/confirm", origin).toString()
 }
 
 /** Attach ?returnTo=… to the landing URL (open-redirect-safe). */

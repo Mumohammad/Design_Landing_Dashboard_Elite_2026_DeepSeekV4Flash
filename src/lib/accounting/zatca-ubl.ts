@@ -36,6 +36,7 @@ export const INVOICE_TYPE_CODES: Record<ZatcaDocType, string> = {
 }
 
 export interface ZatcaLine {
+  item_name?: string | null
   line_no: number
   description: string
   quantity: number
@@ -149,6 +150,12 @@ function partyXml(kind: "seller" | "buyer", p: ZatcaParty): string {
     .join("\n")
 }
 
+function unitPrice(value: number): string {
+  const text = String(value)
+  if (!Number.isFinite(value) || value < 0 || value > 9999999999.99 || !/^\d+(?:\.\d{1,4})?$/.test(text)) throw new Error("Invalid unit price precision")
+  const [whole, fraction = ""] = text.split(".")
+  return whole + "." + fraction.padEnd(2, "0")
+}
 function lineXml(l: ZatcaLine, currency: string): string {
   const category = vatCategory(l.vat_rate)
   const discount = money(l.discount ?? 0)
@@ -160,14 +167,15 @@ function lineXml(l: ZatcaLine, currency: string): string {
     Number(discount) > 0 ? `        <cac:AllowanceCharge><cbc:ChargeIndicator>false</cbc:ChargeIndicator><cbc:AllowanceChargeReason>Line discount</cbc:AllowanceChargeReason><cbc:Amount currencyID="${currency}">${discount}</cbc:Amount></cac:AllowanceCharge>` : "",
     `        <cac:TaxTotal><cbc:TaxAmount currencyID="${currency}">${money(l.vat_amount)}</cbc:TaxAmount><cbc:RoundingAmount currencyID="${currency}">${money(l.amount + l.vat_amount)}</cbc:RoundingAmount></cac:TaxTotal>`,
     `        <cac:Item>`,
-    `          <cbc:Name>${escXml(l.description)}</cbc:Name>`,
+    l.item_name ? `          <cbc:Description>${escXml(l.description)}</cbc:Description>` : "",
+    `          <cbc:Name>${escXml(l.item_name || l.description)}</cbc:Name>`,
     `          <cac:ClassifiedTaxCategory>`,
     `            <cbc:ID>${category}</cbc:ID>`,
     `            <cbc:Percent>${l.vat_rate}</cbc:Percent>`,
     `            <cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme>`,
     `          </cac:ClassifiedTaxCategory>`,
     `        </cac:Item>`,
-    `        <cac:Price><cbc:PriceAmount currencyID="${currency}">${money(l.unit_price)}</cbc:PriceAmount></cac:Price>`,
+    `        <cac:Price><cbc:PriceAmount currencyID="${currency}">${unitPrice(l.unit_price)}</cbc:PriceAmount></cac:Price>`,
     `      </cac:InvoiceLine>`,
   ].join("\n")
 }
@@ -181,6 +189,7 @@ export function buildZatcaUblInvoice(data: ZatcaInvoiceData): string {
   if (!/^[A-Z]{3}$/.test(data.currency)) throw new Error("Invalid invoice currency")
   if (data.invoiceCounter !== undefined && (!Number.isSafeInteger(data.invoiceCounter) || data.invoiceCounter < 1)) throw new Error("Invalid invoice counter")
   if (!data.lines.length || data.lines.some((line) => !Number.isFinite(line.quantity) || line.quantity <= 0 || !Number.isFinite(line.vat_rate) || line.vat_rate < 0)) throw new Error("Invalid invoice line")
+  if (data.lines.some(line => line.item_name != null && (typeof line.item_name !== "string" || !line.item_name.trim() || line.item_name !== line.item_name.trim() || line.item_name.length > 200))) throw new Error("Invalid item name")
   const currency = escXml(data.currency || "SAR")
   const profileId = data.profileId ?? "reporting:1.0"
   const taxTotal = [

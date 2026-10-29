@@ -2,13 +2,14 @@
 
 import { LocalizedText, useUiText } from "@/components/localized-text"
 import { useTranslation } from "@/hooks/use-translation"
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { CalendarClock, Loader2, Send } from "lucide-react";
 import { toast } from "sonner";
 
 import { emitDriverChanged } from "@/lib/drivers/driver-events";
-import { createClient } from "@/lib/supabase/client";
+import { useLeaveTypes } from "@/hooks/use-leave-types";
+import { mutateDriverLeave } from "@/lib/drivers/leave-actions"
 import { formatDualDate } from "@/lib/formatting/hijri";
 import { Button } from "@/components/ui/button";
 import {
@@ -30,7 +31,6 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
-type LeaveTypeRow = { id: string; name_en: string | null; name_ar: string | null; code?: string | null };
 
 
 type LeaveRequestDialogProps = {
@@ -54,7 +54,12 @@ function diffDaysInclusive(start: string, end: string) {
   return days > 0 ? days : null;
 }
 
-export function LeaveRequestDialog({
+export function LeaveRequestDialog(props: LeaveRequestDialogProps) {
+  if (!props.open) return null;
+  return <LeaveRequestForm key={props.driverId} {...props} />;
+}
+
+function LeaveRequestForm({
   open,
   onOpenChange,
   driverId,
@@ -63,91 +68,43 @@ export function LeaveRequestDialog({
 }: LeaveRequestDialogProps) {
   const ui = useUiText()
   const { locale } = useTranslation()
-  const supabase = createClient();
-
-  const [leaveTypes, setLeaveTypes] = useState<LeaveTypeRow[]>([]);
-  const [typeId, setTypeId] = useState<string>("");
+  const catalog=useLeaveTypes();
+  const leaveTypes=catalog.rows;
+  const [selectedTypeId, setTypeId] = useState<string>("");
+  const typeId=leaveTypes.some(type=>type.id===selectedTypeId)?selectedTypeId:leaveTypes[0]?.id??"";
   // Leave-type code of the current selection — drives the Saudi Labor Law hint.
   const selectedType = leaveTypes.find((t) => t.id === typeId);
-  const selectedTypeCode = (selectedType as (LeaveTypeRow & { code?: string }) | undefined)?.code;
-  const [startDate, setStartDate] = useState<string>(toDateInputValue(new Date()));
-  const [endDate, setEndDate] = useState<string>(toDateInputValue(new Date()));
+  const selectedTypeCode = selectedType?.code;
+  const [startDate, setStartDate] = useState(() => toDateInputValue(new Date()));
+  const [endDate, setEndDate] = useState(() => toDateInputValue(new Date()));
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
-
-  // Live schema: leave_types carries (id, name_en, name_ar) and
-  // driver_leave_requests.leave_type_id references its id. When no types are
-  // configured the select renders an empty state — never a hardcoded fallback.
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    const load = async () => {
-      const { data } = await supabase
-        .from("leave_types")
-        .select("id, name_en, name_ar, code")
-        .order("name_en", { ascending: true });
-      if (cancelled) return;
-      const rows = (data as LeaveTypeRow[] | null) ?? [];
-      if (rows.length > 0) {
-        setLeaveTypes(rows);
-        setTypeId((current) => (current && rows.some((r) => r.id === current) ? current : rows[0].id));
-      }
-    };
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [open, supabase]);
-
-  useEffect(() => {
-    if (!open) return;
-    setStartDate(toDateInputValue(new Date()));
-    setEndDate(toDateInputValue(new Date()));
-    setReason("");
-    setTypeId((current) =>
-      current && leaveTypes.some((r) => r.id === current) ? current : (leaveTypes[0]?.id ?? ""),
-    );
-  }, [open, leaveTypes]);
+  const [requestKey]=useState(() => crypto.randomUUID());
 
   const days = diffDaysInclusive(startDate, endDate);
 
   const submit = async () => {
     if (saving) return;
     if (!typeId) {
-      toast.error("Select a leave type");
+      toast.error(locale==="ar"?"اختر نوع الإجازة":"Select a leave type");
       return;
     }
     if (!days) {
-      toast.error("End date must be on or after the start date");
+      toast.error(ui("End date must be on or after the start date"));
       return;
     }
 
     setSaving(true);
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      const result=await mutateDriverLeave({action:"create",driverId,clientRequestId:requestKey,leaveTypeId:typeId,startDate,endDate,reason})
+      if(!result.success)throw Error(locale==="ar"?result.errorAr:result.error)
 
-      // Live schema: leave_type_id uuid NOT NULL; requested_by exists.
-      const { error } = await supabase.from("driver_leave_requests").insert({
-        driver_id: driverId,
-        leave_type_id: typeId,
-        start_date: startDate,
-        end_date: endDate,
-        days_requested: days,
-        reason: reason.trim() || null,
-        status: "pending",
-        requested_by: user?.id ?? null,
-      });
-
-      if (error) throw error;
-
-      toast.success(`Leave request submitted for ${driverName}`);
+      toast.success(locale==="ar"?`تم إرسال طلب إجازة ${driverName}`:`Leave request submitted for ${driverName}`);
       onOpenChange(false);
       onSaved?.();
       emitDriverChanged({ driverId, action: "leave" });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to submit leave request";
+      const message = error instanceof Error ? error.message : ui("Failed to submit leave request");
       toast.error(message);
     } finally {
       setSaving(false);
@@ -155,7 +112,7 @@ export function LeaveRequestDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={next=>{if(!saving)onOpenChange(next)}}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -164,12 +121,12 @@ export function LeaveRequestDialog({
             {" "}<LocalizedText text="It will be routed for approval." /></DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <fieldset disabled={saving} className="min-w-0 space-y-4">
           <div className="space-y-2">
             <Label htmlFor="leave-type"><LocalizedText text="Leave type" /></Label>
-            <Select value={typeId} onValueChange={setTypeId}>
+            <Select value={typeId} onValueChange={setTypeId} disabled={saving||catalog.loading||catalog.error||leaveTypes.length===0}>
               <SelectTrigger id="leave-type">
-                <SelectValue placeholder={ui("Select leave type")} />
+                <SelectValue placeholder={catalog.loading?(locale==="ar"?"جارٍ التحميل…":"Loading…"):ui(leaveTypes.length?"Select leave type":"No leave types configured")} />
               </SelectTrigger>
               <SelectContent>
                 {leaveTypes.map((type) => (
@@ -181,6 +138,7 @@ export function LeaveRequestDialog({
             </Select>
           </div>
 
+          {catalog.error?<div role="alert" className="space-y-2 text-sm text-destructive"><p>{locale==="ar"?"تعذر تحميل أنواع الإجازات.":"Could not load leave types."}</p><Button variant="outline" size="sm" onClick={catalog.retry}>{locale==="ar"?"أعد المحاولة":"Try again"}</Button></div>:null}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
               <Label htmlFor="leave-start"><LocalizedText text="Start date" /></Label>
@@ -204,7 +162,7 @@ export function LeaveRequestDialog({
           </div>
 
           <p className="text-xs text-muted-foreground">
-            {days ? `${days} day${days === 1 ? "" : "s"} requested` : "Select a valid date range"}
+            {days ? (locale==="ar"?`${days} يوم مطلوب`:`${days} day${days === 1 ? "" : "s"} requested`) : ui("Select a valid date range")}
           </p>
 
           {/* Dual-calendar display (Saudi requirement): Gregorian + Hijri */}
@@ -223,20 +181,22 @@ export function LeaveRequestDialog({
           ) : null}
 
           <div className="space-y-2">
-            <Label htmlFor="leave-reason"><LocalizedText text="Reason (optional)" /></Label>
+            <Label htmlFor="leave-reason"><LocalizedText text="Reason" /></Label>
             <Textarea
               id="leave-reason"
+              minLength={5} maxLength={500} required aria-describedby="leave-reason-hint"
               value={reason}
               onChange={(event) => setReason(event.target.value)}
               rows={3}
               placeholder={ui("Add context for the approver…")}
             />
+            <p id="leave-reason-hint" className="text-xs text-muted-foreground">{locale==="ar"?"مطلوب، من 5 إلى 500 حرف.":"Required, 5 to 500 characters."}</p>
           </div>
-        </div>
+        </fieldset>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}><LocalizedText text="Cancel" /></Button>
-          <Button onClick={() => void submit()} disabled={saving || !days || !typeId}>
+          <Button onClick={() => void submit()} disabled={saving || catalog.loading || catalog.error || !days || !typeId || !requestKey || reason.trim().length<5 || reason.trim().length>500}>
             {saving ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}<LocalizedText text="Submit Request" /></Button>
         </DialogFooter>
       </DialogContent>

@@ -9,45 +9,70 @@ interface LocaleContextValue {
 }
 
 const defaultLocale: Locale = "ar"
+const STORAGE_KEY = "elite-locale"
+const localeListeners = new Set<() => void>()
+// Keep switching usable when the browser blocks localStorage.
+let fallbackLocale: Locale = defaultLocale
+let persistenceUnavailable = false
+
+function getLocaleSnapshot(): Locale {
+  const requested = new URLSearchParams(window.location.search).get("lang")
+  if (requested === "ar" || requested === "en") return requested
+  if (persistenceUnavailable) return fallbackLocale
+  try {
+    const saved = window.localStorage.getItem(STORAGE_KEY)
+    if (saved === "ar" || saved === "en") return saved
+  } catch { /* optional persistence */ }
+  return fallbackLocale
+}
+
+function getServerLocaleSnapshot() {
+  return defaultLocale
+}
+
+function setLocale(next: Locale) {
+  fallbackLocale = next
+  try {
+    window.localStorage.setItem(STORAGE_KEY, next)
+    persistenceUnavailable = false
+  } catch { persistenceUnavailable = true }
+  localeListeners.forEach((listener) => listener())
+}
+
+function subscribeToLocale(onChange: () => void) {
+  fallbackLocale = getLocaleSnapshot()
+  localeListeners.add(onChange)
+  const requested = new URLSearchParams(window.location.search).get("lang")
+  if (requested === "ar" || requested === "en") {
+    const url = new URL(window.location.href)
+    url.searchParams.delete("lang")
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`)
+    setLocale(requested)
+  }
+
+  const sync = (event: StorageEvent) => {
+    if (event.key === STORAGE_KEY && (event.newValue === "ar" || event.newValue === "en")) {
+      fallbackLocale = event.newValue
+      persistenceUnavailable = false
+      onChange()
+    }
+  }
+  window.addEventListener("storage", sync)
+  return () => {
+    localeListeners.delete(onChange)
+    window.removeEventListener("storage", sync)
+  }
+}
 
 export const LocaleContext = React.createContext<LocaleContextValue | null>(null)
 
 export function LocaleProvider({ children }: { children: React.ReactNode }) {
-  const [locale, updateLocale] = React.useState<Locale>(defaultLocale)
-
-  const setLocale = React.useCallback((next: Locale) => {
-    updateLocale(next)
-    document.documentElement.lang = next
-    document.documentElement.dir = next === "ar" ? "rtl" : "ltr"
-    // Storage can be unavailable in private/embedded browsers. Switching the
-    // current interface must still work even when persistence is unavailable.
-    try { window.localStorage.setItem("elite-locale", next) } catch { /* optional persistence */ }
-  }, [])
+  const locale = React.useSyncExternalStore(subscribeToLocale, getLocaleSnapshot, getServerLocaleSnapshot)
 
   React.useEffect(() => {
-    if (typeof window === "undefined") return
-
-    let saved: string | null = null
-    try { saved = window.localStorage.getItem("elite-locale") } catch { /* optional persistence */ }
-    const requested = new URLSearchParams(window.location.search).get("lang")
-    const next = requested === "ar" || requested === "en" ? requested : saved
-    setLocale(next === "en" ? "en" : defaultLocale)
-    if (requested === "ar" || requested === "en") {
-      const url = new URL(window.location.href)
-      url.searchParams.delete("lang")
-      window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`)
-    }
-
-    const sync = (event: StorageEvent) => {
-      if (event.key === "elite-locale" && (event.newValue === "ar" || event.newValue === "en")) {
-        updateLocale(event.newValue)
-        document.documentElement.lang = event.newValue
-        document.documentElement.dir = event.newValue === "ar" ? "rtl" : "ltr"
-      }
-    }
-    window.addEventListener("storage", sync)
-    return () => window.removeEventListener("storage", sync)
-  }, [setLocale])
+    document.documentElement.lang = locale
+    document.documentElement.dir = locale === "ar" ? "rtl" : "ltr"
+  }, [locale])
 
   return (
     <LocaleContext.Provider value={{ locale, setLocale }}>

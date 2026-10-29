@@ -13,9 +13,9 @@
 --      TRUNCATE privilege on audit_log (TRUNCATE bypasses RLS + the 009
 --      row trigger — 20260924140000 revokes it)
 --   4. fetch_audit_trail_page: SECURITY DEFINER + pinned search_path, anon
---      denied, authenticated + service_role granted, hard cap at 100 rows
+--      denied, authenticated granted, service_role denied, hard cap at 100 rows
 --   5. BEHAVIORAL: tenant isolation (definer still never crosses tenants),
---      newest-first ordering, reason projection, action/entity/actor/date
+--      newest-first ordering, private reason suppression, action/entity/actor/date
 --      filters (the surface's filter set)
 --   6. Append-only enforcement: authenticated UPDATE/DELETE/TRUNCATE/INSERT
 --      all fail (42501); the 009 immutability trigger still fires for
@@ -210,8 +210,8 @@ RESET ROLE;
 SET LOCAL ROLE service_role;
 SELECT is(
   has_function_privilege('service_role', 'public.fetch_audit_trail_page(uuid, timestamptz, timestamptz, uuid, text, text, text, uuid, integer)', 'EXECUTE'),
-  true,
-  'service_role can EXECUTE fetch_audit_trail_page'
+  false,
+  'service_role cannot EXECUTE caller-bound fetch_audit_trail_page'
 );
 
 -- ─── 4. BEHAVIORAL: cap, isolation, ordering, filters (8) ───────────────────
@@ -250,13 +250,13 @@ SELECT is(
   'fetch_audit_trail_page orders newest-first'
 );
 
--- Reason projection: created event surfaces new_values->>'reason'.
+-- Freeform reasons remain private even when the caller can read event metadata.
 SELECT is(
   (SELECT reason FROM public.fetch_audit_trail_page(
      '11111111-1111-1111-1111-111111111111',
      NULL, NULL, NULL, 'created', NULL, NULL, NULL, 10)),
-  'seed reason',
-  'reason is projected from new_values->>reason'
+  NULL::text,
+  'freeform reason is suppressed at the safe audit boundary'
 );
 
 -- Action filter.

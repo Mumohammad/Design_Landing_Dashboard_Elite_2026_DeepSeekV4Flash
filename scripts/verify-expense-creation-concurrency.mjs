@@ -43,7 +43,8 @@ export async function verifyExpenseCreation(sql){
     finally{await sql(`DROP TRIGGER ${fault} ON public.audit_log;DROP FUNCTION public.${fault}();`)}
     assert.equal(await sql(`SELECT count(*) FROM public.expenses WHERE tenant_id='${tenant}' AND request_id='${retry}'`),'0')
     assert.equal(await sql(`SELECT count(*) FROM public.audit_log WHERE tenant_id='${tenant}' AND new_values->>'request_id'='${retry}'`),'0')
-    assert.equal((await call(retry)).replayed,false)
+    const recovered=await call(retry)
+    assert.equal(recovered.replayed,false)
     stage='JWT permission and managed identity guards'
     await assert.rejects(sql(context()+`INSERT INTO public.expenses(tenant_id,expense_type,amount,expense_date) VALUES('${tenant}','fuel',1,'2026-10-19');COMMIT;`),/EXP_MANAGED|permission denied/)
     await assert.rejects(sql(context()+`UPDATE public.expenses SET vendor='bypass' WHERE id='${id}';COMMIT;`),/EXP_MANAGED|permission denied/)
@@ -59,10 +60,13 @@ export async function verifyExpenseCreation(sql){
       await assert.rejects(call(randomUUID(),{...payload,...invalid}),/EXP_INPUT|date\/time|out of range|date field|numeric field overflow/)
     }
     stage='approval compatibility and deleted-record handling'
-    await sql(`UPDATE public.expenses SET is_approved=true,approved_by='${actor}',approved_at=now(),vat_rate=20,vat_amount=0.20 WHERE id='${id}'`)
+    await sql(`BEGIN;SET LOCAL ROLE service_role;SELECT public.ensure_default_chart_of_accounts('${tenant}');COMMIT;`)
+    const reviewedVersion=await sql(`SELECT correction_version FROM public.expenses WHERE id='${id}'`)
+    await sql(context()+`SELECT public.decide_expense_reviewed_atomic('${id}',${reviewedVersion},'approved',20,'recoverable',NULL,'expenses');COMMIT;`)
     assert.equal((await call()).id,id)
-    await sql(`UPDATE public.expenses SET deleted_at=now() WHERE id='${id}'`)
-    await assert.rejects(call(),/EXP_RETRY_UNAVAILABLE/)
+    await assert.rejects(sql(`UPDATE public.expenses SET deleted_at=now() WHERE id='${id}'`),/EXP_HISTORY_IMMUTABLE/)
+    await sql(`UPDATE public.expenses SET deleted_at=now() WHERE id='${recovered.id}'`)
+    await assert.rejects(call(retry),/EXP_RETRY_UNAVAILABLE/)
     console.log('PASS: concurrent expense retries create one record/audit; exact persistence, tenant isolation, audit rollback/recovery, JWT/MFA, managed identity, input bounds, approval compatibility and deleted-record handling')
   }catch(error){error.verificationStage=stage;throw error}
 }

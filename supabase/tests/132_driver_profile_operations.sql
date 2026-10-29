@@ -1,0 +1,136 @@
+-- Synthetic tenants only; all changes roll back. Requires pgTAP + current migrations.
+BEGIN;
+SELECT no_plan();
+INSERT INTO auth.users(id,email,raw_app_meta_data) VALUES
+('13200000-0000-4000-8000-000000000001','profile-owner@example.test','{"_invite_provisioned":true}'),
+('13200000-0000-4000-8000-000000000002','profile-foreign@example.test','{"_invite_provisioned":true}');
+CREATE TEMP TABLE operation_tenants(kind text PRIMARY KEY,tenant_id uuid);
+INSERT INTO operation_tenants VALUES
+('own',(public.provision_company_atomic('13200000-0000-4000-8000-000000000001','{"name":"Operation owner fixture","domain":"operations-own.example.test","slug":"operations-own-fixture"}')->>'id')::uuid),
+('foreign',(public.provision_company_atomic('13200000-0000-4000-8000-000000000002','{"name":"Operation foreign fixture","domain":"operations-foreign.example.test","slug":"operations-foreign-fixture"}')->>'id')::uuid);
+SELECT set_config('request.jwt.claims','{"role":"service_role"}',true);
+UPDATE public.users SET must_change_password=false WHERE auth_user_id IN('13200000-0000-4000-8000-000000000001','13200000-0000-4000-8000-000000000002');
+INSERT INTO public.drivers(id,tenant_id,full_name_ar,primary_mobile,category,status) SELECT
+CASE kind WHEN 'own' THEN '13200000-0000-4000-8000-000000000011'::uuid ELSE '13200000-0000-4000-8000-000000000012'::uuid END,tenant_id,'Operational fixture','0501320001','freelancer','active' FROM operation_tenants;
+INSERT INTO public.violation_types(id,tenant_id,code,name_ar,category) SELECT '13200000-0000-4000-8000-000000000013',tenant_id,'FOREIGN','Foreign type','fixture' FROM operation_tenants WHERE kind='foreign';
+CREATE TEMP TABLE operation_fixture(surface text PRIMARY KEY,input jsonb,result jsonb);
+INSERT INTO operation_fixture(surface,input) VALUES
+('attendance','{"attendance_date":"2098-10-21","status":"present","check_in_time":"2098-10-20T21:15:00Z","check_out_time":null,"late_minutes":0,"overtime_minutes":0}'),
+('training','{"course_name":"Safety fixture","training_date":"2098-10-21","score":75,"is_passed":true}'),
+('performance','{"review_period":"2098-10","review_date":"2098-10-21","status":"pending","attendance_score":80,"violations_score":90,"platform_kpi_score":85,"overall_score":85}'),
+('violations','{"incident_date":"2098-10-21","incident_description":"Manual incident fixture","deduction_amount":12.34,"status":"open"}');
+GRANT ALL ON operation_fixture,operation_tenants TO authenticated;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims','{"role":"authenticated","sub":"13200000-0000-4000-8000-000000000001","aal":"aal2"}',true);
+UPDATE operation_fixture SET result=public.save_driver_profile_operation(surface,'13200000-0000-4000-8000-000000000011',input || '{"tenant_id":"13200000-0000-4000-8000-000000000012"}');
+SELECT is((SELECT count(*)::int FROM operation_fixture WHERE result->>'id' IS NOT NULL),4,'empty tenant creates all four operational records');
+SELECT is((SELECT tenant_id FROM public.training_records WHERE id=(SELECT (result->>'id')::uuid FROM operation_fixture WHERE surface='training')),(SELECT tenant_id FROM operation_tenants WHERE kind='own'),'server derives tenant rather than accepting caller ownership');
+SELECT is((SELECT check_in_time FROM public.driver_attendance WHERE id=(SELECT (result->>'id')::uuid FROM operation_fixture WHERE surface='attendance')),'2098-10-20T21:15:00Z'::timestamptz,'Saudi midnight attendance persists correct previous UTC date');
+SELECT is((SELECT check_out_time FROM public.driver_attendance WHERE id=(SELECT (result->>'id')::uuid FROM operation_fixture WHERE surface='attendance')),NULL::timestamptz,'empty checkout remains NULL');
+SELECT throws_ok($$SELECT public.save_driver_profile_operation('training','13200000-0000-4000-8000-000000000012',input) FROM operation_fixture WHERE surface='training'$$,'P0001','OPS003: active tenant driver required','foreign driver creation rejected');
+SELECT throws_ok($$SELECT public.save_driver_profile_operation(surface,'13200000-0000-4000-8000-000000000011',input,(result->>'id')::uuid,'2000-01-01') FROM operation_fixture WHERE surface='training'$$,'P0001','OPS005: record changed; reload before saving','stale edit rejected');
+SELECT throws_ok($$SELECT public.save_driver_profile_operation('violations','13200000-0000-4000-8000-000000000011',input || '{"status":"pending"}') FROM operation_fixture WHERE surface='violations'$$,'P0001','OPS020: invalid violation status','legacy invalid status rejected at RPC boundary');
+SELECT throws_ok($$SELECT public.save_driver_profile_operation('violations','13200000-0000-4000-8000-000000000011',input || '{"violation_type_id":"13200000-0000-4000-8000-000000000013"}') FROM operation_fixture WHERE surface='violations'$$,'P0001','OPS019: active tenant violation type required','foreign violation type rejected');
+SELECT throws_ok($$SELECT public.save_driver_profile_operation('attendance','13200000-0000-4000-8000-000000000011',input || '{"check_in_time":"2098-10-21T22:00:00Z"}') FROM operation_fixture WHERE surface='attendance'$$,'P0001','OPS008: attendance times must be ordered on the Saudi attendance date','wrong Saudi business day rejected');
+SELECT throws_ok($$SELECT public.save_driver_profile_operation('attendance','13200000-0000-4000-8000-000000000011',input || '{"check_in_time":"2098-10-21T09:00:00Z","check_out_time":"2098-10-21T08:00:00Z"}') FROM operation_fixture WHERE surface='attendance'$$,'P0001','OPS008: attendance times must be ordered on the Saudi attendance date','out of order check-out rejected');
+UPDATE operation_fixture SET input=input || '{"course_name":"Safety edited","is_passed":false}',result=public.save_driver_profile_operation(surface,'13200000-0000-4000-8000-000000000011',input || '{"course_name":"Safety edited","is_passed":false}',(result->>'id')::uuid,(result->>'updated_at')::timestamptz) WHERE surface='training';
+SELECT is((SELECT course_name FROM public.training_records WHERE id=(SELECT (result->>'id')::uuid FROM operation_fixture WHERE surface='training')),'Safety edited','training edit persisted');
+SELECT is((SELECT is_passed FROM public.training_records WHERE id=(SELECT (result->>'id')::uuid FROM operation_fixture WHERE surface='training')),false,'training result state persisted');
+SELECT throws_ok($$SELECT public.save_driver_profile_operation(surface,'13200000-0000-4000-8000-000000000011',input || '{"status":"completed"}',(result->>'id')::uuid,(result->>'updated_at')::timestamptz) FROM operation_fixture WHERE surface='performance'$$,'P0001','OPS016: invalid review transition or finalized review','review cannot skip in-progress state');
+UPDATE operation_fixture SET input=input || '{"status":"in_progress"}',result=public.save_driver_profile_operation(surface,'13200000-0000-4000-8000-000000000011',input || '{"status":"in_progress"}',(result->>'id')::uuid,(result->>'updated_at')::timestamptz) WHERE surface='performance';
+UPDATE operation_fixture SET input=input || '{"status":"completed"}',result=public.save_driver_profile_operation(surface,'13200000-0000-4000-8000-000000000011',input || '{"status":"completed"}',(result->>'id')::uuid,(result->>'updated_at')::timestamptz) WHERE surface='performance';
+SELECT is((SELECT status::text FROM public.performance_reviews WHERE id=(SELECT (result->>'id')::uuid FROM operation_fixture WHERE surface='performance')),'completed','valid HR review completion persisted');
+SELECT throws_ok($$SELECT public.save_driver_profile_operation(surface,'13200000-0000-4000-8000-000000000011',input,(result->>'id')::uuid,(result->>'updated_at')::timestamptz) FROM operation_fixture WHERE surface='performance'$$,'P0001','OPS016: invalid review transition or finalized review','completed review cannot be edited');
+SELECT throws_ok($$SELECT public.archive_driver_profile_operation(surface,'13200000-0000-4000-8000-000000000011',(result->>'id')::uuid,(result->>'updated_at')::timestamptz) FROM operation_fixture WHERE surface='performance'$$,'P0001','OPS026: completed reviews are retained as history','completed review cannot be archived');
+SELECT throws_ok($$SELECT public.save_driver_profile_operation(surface,'13200000-0000-4000-8000-000000000011',input || '{"status":"resolved","deduction_month":"2098-10","review_notes":"Reviewed"}',(result->>'id')::uuid,(result->>'updated_at')::timestamptz) FROM operation_fixture WHERE surface='violations'$$,'P0001','OPS022: invalid violation transition','violation cannot skip review');
+UPDATE operation_fixture SET input=input || '{"status":"under_review"}',result=public.save_driver_profile_operation(surface,'13200000-0000-4000-8000-000000000011',input || '{"status":"under_review"}',(result->>'id')::uuid,(result->>'updated_at')::timestamptz) WHERE surface='violations';
+UPDATE operation_fixture SET input=input || '{"status":"resolved","deduction_month":"2098-10","review_notes":"Reviewed"}',result=public.save_driver_profile_operation(surface,'13200000-0000-4000-8000-000000000011',input || '{"status":"resolved","deduction_month":"2098-10","review_notes":"Reviewed"}',(result->>'id')::uuid,(result->>'updated_at')::timestamptz) WHERE surface='violations';
+SELECT is((SELECT count(*)::int FROM public.violation_deduction_ledger WHERE violation_id=(SELECT (result->>'id')::uuid FROM operation_fixture WHERE surface='violations') AND status='pending' AND deduction_amount=12.34 AND deduction_month='2098-10'),1,'review atomically creates one payroll-ready deduction');
+SELECT throws_ok($$SELECT public.save_driver_profile_operation(surface,'13200000-0000-4000-8000-000000000011',input,(result->>'id')::uuid,(result->>'updated_at')::timestamptz) FROM operation_fixture WHERE surface='violations'$$,'P0001','OPS021: reviewed deduction history is immutable; use the payroll reversal workflow','repeated resolution cannot duplicate ledger');
+SELECT throws_ok($$SELECT public.archive_driver_profile_operation(surface,'13200000-0000-4000-8000-000000000011',(result->>'id')::uuid,(result->>'updated_at')::timestamptz) FROM operation_fixture WHERE surface='violations'$$,'P0001','OPS021: reviewed deduction history is immutable; use the payroll reversal workflow','queued deductions cannot be generically archived');
+SELECT throws_ok($$UPDATE public.violations SET deduction_amount=1 WHERE id=(SELECT (result->>'id')::uuid FROM operation_fixture WHERE surface='violations')$$,'42501',NULL,'direct API bypass denied');
+SELECT set_config('request.jwt.claims','{"role":"authenticated","sub":"13200000-0000-4000-8000-000000000002","aal":"aal2"}',true);
+SELECT throws_ok($$SELECT public.archive_driver_profile_operation(surface,'13200000-0000-4000-8000-000000000011',(result->>'id')::uuid,(result->>'updated_at')::timestamptz) FROM operation_fixture WHERE surface='training'$$,'P0001','OPS004: record not found in this driver profile','foreign tenant cannot archive known row');
+SELECT set_config('request.jwt.claims','{"role":"authenticated","sub":"13200000-0000-4000-8000-000000000001","aal":"aal1"}',true);
+SELECT throws_ok($$SELECT public.save_driver_profile_operation(surface,'13200000-0000-4000-8000-000000000011',input) FROM operation_fixture WHERE surface='training'$$,'P0001','AUTH007: operation permission required','missing MFA denies mutation');
+SELECT set_config('request.jwt.claims','{"role":"authenticated","sub":"13200000-0000-4000-8000-000000009999","aal":"aal2"}',true);
+SELECT throws_ok($$SELECT public.save_driver_profile_operation(surface,'13200000-0000-4000-8000-000000000011',input) FROM operation_fixture WHERE surface='training'$$,'P0001','AUTH007: operation permission required','unknown/denied actor cannot mutate');
+SELECT set_config('request.jwt.claims','{"role":"authenticated","sub":"13200000-0000-4000-8000-000000000001","aal":"aal2"}',true);
+SELECT lives_ok($$SELECT public.archive_driver_profile_operation(surface,'13200000-0000-4000-8000-000000000011',(result->>'id')::uuid,(result->>'updated_at')::timestamptz) FROM operation_fixture WHERE surface='training'$$,'training archives successfully');
+RESET ROLE;
+SELECT ok((SELECT deleted_at IS NOT NULL FROM public.training_records WHERE id=(SELECT (result->>'id')::uuid FROM operation_fixture WHERE surface='training')),'archive retains history row');
+INSERT INTO public.attendance_periods(tenant_id,period_year,period_month,start_date,end_date,status) SELECT tenant_id,2098,10,'2098-10-01','2098-10-31','locked' FROM operation_tenants WHERE kind='own';
+SET LOCAL ROLE authenticated;
+SELECT throws_ok($$SELECT public.save_driver_profile_operation(surface,'13200000-0000-4000-8000-000000000011',input || '{"notes":"Locked edit"}',(result->>'id')::uuid,(result->>'updated_at')::timestamptz) FROM operation_fixture WHERE surface='attendance'$$,'P0001','PAY_PREPARATION_LOCKED','locked attendance period denies edit');
+SELECT throws_ok($$SELECT public.archive_driver_profile_operation(surface,'13200000-0000-4000-8000-000000000011',(result->>'id')::uuid,(result->>'updated_at')::timestamptz) FROM operation_fixture WHERE surface='attendance'$$,'P0001','PAY_PREPARATION_LOCKED','locked attendance period denies archive');
+RESET ROLE;
+SET LOCAL ROLE service_role;
+SELECT set_config('request.jwt.claims','{"role":"service_role"}',true);
+SELECT throws_ok($$UPDATE public.driver_attendance SET notes='Service bypass must fail' WHERE driver_id='13200000-0000-4000-8000-000000000011' AND attendance_date='2098-10-21'$$,'P0001','PAY_PREPARATION_LOCKED','BYPASSRLS service role cannot modify locked attendance');
+RESET ROLE;
+SELECT set_config('request.jwt.claims','{"role":"authenticated","sub":"13200000-0000-4000-8000-000000000001","aal":"aal2"}',true);
+SELECT is((SELECT count(*)::int FROM public.audit_log WHERE tenant_id=(SELECT tenant_id FROM operation_tenants WHERE kind='own') AND action='driver_operation_created'),4,'creation audit retained for each surface');
+CREATE FUNCTION pg_temp.reject_operation_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='driver_operation_created' THEN RAISE EXCEPTION 'operation audit fault'; END IF; RETURN NEW; END; $$;
+CREATE TRIGGER operation_test_audit BEFORE INSERT ON public.audit_log FOR EACH ROW EXECUTE FUNCTION pg_temp.reject_operation_audit();
+SET LOCAL ROLE authenticated;
+SELECT throws_ok($$SELECT public.save_driver_profile_operation('training','13200000-0000-4000-8000-000000000011','{"course_name":"Audit failure","training_date":"2098-10-21"}')$$,'P0001','operation audit fault','audit failure aborts creation atomically');
+RESET ROLE;
+SELECT is((SELECT count(*)::int FROM public.training_records WHERE tenant_id=(SELECT tenant_id FROM operation_tenants WHERE kind='own') AND course_name='Audit failure'),0,'failed audited creation leaves no partial row');
+SET LOCAL ROLE anon;
+SELECT throws_ok($$SELECT public.save_driver_profile_operation('training','13200000-0000-4000-8000-000000000011','{}')$$,'42501',NULL,'anonymous caller cannot execute operation RPC');
+RESET ROLE;
+
+-- Core driver lifecycle shares the same tenant/RBAC/MFA boundary and atomic audit.
+INSERT INTO public.delivery_platforms(id,tenant_id,code,name_ar) SELECT CASE kind WHEN 'own' THEN '13200000-0000-4000-8000-000000000041'::uuid ELSE '13200000-0000-4000-8000-000000000042'::uuid END,tenant_id,'CORE_FIXTURE','Core driver platform' FROM operation_tenants;
+CREATE TEMP TABLE core_driver(result jsonb,input jsonb,original_version integer);
+INSERT INTO core_driver(input) VALUES('{"full_name_ar":"Core driver fixture","primary_mobile":"0501320060","category":"freelancer","status":"active","hire_date":"2020-01-01","basic_salary":1234.56,"housing_allowance":100,"iban":"SA0380000000608010167519","passport_number":"SYNTHETIC-PRIVATE-PASSPORT","personal_email":"private132@example.test","national_address":"SYNTHETIC-PRIVATE-ADDRESS"}');
+CREATE TEMP TABLE core_foreign_staff(id uuid);
+INSERT INTO core_foreign_staff SELECT id FROM public.users WHERE auth_user_id='13200000-0000-4000-8000-000000000002';
+GRANT SELECT ON core_foreign_staff TO authenticated;
+GRANT ALL ON core_driver TO authenticated;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims','{"role":"authenticated","sub":"13200000-0000-4000-8000-000000000001","aal":"aal2"}',true);
+UPDATE core_driver SET result=public.mutate_driver_profile('create',input);
+UPDATE core_driver SET original_version=(result->>'profile_version')::integer;
+SELECT ok((SELECT result->>'id' IS NOT NULL AND original_version>=1 FROM core_driver),'core creation returns final optimistic profile version');
+SELECT throws_ok($$SELECT public.mutate_driver_profile('update','{"primary_platform_id":"13200000-0000-4000-8000-000000000042"}',(result->>'id')::uuid,(result->>'profile_version')::integer) FROM core_driver$$,'P0001','DRIVER_TENANT_PLATFORM_REQUIRED','foreign platform reference rejected');
+SELECT throws_ok($$SELECT public.mutate_driver_profile('update',jsonb_build_object('supervisor_id',(SELECT id FROM core_foreign_staff)),(result->>'id')::uuid,(result->>'profile_version')::integer) FROM core_driver$$,'P0001','DRIVER_ACTIVE_TENANT_STAFF_REQUIRED','foreign staff reference rejected');
+SELECT throws_ok($$SELECT public.mutate_driver_profile('update','{"payroll_rule_id":"13200000-0000-4000-8000-000000000042"}',(result->>'id')::uuid,(result->>'profile_version')::integer) FROM core_driver$$,'P0001','DRIVER_FIELD_REQUIRES_DEDICATED_WORKFLOW','generic payroll rule assignment rejected');
+SELECT throws_ok($$SELECT public.mutate_driver_profile('update','{"current_vehicle_id":null}',(result->>'id')::uuid,(result->>'profile_version')::integer) FROM core_driver$$,'P0001','DRIVER_FIELD_REQUIRES_DEDICATED_WORKFLOW','generic vehicle pointer mutation rejected');
+SELECT throws_ok($$SELECT public.mutate_driver_profile('update','{"profile_completeness_score":100}',(result->>'id')::uuid,(result->>'profile_version')::integer) FROM core_driver$$,'P0001','DRIVER_FIELD_REQUIRES_DEDICATED_WORKFLOW','derived compliance cannot be set by caller');
+SELECT throws_ok($$SELECT public.mutate_driver_profile('update','{"termination_date":"2019-12-31"}',(result->>'id')::uuid,(result->>'profile_version')::integer) FROM core_driver$$,'P0001','DRIVER_EMPLOYMENT_DATES_INVALID','termination before hire rejected');
+SELECT throws_ok($$SELECT public.mutate_driver_profile('update','{"termination_date":"2020-03-01"}',(result->>'id')::uuid,(result->>'profile_version')::integer) FROM core_driver$$,'P0001','DRIVER_TERMINATION_REQUIRES_STATUS_WORKFLOW','active profile edit cannot silently terminate employment');
+UPDATE core_driver SET result=public.mutate_driver_profile('update','{"full_name_en":"Core driver edited","primary_platform_id":"13200000-0000-4000-8000-000000000041"}',(result->>'id')::uuid,(result->>'profile_version')::integer);
+SELECT ok((SELECT (result->>'profile_version')::integer>original_version FROM core_driver),'successful update advances optimistic version');
+SELECT throws_ok($$SELECT public.mutate_driver_profile('update','{"full_name_en":"Stale edit"}',(result->>'id')::uuid,original_version) FROM core_driver$$,'P0001','DRIVER_STALE_VERSION: reload the driver before saving','stale core update rejected');
+SELECT throws_ok($$UPDATE public.drivers SET full_name_en='Bypass' WHERE id=(SELECT (result->>'id')::uuid FROM core_driver)$$,'42501',NULL,'direct API cannot bypass core driver audit');
+SELECT throws_ok($$SELECT public.mutate_driver_profile('status','{"status":"draft"}',(result->>'id')::uuid,(result->>'profile_version')::integer) FROM core_driver$$,'P0001','DRIVER_INVALID_STATUS_TRANSITION','active driver cannot revert to draft');
+SELECT throws_ok($$SELECT public.mutate_driver_profile('status','{"status":"terminated","reason":"Historical termination"}',(result->>'id')::uuid,(result->>'profile_version')::integer) FROM core_driver$$,'P0001','DRIVER_EXPLICIT_TERMINATION_DATE_REQUIRED','termination never assumes today');
+UPDATE core_driver SET result=public.mutate_driver_profile('status','{"status":"terminated","reason":"Historical termination","termination_date":"2020-03-17"}',(result->>'id')::uuid,(result->>'profile_version')::integer);
+SELECT is((SELECT termination_date FROM public.drivers WHERE id=(SELECT (result->>'id')::uuid FROM core_driver)),'2020-03-17'::date,'terminal transition records explicitly supplied historical date');
+UPDATE core_driver SET result=public.mutate_driver_profile('update','{"termination_date":"2020-03-20"}',(result->>'id')::uuid,(result->>'profile_version')::integer);
+SELECT is((SELECT termination_date FROM public.drivers WHERE id=(SELECT (result->>'id')::uuid FROM core_driver)),'2020-03-20'::date,'historical termination correction persists');
+SELECT throws_ok($$SELECT public.mutate_driver_profile('status','{"status":"active"}',(result->>'id')::uuid,(result->>'profile_version')::integer) FROM core_driver$$,'P0001','DRIVER_INVALID_STATUS_TRANSITION','terminal history cannot be reactivated by generic status action');
+SELECT set_config('request.jwt.claims','{"role":"authenticated","sub":"13200000-0000-4000-8000-000000000002","aal":"aal2"}',true);
+SELECT throws_ok($$SELECT public.mutate_driver_profile('archive','{"reason":"Foreign archive denied"}',(result->>'id')::uuid,(result->>'profile_version')::integer) FROM core_driver$$,'P0001','DRIVER_NOT_FOUND','foreign actor cannot archive core driver');
+SELECT set_config('request.jwt.claims','{"role":"authenticated","sub":"13200000-0000-4000-8000-000000000001","aal":"aal1"}',true);
+SELECT throws_ok($$SELECT public.mutate_driver_profile('update','{"full_name_en":"Missing MFA"}',(result->>'id')::uuid,(result->>'profile_version')::integer) FROM core_driver$$,'P0001','AUTH007: driver permission required','MFA required for core driver mutation');
+RESET ROLE;
+SELECT ok((SELECT count(*)>=4 FROM public.audit_log WHERE entity_id=(SELECT (result->>'id')::uuid FROM core_driver) AND module='drivers'),'driver core lifecycle retained minimal audit evidence');
+SELECT ok(NOT EXISTS(SELECT 1 FROM public.audit_log WHERE entity_id=(SELECT (result->>'id')::uuid FROM core_driver) AND (coalesce(old_values,'{}')||coalesce(new_values,'{}')) ?| ARRAY['iban','bank_name','basic_salary','housing_allowance','primary_mobile','passport_number','personal_email','full_name_ar','full_name_en','national_address','termination_reason','archived_reason']),'driver audits never store full identity, bank, contact or compensation fields');
+SELECT ok(NOT EXISTS(SELECT 1 FROM public.audit_log WHERE entity_id=(SELECT (result->>'id')::uuid FROM core_driver) AND (coalesce(old_values,'{}')::text||coalesce(new_values,'{}')::text) ~ 'SYNTHETIC-PRIVATE|private132@example.test|SA0380000000608010167519|1234.56'),'sensitive driver values never enter audit payloads');
+CREATE FUNCTION pg_temp.reject_core_driver_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.module='drivers' AND NEW.entity_type='driver' AND current_setting('test.fail_core_audit',true)='on' THEN RAISE EXCEPTION 'core driver audit fault';END IF;RETURN NEW;END;$$;
+CREATE TRIGGER core_driver_test_audit BEFORE INSERT ON public.audit_log FOR EACH ROW EXECUTE FUNCTION pg_temp.reject_core_driver_audit();
+SELECT set_config('test.fail_core_audit','on',true);
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims','{"role":"authenticated","sub":"13200000-0000-4000-8000-000000000001","aal":"aal2"}',true);
+SELECT throws_ok($$SELECT public.mutate_driver_profile('update','{"full_name_en":"Audit refusal"}',(result->>'id')::uuid,(result->>'profile_version')::integer) FROM core_driver$$,'P0001','core driver audit fault','failed core edit audit rolls back source update');
+SELECT is((SELECT full_name_en FROM public.drivers WHERE id=(SELECT (result->>'id')::uuid FROM core_driver)),'Core driver edited','audit-failed edit leaves name unchanged');
+SELECT throws_ok($$SELECT public.mutate_driver_profile('create',input||'{"full_name_ar":"Driver audit failed"}') FROM core_driver$$,'P0001','core driver audit fault','failed creation audit rolls back source record');
+SELECT throws_ok($$SELECT public.mutate_driver_profile('archive','{"reason":"Archive audit refusal"}',(result->>'id')::uuid,(result->>'profile_version')::integer) FROM core_driver$$,'P0001','core driver audit fault','failed archive audit rolls back source archival');
+SELECT set_config('test.fail_core_audit','off',true);
+SELECT lives_ok($$SELECT public.mutate_driver_profile('archive','{"reason":"Historical record archived"}',(result->>'id')::uuid,(result->>'profile_version')::integer) FROM core_driver$$,'versioned archive succeeds after obligations resolved');
+RESET ROLE;
+SELECT ok((SELECT deleted_at IS NOT NULL FROM public.drivers WHERE id=(SELECT (result->>'id')::uuid FROM core_driver)),'core archival retains historical record');
+SELECT * FROM finish();
+ROLLBACK;

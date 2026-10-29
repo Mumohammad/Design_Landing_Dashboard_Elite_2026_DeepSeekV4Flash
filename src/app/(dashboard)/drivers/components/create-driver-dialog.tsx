@@ -101,6 +101,7 @@ const formSchema = z
     job_title: z.string().optional(),
     department: z.string().optional(),
     hire_date: z.string().optional(),
+    termination_date: z.string().optional(),
     contract_start: z.string().optional(),
     contract_end: z.string().optional(),
 
@@ -124,6 +125,8 @@ const formSchema = z
       path: ["contract_end"],
     },
   )
+
+  .refine(data=>["terminated","blacklisted"].includes(data.status)?!!data.hire_date&&!!data.termination_date&&data.termination_date>=data.hire_date:!data.termination_date,{message:"Termination date must match employment status and be on or after hire date",path:["termination_date"]})
 
 type FormValues = z.infer<typeof formSchema>
 
@@ -168,12 +171,14 @@ const CONTRACT_TYPES: { value: ContractType; ar: string; en: string }[] = [
 ]
 
 function Field({
+  id,
   label,
   error,
   required,
   children,
   className,
 }: {
+  id: string
   label: string
   error?: string
   required?: boolean
@@ -182,7 +187,7 @@ function Field({
 }) {
   return (
     <div className={`grid gap-1.5 ${className ?? ""}`}>
-      <Label className="text-xs font-semibold">
+      <Label htmlFor={id} className="text-xs font-semibold">
         {label}
         {required && <span className="text-destructive"> *</span>}
       </Label>
@@ -249,6 +254,7 @@ export function CreateDriverDialog({
       job_title: toNullable(values.job_title),
       department: toNullable(values.department),
       hire_date: toNullable(values.hire_date),
+      termination_date: toNullable(values.termination_date),
       contract_start: toNullable(values.contract_start),
       contract_end: toNullable(values.contract_end),
       basic_salary: toNumberNullable(values.basic_salary),
@@ -294,26 +300,26 @@ export function CreateDriverDialog({
             <legend className="px-2 text-xs font-bold text-elite-blue-600 dark:text-elite-blue-300">
               {isAr ? "الهوية" : "Identity"}
             </legend>
-            <Field label={isAr ? "الاسم الكامل (عربي)" : "Full name (Arabic)"} required error={errors.full_name_ar?.message}>
-              <Input {...register("full_name_ar")} className={inputClass} />
+            <Field id="create-driver-full_name_ar" label={isAr ? "الاسم الكامل (عربي)" : "Full name (Arabic)"} required error={errors.full_name_ar?.message}>
+              <Input id="create-driver-full_name_ar" {...register("full_name_ar")} className={inputClass} />
             </Field>
-            <Field label={isAr ? "الاسم الكامل (إنجليزي)" : "Full name (English)"} error={errors.full_name_en?.message}>
-              <Input {...register("full_name_en")} className={inputClass} />
+            <Field id="create-driver-full_name_en" label={isAr ? "الاسم الكامل (إنجليزي)" : "Full name (English)"} error={errors.full_name_en?.message}>
+              <Input id="create-driver-full_name_en" {...register("full_name_en")} className={inputClass} />
             </Field>
-            <Field label={isAr ? "الاسم المفضل" : "Preferred name"} error={errors.preferred_name?.message}>
-              <Input {...register("preferred_name")} className={inputClass} />
+            <Field id="create-driver-preferred_name" label={isAr ? "الاسم المفضل" : "Preferred name"} error={errors.preferred_name?.message}>
+              <Input id="create-driver-preferred_name" {...register("preferred_name")} className={inputClass} />
             </Field>
-            <Field label={isAr ? "الجنسية" : "Nationality"} error={errors.nationality?.message}>
-              <Input {...register("nationality")} className={inputClass} />
+            <Field id="create-driver-nationality" label={isAr ? "الجنسية" : "Nationality"} error={errors.nationality?.message}>
+              <Input id="create-driver-nationality" {...register("nationality")} className={inputClass} />
             </Field>
-            <Field label={isAr ? "رمز الجنسية (ISO)" : "Nationality code (ISO)"} error={errors.nationality_code?.message}>
-              <Input {...register("nationality_code")} maxLength={2} className={inputClass} dir="ltr" placeholder="SA, EG, PK..." />
+            <Field id="create-driver-nationality_code" label={isAr ? "رمز الجنسية (ISO)" : "Nationality code (ISO)"} error={errors.nationality_code?.message}>
+              <Input id="create-driver-nationality_code" {...register("nationality_code")} maxLength={2} className={inputClass} dir="ltr" placeholder="SA, EG, PK..." />
             </Field>
-            <Field label={isAr ? "تاريخ الميلاد" : "Date of birth"} error={errors.date_of_birth?.message}>
-              <Input {...register("date_of_birth")} type="date" className={inputClass} />
+            <Field id="create-driver-date_of_birth" label={isAr ? "تاريخ الميلاد" : "Date of birth"} error={errors.date_of_birth?.message}>
+              <Input id="create-driver-date_of_birth" {...register("date_of_birth")} type="date" className={inputClass} />
             </Field>
-            <Field label={isAr ? "الجنس" : "Gender"} error={errors.gender?.message}>
-              <Input {...register("gender")} className={inputClass} placeholder={isAr ? "ذكر / أنثى" : "Male / Female"} />
+            <Field id="create-driver-gender" label={isAr ? "الجنس" : "Gender"} error={errors.gender?.message}>
+              <Input id="create-driver-gender" {...register("gender")} className={inputClass} placeholder={isAr ? "ذكر / أنثى" : "Male / Female"} />
             </Field>
           </fieldset>
 
@@ -322,31 +328,31 @@ export function CreateDriverDialog({
             <legend className="px-2 text-xs font-bold text-elite-blue-600 dark:text-elite-blue-300">
               {isAr ? "البيانات الرسمية" : "Legal documents"}
             </legend>
-            <Field label={isAr ? "رقم الإقامة" : "Iqama number"} error={errors.iqama_number?.message}>
-              <Input {...register("iqama_number")} className={inputClass} dir="ltr" placeholder="1XXXXXXXXX" />
+            <Field id="create-driver-iqama_number" label={isAr ? "رقم الإقامة" : "Iqama number"} error={errors.iqama_number?.message}>
+              <Input id="create-driver-iqama_number" {...register("iqama_number")} className={inputClass} dir="ltr" placeholder="1XXXXXXXXX" />
             </Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field label={isAr ? "إصدار الإقامة" : "Iqama issue"}>
-                <Input {...register("iqama_issue_date")} type="date" className={inputClass} />
+              <Field id="create-driver-iqama_issue_date" label={isAr ? "إصدار الإقامة" : "Iqama issue"}>
+                <Input id="create-driver-iqama_issue_date" {...register("iqama_issue_date")} type="date" className={inputClass} />
               </Field>
-              <Field label={isAr ? "انتهاء الإقامة" : "Iqama expiry"}>
-                <Input {...register("iqama_expiry_date")} type="date" className={inputClass} />
+              <Field id="create-driver-iqama_expiry_date" label={isAr ? "انتهاء الإقامة" : "Iqama expiry"}>
+                <Input id="create-driver-iqama_expiry_date" {...register("iqama_expiry_date")} type="date" className={inputClass} />
               </Field>
             </div>
-            <Field label={isAr ? "رقم جواز السفر" : "Passport number"} error={errors.passport_number?.message}>
-              <Input {...register("passport_number")} className={inputClass} dir="ltr" />
+            <Field id="create-driver-passport_number" label={isAr ? "رقم جواز السفر" : "Passport number"} error={errors.passport_number?.message}>
+              <Input id="create-driver-passport_number" {...register("passport_number")} className={inputClass} dir="ltr" />
             </Field>
-            <Field label={isAr ? "انتهاء الجواز" : "Passport expiry"}>
-              <Input {...register("passport_expiry_date")} type="date" className={inputClass} />
+            <Field id="create-driver-passport_expiry_date" label={isAr ? "انتهاء الجواز" : "Passport expiry"}>
+              <Input id="create-driver-passport_expiry_date" {...register("passport_expiry_date")} type="date" className={inputClass} />
             </Field>
-            <Field label={isAr ? "رقم رخصة القيادة" : "Driving license no."} error={errors.license_number?.message}>
-              <Input {...register("license_number")} className={inputClass} dir="ltr" />
+            <Field id="create-driver-license_number" label={isAr ? "رقم رخصة القيادة" : "Driving license no."} error={errors.license_number?.message}>
+              <Input id="create-driver-license_number" {...register("license_number")} className={inputClass} dir="ltr" />
             </Field>
-            <Field label={isAr ? "نوع الرخصة" : "License type"}>
-              <Input {...register("license_type")} className={inputClass} placeholder={isAr ? "عمومي / خصوصي" : "Public / Private"} />
+            <Field id="create-driver-license_type" label={isAr ? "نوع الرخصة" : "License type"}>
+              <Input id="create-driver-license_type" {...register("license_type")} className={inputClass} placeholder={isAr ? "عمومي / خصوصي" : "Public / Private"} />
             </Field>
-            <Field label={isAr ? "انتهاء الرخصة" : "License expiry"}>
-              <Input {...register("license_expiry_date")} type="date" className={inputClass} />
+            <Field id="create-driver-license_expiry_date" label={isAr ? "انتهاء الرخصة" : "License expiry"}>
+              <Input id="create-driver-license_expiry_date" {...register("license_expiry_date")} type="date" className={inputClass} />
             </Field>
           </fieldset>
 
@@ -355,23 +361,23 @@ export function CreateDriverDialog({
             <legend className="px-2 text-xs font-bold text-elite-blue-600 dark:text-elite-blue-300">
               {isAr ? "التواصل" : "Contact"}
             </legend>
-            <Field label={isAr ? "الجوال الأساسي" : "Primary mobile"} required error={errors.primary_mobile?.message}>
-              <Input {...register("primary_mobile")} className={inputClass} dir="ltr" placeholder="05XXXXXXXX" />
+            <Field id="create-driver-primary_mobile" label={isAr ? "الجوال الأساسي" : "Primary mobile"} required error={errors.primary_mobile?.message}>
+              <Input id="create-driver-primary_mobile" {...register("primary_mobile")} className={inputClass} dir="ltr" placeholder="05XXXXXXXX" />
             </Field>
-            <Field label={isAr ? "جوال ثانوي" : "Secondary mobile"} error={errors.secondary_mobile?.message}>
-              <Input {...register("secondary_mobile")} className={inputClass} dir="ltr" placeholder="05XXXXXXXX" />
+            <Field id="create-driver-secondary_mobile" label={isAr ? "جوال ثانوي" : "Secondary mobile"} error={errors.secondary_mobile?.message}>
+              <Input id="create-driver-secondary_mobile" {...register("secondary_mobile")} className={inputClass} dir="ltr" placeholder="05XXXXXXXX" />
             </Field>
-            <Field label={isAr ? "البريد الشخصي" : "Personal email"} error={errors.personal_email?.message}>
-              <Input {...register("personal_email")} type="email" className={inputClass} dir="ltr" />
+            <Field id="create-driver-personal_email" label={isAr ? "البريد الشخصي" : "Personal email"} error={errors.personal_email?.message}>
+              <Input id="create-driver-personal_email" {...register("personal_email")} type="email" className={inputClass} dir="ltr" />
             </Field>
-            <Field label={isAr ? "البريد الوظيفي" : "Work email"} error={errors.work_email?.message}>
-              <Input {...register("work_email")} type="email" className={inputClass} dir="ltr" />
+            <Field id="create-driver-work_email" label={isAr ? "البريد الوظيفي" : "Work email"} error={errors.work_email?.message}>
+              <Input id="create-driver-work_email" {...register("work_email")} type="email" className={inputClass} dir="ltr" />
             </Field>
-            <Field label={isAr ? "المدينة" : "City"} error={errors.current_city?.message}>
-              <Input {...register("current_city")} className={inputClass} />
+            <Field id="create-driver-current_city" label={isAr ? "المدينة" : "City"} error={errors.current_city?.message}>
+              <Input id="create-driver-current_city" {...register("current_city")} className={inputClass} />
             </Field>
-            <Field label={isAr ? "المنطقة" : "Region"} error={errors.current_region?.message}>
-              <Input {...register("current_region")} className={inputClass} />
+            <Field id="create-driver-current_region" label={isAr ? "المنطقة" : "Region"} error={errors.current_region?.message}>
+              <Input id="create-driver-current_region" {...register("current_region")} className={inputClass} />
             </Field>
           </fieldset>
 
@@ -380,13 +386,13 @@ export function CreateDriverDialog({
             <legend className="px-2 text-xs font-bold text-elite-blue-600 dark:text-elite-blue-300">
               {isAr ? "التوظيف" : "Employment"}
             </legend>
-            <Field label={isAr ? "الفئة" : "Category"} required error={errors.category?.message}>
+            <Field id="create-driver-category" label={isAr ? "الفئة" : "Category"} required error={errors.category?.message}>
               <Controller
                 control={control}
                 name="category"
                 render={({ field }) => (
                   <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger className="w-full">
+                    <SelectTrigger id="create-driver-category" className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -400,13 +406,13 @@ export function CreateDriverDialog({
                 )}
               />
             </Field>
-            <Field label={isAr ? "الحالة" : "Status"} required error={errors.status?.message}>
+            <Field id="create-driver-status" label={isAr ? "الحالة" : "Status"} required error={errors.status?.message}>
               <Controller
                 control={control}
                 name="status"
                 render={({ field }) => (
                   <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger className="w-full">
+                    <SelectTrigger id="create-driver-status" className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -420,13 +426,13 @@ export function CreateDriverDialog({
                 )}
               />
             </Field>
-            <Field label={isAr ? "نوع التوظيف" : "Employment type"} error={errors.employment_type?.message}>
+            <Field id="create-driver-employment_type" label={isAr ? "نوع التوظيف" : "Employment type"} error={errors.employment_type?.message}>
               <Controller
                 control={control}
                 name="employment_type"
                 render={({ field }) => (
                   <Select value={field.value || ""} onValueChange={(v) => field.onChange(v || undefined)}>
-                    <SelectTrigger className="w-full">
+                    <SelectTrigger id="create-driver-employment_type" className="w-full">
                       <SelectValue placeholder={isAr ? "اختر" : "Select"} />
                     </SelectTrigger>
                     <SelectContent>
@@ -440,13 +446,13 @@ export function CreateDriverDialog({
                 )}
               />
             </Field>
-            <Field label={isAr ? "نوع العقد" : "Contract type"} error={errors.contract_type?.message}>
+            <Field id="create-driver-contract_type" label={isAr ? "نوع العقد" : "Contract type"} error={errors.contract_type?.message}>
               <Controller
                 control={control}
                 name="contract_type"
                 render={({ field }) => (
                   <Select value={field.value || ""} onValueChange={(v) => field.onChange(v || undefined)}>
-                    <SelectTrigger className="w-full">
+                    <SelectTrigger id="create-driver-contract_type" className="w-full">
                       <SelectValue placeholder={isAr ? "اختر" : "Select"} />
                     </SelectTrigger>
                     <SelectContent>
@@ -460,21 +466,22 @@ export function CreateDriverDialog({
                 )}
               />
             </Field>
-            <Field label={isAr ? "المسمى الوظيفي" : "Job title"} error={errors.job_title?.message}>
-              <Input {...register("job_title")} className={inputClass} />
+            <Field id="create-driver-job_title" label={isAr ? "المسمى الوظيفي" : "Job title"} error={errors.job_title?.message}>
+              <Input id="create-driver-job_title" {...register("job_title")} className={inputClass} />
             </Field>
-            <Field label={isAr ? "القسم" : "Department"} error={errors.department?.message}>
-              <Input {...register("department")} className={inputClass} />
+            <Field id="create-driver-department" label={isAr ? "القسم" : "Department"} error={errors.department?.message}>
+              <Input id="create-driver-department" {...register("department")} className={inputClass} />
             </Field>
-            <Field label={isAr ? "تاريخ التعيين" : "Hire date"}>
-              <Input {...register("hire_date")} type="date" className={inputClass} />
+            <Field id="create-driver-hire_date" label={isAr ? "تاريخ التعيين" : "Hire date"}>
+              <Input id="create-driver-hire_date" {...register("hire_date")} type="date" className={inputClass} />
             </Field>
+            <Field id="create-driver-termination_date" label={isAr ? "تاريخ انتهاء العمل" : "Termination date"} error={errors.termination_date?.message}><Input id="create-driver-termination_date" {...register("termination_date")} type="date" className={inputClass}/><p className="text-xs text-muted-foreground">{isAr?"للسجلات المنهية أو المحظورة فقط.":"For terminated or blacklisted employment records."}</p></Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field label={isAr ? "بداية العقد" : "Contract start"}>
-                <Input {...register("contract_start")} type="date" className={inputClass} />
+              <Field id="create-driver-contract_start" label={isAr ? "بداية العقد" : "Contract start"}>
+                <Input id="create-driver-contract_start" {...register("contract_start")} type="date" className={inputClass} />
               </Field>
-              <Field label={isAr ? "نهاية العقد" : "Contract end"} error={errors.contract_end?.message}>
-                <Input {...register("contract_end")} type="date" className={inputClass} />
+              <Field id="create-driver-contract_end" label={isAr ? "نهاية العقد" : "Contract end"} error={errors.contract_end?.message}>
+                <Input id="create-driver-contract_end" {...register("contract_end")} type="date" className={inputClass} />
               </Field>
             </div>
           </fieldset>
@@ -484,20 +491,20 @@ export function CreateDriverDialog({
             <legend className="px-2 text-xs font-bold text-elite-blue-600 dark:text-elite-blue-300">
               {isAr ? "الراتب والبنك" : "Payroll & bank"}
             </legend>
-            <Field label={isAr ? "الراتب الأساسي (ر.س)" : "Basic salary (SAR)"} error={errors.basic_salary?.message}>
-              <Input {...register("basic_salary")} inputMode="decimal" className={inputClass} dir="ltr" placeholder="4000" />
+            <Field id="create-driver-basic_salary" label={isAr ? "الراتب الأساسي (ر.س)" : "Basic salary (SAR)"} error={errors.basic_salary?.message}>
+              <Input id="create-driver-basic_salary" {...register("basic_salary")} inputMode="decimal" className={inputClass} dir="ltr" placeholder="4000" />
             </Field>
-            <Field label={isAr ? "بدل السكن (ر.س)" : "Housing allowance (SAR)"} error={errors.housing_allowance?.message}>
-              <Input {...register("housing_allowance")} inputMode="decimal" className={inputClass} dir="ltr" placeholder="0" />
+            <Field id="create-driver-housing_allowance" label={isAr ? "بدل السكن (ر.س)" : "Housing allowance (SAR)"} error={errors.housing_allowance?.message}>
+              <Input id="create-driver-housing_allowance" {...register("housing_allowance")} inputMode="decimal" className={inputClass} dir="ltr" placeholder="0" />
             </Field>
-            <Field label={isAr ? "بدل النقل (ر.س)" : "Transport allowance (SAR)"} error={errors.transport_allowance?.message}>
-              <Input {...register("transport_allowance")} inputMode="decimal" className={inputClass} dir="ltr" placeholder="0" />
+            <Field id="create-driver-transport_allowance" label={isAr ? "بدل النقل (ر.س)" : "Transport allowance (SAR)"} error={errors.transport_allowance?.message}>
+              <Input id="create-driver-transport_allowance" {...register("transport_allowance")} inputMode="decimal" className={inputClass} dir="ltr" placeholder="0" />
             </Field>
-            <Field label={isAr ? "اسم البنك" : "Bank name"} error={errors.bank_name?.message}>
-              <Input {...register("bank_name")} className={inputClass} />
+            <Field id="create-driver-bank_name" label={isAr ? "اسم البنك" : "Bank name"} error={errors.bank_name?.message}>
+              <Input id="create-driver-bank_name" {...register("bank_name")} className={inputClass} />
             </Field>
-            <Field label={isAr ? "رقم الآيبان" : "IBAN"} error={errors.iban?.message}>
-              <Input {...register("iban")} className={inputClass} dir="ltr" placeholder="SA00 0000 0000 0000 0000 0000" />
+            <Field id="create-driver-iban" label={isAr ? "رقم الآيبان" : "IBAN"} error={errors.iban?.message}>
+              <Input id="create-driver-iban" {...register("iban")} className={inputClass} dir="ltr" placeholder="SA00 0000 0000 0000 0000 0000" />
             </Field>
           </fieldset>
 
@@ -506,7 +513,8 @@ export function CreateDriverDialog({
             <legend className="px-2 text-xs font-bold text-elite-blue-600 dark:text-elite-blue-300">
               {isAr ? "ملاحظات داخلية" : "Internal notes"}
             </legend>
-            <Textarea {...register("internal_notes")} rows={3} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30" />
+            <Label htmlFor="create-driver-internal_notes" className="sr-only">{isAr ? "ملاحظات داخلية" : "Internal notes"}</Label>
+            <Textarea id="create-driver-internal_notes" {...register("internal_notes")} rows={3} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30" />
           </fieldset>
 
           <div className="flex items-center justify-end gap-3 border-t border-border/50 pt-4">

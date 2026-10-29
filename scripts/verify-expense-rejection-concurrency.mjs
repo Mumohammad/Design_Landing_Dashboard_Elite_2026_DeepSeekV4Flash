@@ -5,18 +5,18 @@ import {resolve} from 'node:path'
 import {pathToFileURL} from 'node:url'
 
 export async function verifyExpenseRejection(sql){
-  const tenant=randomUUID(),actor=randomUUID(),ids=Array.from({length:7},()=>randomUUID())
+  const actor=randomUUID(),ids=Array.from({length:7},()=>randomUUID());let tenant
   let stage='synthetic decision setup'
   try{
-    await sql(`INSERT INTO public.tenants(id,name_ar,name_en,slug) VALUES('${tenant}','Decision fixture','Decision fixture','decision-${tenant}');
-      INSERT INTO auth.users(id,email,raw_app_meta_data,raw_user_meta_data) VALUES('${actor}','${actor}@example.test','{"provider":"email","providers":["email"]}','{"_invite_provisioned":true}');
-      INSERT INTO public.users(id,auth_user_id,tenant_id,email,role,status,must_change_password)
-      VALUES(gen_random_uuid(),'${actor}','${tenant}','${actor}@example.test','general_manager','active',false);
-      INSERT INTO public.expense_category_mappings(tenant_id,expense_type,coa_account_code,vat_recoverability) VALUES('${tenant}','fuel','5000','recoverable');
-      INSERT INTO public.expenses(id,tenant_id,expense_type,amount,expense_date,vat_rate,vat_amount)
-      VALUES ${ids.map(id=>`('${id}','${tenant}','fuel',100,CURRENT_DATE,15,0)`).join(',')};`)
-    const reject=(id,who=actor,reason='Duplicate receipt')=>sql(`BEGIN;SET LOCAL ROLE service_role;SELECT public.reject_expense_atomic('${tenant}','${id}','${reason}','${who}');COMMIT;`)
-    const approve=id=>sql(`BEGIN;SET LOCAL ROLE service_role;SELECT public.approve_expense_atomic('${tenant}','${id}',15,'recoverable','${actor}');COMMIT;`)
+    await sql(`INSERT INTO auth.users(id,email,raw_app_meta_data,raw_user_meta_data) VALUES('${actor}','${actor}@example.test','{"provider":"email","providers":["email"],"_invite_provisioned":true}','{"_invite_provisioned":true}');`)
+    tenant=await sql(`SELECT public.provision_company_atomic('${actor}','{"name":"Decision fixture","slug":"decision-${actor}","domain":"decision-${actor}.example.test"}')->>'id';`)
+    assert.match(tenant,/^[a-f0-9-]{36}$/)
+    await sql(`UPDATE public.users SET must_change_password=false WHERE auth_user_id='${actor}';
+      INSERT INTO public.expenses(id,tenant_id,expense_type,amount,expense_date,created_by)
+      VALUES ${ids.map(id=>`('${id}','${tenant}','fuel',100,'2026-10-19','${actor}')`).join(',')};`)
+    const context=(who=actor,aal='aal2')=>`BEGIN;SET LOCAL ROLE authenticated;SELECT set_config('request.jwt.claims','${JSON.stringify({role:'authenticated',sub:who,aal})}',true);`
+    const reject=(id,who=actor,reason='Duplicate receipt',version=1)=>sql(context(who)+`SELECT public.decide_expense_reviewed_atomic('${id}',${version},'rejected',NULL,NULL,'${reason.replaceAll("'","''")}','approvals_inbox');COMMIT;`)
+    const approve=id=>sql(context()+`SELECT public.decide_expense_reviewed_atomic('${id}',1,'approved',15,'recoverable',NULL,'expenses');COMMIT;`)
     const counts=id=>sql(`SELECT (SELECT count(*) FROM public.payables WHERE tenant_id='${tenant}' AND source_entity_id='${id}' AND deleted_at IS NULL)||'|'||
       (SELECT count(*) FROM public.financial_events WHERE tenant_id='${tenant}' AND source_type='expense' AND source_id='${id}')||'|'||
       (SELECT count(*) FROM public.audit_log WHERE tenant_id='${tenant}' AND entity_id='${id}' AND action IN('expense_approved','expense_rejected'))`)
@@ -50,13 +50,13 @@ export async function verifyExpenseRejection(sql){
     for(const id of [ids[3],ids[4]])await assert.rejects(reject(id),/EXP_FINANCE_REVIEW/)
     assert.equal(await counts(ids[3]),'1|0|0');assert.equal(await counts(ids[4]),'0|1|0')
     stage='actor reason and direct caller boundaries'
-    await assert.rejects(reject(ids[5],randomUUID()),/EXP_AUTH/)
+    await assert.rejects(reject(ids[5],randomUUID()),/EXP_EDIT_FORBIDDEN/)
     await assert.rejects(reject(ids[5],actor,'no'),/EXP_INPUT/)
-    for(const role of ['anon','authenticated'])await assert.rejects(sql(`BEGIN;SET LOCAL ROLE ${role};SELECT public.reject_expense_atomic('${tenant}','${ids[5]}','Duplicate receipt','${actor}');COMMIT;`),/permission denied/)
-    const context=`BEGIN;SET LOCAL ROLE authenticated;SELECT set_config('request.jwt.claims','${JSON.stringify({role:'authenticated',sub:actor,aal:'aal2'})}',true);`
-    await assert.rejects(sql(context+`UPDATE public.expenses SET rejected_at=now(),rejected_by='${actor}',rejection_reason='Bypass fixture' WHERE id='${ids[5]}';COMMIT;`),/EXP_MANAGED|permission denied/)
-    await assert.rejects(sql(context+`UPDATE public.expenses SET rejected_at=NULL,rejected_by=NULL,rejection_reason=NULL WHERE id='${ids[0]}';COMMIT;`),/EXP_MANAGED|permission denied/)
-    await assert.rejects(sql(context+`DELETE FROM public.expenses WHERE id='${ids[0]}';COMMIT;`),/EXP_MANAGED|permission denied/)
+    for(const role of ['anon','authenticated','service_role'])await assert.rejects(sql(`BEGIN;SET LOCAL ROLE ${role};SELECT public.reject_expense_atomic('${tenant}','${ids[5]}','Duplicate receipt','${actor}');COMMIT;`),/permission denied/)
+    await assert.rejects(sql(context(actor,'aal1')+`SELECT public.decide_expense_reviewed_atomic('${ids[5]}',1,'rejected',NULL,NULL,'Duplicate receipt','approvals_inbox');COMMIT;`),/EXP_EDIT_FORBIDDEN/)
+    await assert.rejects(sql(context()+`UPDATE public.expenses SET rejected_at=now(),rejected_by='${actor}',rejection_reason='Bypass fixture' WHERE id='${ids[5]}';COMMIT;`),/EXP_MANAGED|permission denied/)
+    await assert.rejects(sql(context()+`UPDATE public.expenses SET rejected_at=NULL,rejected_by=NULL,rejection_reason=NULL WHERE id='${ids[0]}';COMMIT;`),/EXP_MANAGED|permission denied/)
+    await assert.rejects(sql(context()+`DELETE FROM public.expenses WHERE id='${ids[0]}';COMMIT;`),/EXP_MANAGED|permission denied/)
     stage='already approved source cannot be rejected'
     await approve(ids[6]);await assert.rejects(reject(ids[6]),/EXP002/);assert.equal(await counts(ids[6]),'1|1|1')
     console.log('PASS: rejection/rejection and approve/reject races retain one decision/audit; rejected source cannot approve; audit rollback/retry, legacy finance review and actor/reason/caller guards pass')

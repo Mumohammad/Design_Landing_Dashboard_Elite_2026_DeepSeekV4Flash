@@ -54,6 +54,7 @@ const reqLabels: Record<string, { en: string; ar: string }> = {
 }
 
 const docTypeLabels: Record<string, { en: string; ar: string }> = {
+  driving_license: {en:"Driving licence",ar:"رخصة القيادة"},
   national_id: { en: "National ID", ar: "الهوية الوطنية" },
   iqama: { en: "Iqama", ar: "الإقامة" },
   health_certificate: { en: "Health certificate", ar: "الشهادة الصحية" },
@@ -73,6 +74,9 @@ const reqStatusCls: Record<string, string> = {
   not_required: "bg-muted text-muted-foreground",
 }
 
+const reqStatusLabels: Record<string,{en:string;ar:string}> = {
+ valid:{en:"Valid",ar:"سارٍ"},missing:{en:"Missing",ar:"مفقود"},expired:{en:"Expired",ar:"منتهي"},blocked:{en:"Blocked",ar:"محظور"},suspended:{en:"Suspended",ar:"موقوف"},expiring:{en:"Expiring soon",ar:"ينتهي قريباً"},pending_review:{en:"Pending review",ar:"قيد المراجعة"},override_active:{en:"Override active",ar:"تجاوز سارٍ"},not_required:{en:"Not required",ar:"غير مطلوب"},
+}
 const MAX_FILE_BYTES = 20 * 1024 * 1024
 
 const canOverride = (key: string, status: string) =>
@@ -92,6 +96,12 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
   const [docs, setDocs] = useState<DriverDocument[]>([])
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
+  const [readFailed,setReadFailed]=useState(false)
+  const [versions,setVersions]=useState<Record<string,number>>({})
+  const driverVersion=Math.max(driver.profile_version??0,versions[driver.id]??0)
+  const [uploadVersion,setUploadVersion]=useState(0)
+  const [overrideVersion,setOverrideVersion]=useState(0)
+  const confirmChange=(result:{profileVersion:number},photo=false)=>{setVersions(previous=>({...previous,[driver.id]:result.profileVersion}));emitDriverChanged({driverId:driver.id,action:photo?"photo":"document"})}
   const [error, setError] = useState<string | null>(null)
 
   const [overrideFor, setOverrideFor] = useState<string | null>(null)
@@ -116,48 +126,50 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
   // react-hooks set-state-in-effect rule.
   const fetchLatest = useCallback(async (): Promise<ComplianceResult | null> => {
     const supabase = createClient()
-    const { data } = await supabase
+    const { data,error:readError } = await supabase
       .from("driver_compliance_results")
       .select("*")
       .eq("driver_id", driver.id)
       .order("run_at", { ascending: false })
       .limit(1)
+    if(readError)throw Error("Compliance read failed")
     return (data?.[0] as ComplianceResult | undefined) ?? null
   }, [driver.id])
 
   const fetchOverrides = useCallback(async (): Promise<ComplianceOverride[]> => {
     const supabase = createClient()
-    const { data } = await supabase
+    const { data,error:readError } = await supabase
       .from("driver_compliance_overrides")
-      .select("id, driver_id, requirement, reason, attachment_url, approved_by, approved_at, expires_at, revoked_at")
+      .select("id, workflow_version, driver_id, requirement, reason, attachment_url, approved_by, approved_at, expires_at, revoked_at")
       .eq("driver_id", driver.id)
       .is("revoked_at", null)
       .is("deleted_at", null)
       .gt("expires_at", new Date().toISOString())
       .order("expires_at", { ascending: true })
+    if(readError)throw Error("Override read failed")
     return (data ?? []) as ComplianceOverride[]
   }, [driver.id])
 
   const fetchDocs = useCallback(async (): Promise<DriverDocument[]> => {
     const supabase = createClient()
-    const { data } = await supabase
+    const { data,error:readError } = await supabase
       .from("driver_documents")
-      .select("id, driver_id, doc_type, doc_number, expiry_date, issuing_authority, file_url, is_verified, is_active, created_at")
+      .select("id, workflow_version, driver_id, doc_type, doc_number, expiry_date, issuing_authority, file_url, is_verified, is_active, created_at")
       .eq("driver_id", driver.id)
       .eq("is_active", true)
+      .is("deleted_at",null)
       .order("created_at", { ascending: false })
+    if(readError)throw Error("Document read failed")
     return (data ?? []) as DriverDocument[]
   }, [driver.id])
 
   useEffect(() => {
     let cancelled = false
     const refresh = async () => {
-      const [result, active, documents] = await Promise.all([fetchLatest(), fetchOverrides(), fetchDocs()])
-      if (cancelled) return
-      setLatest(result)
-      setOverrides(active)
-      setDocs(documents)
-      setLoading(false)
+      try{const [result, active, documents] = await Promise.all([fetchLatest(), fetchOverrides(), fetchDocs()])
+       if(cancelled)return
+       setLatest(result);setOverrides(active);setDocs(documents);setReadFailed(false)
+      }catch{if(!cancelled)setReadFailed(true)}finally{if(!cancelled)setLoading(false)}
     }
     void refresh()
     return () => {
@@ -166,25 +178,21 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
   }, [fetchLatest, fetchOverrides, fetchDocs])
 
   const refreshAll = async () => {
-    const [result, active, documents] = await Promise.all([fetchLatest(), fetchOverrides(), fetchDocs()])
-    setLatest(result)
-    setOverrides(active)
-    setDocs(documents)
+    setLoading(true)
+    try{const [result, active, documents] = await Promise.all([fetchLatest(), fetchOverrides(), fetchDocs()]);setLatest(result);setOverrides(active);setDocs(documents);setReadFailed(false)}catch{setReadFailed(true)}finally{setLoading(false)}
   }
 
+  const unconfirmed=isAr?"تعذر تأكيد التغيير. أعد التحميل قبل المحاولة مجدداً؛ تُحفظ الملفات المرفوعة.":"The change could not be confirmed. Reload before retrying; uploaded files are retained."
+
   const onRecompute = async () => {
-    setRunning(true)
-    setError(null)
-    const res = await recomputeDriverCompliance({ driverId: driver.id })
-    if (!res.ok) {
-      setError(res.error)
-    } else {
-      await refreshAll()
-    }
-    setRunning(false)
+    if(running)return
+    setRunning(true);setError(null)
+    try{const res=await recomputeDriverCompliance({driverId:driver.id,expectedDriverVersion:driverVersion});if(!res.ok)setError(isAr?res.errorAr:res.error);else{confirmChange(res);await refreshAll()}}
+    catch{setError(unconfirmed)}finally{setRunning(false)}
   }
 
   const openOverride = (key: string) => {
+    setOverrideVersion(driverVersion)
     setOverrideFor(key)
     setReason("")
     setDays("30")
@@ -193,35 +201,24 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
   }
 
   const submitOverride = async () => {
-    if (!overrideFor) return
-    setSaving(true)
-    setFormError(null)
-    const res = await createComplianceOverride({
-      driverId: driver.id,
-      requirement: overrideFor,
-      reason,
-      days: Number(days) as 7 | 30 | 90,
-      attachmentUrl: attachmentUrl.trim() === "" ? undefined : attachmentUrl.trim(),
-    })
-    setSaving(false)
-    if (!res.ok) {
-      setFormError(res.error)
-      return
-    }
-    setOverrideFor(null)
-    await refreshAll()
+    if(!overrideFor||saving)return
+    setSaving(true);setFormError(null)
+    try{const res=await createComplianceOverride({driverId:driver.id,expectedDriverVersion:overrideVersion,requirement:overrideFor,reason,days:Number(days) as 7|30|90,attachmentUrl:attachmentUrl.trim()||undefined})
+      if(!res.ok){setFormError(isAr?res.errorAr:res.error);return}
+      confirmChange(res);setOverrideFor(null);await refreshAll()
+    }catch{setFormError(unconfirmed)}finally{setSaving(false)}
   }
 
   const onRevoke = async (overrideId: string) => {
-    setRevokingId(overrideId)
-    setError(null)
-    const res = await revokeComplianceOverride({ overrideId })
-    if (!res.ok) setError(res.error)
-    setRevokingId(null)
-    await refreshAll()
+    if(revokingId)return
+    setRevokingId(overrideId);setError(null)
+    try{const res=await revokeComplianceOverride({driverId:driver.id,expectedDriverVersion:driverVersion,overrideId,expectedVersion:overrides.find(row=>row.id===overrideId)?.workflow_version})
+      if(!res.ok)setError(isAr?res.errorAr:res.error);else{confirmChange(res);await refreshAll()}
+    }catch{setError(unconfirmed)}finally{setRevokingId(null)}
   }
 
   const openUpload = (key: string) => {
+    setUploadVersion(driverVersion)
     setUploadFor(key)
     setDocType(key === "identity" || key === "general" ? "national_id" : key)
     setFile(null)
@@ -232,7 +229,7 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
   }
 
   const submitUpload = async () => {
-    if (!uploadFor || !file) return
+    if (!uploadFor || !file || uploading) return
     const isPhoto = uploadFor === "photo"
     // Same rules as the profile header and card panel: one shared policy
     // (src/lib/drivers/photo.ts) so no surface can accept what the bucket
@@ -264,20 +261,22 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
     setUploading(true)
     setFormError(null)
 
+    try{
     const ext = (file.name.split(".").pop() ?? "bin").toLowerCase().replace(/[^a-z0-9]/g, "") || "bin"
     const supabase = createClient()
     const path = isPhoto
       ? driverPhotoPath(driver.tenant_id, driver.id, file.name)
-      : `${driver.tenant_id}/${driver.id}/${docType}-${Date.now()}.${ext}`
+      : `${driver.tenant_id}/${driver.id}/${docType}-${crypto.randomUUID()}.${ext}`
     const bucket = isPhoto ? DRIVER_PHOTO_BUCKET : "driver-documents"
 
     const { error: uploadError } = await supabase.storage
       .from(bucket)
       .upload(path, file, {
         contentType: isPhoto ? photoContentType : file.type || undefined,
+        upsert: false,
       })
     if (uploadError) {
-      setFormError(uploadError.message)
+      setFormError(isAr?"تعذر تأكيد رفع الملف. أعد التحميل قبل المحاولة مجدداً.":"The upload could not be confirmed. Reload before retrying.")
       setUploading(false)
       return
     }
@@ -285,12 +284,14 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
     const res = isPhoto
       ? await updateDriverPhoto({
           driverId: driver.id,
+          expectedDriverVersion: uploadVersion,
           filePath: path,
           contentType: photoContentType,
           size: file.size,
         })
       : await registerDriverDocument({
           driverId: driver.id,
+          expectedDriverVersion: uploadVersion,
           docType,
           filePath: path,
           docNumber: docNumber.trim() === "" ? undefined : docNumber.trim(),
@@ -301,40 +302,39 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
         })
     setUploading(false)
     if (!res.ok) {
-      setFormError(res.error)
+      setFormError(isAr?res.errorAr:res.error)
       return
     }
+    confirmChange(res,isPhoto)
     setUploadFor(null)
-    if (isPhoto) {
-      // The detail header provider refreshes itself; nudge every other
-      // surface (list rows, card preview) to re-read the persisted photo.
-      emitDriverChanged({ driverId: driver.id, action: "photo" })
-    }
     await refreshAll()
+    }catch{setFormError(unconfirmed)}finally{setUploading(false)}
   }
 
   const viewDoc = async (path: string) => {
-    const supabase = createClient()
-    const { data } = await supabase.storage.from("driver-documents").createSignedUrl(path, 60)
-    if (data?.signedUrl) window.open(data.signedUrl, "_blank", "noopener,noreferrer")
+    const popup=window.open("","_blank")
+    if(!popup){setError(isAr?"اسمح بالنوافذ المنبثقة لعرض المستند.":"Allow popups to view the document.");return}
+    popup.opener=null
+    try{const {data,error:readError}=await createClient().storage.from("driver-documents").createSignedUrl(path,60)
+      if(readError||!data?.signedUrl)throw Error("Document signing failed")
+      popup.location.href=data.signedUrl
+    }catch{popup.close();setError(isAr?"تعذر عرض المستند. أعد المحاولة.":"Could not open the document. Try again.")}
   }
 
   const onVerify = async (documentId: string) => {
-    setVerifyingId(documentId)
-    setError(null)
-    const res = await verifyDriverDocument({ documentId })
-    if (!res.ok) setError(res.error)
-    setVerifyingId(null)
-    await refreshAll()
+    if(verifyingId)return
+    setVerifyingId(documentId);setError(null)
+    try{const res=await verifyDriverDocument({driverId:driver.id,expectedDriverVersion:driverVersion,documentId,expectedVersion:docs.find(row=>row.id===documentId)?.workflow_version})
+      if(!res.ok)setError(isAr?res.errorAr:res.error);else{confirmChange(res);await refreshAll()}
+    }catch{setError(unconfirmed)}finally{setVerifyingId(null)}
   }
 
   const onRemove = async (documentId: string) => {
-    setRemovingId(documentId)
-    setError(null)
-    const res = await removeDriverDocument({ documentId })
-    if (!res.ok) setError(res.error)
-    setRemovingId(null)
-    await refreshAll()
+    if(removingId)return
+    setRemovingId(documentId);setError(null)
+    try{const res=await removeDriverDocument({driverId:driver.id,expectedDriverVersion:driverVersion,documentId,expectedVersion:docs.find(row=>row.id===documentId)?.workflow_version})
+      if(!res.ok)setError(isAr?res.errorAr:res.error);else{confirmChange(res);await refreshAll()}
+    }catch{setError(unconfirmed)}finally{setRemovingId(null)}
   }
 
   const meta = latest ? levelStyles[latest.level] : undefined
@@ -343,19 +343,19 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
   const showDocTypePicker = uploadFor === "identity" || uploadFor === "general"
 
   return (
-    <div className="rounded-2xl border border-border/50 bg-card/60 p-5">
+    <div data-testid="driver-compliance-engine" className="rounded-2xl border border-border/50 bg-card/60 p-5">
       <div className="flex items-center justify-between gap-3">
         <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
           <ShieldAlert className="h-4 w-4 text-elite-blue-500" />
           {isAr ? "محرك الامتثال (2026)" : "Compliance engine (2026)"}
         </h3>
-        <Button size="sm" variant="outline" onClick={onRecompute} disabled={running}>
+        <Button size="sm" variant="outline" onClick={onRecompute} disabled={running||loading||readFailed||!driverVersion}>
           <RefreshCw className={cn("h-3.5 w-3.5", running && "animate-spin")} />
           {running ? (isAr ? "جارٍ الحساب…" : "Computing…") : isAr ? "إعادة الحساب" : "Recompute"}
         </Button>
       </div>
 
-      {loading ? (
+      {readFailed ? <div role="alert" className="mt-4 space-y-2"><p className="text-sm text-destructive">{isAr?"تعذر تحميل بيانات الامتثال والمستندات. أعد المحاولة.":"Could not load compliance and evidence. Try again."}</p><Button variant="outline" size="sm" onClick={()=>void refreshAll()}>{isAr?"أعد المحاولة":"Try again"}</Button></div> : loading ? (
         <div className="mt-4 space-y-2">
           <Skeleton className="h-5 w-40" />
           <Skeleton className="h-4 w-full" />
@@ -429,7 +429,7 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
                         </button>
                       )}
                       <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold", reqStatusCls[r.status] ?? "bg-muted text-muted-foreground")}>
-                        {r.status.replace(/_/g, " ")}
+                        {isAr?(reqStatusLabels[r.status]?.ar??"غير معروف"):(reqStatusLabels[r.status]?.en??"Unknown")}
                       </span>
                     </span>
                   </li>
@@ -444,7 +444,7 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
         </>
       )}
 
-      {!loading && (
+      {!loading && !readFailed && (
         <div className="mt-4">
           <div className="flex items-center justify-between">
             <p className="text-xs font-semibold text-foreground">
@@ -468,7 +468,7 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
               {docs.map((doc) => {
                 const lbl = docTypeLabels[doc.doc_type] ?? { en: doc.doc_type, ar: doc.doc_type }
                 return (
-                  <li key={doc.id} className="flex items-center justify-between gap-3 rounded-lg border border-border/40 bg-muted/10 px-3 py-2 text-xs">
+                  <li key={doc.id} data-testid="driver-evidence-document" data-document-id={doc.id} className="flex items-center justify-between gap-3 rounded-lg border border-border/40 bg-muted/10 px-3 py-2 text-xs">
                     <div className="flex min-w-0 items-center gap-2">
                       <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                       <div className="min-w-0">
@@ -528,7 +528,7 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
         </div>
       )}
 
-      {!loading && overrides.length > 0 && (
+      {!loading && !readFailed && overrides.length > 0 && (
         <div className="mt-4 rounded-lg border border-sky-500/30 bg-sky-500/5 p-3">
           <p className="text-xs font-semibold text-sky-700 dark:text-sky-400">
             {isAr ? "تجاوزات نشطة" : "Active overrides"}
@@ -537,7 +537,7 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
             {overrides.map((o) => {
               const lbl = reqLabels[o.requirement] ?? { en: o.requirement, ar: o.requirement }
               return (
-                <li key={o.id} className="flex items-start justify-between gap-3 text-xs">
+                <li key={o.id} data-testid="driver-evidence-override" data-override-id={o.id} className="flex items-start justify-between gap-3 text-xs">
                   <div>
                     <span className="font-medium text-foreground">{isAr ? lbl.ar : lbl.en}</span>
                     <span className="text-muted-foreground"> — {o.reason}</span>
@@ -560,12 +560,12 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
         </div>
       )}
 
-      <DriverCardPanel driverId={driver.id} isAr={isAr} />
+      {!readFailed&&<DriverCardPanel driverId={driver.id} isAr={isAr} />}
 
-      {error && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{error}</p>}
+      {error && <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">{error}</p>}
 
-      <Dialog open={overrideFor !== null} onOpenChange={(open) => { if (!open) setOverrideFor(null) }}>
-        <DialogContent>
+      <Dialog open={overrideFor !== null} onOpenChange={(open) => { if (!saving&&!open) setOverrideFor(null) }}>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{isAr ? "اعتماد تجاوز امتثال" : "Approve compliance override"}</DialogTitle>
           </DialogHeader>
@@ -624,8 +624,8 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
         </DialogContent>
       </Dialog>
 
-      <Dialog open={uploadFor !== null} onOpenChange={(open) => { if (!open) setUploadFor(null) }}>
-        <DialogContent>
+      <Dialog open={uploadFor !== null} onOpenChange={(open) => { if (!uploading&&!open) setUploadFor(null) }}>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {isPhotoUpload

@@ -9,7 +9,7 @@ const BASE: InvoiceDocData = {
  subtotal:90,discount:10,vatAmount:13.5,total:103.5,paidAmount:20,
  statusLabelAr:'معتمدة',statusLabelEn:'Finalized',qrDataUrl:'data:image/png;base64,AAAA',verifyUrl:'/verify-document/test',generatedAt:'2026-09-08',internalQr:true,
 }
-describe('modern invoice print template',()=>{
+describe('reference invoice print template',()=>{
  it('keeps a concise internal QR label without printing application metadata or instructions',()=>{
   const html=buildInvoiceHtml({...BASE,internalQr:true})
   expect(html).toContain('Internal QR · unvalidated')
@@ -59,7 +59,7 @@ describe('modern invoice print template',()=>{
   expect(html).toContain('<td class="number">0%</td>')
  })
  it('splits the first description line into the Item column',()=>{
-  const html=buildInvoiceHtml({...BASE,lines:[{...BASE.lines[0],description:'توصيل طلبات\nعمولة توصيل طلبات شهر سبتمبر 2026'}]})
+  const html=buildInvoiceHtml({...BASE,lines:[{...BASE.lines[0],itemName:'',description:'توصيل طلبات\nعمولة توصيل طلبات شهر سبتمبر 2026'}]})
   expect(html).toContain('<td class="text" dir="auto">توصيل طلبات</td>')
   expect(html).toContain('عمولة توصيل طلبات شهر سبتمبر 2026')
  })
@@ -91,12 +91,18 @@ describe('modern invoice print template',()=>{
   const html=buildInvoiceHtml({...BASE,kind:'credit_note',docTypeAr:'إشعار دائن',docTypeEn:'Credit note'})
   expect(html).toContain('إشعار دائن')
   expect(html).toContain('Credit note')
-  expect(html).not.toContain('Tax Invoice')
+  expect(html).not.toContain('TAX Invoice')
  })
  it('embeds only the supplied font data and rejects external CSS font URLs',()=>{
   expect(buildInvoiceHtml({...BASE,fontDataUrl:'data:font/woff2;base64,AAAA'})).toContain('@font-face')
   expect(buildInvoiceHtml({...BASE,fontDataUrl:'https://untrusted.test/font.woff2'})).not.toContain('untrusted.test')
   expect(buildInvoiceHtml({...BASE,fontDataUrl:'data:font/woff2;base64,AAAA");color:red'})).not.toContain('@font-face')
+ })
+ it('accepts only inline reference font assets and keeps regular/bold weights separate',()=>{
+  const html=buildInvoiceHtml({...BASE,referenceFontDataUrl:'data:font/ttf;base64,AAAA',referenceBoldFontDataUrl:'data:font/woff2;base64,BBBB'})
+  expect(html).toContain('format("truetype"); font-weight: 400')
+  expect(html).toContain('format("woff2"); font-weight: 700')
+  expect(buildInvoiceHtml({...BASE,referenceFontDataUrl:'file:///private/font.ttf',referenceBoldFontDataUrl:'https://untrusted.test/font.woff2'})).not.toContain('@font-face')
  })
  it('prints Paid 0.00 and the full Due Amount like the reference invoice, and omits absent bank/notes',()=>{
   const html=buildInvoiceHtml({...BASE,paidAmount:0})

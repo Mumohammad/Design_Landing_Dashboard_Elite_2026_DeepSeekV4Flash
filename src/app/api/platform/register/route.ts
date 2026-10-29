@@ -9,6 +9,7 @@ import {
 } from '@/lib/auth/rate-limit';
 import { ERROR_CODES } from '@/lib/errors/error-codes';
 import { isValidNewPassword, newPasswordHint } from '@/lib/auth/password-policy';
+import { authCallbackUrlWithReturn } from '@/lib/redirects';
 import { LogoValidationError, normalizeLogo, storeTenantLogo } from '@/lib/branding/logo';
 import { decodeLogoPayload, LOGO_MAX_INPUT_BYTES } from '@/lib/branding/logo-core';
 
@@ -116,6 +117,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    let confirmationRedirect: string;
+    try { confirmationRedirect = authCallbackUrlWithReturn(); } catch {
+      return NextResponse.json({ error: 'Registration temporarily unavailable' }, { status: 503 });
+    }
+
     const slug = company_name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
     const { data: existing } = await supabase.from('tenants').select('id').eq('domain', domain).maybeSingle();
@@ -211,6 +217,7 @@ export async function POST(req: NextRequest) {
         type: 'signup',
         email,
         password,
+        options: { redirectTo: confirmationRedirect },
       });
 
       if (linkError || !linkData?.properties?.action_link) {

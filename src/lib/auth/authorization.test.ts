@@ -20,7 +20,10 @@ beforeEach(() => {
   state.lockedUntil = null
   state.assurance = false
   state.error = null
-  rpc.mockReset().mockImplementation(async () => ({ data: state.assurance, error: state.error }))
+  rpc.mockReset().mockImplementation(async (name: string) => ({
+    data: name === "get_my_tenant_id" ? (state.assurance ? "tenant" : null) : state.assurance,
+    error: state.error,
+  }))
 })
 
 describe("application authorization", () => {
