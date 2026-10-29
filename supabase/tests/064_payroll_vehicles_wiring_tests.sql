@@ -189,8 +189,7 @@ INSERT INTO public.driver_payroll_periods
   (tenant_id, driver_id, period_year, period_month, status, cancel_reason)
 VALUES
   ('12111111-1111-1111-1111-111111111111',
-   '12444444-4444-4444-4444-444444444444', 2026, 9, 'cancelled', 'duplicate fixture row')
-ON CONFLICT (tenant_id, driver_id, period_year, period_month) DO NOTHING;
+   '12444444-4444-4444-4444-444444444444', 2026, 9, 'cancelled', 'duplicate fixture row');
 
 SELECT is(
   (SELECT status::text FROM public.driver_payroll_periods
@@ -207,8 +206,7 @@ INSERT INTO public.driver_payroll_periods
   (tenant_id, driver_id, period_year, period_month, status)
 VALUES
   ('12111111-1111-1111-1111-111111111111',
-   '12444444-4444-4444-4444-444444444444', 2026, 8, 'draft')
-ON CONFLICT (tenant_id, driver_id, period_year, period_month) DO NOTHING;
+   '12444444-4444-4444-4444-444444444444', 2026, 8, 'draft');
 
 SELECT throws_ok(
   $$UPDATE public.driver_payroll_periods SET status = 'cancelled'

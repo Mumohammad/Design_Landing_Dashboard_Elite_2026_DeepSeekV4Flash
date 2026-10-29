@@ -52,6 +52,8 @@ export async function verifyReceivableCrud(page, admin, tenantId, appUrl) {
     if (persisted.error || persisted.data?.length!==1 || persisted.data[0].id!==id) throw Error('Retry duplicated or replaced the receivable')
     const audit = await admin.from('audit_log').select('id').eq('tenant_id',tenantId).eq('entity_id',id).eq('action','receivable_created')
     if (audit.error || audit.data?.length!==1) throw Error('Retry duplicated or omitted audit evidence')
+    stage = 'created receivable found through paged ledger search'
+    await page.getByTestId('ledger-toolbar').getByRole('searchbox', { name: /^(Search ledger|بحث في السجل)$/, exact: true }).fill(reference)
     const row = page.getByRole('row').filter({ hasText: reference })
     await expect(row).toBeVisible()
     await expect(row).toContainText('4.72')
@@ -65,6 +67,7 @@ export async function verifyReceivableCrud(page, admin, tenantId, appUrl) {
     await page.keyboard.press('Escape')
     await page.reload()
     await page.getByRole('tab', { name: /^(Receivables|الذمم المدينة)$/ }).click()
+    await page.getByTestId('ledger-toolbar').getByRole('searchbox', { name: /^(Search ledger|بحث في السجل)$/, exact: true }).fill(reference)
     await expect(page.getByRole('row').filter({ hasText: reference })).toContainText('4.72')
     await expect(page.locator('html')).toHaveAttribute('lang',locale)
     console.log('PASS: manual receivable → exact VAT preview → committed response loss → unchanged-form retry → one record/audit → fresh form/mobile → persisted reload')

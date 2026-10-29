@@ -4,6 +4,7 @@
 export type DriverCardStatus = "active" | "suspended" | "revoked" | "expired"
 
 export interface DriverCard {
+  workflow_version: number
   id: string
   driver_id: string
   card_serial: string

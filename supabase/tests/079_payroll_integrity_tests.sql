@@ -1,5 +1,5 @@
 BEGIN;
-SELECT plan(11);
+SELECT plan(15);
 INSERT INTO public.drivers (id, tenant_id, full_name_ar, primary_mobile, category, status, hire_date)
 VALUES ('79000000-0000-4000-8000-000000000001','00000000-0000-0000-0000-000000000001','اختبار','0507900001','freelancer','active',CURRENT_DATE);
 INSERT INTO public.driver_payroll_periods(id,tenant_id,driver_id,period_year,period_month,status,net_payroll)
@@ -22,6 +22,13 @@ SELECT lives_ok($$UPDATE public.driver_payroll_periods SET status='cancelled',ca
 SELECT is((SELECT status FROM public.payroll_advances WHERE id='79000000-0000-4000-8000-000000000010'),'approved','advance restored');
 SELECT is((SELECT payroll_period_id FROM public.payroll_advances WHERE id='79000000-0000-4000-8000-000000000010'),NULL::uuid,'advance unlinked');
 SELECT throws_ok($$UPDATE public.driver_payroll_periods SET status='calculated' WHERE id='79000000-0000-4000-8000-000000000001'$$,'P0001','PAY_PERIOD_IMMUTABLE','cancelled period cannot be resurrected');
-SELECT lives_ok($$UPDATE public.driver_payroll_periods SET status='paid' WHERE id='79000000-0000-4000-8000-000000000002'$$,'approved payroll can be marked paid without changing its amounts');
+SELECT throws_ok($$UPDATE public.driver_payroll_periods SET status='paid' WHERE id='79000000-0000-4000-8000-000000000002'$$,'42501','PAY_APPROVAL_CALLER_REQUIRED','payment requires a caller-bound approval workflow');
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims','{"role":"authenticated","aal":"aal2","sub":"00000000-0000-0000-0000-000000000001"}',true);
+SELECT lives_ok($$SELECT public.transition_payroll_status_atomic('79000000-0000-4000-8000-000000000002','paid')$$,'authorized reviewed transition marks approved payroll paid');
+SELECT is((SELECT status::text FROM public.driver_payroll_periods WHERE id='79000000-0000-4000-8000-000000000002'),'paid','reviewed payment transition persists paid status');
+SELECT is((SELECT net_payroll FROM public.driver_payroll_periods WHERE id='79000000-0000-4000-8000-000000000002'),1000::numeric,'reviewed payment preserves approved payroll amounts');
+SELECT ok((SELECT paid_by='00000000-0000-0000-0000-000000000001' AND paid_at IS NOT NULL FROM public.driver_payroll_periods WHERE id='79000000-0000-4000-8000-000000000002'),'reviewed payment records the authenticated approver and timestamp');
+RESET ROLE;
 SELECT * FROM finish();
 ROLLBACK;

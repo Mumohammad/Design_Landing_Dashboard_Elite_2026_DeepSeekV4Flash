@@ -9,6 +9,8 @@
 // guarded export actions.
 
 import { useEffect, useState } from "react"
+import { sumMoney, sumMoneyValues, type DecimalInput } from "@/lib/accounting/decimal"
+import { journalLabel } from "@/lib/accounting/journal-labels"
 import { useTranslation } from "@/hooks/use-translation"
 import {
   listStatementPeriods,
@@ -26,9 +28,9 @@ type PlRow = {
   name_en: string
   account_type: "income" | "expense"
   normal_balance: "debit" | "credit"
-  total_debit: number
-  total_credit: number
-  net_balance: number
+  total_debit: DecimalInput
+  total_credit: DecimalInput
+  net_balance: DecimalInput
 }
 
 type BsRow = {
@@ -37,20 +39,20 @@ type BsRow = {
   name_en: string
   account_type: "asset" | "liability" | "equity"
   normal_balance: "debit" | "credit"
-  total_debit: number
-  total_credit: number
-  balance: number
+  total_debit: DecimalInput
+  total_credit: DecimalInput
+  balance: DecimalInput
 }
 
 type CfRow = {
   entry_type: string
   entry_count: number
-  cash_in: number
-  cash_out: number
-  net_cash_flow: number
+  cash_in: DecimalInput
+  cash_out: DecimalInput
+  net_cash_flow: DecimalInput
 }
 
-function fmtMoney(n: number | null | undefined): string {
+function fmtMoney(n: DecimalInput | null | undefined): string {
   return Number(n ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
@@ -83,94 +85,119 @@ export function StatementsManager() {
   const ar = locale === "ar"
   const [periods, setPeriods] = useState<{ period_year: number; period_month: number }[]>([])
   const [period, setPeriod] = useState("")
-  const [loading, setLoading] = useState(true)
+  const [periodsLoadedFor,setPeriodsLoadedFor]=useState<number|null>(null)
+  const [loadedRowsKey,setLoadedRowsKey]=useState<string|null>(null)
   const [pl, setPl] = useState<PlRow[]>([])
   const [bs, setBs] = useState<BsRow[]>([])
   const [cf, setCf] = useState<CfRow[]>([])
   const [exporting, setExporting] = useState<string | null>(null)
   const [printing, setPrinting] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+
+  const [periodsError, setPeriodsError] = useState(false)
+  const [rowsError, setRowsError] = useState(false)
+  const [reload, setReload] = useState(0)
+  const loading=periodsLoadedFor!==reload||Boolean(period&&loadedRowsKey!==period+":"+reload)
 
   useEffect(() => {
+    let cancelled = false
     void (async () => {
-      const res = await listStatementPeriods()
-      if (res.success && res.periods) {
+      try {
+        const res = await listStatementPeriods()
+        if (cancelled) return
+        if (!res.success || !res.periods) { setPeriodsError(true); return }
+        setPeriodsError(false)
         setPeriods(res.periods)
-        if (res.periods.length > 0) {
-          setPeriod((p) => p || `${res.periods![0].period_year}-${String(res.periods![0].period_month).padStart(2, "0")}`)
-        }
-      }
-      setLoading(false)
+        if (res.periods.length) {
+          const first = res.periods[0]
+          setPeriod(current => res.periods!.some(row=>current===row.period_year+"-"+String(row.period_month).padStart(2,"0"))?current:first.period_year + "-" + String(first.period_month).padStart(2, "0"))
+        }else setPeriod("")
+      } catch { if (!cancelled) setPeriodsError(true) }
+      finally { if (!cancelled) setPeriodsLoadedFor(reload) }
     })()
-  }, [])
+    return () => { cancelled = true }
+  }, [reload])
 
   useEffect(() => {
     if (!period) return
+    let cancelled = false
+    const requestKey=period+":"+reload
     void (async () => {
-      setLoading(true)
-      const [year, month] = period.split("-").map(Number)
-      if (!year || !month) return
-      const res = await getFinancialStatements({ period_year: year, period_month: month })
-      setLoading(false)
-      if (res.success) {
+      try {
+        const [year, month] = period.split("-").map(Number)
+        const res = await getFinancialStatements({ period_year: year, period_month: month })
+        if (cancelled) return
+        if (!res.success) { setRowsError(true); return }
+        setRowsError(false)
         setPl(res.profitLoss ?? [])
         setBs(res.balanceSheet ?? [])
         setCf(res.cashFlow ?? [])
-      } else {
-        setPl([])
-        setBs([])
-        setCf([])
-      }
+      } catch { if (!cancelled) setRowsError(true) }
+      finally { if (!cancelled) setLoadedRowsKey(requestKey) }
     })()
-  }, [period])
+    return () => { cancelled = true }
+  }, [period, reload])
 
   // Balance sheet check
-  const assets = bs.filter((r) => r.account_type === "asset").reduce((s, r) => s + Number(r.balance), 0)
-  const liabilities = bs.filter((r) => r.account_type === "liability").reduce((s, r) => s + Number(r.balance), 0)
-  const equity = bs.filter((r) => r.account_type === "equity").reduce((s, r) => s + Number(r.balance), 0)
-  const balanced = Math.abs(assets - (liabilities + equity)) < 0.01
+  const assets = sumMoneyValues(bs.filter((r) => r.account_type === "asset").map(r => r.balance))
+  const liabilities = sumMoneyValues(bs.filter((r) => r.account_type === "liability").map(r => r.balance))
+  const equity = sumMoneyValues(bs.filter((r) => r.account_type === "equity").map(r => r.balance))
+  const balanced = sumMoney(assets, -liabilities, -equity) === 0
 
-  const income = pl.filter((r) => r.account_type === "income").reduce((s, r) => s + Number(r.net_balance), 0)
-  const expense = pl.filter((r) => r.account_type === "expense").reduce((s, r) => s + Number(r.net_balance), 0)
-  const netProfit = income + expense
+  const income = sumMoneyValues(pl.filter((r) => r.account_type === "income").map(r => r.net_balance))
+  const expense = sumMoneyValues(pl.filter((r) => r.account_type === "expense").map(r => r.net_balance))
+  const netProfit = sumMoney(income, expense)
+  const netCash = sumMoneyValues(cf.map(r => r.net_cash_flow))
 
   async function handleExport(kind: "profit_loss" | "balance_sheet" | "cash_flow") {
-    if (!period) return
+    if (!period || loading || periodsError || rowsError) return
+    setActionError(null)
     setExporting(kind)
-    const [year, month] = period.split("-").map(Number)
-    const res = await exportStatementCsv({ kind, period_year: year, period_month: month })
-    setExporting(null)
-    if (res.success && res.csv) {
+    try {
+      const [year, month] = period.split("-").map(Number)
+      const res = await exportStatementCsv({ kind, period_year: year, period_month: month })
+      if (!res.success || !res.csv) throw new Error("Export unavailable")
       const blob = new Blob([res.csv], { type: "text/csv;charset=utf-8" })
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = url
-      a.download = `${kind}-${period}.csv`
+      a.download = kind + "-" + period + ".csv"
       a.click()
       URL.revokeObjectURL(url)
-    } else {
-      alert(res.error ?? "Export failed")
-    }
+    } catch {
+      setActionError(ar ? "تعذر تصدير القائمة المالية. أعد المحاولة." : "The financial statement could not be exported. Try again.")
+    } finally { setExporting(null) }
   }
 
   async function handlePrint(kind: "profit_loss" | "balance_sheet" | "cash_flow") {
-    if (!period) return
-    setPrinting(kind)
-    const [year, month] = period.split("-").map(Number)
-    const res = await generateStatementReport({ kind, period_year: year, period_month: month })
-    setPrinting(null)
-    if (res.success && res.html) {
-      const win = window.open("", "_blank")
-      if (win) {
-        win.document.write(res.html)
-        win.document.close()
-        setTimeout(() => win.print(), 300)
-      }
-    } else {
-      alert(res.error ?? "Report failed")
+    if (!period || loading || periodsError || rowsError) return
+    setActionError(null)
+    // Open during the user gesture; waiting for the server first causes popup
+    // blockers to silently discard successful report generation.
+    const win = window.open("", "_blank")
+    if (!win) {
+      setActionError(ar ? "اسمح بالنوافذ المنبثقة لفتح التقرير القابل للطباعة." : "Allow popups to open the printable report.")
+      return
     }
+    win.opener = null
+    win.document.body.textContent = ar ? "جارٍ إعداد التقرير…" : "Preparing report…"
+    setPrinting(kind)
+    try {
+      const [year, month] = period.split("-").map(Number)
+      const res = await generateStatementReport({ kind, period_year: year, period_month: month })
+      if (!res.success || !res.html) throw new Error("Report unavailable")
+      if (win.closed) return
+      win.document.write(res.html)
+      win.document.close()
+      await win.document.fonts.ready
+      if (!win.closed) win.print()
+    } catch {
+      if (!win.closed) win.close()
+      setActionError(ar ? "تعذر إعداد التقرير القابل للطباعة. أعد المحاولة." : "The printable report could not be prepared. Try again.")
+    } finally { setPrinting(null) }
   }
 
-  if (loading && periods.length === 0) {
+  if (loading) {
     return (
       <div className="flex items-center justify-center py-16">
         <LoadingSpinner className="h-6 w-6" />
@@ -178,16 +205,26 @@ export function StatementsManager() {
     )
   }
 
+  if (periodsError || rowsError) return (
+    <div role="alert" className="space-y-3 rounded-xl border border-border bg-card p-5">
+      <p>{ar ? "تعذر تحميل القوائم المالية كاملة. أعد المحاولة." : "The complete financial statements could not be loaded. Try again."}</p>
+      <button type="button" className={dialogBtn} onClick={() => setReload(value => value + 1)}>{ar ? "أعد المحاولة" : "Try again"}</button>
+    </div>
+  )
+  if (periods.length === 0) return <p className="py-8 text-center text-muted-foreground">{ar ? "لا توجد قيود مرحّلة لإعداد القوائم المالية بعد." : "There are no posted entries to report yet."}</p>
+
   return (
     <div className="space-y-4">
+      {actionError && <p role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{actionError}</p>}
       {/* Toolbar: period selector */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
           {ar
-            ? "القوائم المالية مبنية على القيود المرحّلة فقط"
-            : "Statements are built from posted journal entries only"}
+            ? "تشمل القوائم القيود المرحّلة وقيودها العكسية بتاريخها"
+            : "Statements include posted entries and their dated reversals"}
         </p>
         <select
+          aria-label={ar ? "الفترة المالية" : "Financial period"}
           value={period}
           onChange={(e) => setPeriod(e.target.value)}
           className="h-9 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -234,7 +271,7 @@ export function StatementsManager() {
               )}
               {pl.map((r) => (
                 <tr key={r.account_code} className="border-b border-border/40 last:border-0 hover:bg-muted/40">
-                  <Td>{r.name_ar} <span dir="ltr" className="font-mono text-[11px] text-muted-foreground">{r.account_code}</span></Td>
+                  <Td>{ar ? r.name_ar : (r.name_en || r.name_ar)} <span dir="ltr" className="font-mono text-[11px] text-muted-foreground">{r.account_code === "__UNCLOSED_RESULT__" ? (ar ? "محسوب" : "Calculated") : r.account_code}</span></Td>
                   <Td>{ar ? (r.account_type === "income" ? "إيراد" : "مصروف") : r.account_type}</Td>
                   <Td dir="ltr" className={`text-end font-medium tabular-nums ${r.account_type === "income" ? "text-emerald-600" : "text-red-600"}`}>
                     {fmtMoney(r.net_balance)}
@@ -252,7 +289,7 @@ export function StatementsManager() {
                 <tr className="bg-muted/20">
                   <Td className="font-bold">{ar ? "المصروفات" : "Expenses"}</Td>
                   <Td />
-                  <Td dir="ltr" className="text-end font-bold tabular-nums text-red-600">{fmtMoney(Math.abs(expense))}</Td>
+                  <Td dir="ltr" className="text-end font-bold tabular-nums text-red-600">{fmtMoney(-expense)}</Td>
                 </tr>
               )}
               {pl.length > 0 && (
@@ -302,7 +339,7 @@ export function StatementsManager() {
               )}
               {bs.map((r) => (
                 <tr key={r.account_code} className="border-b border-border/40 last:border-0 hover:bg-muted/40">
-                  <Td>{r.name_ar} <span dir="ltr" className="font-mono text-[11px] text-muted-foreground">{r.account_code}</span></Td>
+                  <Td>{ar ? r.name_ar : (r.name_en || r.name_ar)} <span dir="ltr" className="font-mono text-[11px] text-muted-foreground">{r.account_code === "__UNCLOSED_RESULT__" ? (ar ? "محسوب" : "Calculated") : r.account_code}</span></Td>
                   <Td>{ar ? (r.account_type === "asset" ? "أصل" : r.account_type === "liability" ? "التزام" : "حقوق ملكية") : r.account_type}</Td>
                   <Td dir="ltr" className={`text-end font-medium tabular-nums ${r.account_type === "asset" ? "text-emerald-600" : "text-foreground"}`}>
                     {fmtMoney(r.balance)}
@@ -330,7 +367,7 @@ export function StatementsManager() {
                     <Td className="font-extrabold">{ar ? "فرق التوازن" : "Balance Check"}</Td>
                     <Td />
                     <Td dir="ltr" className={`text-end font-extrabold tabular-nums ${balanced ? "text-emerald-600" : "text-red-600"}`}>
-                      {balanced ? (ar ? "متوازنة ✓" : "Balanced ✓") : fmtMoney(assets - liabilities - equity)}
+                      {balanced ? (ar ? "متوازنة ✓" : "Balanced ✓") : fmtMoney(sumMoney(assets, -liabilities, -equity))}
                     </Td>
                   </tr>
                 </>
@@ -374,7 +411,7 @@ export function StatementsManager() {
               )}
               {cf.map((r) => (
                 <tr key={r.entry_type} className="border-b border-border/40 last:border-0 hover:bg-muted/40">
-                  <Td className="font-mono text-[11px]" dir="ltr">{r.entry_type}</Td>
+                  <Td>{journalLabel(r.entry_type, ar ? "ar" : "en")}</Td>
                   <Td dir="ltr" className="text-end tabular-nums text-emerald-600">{fmtMoney(r.cash_in)}</Td>
                   <Td dir="ltr" className="text-end tabular-nums text-red-600">{fmtMoney(r.cash_out)}</Td>
                   <Td dir="ltr" className={`text-end font-medium tabular-nums ${Number(r.net_cash_flow) >= 0 ? "text-emerald-600" : "text-red-600"}`}>
@@ -387,8 +424,8 @@ export function StatementsManager() {
                   <Td className="font-extrabold">{ar ? "صافي التدفق" : "Net Cash Flow"}</Td>
                   <Td />
                   <Td />
-                  <Td dir="ltr" className={`text-end font-extrabold tabular-nums ${cf.reduce((s, r) => s + Number(r.net_cash_flow), 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                    {fmtMoney(cf.reduce((s, r) => s + Number(r.net_cash_flow), 0))}
+                  <Td dir="ltr" className={`text-end font-extrabold tabular-nums ${netCash >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                    {fmtMoney(netCash)}
                   </Td>
                 </tr>
               )}

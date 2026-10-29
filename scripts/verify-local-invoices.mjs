@@ -3,11 +3,14 @@ import { randomInt, createHash } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs"
 import { verifyZatcaDisplay } from "./verify-local-zatca.mjs"
+import {assertModuleTestTarget} from "./assert-module-test-target.mjs"
+import {verifyInvoiceReferenceAndPages} from "./verify-invoice-reference-and-pages.mjs"
 
 const expect = baseExpect.configure({ timeout: 20_000 })
 
-// Called only from the loopback-only MFA harness after authenticated enrollment.
+// Called by the approved isolated staging MFA harness after authenticated enrollment.
 export async function verifyInvoiceCrud(page, admin, tenantId, appUrl) {
+  await assertModuleTestTarget(page,admin.supabaseUrl,appUrl)
   let stage = "customer fixture"
   try {
     const customer = await admin.from("customers").insert({
@@ -82,12 +85,16 @@ export async function verifyInvoiceCrud(page, admin, tenantId, appUrl) {
     const pdf=await task.promise
     if(pdf.numPages!==1) throw Error('Standard invoice PDF must fit one page')
     const documentPage=await pdf.getPage(1)
+    const pageSize=documentPage.getViewport({scale:1})
+    if(Math.abs(pageSize.width-612)>.1||Math.abs(pageSize.height-792)>.1) throw Error('Downloaded invoice does not use reference Letter geometry')
     const content=(await documentPage.getTextContent()).items.map(item=>item.str??'').join(' ')
     if(!content.includes('11.50')||!content.includes('Draft')||!content.includes('Internal QR')||/about:blank|https?:\/\//.test(content)) throw Error('PDF amount/status/disclosure or clean-output verification failed')
     await task.destroy()
     const generated=await admin.from('generated_documents').select('generated_data,file_url').eq('tenant_id',tenantId).eq('invoice_id',created.data.id).is('deleted_at',null).single()
     const hash=createHash('sha256').update(bytes).digest('hex')
     if(generated.error||generated.data.generated_data.file_format!=='pdf'||generated.data.generated_data.pdf_sha256!==hash||!generated.data.file_url) throw Error('Stored PDF evidence mismatch')
+    if(generated.data.generated_data.layout_version!=='reference-letter-2') throw Error('Stored PDF uses an outdated invoice layout')
+    if(new URL(admin.supabaseUrl).origin==='https://viowrovartosrkqukjxy.supabase.co'&&generated.data.generated_data.font_source!=='protected_reference') throw Error('Hosted invoice did not use the licensed reference fonts')
     const retained=await fetch(generated.data.file_url)
     if(!retained.ok||!retained.headers.get('content-type')?.includes('application/pdf')||createHash('sha256').update(Buffer.from(await retained.arrayBuffer())).digest('hex')!==hash) throw Error('Retained PDF differs from downloaded PDF')
     await expect(dialog).toBeHidden()
@@ -109,6 +116,7 @@ export async function verifyInvoiceCrud(page, admin, tenantId, appUrl) {
       .every((action) => audit.data.some((entry) => entry.action === action))) throw new Error("Invoice audit lifecycle incomplete")
     const { verifyInvoiceLifecycle } = await import("./verify-local-invoice-lifecycle.mjs")
     await verifyInvoiceLifecycle(page, admin, tenantId, appUrl)
+    await verifyInvoiceReferenceAndPages(page,admin,tenantId,appUrl)
     console.log("PASS: invoice browser create → exact VAT → edit → mobile → PDF failure/retry → clean PDF download with preserved amounts/status/internal QR and identical private stored hash → soft delete → reload → audit")
   } catch (error) {
     console.error(JSON.stringify({ invoiceStage: stage }))

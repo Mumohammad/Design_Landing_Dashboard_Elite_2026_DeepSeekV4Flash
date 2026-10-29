@@ -12,17 +12,13 @@
 --      oldest-first ordering, type filter, date-range filter, cap clamp
 --   3. RLS tenant isolation on every source table (authenticated sees only
 --      their tenant's pending rows; anon sees 0)
---   4. decide_leave_request_atomic: claims the pending row (approved),
---      LVE002 on double-decision (the idempotency guard), rejection persists
---      the mandatory reason (LVE004 without one), service-role-only EXECUTE
---   5. decide_application_atomic: claims a pre-decision row, APP002 on
---      double-decision, APP004 without a rejection note, reviewer persisted
---      (users.id per 030), service-role-only EXECUTE
+--   4/5. Retired service decision RPCs are denied; pending sources remain
+--      unchanged. Current caller-bound decision semantics live in 140/141.
 --   6. anon-zero on all three sources
 --   7. Queue indexes exist (expenses pending, leave pending queue, apps
 --      pending queue, review queue)
 --
--- plan(34) MUST equal the actual assertion count: pgTAP reports "planned N
+-- plan(26) MUST equal the actual assertion count: pgTAP reports "planned N
 -- but ran M" at finish() and the CI runner counts any file with a plan
 -- mismatch, `not ok` line, or psql ERROR as failed.
 --
@@ -36,7 +32,7 @@
 
 BEGIN;
 
-SELECT plan(34);
+SELECT plan(26);
 
 -- ─── Fixtures (run as postgres; bypass RLS) ─────────────────────────────────
 -- Fixed UUIDs so role-switched statements need no fixture-table access:
@@ -387,161 +383,24 @@ SELECT throws_ok(
   'anon EXECUTE of the queue RPC is denied (role gate)'
 );
 
--- ─── 5. decide_leave_request_atomic — transition + double-decision (6) ──────
-
+-- ─── 5/6. Retired service decisions cannot bypass version/audit guards ─────
+-- Detailed caller-bound lifecycle, evidence/version and audit-rollback
+-- semantics are covered by 140_application_review_workflow.sql and 141.
+RESET ROLE;
+SET LOCAL ROLE service_role;
+SELECT throws_ok(
+ $$SELECT public.decide_leave_request_atomic('11111111-1111-1111-1111-111111111111','44444444-4444-4444-4444-444444444444','approved',NULL,'33333333-3333-3333-3333-333333333333')$$,
+ '42501',NULL,'legacy service leave decision cannot bypass reviewed version and audit');
+SELECT throws_ok(
+ $$SELECT public.decide_application_atomic('11111111-1111-1111-1111-111111111111','44444444-4444-4444-4444-444444444444','approved','Legacy review','55555555-5555-5555-5555-555555555555')$$,
+ '42501',NULL,'legacy service application decision cannot bypass reviewed evidence and audit');
 RESET ROLE;
 SET LOCAL ROLE postgres;
-SELECT set_config('request.jwt.claims', '{"role":"service_role"}', true);
-
--- Approve: claims the pending row and flips the driver to on_leave.
-SELECT is(
-  ((SELECT (public.decide_leave_request_atomic(
-      '11111111-1111-1111-1111-111111111111',
-      (SELECT leave_id FROM approvals_fixture),
-      'approved', NULL,
-      '33333333-3333-3333-3333-333333333333'
-    ) ->> 'decision'))
-  = 'approved'),
-  true,
-  'decide_leave_request_atomic approves a pending leave request'
-);
-
-SELECT is(
-  (SELECT status::text FROM public.drivers WHERE id = (SELECT driver_id FROM approvals_fixture)),
-  'on_leave',
-  'approved leave flips the driver to on_leave (drivers-module contract)'
-);
-
--- Double-decision guard: the second call MUST fail with LVE002.
-SELECT throws_ok(
-  $$SELECT public.decide_leave_request_atomic(
-       '11111111-1111-1111-1111-111111111111',
-       (SELECT leave_id FROM approvals_fixture),
-       'rejected', 'changing my mind',
-       '33333333-3333-3333-3333-333333333333')$$,
-  'P0001',
-  'LVE002: leave request already decided',
-  'double decision on the same leave request is refused (LVE002)'
-);
-
--- Rejection without a reason is refused (mandatory-reason contract).
-SELECT throws_ok(
-  $$SELECT public.decide_leave_request_atomic(
-       '11111111-1111-1111-1111-111111111111',
-       (SELECT leave2_id FROM approvals_fixture),
-       'rejected', NULL,
-       '33333333-3333-3333-3333-333333333333')$$,
-  'P0001',
-  'LVE004: rejection reason required',
-  'rejection without a reason is refused (LVE004)'
-);
-
--- Rejection WITH a reason persists it (and the reviewer + timestamp).
--- SPLIT into two asserts — and this is a suite-wide rule: one SQL statement
--- must never both call the data-modifying RPC and read the row it wrote.
--- Postgres executes a statement's volatile function and its snapshot-taking
--- subplans in UNSPECIFIED order, so the read can take the PRE-update snapshot
--- and observe the old (NULL) value — nondeterministically, flipping with
--- planner/statistics state. That was test 26's intermittent `have: NULL`.
-SELECT is(
-  (SELECT public.decide_leave_request_atomic(
-      '11111111-1111-1111-1111-111111111111',
-      (SELECT leave2_id FROM approvals_fixture),
-      'rejected', 'staffing freeze this month',
-      '33333333-3333-3333-3333-333333333333'
-    ) ->> 'decision'),
-  'rejected',
-  'decide_leave_request_atomic rejects with a reason'
-);
-
-SELECT is(
-  (SELECT review_notes FROM public.driver_leave_requests
-   WHERE id = (SELECT leave2_id FROM approvals_fixture)),
-  'staffing freeze this month',
-  'rejection persists the reason in review_notes'
-);
-
-SELECT is(
-  (SELECT reviewed_by::text FROM public.driver_leave_requests
-   WHERE id = (SELECT leave2_id FROM approvals_fixture)),
-  '33333333-3333-3333-3333-333333333333',
-  'rejection persists the reviewer (auth.users FK)'
-);
-
--- Invalid decision value refused.
-SELECT throws_ok(
-  $$SELECT public.decide_leave_request_atomic(
-       '11111111-1111-1111-1111-111111111111',
-       (SELECT leave2_id FROM approvals_fixture),
-       'maybe', NULL, NULL)$$,
-  'P0001',
-  'LVE003: invalid decision',
-  'invalid decision value is refused (LVE003)'
-);
-
--- ─── 6. decide_application_atomic — transition + double-decision (5) ────────
-
-RESET ROLE;
-SET LOCAL ROLE postgres;
-
--- Approve: claims the submitted row. The RPC call and the persisted-row read
--- are deliberately SEPARATE asserts (see the split note in section 5).
-SELECT is(
-  (SELECT (public.decide_application_atomic(
-      '11111111-1111-1111-1111-111111111111',
-      (SELECT app_id FROM approvals_fixture),
-      'approved', 'docs complete',
-      '55555555-5555-5555-5555-555555555555'
-    ) ->> 'decision')),
-  'approved',
-  'decide_application_atomic approves a pre-decision application'
-);
-
-SELECT is(
-  (SELECT reviewed_by::text FROM public.driver_applications
-   WHERE id = (SELECT app_id FROM approvals_fixture)),
-  '55555555-5555-5555-5555-555555555555',
-  'approval persists the reviewer (users.id per 030)'
-);
-
--- Double-decision guard: the second call MUST fail with APP002.
-SELECT throws_ok(
-  $$SELECT public.decide_application_atomic(
-       '11111111-1111-1111-1111-111111111111',
-       (SELECT app_id FROM approvals_fixture),
-       'rejected', 'changed my mind',
-       '55555555-5555-5555-5555-555555555555')$$,
-  'P0001',
-  'APP002: application already decided',
-  'double decision on the same application is refused (APP002)'
-);
-
--- ─── 6b. Application rejection contract (4) ─────────────────────────────────
-
--- Rejection without a note is refused.
-SELECT throws_ok(
-  $$SELECT public.decide_application_atomic(
-       '11111111-1111-1111-1111-111111111111',
-       'aaaaaaaa-1111-4111-8111-111111111111',
-       'rejected', NULL,
-       '55555555-5555-5555-5555-555555555555')$$,
-  'P0001',
-  'APP004: rejection note required',
-  'application rejection without a note is refused (APP004)'
-);
-
--- Already-decided rows (approved/rejected) never re-enter the queue.
-RESET ROLE;
-SELECT set_config('request.jwt.claims',
-  '{"role":"authenticated","aal":"aal2","sub":"33333333-3333-3333-3333-333333333333"}', true);
+SELECT is((SELECT status::text FROM public.driver_leave_requests WHERE id=(SELECT leave_id FROM approvals_fixture)),'pending','denied legacy decision leaves pending leave unchanged');
+SELECT is((SELECT status FROM public.driver_applications WHERE id=(SELECT app_id FROM approvals_fixture)),'submitted','denied legacy decision leaves application unchanged');
+SELECT set_config('request.jwt.claims','{"role":"authenticated","aal":"aal2","sub":"33333333-3333-3333-3333-333333333333"}',true);
 SET LOCAL ROLE authenticated;
-SELECT is(
-  (SELECT count(*)::int FROM public.fetch_pending_approvals(
-     '11111111-1111-1111-1111-111111111111',
-     'application', NULL, NULL, 50)),
-  0,
-  'decided applications leave the queue (terminal-state discipline)'
-);
+SELECT is((SELECT count(*)::int FROM public.fetch_pending_approvals('11111111-1111-1111-1111-111111111111','application',NULL,NULL,50)),1,'application remains in pending queue after denied legacy decision');
 
 -- ─── 7. Queue indexes (4) ───────────────────────────────────────────────────
 

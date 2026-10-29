@@ -20,3 +20,14 @@ loadtest/results/
 *.tsbuildinfo
 *-debug.log*
 Design_Landing_Dashboard_Elite_2026_DeepSeekV4Flash/
+
+# Local PDF comparisons and private release reviews are never deployment inputs.
+output/
+tmp/pdfs/
+
+# Only these two operator-licensed font assets may enter the PDF function.
+private/*
+!private/invoice-fonts
+private/invoice-fonts/*
+!private/invoice-fonts/regular.ttf
+!private/invoice-fonts/bold.ttf

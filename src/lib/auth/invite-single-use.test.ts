@@ -23,7 +23,7 @@ import { hashInviteToken } from "@/lib/auth/invite-tokens"
 
 const { adminFactory, writeAuditLogMock } = vi.hoisted(() => ({
   adminFactory: vi.fn(),
-  writeAuditLogMock: vi.fn(async (..._args: unknown[]) => undefined),
+  writeAuditLogMock: vi.fn(async (...args: unknown[]) => { void args }),
 }))
 
 vi.mock("@/lib/supabase/admin", () => ({
@@ -64,9 +64,13 @@ const state = {
   invites: [] as Row[],
   users: [] as Row[],
   memberships: [] as Row[],
-  authUsers: { created: [] as { id: string; email?: string }[], deleted: [] as string[] },
+  authUsers: { created: [] as Array<{id:string;email?:string;email_confirmed_at?:string;app_metadata?:Record<string,unknown>;password?:string}>, deleted: [] as string[] },
   inviteUpdates: [] as { id: unknown; patch: Row }[],
-  userInsertError: null as { message: string } | null,
+  roles: [] as Row[],
+  userInsertError: null as { message: string; code?: string } | null,
+  rpcLoss: "none" as "none"|"after_commit"|"before_commit"|"unavailable",
+  authLoss: "none" as "none"|"after_commit_throw"|"after_commit_error"|"before_commit"|"duplicate_race",
+  authReadFailuresAfterCreate:0,
 }
 
 function futureIso(): string {
@@ -158,8 +162,9 @@ function buildAdmin() {
         }
       }
       if (table === "roles") {
-        return { select: () => selectChain(() => []) } // no role rows → soft-fail path
+        return { select: () => selectChain(() => state.roles) }
       }
+      if(table === "tenants") return {select:()=>selectChain(()=>[{id:TENANT,status:"active",deleted_at:null}])}
       if (table === "user_role_assignments") {
         return {
           insert: () => ({
@@ -170,11 +175,41 @@ function buildAdmin() {
       }
       throw new Error(`unexpected table in test: ${table}`)
     }),
+    rpc:vi.fn(async(name:string,input:Row)=>{
+      if(name==="reserve_managed_invite_identity"){
+        const invite=state.invites.find(row=>row.id===input.p_invite_id)
+        if(!invite||!(invite.status==="pending"||invite.status==="accepted"&&invite.provisioning_auth_user_id===invite.accepted_by))return{data:null,error:{code:"P0001",message:"Invalid invite"}}
+        invite.provisioning_auth_user_id??=input.p_candidate_auth_user_id
+        return{data:{auth_user_id:invite.provisioning_auth_user_id},error:null}
+      }
+      if(name!=="accept_managed_invite")throw new Error("Unexpected RPC")
+      if(state.rpcLoss==="unavailable")throw Error("Transport unavailable")
+      if(state.rpcLoss==="before_commit"){state.rpcLoss="none";throw Error("Request lost")}
+      if(state.userInsertError)return{data:null,error:state.userInsertError}
+      const invite=state.invites.find(row=>row.id===input.p_invite_id)
+      if(invite?.status==="accepted"&&invite.accepted_by===input.p_auth_user_id)return{data:{id:state.users.find(row=>row.auth_user_id===input.p_auth_user_id)?.id},error:null}
+      if(!invite||invite.status!=="pending")return{data:null,error:{code:"P0001",message:"Invalid invite"}}
+      const id="usr_"+(state.users.length+1)
+      state.users.push({id,auth_user_id:input.p_auth_user_id,role:invite.role});state.memberships.push({user_id:id})
+      const patch={status:"accepted",accepted_by:input.p_auth_user_id};state.inviteUpdates.push({id:invite.id,patch});Object.assign(invite,patch)
+      if(state.rpcLoss==="after_commit"){state.rpcLoss="none";throw Error("Response lost")}
+      return{data:{id},error:null}
+    }),
     auth: {
       admin: {
-        createUser: vi.fn(async ({ email }: { email: string }) => {
-          const user = { id: `auth_${state.authUsers.created.length + 1}`, email }
+        getUserById:vi.fn(async(id:string)=>{
+          if(state.authUsers.created.length&&state.authReadFailuresAfterCreate>0){state.authReadFailuresAfterCreate--;throw Error("Auth lookup unavailable")}
+          const user=state.authUsers.created.find(row=>row.id===id)
+          return user?{data:{user},error:null}:{data:{user:null},error:{code:"user_not_found",status:404}}
+        }),
+        createUser: vi.fn(async (attributes:{id:string;email:string;password:string;app_metadata:Record<string,unknown>}) => {
+          if(state.authLoss==="before_commit"){state.authLoss="none";throw Error("Auth request lost")}
+          if(state.authUsers.created.some(user=>user.id===attributes.id))return{data:{user:null},error:{status:422,code:"email_exists"}}
+          const user={...attributes,email_confirmed_at:futureIso()}
           state.authUsers.created.push(user)
+          if(state.authLoss==="after_commit_throw"){state.authLoss="none";throw Error("Auth response lost")}
+          if(state.authLoss==="after_commit_error"){state.authLoss="none";return{data:{user:null},error:{status:503,message:"Ambiguous Auth response"}}}
+          if(state.authLoss==="duplicate_race"){state.authLoss="none";user.password="FirstAttempt!1";return{data:{user:null},error:{status:422,code:"email_exists"}}}
           return { data: { user }, error: null }
         }),
         deleteUser: vi.fn(async (id: string) => {
@@ -192,7 +227,7 @@ async function seedInvite(overrides: Row = {}): Promise<string> {
     {
       id: INVITE_ID,
       email: EMAIL,
-      role: "gm",
+      role: "accountant",
       tenant_id: TENANT,
       token_id: TID,
       token_hash: tokenHash,
@@ -215,6 +250,9 @@ describe("acceptInvite — single-use consumption (invariant #3)", () => {
     state.authUsers = { created: [], deleted: [] }
     state.inviteUpdates = []
     state.userInsertError = null
+    state.rpcLoss="none"
+    state.authLoss="none";state.authReadFailuresAfterCreate=0
+    state.roles=[{id:"55555555-5555-4555-8555-555555555555",tenant_id:TENANT,name:"accountant",deleted_at:null}]
     adminFactory.mockReset()
     adminFactory.mockImplementation(() => buildAdmin())
     writeAuditLogMock.mockClear()
@@ -317,16 +355,81 @@ describe("acceptInvite — single-use consumption (invariant #3)", () => {
     expect(state.inviteUpdates).toHaveLength(0)
   })
 
-  it("failed users-row insert compensates by deleting the auth user (no orphan)", async () => {
+  it.each(["general_manager","gm","unsupported"])("rejects legacy %s role invites before external provisioning",async(role)=>{await seedInvite({role});expect(await acceptInvite(TOKEN,TID,"Fixture","Str0ngPass!1")).toEqual({success:false,error:GENERIC});expect(state.authUsers.created).toHaveLength(0)})
+  it("rejects an archived, missing or foreign-tenant preset before external provisioning",async()=>{await seedInvite();for(const roles of [[],[{id:"role",tenant_id:TENANT,name:"accountant",deleted_at:futureIso()}],[{id:"role",tenant_id:"foreign",name:"accountant",deleted_at:null}]]){state.roles=roles;expect(await acceptInvite(TOKEN,TID,"Fixture","Str0ngPass!1")).toEqual({success:false,error:GENERIC})}expect(state.authUsers.created).toHaveLength(0)})
+  it.each(["after_commit","before_commit"] as const)("reconciles %s without deleting a committed or retried login",async(mode)=>{
+    await seedInvite();state.rpcLoss=mode
+    expect(await acceptInvite(TOKEN,TID,"Fixture","Str0ngPass!1")).toEqual({success:true})
+    expect(state.authUsers.created).toHaveLength(1);expect(state.authUsers.deleted).toHaveLength(0)
+    expect(state.users).toHaveLength(1);expect(state.memberships).toHaveLength(1);expect(state.inviteUpdates).toHaveLength(1)
+  })
+  it("preserves the login when both provisioning responses are uncertain",async()=>{
+    await seedInvite();state.rpcLoss="unavailable"
+    const result=await acceptInvite(TOKEN,TID,"Fixture","Str0ngPass!1")
+    expect(result.success).toBe(false);expect(result.error).toContain("could not be confirmed")
+    expect(state.authUsers.created).toHaveLength(1);expect(state.authUsers.deleted).toHaveLength(0)
+    expect(state.inviteUpdates).toHaveLength(0)
+  })
+  it("retains the bound identity on database rejection so a retry cannot delete a concurrent login", async () => {
     await seedInvite()
-    state.userInsertError = { message: "users insert failed" }
+    state.userInsertError = { code: "23514", message: "users insert failed" }
 
     const res = await acceptInvite(TOKEN, TID, "سامي", "Str0ngPass!1")
     expect(res.success).toBe(false)
     expect(state.authUsers.created).toHaveLength(1)
-    expect(state.authUsers.deleted).toEqual([state.authUsers.created[0].id])
+    expect(state.authUsers.deleted).toHaveLength(0)
     expect(state.memberships).toHaveLength(0)
-    // The invite was NOT consumed — the token still works after a fix.
+    // The pending token and exact bound identity remain recoverable after a fix.
     expect(state.inviteUpdates).toHaveLength(0)
+    state.userInsertError=null
+    expect(await acceptInvite(TOKEN,TID,"Fixture","Different!Pass2")).toMatchObject({success:true,passwordPreserved:true})
+    expect(state.authUsers.created).toHaveLength(1)
+    expect(state.authUsers.created[0].password).toBe("Str0ngPass!1")
   })
+  it.each(["after_commit_throw","after_commit_error","duplicate_race"] as const)("recovers %s by exact bound identity with the original password preserved",async(mode)=>{
+    await seedInvite();state.authLoss=mode
+    const result=await acceptInvite(TOKEN,TID,"Fixture","Str0ngPass!1")
+    expect(result).toMatchObject({success:true,passwordPreserved:true})
+    expect(result.notice).toContain("Forgot password");expect(result.noticeAr).toBeTruthy()
+    expect(state.authUsers.created).toHaveLength(1);expect(state.authUsers.deleted).toHaveLength(0)
+    expect(state.users).toHaveLength(1);expect(state.inviteUpdates).toHaveLength(1)
+  })
+  it("uses the same persisted UUID on a later attempt after creation never reached Auth",async()=>{
+    await seedInvite();state.authLoss="before_commit"
+    expect((await acceptInvite(TOKEN,TID,"Fixture","Str0ngPass!1")).success).toBe(false)
+    const bound=state.invites[0].provisioning_auth_user_id
+    expect(bound).toMatch(/^[0-9a-f-]{36}$/);expect(state.authUsers.created).toHaveLength(0)
+    expect(await acceptInvite(TOKEN,TID,"Fixture","NextValid!1")).toEqual({success:true})
+    expect(state.authUsers.created[0].id).toBe(bound);expect(state.authUsers.created).toHaveLength(1)
+  })
+  it("recovers on a public retry after both creation response and immediate identity lookup were lost",async()=>{
+    await seedInvite();state.authLoss="after_commit_throw";state.authReadFailuresAfterCreate=1
+    const first=await acceptInvite(TOKEN,TID,"Fixture","Original!Pass1")
+    expect(first.success).toBe(false);expect(first.error).toContain("password from your first attempt")
+    expect(await acceptInvite(TOKEN,TID,"Fixture","NewSubmitted!2")).toMatchObject({success:true,passwordPreserved:true})
+    expect(state.authUsers.created).toHaveLength(1);expect(state.authUsers.created[0].password).toBe("Original!Pass1")
+    expect(state.authUsers.deleted).toHaveLength(0)
+  })
+  it.each(["email","invite","tenant","confirmed","marker"])("does not adopt a bound UUID with mismatched %s proof",async(kind)=>{
+    await seedInvite({provisioning_auth_user_id:TID})
+    const identity={id:TID,email:EMAIL,email_confirmed_at:futureIso(),app_metadata:{_invite_provisioned:true,_invite_id:INVITE_ID,_invite_tenant_id:TENANT}}
+    if(kind==="email")identity.email="different@example.test"
+    if(kind==="invite")identity.app_metadata._invite_id="different-invite"
+    if(kind==="tenant")identity.app_metadata._invite_tenant_id="different-tenant"
+    if(kind==="confirmed")identity.email_confirmed_at=""
+    if(kind==="marker")identity.app_metadata._invite_provisioned=false
+    state.authUsers.created.push(identity)
+    expect((await acceptInvite(TOKEN,TID,"Fixture","Str0ngPass!1")).success).toBe(false)
+    expect(state.users).toHaveLength(0);expect(state.inviteUpdates).toHaveLength(0);expect(state.authUsers.deleted).toHaveLength(0)
+  })
+
+  it("concurrent token-verified requests converge on one identity and membership without deletion",async()=>{
+    await seedInvite()
+    const results=await Promise.all([acceptInvite(TOKEN,TID,"Fixture","FirstValid!1"),acceptInvite(TOKEN,TID,"Fixture","OtherValid!2")])
+    expect(results.every(result=>result.success)).toBe(true)
+    expect(state.authUsers.created).toHaveLength(1);expect(state.users).toHaveLength(1);expect(state.memberships).toHaveLength(1)
+    expect(state.inviteUpdates).toHaveLength(1);expect(state.authUsers.deleted).toHaveLength(0)
+    expect(results.some(result=>result.passwordPreserved)).toBe(true)
+  })
+
 })

@@ -1,7 +1,5 @@
 import { RIYAL_SYMBOL } from "./riyal-symbol"
 
-// Bilingual A4 invoice. Rendering is pure; stored financial values are authoritative.
-// Rendering is pure; amounts are authoritative stored invoice values.
 export interface InvoiceDocLine {
   line_no: number; itemName?: string; description: string; quantity: number
   unit_price: number; discount: number; amount: number; vat_rate: number; vat_amount: number
@@ -24,6 +22,8 @@ export interface InvoiceDocData {
   simplified?: boolean
   /** Embedded licensed font keeps Arabic shaping consistent in saved PDFs. */
   fontDataUrl?: string
+  /** Operator-licensed reference fonts, supplied only by the server renderer. */
+  referenceFontDataUrl?: string; referenceBoldFontDataUrl?: string
   bankIban?: string | null; bankName?: string | null; bankBeneficiary?: string | null
 }
 function esc(value: string | null | undefined): string {
@@ -73,6 +73,8 @@ export function buildInvoiceHtml(d: InvoiceDocData): string {
   const adjustment = Math.round((d.subtotal + d.vatAmount - d.total) * 100) / 100
   const exceptionalStatus = /draft|cancelled/i.test(d.statusLabelEn)
   const font = d.fontDataUrl && /^data:font\/woff2;base64,[A-Za-z0-9+/=]+$/.test(d.fontDataUrl) ? d.fontDataUrl : ""
+  const referenceFace = (value: string | undefined, weight: number) => value && /^data:font\/(ttf|woff2);base64,[A-Za-z0-9+/=]+$/.test(value)
+    ? `@font-face { font-family: "Invoice Reference"; src: url("${value}") format("${value.startsWith("data:font/ttf;") ? "truetype" : "woff2"}"); font-weight: ${weight}; font-style: normal; font-display: block; }` : ""
   const qr = imageSource(d.qrDataUrl)
   const logo = imageSource(d.logoDataUrl)
   const title = d.kind === "invoice"
@@ -100,9 +102,11 @@ export function buildInvoiceHtml(d: InvoiceDocData): string {
 <style>
 @page { size: A4; margin: 14mm 16mm; }
 ${font ? `@font-face { font-family: "Invoice Cairo"; src: url("${font}") format("woff2"); font-weight: 200 1000; font-style: normal; font-display: block; }` : ""}
+${referenceFace(d.referenceFontDataUrl, 400)}
+${referenceFace(d.referenceBoldFontDataUrl, 700)}
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; background: white; color: #000; }
-body { font-family: "Invoice Cairo", Tahoma, Arial, sans-serif; font-size: 9.5pt; line-height: 1.35; }
+body { font-family: "Invoice Reference", "Invoice Cairo", Tahoma, Arial, sans-serif; font-size: 9.5pt; line-height: 1.35; }
 .doc { width: 100%; margin: 0 auto; }
 small { display: block; font-size: 7pt; color: #444; }
 span[lang="en"] { display: block; }

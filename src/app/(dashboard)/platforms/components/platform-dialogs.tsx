@@ -21,6 +21,7 @@ import { Loader2 } from "lucide-react"
 
 export interface PlatformRow {
   id: string
+  updated_at: string
   code: string
   name_ar: string
   name_en: string | null
@@ -59,6 +60,7 @@ export function PlatformDialog({
   const [rate, setRate] = useState(platform?.rate_per_order != null ? String(platform.rate_per_order) : "")
   const [apiUrl, setApiUrl] = useState(platform?.api_base_url ?? "")
   const [sortOrder, setSortOrder] = useState(String(platform?.sort_order ?? 100))
+  const [isActive, setIsActive] = useState(platform?.is_active ?? true)
   const [busy, setBusy] = useState(false)
   // NOTE: the parent conditionally mounts this dialog with a per-session
   // `key`, so initial state derives straight from props — no reset effect
@@ -69,7 +71,7 @@ export function PlatformDialog({
     if (!nameAr.trim()) return onDone(pm.errNameRequired)
     setBusy(true)
     const payload = {
-      ...(editing ? { id: platform.id } : {}),
+      ...(editing ? { id: platform.id, expected_updated_at:platform.updated_at } : {}),
       code,
       name_ar: nameAr,
       name_en: nameEn || null,
@@ -77,8 +79,8 @@ export function PlatformDialog({
       rate_type: rateType,
       rate_per_order: rate ? Number(rate) : null,
       api_base_url: apiUrl || "",
-      sort_order: Number(sortOrder) || 100,
-      is_active: editing ? platform.is_active : true,
+      sort_order: sortOrder.trim() ? Number(sortOrder) : 100,
+      is_active: editing ? isActive : true,
     }
     const res = await upsertPlatform(payload)
     setBusy(false)
@@ -86,7 +88,7 @@ export function PlatformDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+    <Dialog open={open} onOpenChange={(o) => !o && !busy && onClose()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{editing ? pm.editPlatform : pm.addPlatform}</DialogTitle>
@@ -136,6 +138,7 @@ export function PlatformDialog({
             </div>
           </div>
         </div>
+        {editing && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={isActive} onChange={event=>setIsActive(event.target.checked)} />{t.common.active}</label>}
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={busy}>{t.common.cancel}</Button>
           <Button onClick={submit} disabled={busy}>
@@ -156,8 +159,10 @@ export function PaymentDialog({
   defaultMonth,
   onClose,
   onDone,
+  payment,
 }: {
   open: boolean
+  payment?: {period_year:number;period_month:number;expected_amount:number;received_amount:number;payment_date:string|null;payment_ref:string|null;updated_at:string;notes?:string|null;payment_status?:string} | null
   platformId: string | null
   platformName: string
   defaultYear: number
@@ -166,14 +171,16 @@ export function PaymentDialog({
   onDone: (err: string | null) => void
 }) {
   const ui = useUiText()
-  const { t } = useTranslation()
+  const { t,locale } = useTranslation()
   const pm = t.platformsModule
-  const [year, setYear] = useState(defaultYear)
-  const [month, setMonth] = useState(defaultMonth)
-  const [expected, setExpected] = useState("")
-  const [received, setReceived] = useState("")
-  const [paymentDate, setPaymentDate] = useState("")
-  const [paymentRef, setPaymentRef] = useState("")
+  const [year, setYear] = useState(payment?.period_year ?? defaultYear)
+  const [month, setMonth] = useState(payment?.period_month ?? defaultMonth)
+  const [expected, setExpected] = useState(payment ? String(payment.expected_amount) : "")
+  const [received, setReceived] = useState(payment ? String(payment.received_amount) : "")
+  const [paymentDate, setPaymentDate] = useState(payment?.payment_date ?? "")
+  const [paymentRef, setPaymentRef] = useState(payment?.payment_ref ?? "")
+  const [notes,setNotes]=useState(payment?.notes??"")
+  const [paymentState,setPaymentState]=useState<"automatic"|"overdue"|"disputed">(payment?.payment_status==="overdue" || payment?.payment_status==="disputed"?payment.payment_status:"automatic")
   const [busy, setBusy] = useState(false)
   // Session-initialized state — the parent remounts with a fresh key per open.
 
@@ -185,12 +192,15 @@ export function PaymentDialog({
     setBusy(true)
     const res = await recordPlatformPayment({
       platform_id: platformId,
+      expected_updated_at:payment?.updated_at,
       period_year: year,
       period_month: month,
       expected_amount: exp,
       received_amount: rec,
       payment_date: paymentDate || null,
       payment_ref: paymentRef || null,
+      notes:notes||null,
+      payment_status:paymentState==="automatic"?undefined:paymentState,
     })
     setBusy(false)
     onDone(res.success ? null : res.error ?? "Error")
@@ -208,12 +218,12 @@ export function PaymentDialog({
             <div className="grid gap-1.5">
               <Label>{pm.fieldPeriod}</Label>
               <div className="flex gap-1.5">
-                <select value={month} onChange={(e) => setMonth(Number(e.target.value))} className="h-9 w-full rounded-xl border border-border/50 bg-muted/30 px-2 text-sm" aria-label={ui("month")}>
+                <select disabled={!!payment} value={month} onChange={(e) => setMonth(Number(e.target.value))} className="h-9 w-full rounded-xl border border-border/50 bg-muted/30 px-2 text-sm" aria-label={ui("month")}>
                   {Array.from({ length: 12 }, (_, i) => i + 1).map((mo) => (
                     <option key={mo} value={mo}>{mo}</option>
                   ))}
                 </select>
-                <select value={year} onChange={(e) => setYear(Number(e.target.value))} className="h-9 w-full rounded-xl border border-border/50 bg-muted/30 px-2 text-sm" aria-label={ui("year")}>
+                <select disabled={!!payment} value={year} onChange={(e) => setYear(Number(e.target.value))} className="h-9 w-full rounded-xl border border-border/50 bg-muted/30 px-2 text-sm" aria-label={ui("year")}>
                   {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map((yr) => (
                     <option key={yr} value={yr}>{yr}</option>
                   ))}
@@ -240,6 +250,7 @@ export function PaymentDialog({
             <Input aria-label={pm.fieldPaymentRef} dir="ltr" value={paymentRef} onChange={(e) => setPaymentRef(e.target.value)} />
           </div>
         </div>
+        <div className="grid gap-2"><Label htmlFor="platform-payment-notes">{locale==="ar"?"ملاحظات التسوية":"Reconciliation notes"}</Label><Input id="platform-payment-notes" value={notes} onChange={event=>setNotes(event.target.value)} maxLength={1000}/><Label htmlFor="platform-payment-state">{t.common.status}</Label><select id="platform-payment-state" value={paymentState} onChange={event=>setPaymentState(event.target.value as typeof paymentState)} className="h-9 rounded-md border border-input bg-background px-3 text-sm"><option value="automatic">{locale==="ar"?"تلقائي حسب المبالغ":"Automatic from amounts"}</option><option value="overdue">{locale==="ar"?"متأخر":"Overdue"}</option><option value="disputed">{locale==="ar"?"متنازع عليه":"Disputed"}</option></select></div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={busy}>{t.common.cancel}</Button>
           <Button onClick={submit} disabled={busy}>

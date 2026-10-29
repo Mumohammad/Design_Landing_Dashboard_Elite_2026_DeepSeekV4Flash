@@ -8,7 +8,7 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/production-modules-completion') }}
 
 permissions:
   contents: read
@@ -47,6 +47,11 @@ jobs:
 
     - name: Deploy config check
       run: node scripts/verify-deploy-config.mjs
+
+    - name: Preview isolation and historical archive checks
+      run: |
+        node --test scripts/preview-safety.test.mjs scripts/verify-staging-history.test.mjs scripts/assert-module-test-target.test.mjs scripts/verify-driver-evidence.test.mjs scripts/verify-driver-leave-lifecycle.test.mjs scripts/verify-platform-admin-users.test.mjs scripts/coordinated-acceptance.test.mjs scripts/verify-accounting-master-crud.test.mjs scripts/verify-invoice-reference-and-pages.test.mjs scripts/retire-release-acceptance.test.mjs scripts/write-release-evidence.test.mjs scripts/acceptance-fixture-ledgers.test.mjs scripts/finance-verification-contracts.test.mjs
+        node scripts/verify-staging-history.mjs
 
     # ── FX-10: every API route must self-guard or be explicitly allowlisted ──
 
@@ -92,10 +97,10 @@ jobs:
         # AWS AKIA…). Bare variable-name mentions (comments, error messages,
         # process.env reads) are not secrets and must not fail the build.
         # || true keeps grep's no-match exit code from failing the step under
-        # bash -eo pipefail. Matches are printed for debuggability.
-        MATCHES=$(grep -rnE "=[[:space:]]*['\"](eyJ[A-Za-z0-9_-]{20,}|sk_live_[A-Za-z0-9]{12,}|sk_test_[A-Za-z0-9]{12,}|AKIA[A-Z0-9]{16})['\"]" src/ --include="*.ts" --include="*.tsx" --include="*.js" || true)
+        # bash -eo pipefail. Only filenames are printed; matched secret values must never enter CI logs.
+        MATCHES=$(grep -rlE "=[[:space:]]*['\"](eyJ[A-Za-z0-9_-]{20,}|sk_live_[A-Za-z0-9]{12,}|sk_test_[A-Za-z0-9]{12,}|AKIA[A-Z0-9]{16})['\"]" src/ --include="*.ts" --include="*.tsx" --include="*.js" || true)
         if [ -n "$MATCHES" ]; then
-          echo "❌ Potential hardcoded secrets found:"
+          echo "❌ Files requiring hardcoded-secret review:"
           echo "$MATCHES"
           exit 1
         fi

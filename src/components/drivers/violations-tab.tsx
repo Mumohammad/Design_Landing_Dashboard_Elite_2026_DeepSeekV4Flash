@@ -1,6 +1,8 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
+import { useTablePage } from "@/hooks/use-table-page"
+import { DriverHistoryToolbar } from "./driver-history-toolbar"
 import { createClient } from "@/lib/supabase/client"
 import { subscribeDriverChanged as subscribeViolations } from "@/lib/drivers/driver-events"
 import { Badge } from "@/components/ui/badge"
@@ -11,45 +13,20 @@ import { toast } from "sonner"
 import { ViolationDialog } from "./violation-dialog"
 import { DriverTabsFormDialog } from "./driver-tabs-form-dialog"
 import { emitDriverChanged } from "@/lib/drivers/driver-events"
+import { archiveDriverProfileOperation } from "@/lib/driver-profile-operations/actions"
 
 type ViolationsTabProps = { driverId: string; isAr: boolean }
 
 const VIOLATION_STATUS_STYLES: Record<string, { ar: string; en: string; className: string }> = {
-  pending: {
-    ar: "قيد الانتظار",
-    en: "Pending",
-    className: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
-  },
-  confirmed: {
-    ar: "مؤكدة",
-    en: "Confirmed",
-    className: "bg-elite-blue-500/15 text-elite-blue-700 dark:text-elite-blue-300",
-  },
-  deducted: {
-    ar: "مخصومة",
-    en: "Deducted",
-    className: "bg-teal-500/15 text-teal-700 dark:text-teal-400",
-  },
-  paid: {
-    ar: "مدفوعة",
-    en: "Paid",
-    className: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
-  },
-  waived: {
-    ar: "معفاة",
-    en: "Waived",
-    className: "bg-muted text-muted-foreground",
-  },
-  disputed: {
-    ar: "متنازع عليها",
-    en: "Disputed",
-    className: "bg-red-500/15 text-red-700 dark:text-red-400",
-  },
-  cancelled: {
-    ar: "ملغاة",
-    en: "Cancelled",
-    className: "bg-muted text-muted-foreground",
-  },
+  open: { ar: "مفتوحة", en: "Open", className: "bg-amber-500/15 text-amber-700 dark:text-amber-400" },
+  under_review: { ar: "قيد المراجعة", en: "Under review", className: "bg-elite-blue-500/15 text-elite-blue-700 dark:text-elite-blue-300" },
+  acknowledged: { ar: "تم الإقرار", en: "Acknowledged", className: "bg-muted text-muted-foreground" },
+  resolved: { ar: "تمت التسوية", en: "Resolved", className: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" },
+  deduction_applied: { ar: "تم الخصم", en: "Deduction applied", className: "bg-purple-500/15 text-purple-700 dark:text-purple-400" },
+  waived: { ar: "معفاة", en: "Waived", className: "bg-muted text-muted-foreground" },
+  disputed: { ar: "متنازع عليها", en: "Disputed", className: "bg-red-500/15 text-red-700 dark:text-red-400" },
+  escalated: { ar: "مصعدة", en: "Escalated", className: "bg-red-500/15 text-red-700 dark:text-red-400" },
+  closed: { ar: "مغلقة", en: "Closed", className: "bg-muted text-muted-foreground" },
 }
 
 const SEVERITY_STYLES: Record<string, { ar: string; en: string; className: string }> = {
@@ -68,51 +45,39 @@ const SEVERITY_STYLES: Record<string, { ar: string; en: string; className: strin
     en: "Major",
     className: "bg-orange-500/15 text-orange-700 dark:text-orange-400",
   },
-  severe: {
+  critical: {
     ar: "خطيرة",
-    en: "Severe",
+    en: "Critical",
     className: "bg-red-500/15 text-red-700 dark:text-red-400",
   },
 }
 
 const SELECT_FIELDS =
-  "id, violation_ref, incident_date, incident_location, deduction_amount, severity, status, warning_level, source, reported_at, violation_types(name_ar, name_en, category)"
+  "id, violation_ref, incident_date, incident_location, deduction_amount, severity, status, warning_level, source, reported_at, incident_description, violation_type_id, review_notes, deduction_applied, updated_at, violation_deduction_ledger(id,status,deduction_month), violation_types(name_ar, name_en, category)"
 
 export function ViolationsTab({ driverId, isAr }: ViolationsTabProps) {
-  const [rows, setRows] = useState<Record<string, unknown>[] | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [archiveError, setArchiveError] = useState<string | null>(null)
   const [editing, setEditing] = useState<Record<string, unknown> | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    const supabase = createClient()
-    const { data, error } = await supabase
-      .from("violations")
-      .select(SELECT_FIELDS)
-      .eq("driver_id", driverId)
-      .is("deleted_at", null)
-      .order("incident_date", { ascending: false })
-      .limit(50)
-    setRows(error ? [] : (data as Record<string, unknown>[]))
-  }, [driverId])
-
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      const supabase = createClient()
-      const { data, error } = await supabase
-        .from("violations")
-        .select(SELECT_FIELDS)
-        .eq("driver_id", driverId)
-        .is("deleted_at", null)
-        .order("incident_date", { ascending: false })
-        .limit(50)
-      if (!cancelled) setRows(error ? [] : (data as Record<string, unknown>[]))
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [driverId])
+  const history=useTablePage<Record<string, unknown>>(useCallback((search: string)=>{
+    let query=createClient().from("violations").select(SELECT_FIELDS,{count:"exact"}).eq("driver_id",driverId).is("deleted_at",null).order("incident_date",{ascending:false}).order("id")
+    if(search.trim())query=query.ilike("incident_description","%"+search.replace(/[\\%_]/g,"\\$&")+"%")
+    return query
+  },[driverId]))
+  const rows=history.loading?null:history.rows
+  const [summary,setSummary]=useState<{count:number;deductions:string}|null>(null)
+  const [summaryError,setSummaryError]=useState(false)
+  const readSummary=useCallback(async()=>{
+    const {data,error}=await createClient().rpc("read_driver_violation_summary",{p_driver_id:driverId})
+    setSummaryError(!!error);setSummary(error?null:data)
+  },[driverId])
+  useEffect(()=>{const timer=setTimeout(()=>void readSummary(),0);return()=>clearTimeout(timer)},[readSummary])
+  const loadError=history.error||summaryError
+  const reloadHistory=history.reload
+  const load=useCallback(()=>{reloadHistory();void readSummary()},[reloadHistory,readSummary])
+  const historyToolbar=<DriverHistoryToolbar search={history.search} onSearchChange={history.setSearch} pagination={history.pagination} loading={history.loading} error={history.error} onRefresh={load} isAr={isAr}/>
 
   // Other surfaces (HR console, payroll) also record violations.
   useEffect(() => {
@@ -126,23 +91,13 @@ export function ViolationsTab({ driverId, isAr }: ViolationsTabProps) {
     }
   }, [driverId, load])
 
-  const totals = useMemo(() => {
-    let deductions = 0
-    for (const r of rows ?? []) deductions += Number(r.deduction_amount ?? 0)
-    return { count: (rows ?? []).length, deductions }
-  }, [rows])
+  const totals=summary
 
   const softDelete = async (row: Record<string, unknown>) => {
-    const supabase = createClient()
-    const { error } = await supabase
-      .from("violations")
-      .update({ deleted_at: new Date().toISOString() })
-      .eq("id", String(row.id))
-    if (error) {
-      toast.error(isAr ? "فشل حذف المخالفة" : "Failed to delete violation")
-      return
-    }
-    toast.success(isAr ? "تم حذف المخالفة" : "Violation deleted")
+    setArchiveError(null)
+    const result = await archiveDriverProfileOperation("violations", driverId, String(row.id), String(row.updated_at ?? ""))
+    if (!result.success) { setArchiveError(result.error ?? "Failed to archive violation"); toast.error(result.error); return }
+    toast.success(isAr ? "تمت أرشفة المخالفة" : "Violation archived")
     emitDriverChanged({ driverId, action: "violation" })
     await load()
   }
@@ -150,6 +105,7 @@ export function ViolationsTab({ driverId, isAr }: ViolationsTabProps) {
   if (rows === null) {
     return (
       <div className="space-y-3">
+        {historyToolbar}
         <Skeleton className="h-10 w-full rounded-xl" />
         <Skeleton className="h-10 w-full rounded-xl" />
       </div>
@@ -158,13 +114,16 @@ export function ViolationsTab({ driverId, isAr }: ViolationsTabProps) {
 
   return (
     <div className="space-y-4">
+      {historyToolbar}
+      {loadError ? <p role="alert" className="text-sm text-destructive">{isAr ? "تعذر تحميل المخالفات." : "Could not load violations."} <Button variant="link" onClick={() => void load()}>{isAr ? "إعادة المحاولة" : "Retry"}</Button></p> : null}
+      {archiveError ? <p role="alert" className="text-sm text-destructive">{archiveError}</p> : null}
       <div className="flex flex-wrap items-center gap-3">
         <div className="rounded-2xl border border-border/50 bg-card/60 px-4 py-3">
           <span className="text-xs text-muted-foreground">
             {isAr ? "إجمالي الخصومات" : "Total deductions"}
           </span>
           <div className="text-lg font-extrabold tabular-nums text-foreground" dir="ltr">
-            {totals.deductions.toLocaleString("en-US")} {isAr ? "ر.س" : "SAR"}
+            {totals?Number(totals.deductions).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}):"—"} {isAr ? "ر.س" : "SAR"}
           </div>
         </div>
         <div className="rounded-2xl border border-border/50 bg-card/60 px-4 py-3">
@@ -172,7 +131,7 @@ export function ViolationsTab({ driverId, isAr }: ViolationsTabProps) {
             {isAr ? "عدد المخالفات" : "Violations"}
           </span>
           <div className="text-lg font-extrabold tabular-nums text-foreground" dir="ltr">
-            {totals.count}
+            {totals?.count??"—"}
           </div>
         </div>
         <div className="ms-auto">
@@ -215,13 +174,14 @@ export function ViolationsTab({ driverId, isAr }: ViolationsTabProps) {
                     ? (vt.name_ar ?? vt.name_en ?? "—")
                     : (vt.name_en ?? vt.name_ar ?? "—")
                   : "—"
-                const status = VIOLATION_STATUS_STYLES[String(r.status ?? "pending")] ?? {
+                const status = VIOLATION_STATUS_STYLES[String(r.status ?? "open")] ?? {
                   ar: String(r.status ?? "—"),
                   en: String(r.status ?? "—"),
                   className: "bg-muted text-muted-foreground",
                 }
                 const severity = SEVERITY_STYLES[String(r.severity ?? "")] ?? null
-                const deletable = r.status === "pending" || r.status === "cancelled"
+                const hasLedger = Array.isArray(r.violation_deduction_ledger) && r.violation_deduction_ledger.length > 0
+                const deletable = ["open", "waived", "closed"].includes(String(r.status)) && !r.deduction_applied && !hasLedger
                 return (
                   <tr key={String(r.id)} className="border-b border-border/40 last:border-0 hover:bg-muted/30">
                     <td className="px-4 py-3 font-mono text-xs text-muted-foreground" dir="ltr">
@@ -287,7 +247,7 @@ export function ViolationsTab({ driverId, isAr }: ViolationsTabProps) {
                               className="inline-flex items-center gap-1 text-xs font-medium text-red-600 hover:underline dark:text-red-400"
                             >
                               <Trash2 className="h-3 w-3" />
-                              {isAr ? "حذف" : "Delete"}
+                              {isAr ? "أرشفة" : "Archive"}
                             </button>
                           )
                         ) : null}

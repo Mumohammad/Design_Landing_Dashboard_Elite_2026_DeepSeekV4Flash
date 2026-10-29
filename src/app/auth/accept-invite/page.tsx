@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState, useSyncExternalStore } from "react"
 import Link from "next/link"
 import { User, Lock, Eye, EyeOff, Loader2, AlertCircle } from "lucide-react"
 import { LogoMark } from "@/components/logo"
@@ -8,7 +8,59 @@ import { useTranslation } from "@/hooks/use-translation"
 import { acceptInvite } from "@/lib/auth/invites"
 import { isValidNewPassword, newPasswordHint, MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH } from "@/lib/auth/password-policy"
 
+function subscribeToSearch(onChange: () => void) {
+  window.addEventListener("popstate", onChange)
+  return () => window.removeEventListener("popstate", onChange)
+}
+
+function getSearchSnapshot() {
+  return window.location.search
+}
+
+function getServerSearchSnapshot() {
+  return ""
+}
+
+type Invite = { tid: string; token: string }
+type Acceptance = { notice: { en: string; ar: string } | null }
+
 export default function AcceptInvitePage() {
+  const { t, locale } = useTranslation()
+  const [acceptance, setAcceptance] = useState<Acceptance | null>(null)
+
+  // `tid` (token_id, non-secret) + `token` (secret) come from the invite
+  // email link (?tid=…&token=…). The empty server snapshot also keeps the
+  // initial hydration render independent of browser-only location data.
+  const search = useSyncExternalStore(subscribeToSearch, getSearchSnapshot, getServerSearchSnapshot)
+  const params = new URLSearchParams(search)
+  const invite: Invite = { tid: params.get("tid") ?? "", token: params.get("token") ?? "" }
+  const acceptanceNotice = acceptance?.notice
+
+  if (acceptance && !invite.tid && !invite.token) {
+    return (
+      <div className="flex flex-col gap-6">
+        <div className="stagger-1 flex justify-center">
+          <LogoMark size={56} showIndicator />
+        </div>
+        <div className="rounded-2xl border border-border/50 shadow-modern-lg bg-card p-6 md:p-8 text-center">
+          <h1 className="text-2xl font-bold tracking-tight mb-2">{t.auth.acceptInviteSuccessTitle}</h1>
+          <p className="text-sm text-muted-foreground mb-6">{t.auth.acceptInviteSuccessBody}</p>
+          {acceptanceNotice?<div role="status" className="mb-6 space-y-3 rounded-xl border border-border p-4 text-start text-sm"><p>{locale==="ar"?acceptanceNotice.ar:acceptanceNotice.en}</p><Link href="/auth/forgot-password" className="font-medium text-primary underline underline-offset-4">{locale==="ar"?"إعادة تعيين كلمة المرور":"Reset password"}</Link></div>:null}
+          <Link
+            href="/auth/sign-in?invite_accepted=1"
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-elite-blue-500 hover:bg-elite-blue-600 px-6 font-semibold text-white shadow-lg shadow-elite-blue-500/20 transition"
+          >
+            {t.auth.backToSignIn}
+          </Link>
+        </div>
+      </div>
+    )
+  }
+
+  return <AcceptInviteForm key={JSON.stringify([invite.tid, invite.token])} invite={invite} onAccepted={setAcceptance} />
+}
+
+function AcceptInviteForm({ invite, onAccepted }: { invite: Invite; onAccepted: (acceptance: Acceptance) => void }) {
   const { t, locale } = useTranslation()
   const [fullName, setFullName] = useState("")
   const [password, setPassword] = useState("")
@@ -17,16 +69,6 @@ export default function AcceptInvitePage() {
   const [mismatch, setMismatch] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [accepted, setAccepted] = useState(false)
-
-  // `tid` (token_id, non-secret) + `token` (secret) come from the invite
-  // email link (?tid=…&token=…). Read via useEffect (client-only) — reading
-  // window during the server render crashed SSR with `ReferenceError`.
-  const [invite, setInvite] = useState<{ tid: string; token: string }>({ tid: "", token: "" })
-  useEffect(() => {
-    const q = new URLSearchParams(window.location.search)
-    setInvite({ tid: q.get("tid") ?? "", token: q.get("token") ?? "" })
-  }, [])
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -42,35 +84,25 @@ export default function AcceptInvitePage() {
     try {
       const result = await acceptInvite(invite.token, invite.tid, fullName.trim(), password)
       if (result.success) {
-        setAccepted(true)
+        // A response for a previous token must not clear a new invite URL or
+        // replace its form if the user navigated while acceptance was pending.
+        const current = new URLSearchParams(window.location.search)
+        if (current.get("tid") !== invite.tid || current.get("token") !== invite.token) return
+        const notice = "notice" in result && typeof result.notice === "string"
+          ? { en: result.notice, ar: "noticeAr" in result && typeof result.noticeAr === "string" ? result.noticeAr : result.notice }
+          : null
+        setPassword("")
+        setConfirm("")
+        window.history.replaceState(null, "", window.location.pathname)
+        onAccepted({ notice })
       } else {
         setError((locale === "ar" ? result.errorAr ?? result.error : result.error) ?? t.auth.genericError)
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t.auth.genericError)
+    } catch {
+      setError(t.auth.genericError)
     } finally {
       setLoading(false)
     }
-  }
-
-  if (accepted) {
-    return (
-      <div className="flex flex-col gap-6">
-        <div className="stagger-1 flex justify-center">
-          <LogoMark size={56} showIndicator />
-        </div>
-        <div className="rounded-2xl border border-border/50 shadow-modern-lg bg-card dark:bg-card/60 p-6 md:p-8 text-center">
-          <h1 className="text-2xl font-bold tracking-tight mb-2">{t.auth.acceptInviteSuccessTitle}</h1>
-          <p className="text-sm text-muted-foreground mb-6">{t.auth.acceptInviteSuccessBody}</p>
-          <Link
-            href="/auth/sign-in?invite_accepted=1"
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-elite-blue-500 hover:bg-elite-blue-600 px-6 font-semibold text-white shadow-elite-blue-500/20 transition"
-          >
-            {t.auth.backToSignIn}
-          </Link>
-        </div>
-      </div>
-    )
   }
 
   if (!invite.token || !invite.tid) {
@@ -123,6 +155,7 @@ export default function AcceptInvitePage() {
               <input
                 id="fullName"
                 type="text"
+                disabled={loading}
                 required
                 autoComplete="name"
                 value={fullName}

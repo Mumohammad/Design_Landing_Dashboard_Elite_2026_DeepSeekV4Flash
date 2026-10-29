@@ -55,72 +55,86 @@ function Sparkline({ values }: { values: number[] }) {
   )
 }
 
-export function OdometerDialog({
-  vehicleId,
-  vehicleLabel,
-  onClose,
-}: {
+type OdometerDialogProps = {
   vehicleId: string | null
   vehicleLabel: string
   onClose: () => void
-}) {
+}
+
+export function OdometerDialog(props: OdometerDialogProps) {
+  if (!props.vehicleId) return null
+  return <OdometerForm key={props.vehicleId} {...props} vehicleId={props.vehicleId} />
+}
+
+function OdometerForm({
+  vehicleId,
+  vehicleLabel,
+  onClose,
+}: OdometerDialogProps & { vehicleId: string }) {
   const { t } = useTranslation()
   const m = t.maintenanceModule
   const vm = t.vehicles
   const isAr = t.common.status === "الحالة"
-  const [logs, setLogs] = useState<OdometerLog[]>([])
-  const [loading, setLoading] = useState(false)
+  const [revision, setRevision] = useState(0)
+  const [result, setResult] = useState<{revision: number; logs: OdometerLog[]; failed: boolean} | null>(null)
   const [reading, setReading] = useState("")
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
-  async function load() {
-    if (!vehicleId) return
-    setLoading(true)
-    const supabase = createClient()
-    const { data } = await supabase
-      .from("vehicle_odometer_logs")
-      .select("id,reading,recorded_at,source,notes")
-      .eq("vehicle_id", vehicleId)
-      .is("deleted_at", null)
-      .order("recorded_at", { ascending: false })
-      .limit(50)
-    setLogs((data as OdometerLog[]) ?? [])
-    setLoading(false)
-  }
-
   useEffect(() => {
-    if (vehicleId) {
-      load()
-      setReading("")
-      setErr(null)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vehicleId])
+    const controller = new AbortController()
+    void (async () => {
+      try {
+        const { data, error } = await createClient()
+          .from("vehicle_odometer_logs")
+          .select("id,reading,recorded_at,source,notes")
+          .eq("vehicle_id", vehicleId)
+          .is("deleted_at", null)
+          .order("recorded_at", { ascending: false })
+          .limit(50)
+          .abortSignal(controller.signal)
+        if (controller.signal.aborted) return
+        if (error) throw Error("Odometer history unavailable")
+        setResult({revision, logs: (data as OdometerLog[]) ?? [], failed: false})
+      } catch {
+        if (!controller.signal.aborted) setResult({revision, logs: [], failed: true})
+      }
+    })()
+    return () => controller.abort()
+  }, [vehicleId, revision])
+
+  const current = result?.revision === revision ? result : null
+  const logs = current?.logs ?? []
+  const loading = current === null
 
   async function submit() {
-    if (!vehicleId) return
+    if (busy) return
     const value = Number(reading)
     if (!reading || Number.isNaN(value) || value < 0) {
       setErr(m.errReadingRequired)
       return
     }
     setBusy(true)
-    const res = await addOdometerReading({ vehicle_id: vehicleId, reading: value })
-    setBusy(false)
-    if (res.success) {
-      setReading("")
-      setErr(null)
-      await load()
-    } else {
-      setErr(res.error ?? "Error")
+    try {
+      const res = await addOdometerReading({ vehicle_id: vehicleId, reading: value })
+      if (res.success) {
+        setReading("")
+        setErr(null)
+        setRevision(value => value + 1)
+      } else {
+        setErr(res.error ?? "Error")
+      }
+    } catch {
+      setErr(isAr ? "تعذر تأكيد قراءة العداد. أعد التحميل قبل المحاولة مجدداً." : "The odometer reading could not be confirmed. Reload before retrying.")
+    } finally {
+      setBusy(false)
     }
   }
 
   const series = odometerSparkline(logs.map((l) => ({ reading: l.reading, recorded_at: l.recorded_at })))
 
   return (
-    <Dialog open={vehicleId != null} onOpenChange={(o) => !o && onClose()}>
+    <Dialog open={vehicleId != null} onOpenChange={(o) => { if (!o && !busy) onClose() }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{m.odometerDialog}</DialogTitle>
@@ -139,6 +153,11 @@ export function OdometerDialog({
             {loading ? (
               <div className="flex items-center justify-center p-4">
                 <Loader2 className="h-4 w-4 animate-spin" />
+              </div>
+            ) : current?.failed ? (
+              <div role="alert" className="space-y-2 p-4 text-sm text-destructive">
+                <p>{isAr ? "تعذر تحميل سجل العداد." : "Could not load odometer history."}</p>
+                <Button variant="outline" size="sm" onClick={() => setRevision(value => value + 1)}>{isAr ? "أعد المحاولة" : "Try again"}</Button>
               </div>
             ) : logs.length === 0 ? (
               <p className="p-4 text-center text-sm text-muted-foreground">{vm.noOdometerLogs}</p>
@@ -164,7 +183,7 @@ export function OdometerDialog({
           <div className="grid grid-cols-[1fr_auto] items-end gap-2">
             <div className="grid gap-1.5">
               <Label>{m.addOdometerReading}</Label>
-              <Input aria-label={m.addOdometerReading} dir="ltr" type="number" min="0" value={reading} onChange={(e) => setReading(e.target.value)} placeholder="0" />
+              <Input aria-label={m.addOdometerReading} dir="ltr" type="number" min="0" value={reading} onChange={(e) => setReading(e.target.value)} placeholder="0" disabled={busy} />
             </div>
             <Button onClick={submit} disabled={busy}>
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
@@ -174,7 +193,7 @@ export function OdometerDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>{t.common.close}</Button>
+          <Button variant="outline" onClick={onClose} disabled={busy}>{t.common.close}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

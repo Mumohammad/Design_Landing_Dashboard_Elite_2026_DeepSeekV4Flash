@@ -16,16 +16,16 @@
 --      platform filter (FK-covering idx_daily_order_entries_platform_id)
 --   4. RLS: anon sees zero; fixture user sees own-tenant rows only on
 --      delivery_platforms, daily_order_entries, platform_payments
---   5. BEHAVIORAL: the create-platform + record-payment round-trip rides
---      RLS as the fixture user; the daily-entry unique key rejects a
+--   5. BEHAVIORAL: caller-bound order/payment RPCs preserve RLS and
+--      reject direct writes; the daily-entry unique key rejects a
 --      duplicate re-import (23505) and accepts a distinct shift
 --
 -- Conventions (match 067/069/070): single transaction, SET LOCAL ROLE +
--- RESET ROLE between role switches, purge-first fixed-id fixtures, plan(17)
+-- RESET ROLE between role switches, purge-first fixed-id fixtures, plan(22)
 -- equals the actual assertion count.
 -- ============================================================================
 
-SELECT plan(17);
+SELECT plan(22);
 
 -- ─── Fixtures (purge-first, fixed ids) ──────────────────────────────────────
 
@@ -62,8 +62,8 @@ BEGIN
   VALUES (v_t_a, 'مستأجر اختبار المنصات', 'Platforms Tenant A'),
          (v_t_b, 'مستأجر اختبار المنصات ب', 'Platforms Tenant B');
 
-  INSERT INTO public.drivers (id, tenant_id, full_name_ar, driver_code, primary_mobile, category)
-  VALUES (v_d_a, v_t_a, 'سائق المنصات', 'DRV-071', '0571000001', 'freelancer');
+  INSERT INTO public.drivers (id, tenant_id, full_name_ar, driver_code, primary_mobile, category, status)
+  VALUES (v_d_a, v_t_a, 'سائق المنصات', 'DRV-071', '0571000001', 'freelancer', 'active');
 
   INSERT INTO public.delivery_platforms (id, tenant_id, code, name_ar, name_en, is_active, rate_type)
   VALUES (v_p_a, v_t_a, 'plat071', 'منصة اختبار', 'Test Platform', true, 'flat'),
@@ -176,7 +176,7 @@ RESET ROLE;
 
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claims',
-  '{"sub": "07100000-0000-0000-0000-000000000006", "role": "authenticated"}', true);
+  '{"sub": "07100000-0000-0000-0000-000000000006", "role": "authenticated", "aal": "aal2"}', true);
 SELECT is(
   (SELECT count(*) FROM public.platform_payments WHERE platform_id = '07100000-0000-0000-0000-000000000005'),
   0::bigint,
@@ -194,55 +194,54 @@ SELECT is(
 );
 RESET ROLE;
 
--- ─── 5. Behavioral round-trip as the fixture user (4) ───────────────────────
+-- ─── 5. Behavioral caller-bound workflow (9) ────────────────────────────────
 
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claims',
-  '{"sub": "07100000-0000-0000-0000-000000000006", "role": "authenticated"}', true);
+  '{"sub":"07100000-0000-0000-0000-000000000006","role":"authenticated","aal":"aal2"}', true);
 
--- Create a daily entry (import path writes exactly these columns).
-SELECT lives_ok(
-  $$INSERT INTO public.daily_order_entries
-      (tenant_id, driver_id, platform_id, entry_date, shift_label, orders_delivered, gross_revenue, entry_source)
-    VALUES ('07100000-0000-0000-0000-000000000001', '07100000-0000-0000-0000-000000000003',
-            '07100000-0000-0000-0000-000000000004', '2026-10-01', 'morning', 12, 455.50, 'import')$$,
-  'authenticated insert of a daily order entry rides RLS (import path)'
-);
-
--- Idempotent re-import guard: the SAME natural key is rejected.
 SELECT throws_ok(
   $$INSERT INTO public.daily_order_entries
       (tenant_id, driver_id, platform_id, entry_date, shift_label, orders_delivered, gross_revenue, entry_source)
     VALUES ('07100000-0000-0000-0000-000000000001', '07100000-0000-0000-0000-000000000003',
-            '07100000-0000-0000-0000-000000000004', '2026-10-01', 'morning', 5, 100, 'import')$$,
-  '23505',
-  NULL,
-  'duplicate daily entry (same driver/date/shift) is rejected by the natural key'
+            '07100000-0000-0000-0000-000000000004', '2026-10-01', 'morning', 12, 455.50, 'import')$$,
+  '42501', NULL, 'direct order writes cannot bypass the reviewed workflow'
 );
-
--- A DISTINCT shift inserts cleanly (partial-failure imports keep good rows).
 SELECT lives_ok(
-  $$INSERT INTO public.daily_order_entries
-      (tenant_id, driver_id, platform_id, entry_date, shift_label, orders_delivered, gross_revenue, entry_source)
-    VALUES ('07100000-0000-0000-0000-000000000001', '07100000-0000-0000-0000-000000000003',
-            '07100000-0000-0000-0000-000000000004', '2026-10-01', 'evening', 8, 300, 'import')$$,
-  'distinct shift on the same day inserts (partial-failure import semantics)'
+  $$SELECT public.save_order_entry('{"driver_id":"07100000-0000-0000-0000-000000000003","platform_id":"07100000-0000-0000-0000-000000000004","entry_date":"2026-10-01","shift_label":"morning","orders_delivered":12,"gross_revenue":"455.50","entry_source":"import"}'::jsonb)$$,
+  'caller-bound order RPC records a valid import entry'
 );
-
--- Record a payment as the fixture user (upsert path).
+SELECT throws_ok(
+  $$SELECT public.save_order_entry('{"driver_id":"07100000-0000-0000-0000-000000000003","platform_id":"07100000-0000-0000-0000-000000000004","entry_date":"2026-10-01","shift_label":"morning","orders_delivered":5,"gross_revenue":"100.00","entry_source":"import"}'::jsonb)$$,
+  '23505', NULL, 'duplicate import through the workflow retains the natural-key guard'
+);
 SELECT lives_ok(
+  $$SELECT public.save_order_entry('{"driver_id":"07100000-0000-0000-0000-000000000003","platform_id":"07100000-0000-0000-0000-000000000004","entry_date":"2026-10-01","shift_label":"evening","orders_delivered":8,"gross_revenue":"300.00","entry_source":"import"}'::jsonb)$$,
+  'distinct shifts remain valid through the reviewed import workflow'
+);
+SELECT is(
+  (SELECT count(*)::integer FROM public.daily_order_entries WHERE driver_id='07100000-0000-0000-0000-000000000003'),
+  2, 'duplicate rejection leaves exactly the two distinct shift entries'
+);
+SELECT is(
+  (SELECT sum(gross_revenue) FROM public.daily_order_entries WHERE driver_id='07100000-0000-0000-0000-000000000003'),
+  755.50::numeric, 'order workflow persists exact financial values without duplicate mutation'
+);
+SELECT throws_ok(
   $$INSERT INTO public.platform_payments
-      (tenant_id, platform_id, period_year, period_month, expected_amount, received_amount,
-       outstanding_amount, payment_status)
-    VALUES ('07100000-0000-0000-0000-000000000001', '07100000-0000-0000-0000-000000000004', 2026, 9,
-            800, 800, 0, 'paid')
-    ON CONFLICT (tenant_id, platform_id, period_year, period_month) WHERE deleted_at IS NULL
-    DO UPDATE SET received_amount = EXCLUDED.received_amount,
-                  outstanding_amount = EXCLUDED.outstanding_amount,
-                  payment_status = EXCLUDED.payment_status$$,
-  'authenticated upsert of a platform payment rides RLS (record-payment path)'
+      (tenant_id,platform_id,period_year,period_month,expected_amount,received_amount,outstanding_amount,payment_status)
+    VALUES ('07100000-0000-0000-0000-000000000001','07100000-0000-0000-0000-000000000004',2026,9,800,800,0,'paid')$$,
+  '42501', NULL, 'direct platform payment writes cannot bypass the reviewed workflow'
 );
-
+SELECT lives_ok(
+  $$SELECT public.save_platform_payment('{"platform_id":"07100000-0000-0000-0000-000000000004","period_year":2026,"period_month":9,"expected_amount":"800.00","received_amount":"800.00","payment_date":"2026-09-30"}'::jsonb)$$,
+  'caller-bound payment RPC records a valid platform receipt'
+);
+SELECT ok(
+  EXISTS(SELECT 1 FROM public.platform_payments WHERE platform_id='07100000-0000-0000-0000-000000000004'
+    AND period_year=2026 AND period_month=9 AND expected_amount=800 AND received_amount=800
+    AND outstanding_amount=0 AND payment_status='paid' AND payment_date='2026-09-30'),
+  'platform receipt persists exact amounts, computed status, and payment date'
+);
 RESET ROLE;
-
 SELECT finish();

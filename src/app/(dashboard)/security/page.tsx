@@ -1,80 +1,15 @@
 "use client"
-
-import { useEffect, useState } from "react"
-import { useTranslation } from "@/hooks/use-translation"
-import { EnterpriseModulePage, type KpiCardData, type TableColumn } from "@/components/dashboard/enterprise-module-page"
-import { Shield, Lock, AlertTriangle, KeyRound } from "lucide-react"
-import { fetchSecurityOverview, type SecurityUserRow } from "@/lib/auth/user-reads"
-
-const ROLE_AR: Record<string, string> = {
-  general_manager: "مدير عام", admin: "مدير نظام", accountant: "محاسب",
-  supervisor: "مشرف", hr_officer: "موارد بشرية", operations_officer: "عمليات",
-  payroll_officer: "رواتب", platform_coordinator: "منسق منصات", readonly_auditor: "مدقق",
-}
-
-export default function SecurityPage() {
-  const { t } = useTranslation()
-  const [data, setData] = useState<SecurityUserRow[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [search, setSearch] = useState("")
-
-  useEffect(() => {
-    async function load() {
-      try {
-        const result = await fetchSecurityOverview()
-        setData(result)
-      } catch (err) {
-        console.error(err)
-        setData([])
-      }
-      setIsLoading(false)
-    }
-    void load()
-  }, [])
-
-  const filtered = search
-    ? data.filter(r => r.email?.includes(search) || r.full_name_ar?.includes(search))
-    : data
-
-  const kpiCards: KpiCardData[] = [
-    { label: t.nav.security, value: data.length, icon: Shield, color: "#1E5A99" },
-    { label: "2FA Active", value: data.filter(r => r.two_factor_enabled).length, icon: KeyRound, color: "#10B981" },
-    { label: "Must Change", value: data.filter(r => r.must_change_password).length, icon: Lock, color: "#F59E0B" },
-    { label: "Locked", value: data.filter(r => r.status === "locked" || r.failed_login_attempts > 0).length, icon: AlertTriangle, color: "#EF4444" },
-  ]
-
-  const columns: TableColumn<SecurityUserRow>[] = [
-    { key: "email", header: "Email", render: (r) => <span dir="ltr" className="text-sm">{r.email}</span> },
-    { key: "full_name_ar", header: t.common.status, render: (r) => <span>{r.full_name_ar ?? "—"}</span> },
-    { key: "role", header: "Role", render: (r) => <span className="text-sm">{ROLE_AR[r.role] ?? r.role}</span> },
-    {
-      key: "status", header: t.common.status,
-      render: (r) => {
-        const cls = r.status === "active" ? "bg-emerald-500/15 text-emerald-600 border-emerald-500/20"
-          : r.status === "locked" ? "bg-red-500/15 text-red-600 border-red-500/20"
-          : "bg-amber-500/15 text-amber-600 border-amber-500/20"
-        return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${cls}`}>{r.status}</span>
-      },
-    },
-    { key: "two_factor_enabled", header: "2FA", render: (r) => r.two_factor_enabled ? <span className="text-emerald-600 text-xs">✓</span> : <span className="text-muted-foreground text-xs">—</span> },
-    { key: "failed_login_attempts", header: "Failed", render: (r) => r.failed_login_attempts > 0 ? <span className="text-red-600 font-medium tabular-nums">{r.failed_login_attempts}</span> : <span className="text-muted-foreground tabular-nums">0</span> },
-
-  ]
-
-  return (
-    <div className="px-4 lg:px-6 py-4">
-      <EnterpriseModulePage
-        title={t.nav.security}
-        subtitle={t.common.status === "الحالة" ? "حالة الأمان والجلسات" : "Security status and sessions"}
-        kpiCards={kpiCards}
-        searchPlaceholder={t.common.searchPlaceholder}
-        searchValue={search}
-        onSearchChange={setSearch}
-        columns={columns}
-        data={filtered}
-        isLoading={isLoading}
-        emptyStateMessage={t.common.noData}
-      />
-    </div>
-  )
+import {useCallback,useEffect,useState} from "react"
+import {Shield,Lock,AlertTriangle,KeyRound,Check} from "lucide-react"
+import {useTranslation} from "@/hooks/use-translation"
+import {EnterpriseModulePage,type TableColumn} from "@/components/dashboard/enterprise-module-page"
+import {fetchSecurityRoster,type SecurityPageResult} from "@/lib/users/management"
+import {ROLE_META,STATUS_META,type UserStatus} from "@/lib/users/user-utils"
+export default function SecurityPage(){
+ const{t,locale}=useTranslation();const ar=locale==="ar";const[result,setResult]=useState<SecurityPageResult|null>(null);const[page,setPage]=useState(1);const[search,setSearch]=useState("");const[loading,setLoading]=useState(true);const[error,setError]=useState(false)
+ const load=useCallback(async()=>{setLoading(true);try{setResult(await fetchSecurityRoster({page,search}));setError(false)}catch{setError(true)}setLoading(false)},[page,search])
+ useEffect(()=>{const timer=setTimeout(()=>void load(),search?250:0);return()=>clearTimeout(timer)},[load,search])
+ const kpi=(value:number|undefined)=>error||value===undefined?"—":value
+ const columns:TableColumn<SecurityPageResult["users"][number]>[]=[{key:"email",header:ar?"البريد الإلكتروني":"Email",render:row=><span dir="ltr">{row.email}</span>},{key:"full_name_ar",header:ar?"المستخدم":"User",render:row=><span>{ar?(row.full_name_ar??row.full_name_en??"—"):(row.full_name_en??row.full_name_ar??"—")}</span>},{key:"role",header:ar?"الدور":"Role",render:row=><span>{ROLE_META[row.role]?.[ar?"ar":"en"]??row.role}</span>},{key:"status",header:t.common.status,render:row=><span>{STATUS_META[row.status as UserStatus]?.[ar?"ar":"en"]??row.status}</span>},{key:"two_factor_enabled",header:ar?"التحقق الثنائي":"Two-factor authentication",render:row=>row.two_factor_enabled?<Check aria-label={ar?"مفعّل":"Enabled"} className="size-4 text-emerald-700 dark:text-emerald-400"/>:<span>{ar?"غير مفعّل":"Not enabled"}</span>},{key:"failed_login_attempts",header:ar?"محاولات فاشلة":"Failed attempts",render:row=><span className="tabular-nums">{row.failed_login_attempts}</span>}]
+ return <div className="px-4 py-4 lg:px-6"><EnterpriseModulePage title={t.nav.security} subtitle={ar?"حالة أمان الحسابات. الإحصاءات تشمل جميع أعضاء المؤسسة.":"Account security status. Counts cover every organization member."} kpiCards={[{label:ar?"الحسابات":"Accounts",value:kpi(result?.kpis.total),icon:Shield},{label:ar?"التحقق الثنائي مفعّل":"Two-factor enabled",value:kpi(result?.kpis.twoFactorEnabled),icon:KeyRound},{label:ar?"تغيير كلمة المرور مطلوب":"Password change required",value:kpi(result?.kpis.mustChange),icon:Lock},{label:ar?"حسابات مقفلة":"Locked accounts",value:kpi(result?.kpis.locked),icon:AlertTriangle}]} columns={columns} data={result?.users??[]} searchValue={search} onSearchChange={value=>{setPage(1);setSearch(value)}} searchPlaceholder={t.common.searchPlaceholder} pagination={{currentPage:page,totalPages:Math.max(1,Math.ceil((result?.total??0)/25)),totalRecords:result?.total??0,onPageChange:setPage}} isLoading={loading} loadError={error?(ar?"تعذر تحميل الأمان. أعد المحاولة.":"Could not load security overview. Try again."):undefined} onRetry={()=>void load()} retryLabel={t.common.retry} emptyStateMessage={t.common.noData}/></div>
 }

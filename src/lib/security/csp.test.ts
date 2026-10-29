@@ -32,11 +32,22 @@ describe("buildCsp (Prompt M2 regression guard)", () => {
   it("PRODUCTION: connect-src keeps the storage/API origin and drops the local stack", () => {
     const csp = buildCsp(PROD)
     const connectSrc = parseCsp(csp).get("connect-src") ?? ""
-    expect(connectSrc).toContain("https://*.supabase.co")
+    expect(connectSrc).toContain(PROD.supabaseUrl)
+    expect(connectSrc).toContain("wss://wwfnsbilmyxeawgzicmv.supabase.co")
+    expect(connectSrc).not.toContain("https://*.supabase.co")
     expect(connectSrc).not.toContain("127.0.0.1")
     // no unsafe-eval outside dev
     const scriptSrc = parseCsp(csp).get("script-src") ?? ""
     expect(scriptSrc).not.toContain("'unsafe-eval'")
+  })
+
+  it("staging cannot connect to production or arbitrary Supabase projects", () => {
+    const staging = "https://viowrovartosrkqukjxy.supabase.co"
+    const connectSrc = parseCsp(buildCsp({ isDev: false, supabaseUrl: staging })).get("connect-src") ?? ""
+    expect(connectSrc).toContain(staging)
+    expect(connectSrc).toContain("wss://viowrovartosrkqukjxy.supabase.co")
+    expect(connectSrc).not.toContain(PROD.supabaseUrl)
+    expect(connectSrc).not.toContain("*.supabase.co")
   })
 
   it("DEV: local stack origins are allowlisted for connect-src and img-src", () => {

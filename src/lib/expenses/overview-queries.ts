@@ -6,6 +6,10 @@ import { RECOVERABILITY, type ExpenseVatRecoverability } from "./constants"
 
 export interface ExpenseRow {
   id: string
+  created_by: string | null
+  correction_version: number
+  cancelled_at: string | null
+  cancellation_reason: string | null
   expense_code: string | null
   expense_type: string
   category: string | null
@@ -24,7 +28,7 @@ export interface ExpenseRow {
   driver: { full_name_ar: string; driver_code: string } | null
 }
 
-const FIELDS = "id,expense_code,expense_type,category,amount,currency,expense_date,description,is_approved,rejected_at,rejection_reason,vendor,vat_rate,vat_amount,vat_recoverability,coa_account_code,driver:drivers(full_name_ar,driver_code),driver_search:drivers()"
+const FIELDS = "id,created_by,correction_version,cancelled_at,cancellation_reason,expense_code,expense_type,category,amount,currency,expense_date,description,is_approved,rejected_at,rejection_reason,vendor,vat_rate,vat_amount,vat_recoverability,coa_account_code,driver:drivers(full_name_ar,driver_code),driver_search:drivers()"
 
 export function expensesQuery(client: SupabaseClient, search: string) {
   let query = client.from("expenses").select(FIELDS, { count: "exact" }).is("deleted_at", null)
@@ -38,13 +42,15 @@ export function expensesQuery(client: SupabaseClient, search: string) {
  * Uses the shared checked 100,000-row budget; never returns partial money totals. */
 export async function expensesSummary(client: SupabaseClient, signal: AbortSignal) {
   const rows = await collectRows(() => client.from("expenses")
-    .select("id,amount,vat_amount,currency,is_approved,rejected_at", { count: "exact" })
+    .select("id,amount,vat_amount,currency,is_approved,rejected_at,cancelled_at", { count: "exact" })
     .is("deleted_at", null).order("id").abortSignal(signal))
   let net = 0, vat = 0, pending = 0
   for (const row of rows) {
     // Do not add currencies together or silently turn missing financial data into zero.
     if (row.currency !== "SAR" || typeof row.is_approved !== "boolean"
       || !(row.rejected_at === null || (typeof row.rejected_at === "string" && Number.isFinite(Date.parse(row.rejected_at))))
+      || !(row.cancelled_at === null || (typeof row.cancelled_at === "string" && Number.isFinite(Date.parse(row.cancelled_at))))
+      || (row.cancelled_at !== null && (row.is_approved || row.rejected_at !== null))
       || (row.is_approved && row.rejected_at !== null)
       || ![row.amount, row.vat_amount].every(value =>
         (typeof value === "number" || typeof value === "string") && /^\d+(\.\d{1,2})?$/.test(String(value)))) {
@@ -52,7 +58,7 @@ export async function expensesSummary(client: SupabaseClient, signal: AbortSigna
     }
     net = sumMoney(net, row.amount as number | string)
     vat = sumMoney(vat, row.vat_amount as number | string)
-    if (!row.is_approved && row.rejected_at === null) pending++
+    if (!row.is_approved && row.rejected_at === null && row.cancelled_at === null) pending++
   }
   return { count: rows.length, pending, net, vat }
 }

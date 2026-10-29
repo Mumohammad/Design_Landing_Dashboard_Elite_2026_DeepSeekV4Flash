@@ -40,14 +40,14 @@ describe("expense overview reads", () => {
   })
   it("sums every summary page exactly, independently of visible list/search", async () => {
     const { client, requests } = fixture(url => counted(Number(url.searchParams.get("offset")) === 500
-      ? [{ id:"last", amount:"0.20", vat_amount:"0.02", currency:"SAR", is_approved:true, rejected_at:null }]
-      : Array.from({ length:500 },(_,i)=>({ id:String(i), amount:"0.10", vat_amount:"0.01", currency:"SAR", is_approved:false, rejected_at:null })),501))
+      ? [{ id:"last", amount:"0.20", vat_amount:"0.02", currency:"SAR", is_approved:true, rejected_at:null,cancelled_at:null }]
+      : Array.from({ length:500 },(_,i)=>({ id:String(i), amount:"0.10", vat_amount:"0.01", currency:"SAR", is_approved:false, rejected_at:null,cancelled_at:null })),501))
     expect(await expensesSummary(client,signal())).toEqual({ count:501, pending:500, net:50.2, vat:5.02 })
     expect(requests).toHaveLength(2)
     for (const url of requests) {
       expect(url.searchParams.get("order")).toBe("id.asc")
       expect(url.searchParams.get("deleted_at")).toBe("is.null")
-      expect(url.searchParams.get("select")).toBe("id,amount,vat_amount,currency,is_approved,rejected_at")
+      expect(url.searchParams.get("select")).toBe("id,amount,vat_amount,currency,is_approved,rejected_at,cancelled_at")
       expect(url.searchParams.get("or")).toBeNull()
     }
   })
@@ -56,22 +56,26 @@ describe("expense overview reads", () => {
   })
   it('retains recorded amounts while excluding rejected records from pending decisions',async()=>{
     const {client}=fixture(()=>counted([
-      {id:'pending',amount:1,vat_amount:0,currency:'SAR',is_approved:false,rejected_at:null},
-      {id:'rejected',amount:2,vat_amount:0,currency:'SAR',is_approved:false,rejected_at:'2026-10-20T00:00:00Z'},
+      {id:'pending',amount:1,vat_amount:0,currency:'SAR',is_approved:false,rejected_at:null,cancelled_at:null},
+      {id:'rejected',amount:2,vat_amount:0,currency:'SAR',is_approved:false,rejected_at:'2026-10-20T00:00:00Z',cancelled_at:null},
     ]))
     expect(await expensesSummary(client,signal())).toEqual({count:2,pending:1,net:3,vat:0})
   })
   it.each([{ amount:null },{ amount:-1 },{ amount:"1.001" },{ vat_amount:null },{ vat_amount:"bad" },{ currency:"USD" },{ is_approved:null },{rejected_at:undefined},{rejected_at:"invalid"},{is_approved:true,rejected_at:"2026-10-20T00:00:00Z"}])(
     "rejects invalid or mixed-currency totals instead of returning zero: %j", async invalid => {
-      const { client } = fixture(()=>counted([{ id:"one",amount:10,vat_amount:1.5,currency:"SAR",is_approved:false,rejected_at:null,...invalid }]))
+      const { client } = fixture(()=>counted([{ id:"one",amount:10,vat_amount:1.5,currency:"SAR",is_approved:false,rejected_at:null,cancelled_at:null,...invalid }]))
       await expect(expensesSummary(client,signal())).rejects.toThrow("Could not load expense totals")
     })
   it.each(["failure","missing count","truncated"])("rejects a %s summary without partial metrics", async kind => {
     let page = 0
     const { client } = fixture(()=>kind === "failure" ? new Response('{"message":"private detail"}',{status:403})
       : kind === "missing count" ? new Response("[]",{headers:{"content-type":"application/json"}})
-      : counted(page++===0 ? [{id:"one",amount:10,vat_amount:0,currency:"SAR",is_approved:false,rejected_at:null}] : [],2))
+      : counted(page++===0 ? [{id:"one",amount:10,vat_amount:0,currency:"SAR",is_approved:false,rejected_at:null,cancelled_at:null}] : [],2))
     await expect(expensesSummary(client,signal())).rejects.toThrow()
+  })
+  it("preserves recorded amounts while excluding cancelled records from pending decisions",async()=>{
+    const {client}=fixture(()=>counted([{id:"cancelled",amount:10,vat_amount:0,currency:"SAR",is_approved:false,rejected_at:null,cancelled_at:"2026-10-20T00:00:00Z"}]))
+    expect(await expensesSummary(client,signal())).toEqual({count:1,pending:0,net:10,vat:0})
   })
   it("looks up just the mapped account codes without the old first-100 cap", async () => {
     const { client, requests } = fixture(url => url.pathname.endsWith("expense_category_mappings")

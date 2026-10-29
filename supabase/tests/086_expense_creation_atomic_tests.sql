@@ -49,6 +49,11 @@ SELECT is((SELECT count(*)::int FROM public.payables WHERE source_entity_type='e
 SET LOCAL ROLE authenticated;
 SELECT lives_ok($$SELECT public.create_expense_atomic(input,request_id) FROM expense_create_fixture$$,'approval VAT changes do not invalidate creation retry');
 RESET ROLE;
+SELECT throws_ok($$UPDATE public.expenses SET deleted_at=now() WHERE id=(SELECT (result->>'id')::uuid FROM expense_create_fixture)$$,'P0001','EXP_HISTORY_IMMUTABLE','approved source cannot be hidden or removed by service cleanup');
+SET LOCAL ROLE authenticated;
+UPDATE expense_create_fixture SET request_id=gen_random_uuid(),result=NULL;
+UPDATE expense_create_fixture SET result=public.create_expense_atomic(input,request_id);
+RESET ROLE;
 UPDATE public.expenses SET deleted_at=now() WHERE id=(SELECT (result->>'id')::uuid FROM expense_create_fixture);
 SET LOCAL ROLE authenticated;
 SELECT throws_ok($$SELECT public.create_expense_atomic(input,request_id) FROM expense_create_fixture$$,'P0001','EXP_RETRY_UNAVAILABLE: original expense needs review','deleted expense cannot be reported as saved');

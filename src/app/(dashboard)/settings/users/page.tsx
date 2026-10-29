@@ -47,10 +47,10 @@ const STATUS_META: Record<string, { ar: string; en: string; className: string }>
   terminated: { ar: "منهى", en: "Terminated", className: "bg-red-500/15 text-red-600 border-red-500/20" },
 }
 
-function fmtDate(date: string | null): string {
+function fmtDate(date: string | null, locale: string): string {
   if (!date) return "—"
   try {
-    return new Date(date).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
+    return new Date(date).toLocaleDateString(locale === "ar" ? "ar-SA-u-ca-gregory-nu-latn" : "en-GB", { day: "2-digit", month: "short", year: "numeric" })
   } catch {
     return date
   }
@@ -63,20 +63,22 @@ function fmtDate(date: string | null): string {
 async function fetchUsersAndInvites(
   setUsers: (u: SafeUserRow[]) => void,
   setInvites: (i: PendingInvite[]) => void,
-  setIsLoading: (b: boolean) => void
+  setIsLoading: (b: boolean) => void,
+  setLoadError: (b:boolean)=>void
 ): Promise<void> {
+  setLoadError(false)
   try {
     const users = await fetchUsersForSettings()
     setUsers(users)
-  } catch (err) {
-    console.error("[settings/users] fetchUsersForSettings failed:", err)
+  } catch {
+    setLoadError(true)
     setUsers([])
   }
   try {
     const pending = await listPendingInvites()
     setInvites(pending)
-  } catch (err) {
-    console.error("[settings/users] listPendingInvites failed:", err)
+  } catch {
+    setLoadError(true)
     setInvites([])
   }
   setIsLoading(false)
@@ -86,24 +88,28 @@ export default function UsersSettingsPage() {
   const { t, locale } = useTranslation()
   const ar = locale === "ar"
 
+  const [loadError,setLoadError]=useState(false)
+  const [search,setSearch]=useState("")
+  const [page,setPage]=useState(1)
   const [users, setUsers] = useState<SafeUserRow[]>([])
   const [invites, setInvites] = useState<PendingInvite[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [tab, setTab] = useState("users")
   const [revokingId, setRevokingId] = useState<string | null>(null)
+  const [revokeError,setRevokeError]=useState<string|null>(null)
 
   useEffect(() => {
-    void fetchUsersAndInvites(setUsers, setInvites, setIsLoading)
+    void fetchUsersAndInvites(setUsers, setInvites, setIsLoading,setLoadError)
   }, [])
 
   const [inviteState, inviteAction, isInviting] = useActionState(
-    async (_prev: { success: boolean; error?: string } | null, form: FormData) => {
+    async (_prev: { success: boolean; error?: string;errorAr?:string;delivery?:"queued"|"unavailable" } | null, form: FormData) => {
       const email = String(form.get("email") ?? "").trim()
       const role = String(form.get("role") ?? "readonly_auditor")
       const result = await createInvite(email, role)
       if (result.success) {
         setTab("invites")
-        await fetchUsersAndInvites(setUsers, setInvites, setIsLoading)
+        await fetchUsersAndInvites(setUsers, setInvites, setIsLoading,setLoadError)
       }
       return result
     },
@@ -112,9 +118,13 @@ export default function UsersSettingsPage() {
 
   async function handleRevoke(inviteId: string) {
     setRevokingId(inviteId)
-    const result = await revokeInvite(inviteId)
-    if (result.success) await fetchUsersAndInvites(setUsers, setInvites, setIsLoading)
-    setRevokingId(null)
+    setRevokeError(null)
+    try {
+      const result = await revokeInvite(inviteId)
+      if (result.success) await fetchUsersAndInvites(setUsers, setInvites, setIsLoading,setLoadError)
+      else setRevokeError(ar ? result.errorAr ?? "تعذر إلغاء الدعوة. أعد التحميل وحاول مجدداً." : result.error ?? "Could not revoke invitation. Reload and try again.")
+    } catch { setRevokeError(ar ? "تعذر تأكيد إلغاء الدعوة. أعد التحميل للتحقق من حالتها." : "Revocation could not be confirmed. Reload to check its status.") }
+    finally { setRevokingId(null) }
   }
 
   if (isLoading) {
@@ -136,6 +146,8 @@ export default function UsersSettingsPage() {
         </p>
       </div>
 
+      {revokeError&&<p role="alert" className="rounded-xl border border-destructive/30 p-3 text-sm text-destructive">{revokeError}</p>}
+      {loadError&&<div role="alert" className="rounded-xl border p-4"><p>{ar?"تعذر تحميل المستخدمين أو الدعوات. أعد المحاولة.":"Could not load users or invitations. Try again."}</p><Button variant="outline" onClick={()=>void fetchUsersAndInvites(setUsers,setInvites,setIsLoading,setLoadError)}>{t.common.retry}</Button></div>}
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="users" className="gap-2">
@@ -153,6 +165,7 @@ export default function UsersSettingsPage() {
 
         <TabsContent value="users" className="mt-4">
           <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
+            <div className="p-4"><Input aria-label={ar?"بحث المستخدمين":"Search users"} value={search} onChange={e=>{setPage(1);setSearch(e.target.value)}} placeholder={t.common.searchPlaceholder}/></div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -172,7 +185,7 @@ export default function UsersSettingsPage() {
                       </td>
                     </tr>
                   )}
-                  {users.map((u) => {
+                  {users.filter(u=>[u.email,u.full_name_ar??"",u.full_name_en??"",u.employee_code??""].some(v=>v.toLowerCase().includes(search.toLowerCase()))).slice((page-1)*25,page*25).map((u) => {
                     const s = STATUS_META[u.status] ?? STATUS_META.inactive
                     return (
                       <tr key={u.id} className="border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors">
@@ -192,7 +205,7 @@ export default function UsersSettingsPage() {
                           <Badge className={s.className}>{ar ? s.ar : s.en}</Badge>
                         </td>
                         <td className="px-4 py-3 text-xs text-muted-foreground" dir="ltr">
-                          {fmtDate(u.last_login_at)}
+                          {fmtDate(u.last_login_at,locale)}
                         </td>
                       </tr>
                     )
@@ -200,6 +213,7 @@ export default function UsersSettingsPage() {
                 </tbody>
               </table>
             </div>
+            <div className="flex items-center justify-end gap-3 p-4"><Button variant="outline" size="sm" disabled={page===1} onClick={()=>setPage(p=>p-1)}>{ar?"السابق":"Previous"}</Button><span className="text-sm tabular-nums">{page}</span><Button variant="outline" size="sm" disabled={page*25>=users.filter(u=>[u.email,u.full_name_ar??"",u.full_name_en??"",u.employee_code??""].some(v=>v.toLowerCase().includes(search.toLowerCase()))).length} onClick={()=>setPage(p=>p+1)}>{ar?"التالي":"Next"}</Button></div>
           </Card>
         </TabsContent>
 
@@ -239,7 +253,7 @@ export default function UsersSettingsPage() {
                     name="role"
                     className="h-9 rounded-md border border-input bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
-                    {Object.keys(ROLE_AR).map((r) => (
+                    {Object.keys(ROLE_AR).filter(r=>r!=="general_manager").map((r) => (
                       <option key={r} value={r}>
                         {ar ? ROLE_AR[r] : ROLE_EN[r] ?? r}
                       </option>
@@ -257,11 +271,11 @@ export default function UsersSettingsPage() {
               </form>
               {inviteState?.error && (
                 <p className="mt-3 flex items-center gap-1.5 text-sm text-red-500">
-                  <AlertTriangle className="h-4 w-4" /> {inviteState.error}
+                  <AlertTriangle className="h-4 w-4" /> {ar ? inviteState.errorAr ?? "تعذر إنشاء الدعوة. تحقق من البيانات والصلاحيات وحاول مجدداً." : inviteState.error}
                 </p>
               )}
               {inviteState?.success && (
-                <p className="mt-3 text-sm text-emerald-600">{ar ? "تم إرسال الدعوة بنجاح." : "Invite sent successfully."}</p>
+                <p className="mt-3 text-sm text-emerald-600">{inviteState.delivery==="queued"?(ar ? "أُنشئت الدعوة وقُبل البريد للإرسال." : "Invitation created; email queued for sending."):(ar?"أُنشئت الدعوة، لكن تعذر تأكيد إرسال البريد. تحقق من الإعدادات ووصول الدعوة قبل إلغائها وإعادة إرسالها.":"Invitation created, but sending could not be confirmed. Check email configuration and receipt before revoking and resending.")}</p>
               )}
             </CardContent>
           </Card>
@@ -296,10 +310,10 @@ export default function UsersSettingsPage() {
                       </td>
                       <td className="px-4 py-3 text-xs">{ar ? ROLE_AR[inv.role] : ROLE_EN[inv.role] ?? inv.role}</td>
                       <td className="px-4 py-3 text-xs text-muted-foreground" dir="ltr">
-                        {fmtDate(inv.invited_at)}
+                        {fmtDate(inv.invited_at,locale)}
                       </td>
                       <td className="px-4 py-3 text-xs text-muted-foreground" dir="ltr">
-                        {fmtDate(inv.expires_at)}
+                        {fmtDate(inv.expires_at,locale)}
                       </td>
                       <td className="px-4 py-3">
                         <Button

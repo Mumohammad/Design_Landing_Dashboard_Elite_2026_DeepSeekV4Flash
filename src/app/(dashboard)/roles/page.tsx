@@ -1,79 +1,32 @@
 "use client"
-
-import { LocalizedText, useUiText } from "@/components/localized-text"
-import { useEffect, useState } from "react"
-import { useTranslation } from "@/hooks/use-translation"
-import { EnterpriseModulePage, type KpiCardData, type TableColumn } from "@/components/dashboard/enterprise-module-page"
-import { ShieldCheck, Star, Lock, Eye } from "lucide-react"
-import { fetchRoles, type RoleRow } from "@/lib/auth/user-reads"
-
-
-export default function RolesPage() {
-  const { t, locale } = useTranslation()
-  const ui = useUiText()
-  const [data, setData] = useState<RoleRow[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [search, setSearch] = useState("")
-
-  useEffect(() => {
-    async function load() {
-      try {
-        const result = await fetchRoles()
-        setData(result)
-      } catch {
-        setData([])
-      }
-      setIsLoading(false)
-    }
-    load()
-  }, [])
-
-  const filtered = search
-    ? data.filter(r => r.name_ar?.includes(search) || r.name?.includes(search))
-    : data
-
-  const kpiCards: KpiCardData[] = [
-    { label: t.nav.roles, value: data.length, icon: ShieldCheck, color: "#1E5A99" },
-    { label: ui("System"), value: data.filter(r => r.is_system_role).length, icon: Lock, color: "#EF4444" },
-    { label: ui("General manager"), value: data.filter(r => r.name === "general_manager").length, icon: Star, color: "#F59E0B" },
-    { label: ui("Read-only"), value: data.filter(r => r.name === "readonly_auditor").length, icon: Eye, color: "#64748B" },
-  ]
-
-  const columns: TableColumn<RoleRow>[] = [
-    {
-      key: "name_ar", header: t.nav.roles,
-      render: (r) => (
-        <div className="flex items-center gap-2">
-          <span className="font-medium">{locale === "ar" ? (r.name_ar ?? r.name) : (r.name_en ?? r.name)}</span>
-          {r.is_system_role && <Lock className="h-3 w-3 text-muted-foreground" />}
-        </div>
-      ),
-    },
-    { key: "name_en", header: "English", render: (r) => <span dir="ltr" className="text-sm text-muted-foreground">{r.name_en ?? r.name}</span> },
-    { key: "name", header: ui("Code"), render: (r) => <span dir="ltr" className="font-mono text-xs">{r.name}</span> },
-    { key: "description", header: ui("Description"), render: (r) => <span className="text-xs text-muted-foreground">{r.description ?? "—"}</span> },
-    {
-      key: "is_system_role", header: t.common.status,
-      render: (r) => r.is_system_role
-        ? <span className="inline-flex items-center rounded-full border border-red-500/20 bg-red-500/15 px-2 py-0.5 text-xs font-medium text-red-600"><LocalizedText text="System" /></span>
-        : <span className="inline-flex items-center rounded-full border border-blue-500/20 bg-blue-500/15 px-2 py-0.5 text-xs font-medium text-blue-600"><LocalizedText text="Custom" /></span>,
-    },
-  ]
-
-  return (
-    <div className="px-4 lg:px-6 py-4">
-      <EnterpriseModulePage
-        title={t.nav.roles}
-        subtitle={t.common.status}
-        kpiCards={kpiCards}
-        searchPlaceholder={t.common.searchPlaceholder}
-        searchValue={search}
-        onSearchChange={setSearch}
-        columns={columns}
-        data={filtered}
-        isLoading={isLoading}
-        emptyStateMessage={t.common.noData}
-      />
-    </div>
-  )
+import {useCallback,useEffect,useState} from "react"
+import {ShieldCheck,Pencil,Archive,RotateCcw,Plus,Loader2,Lock} from "lucide-react"
+import {toast} from "sonner"
+import {useTranslation} from "@/hooks/use-translation"
+import {EnterpriseModulePage,type TableColumn} from "@/components/dashboard/enterprise-module-page"
+import {Button} from "@/components/ui/button"
+import {Input} from "@/components/ui/input"
+import {Label} from "@/components/ui/label"
+import {Textarea} from "@/components/ui/textarea"
+import {Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription,DialogFooter} from "@/components/ui/dialog"
+import {fetchRoleManagement,mutateRole,type ManagedRole,type PermissionEntry} from "@/lib/users/management"
+import {USER_ROLES,ROLE_META} from "@/lib/users/user-utils"
+export default function RolesPage(){
+ const{t,locale}=useTranslation();const ar=locale==="ar";const[data,setData]=useState<ManagedRole[]>([]);const[catalog,setCatalog]=useState<PermissionEntry[]>([]);const[owner,setOwner]=useState(false);const[loading,setLoading]=useState(true);const[error,setError]=useState(false);const[search,setSearch]=useState("");const[archived,setArchived]=useState(false);const[editor,setEditor]=useState<{row?:ManagedRole}|null>(null);const[archive,setArchive]=useState<ManagedRole|null>(null);const[reason,setReason]=useState("");const[busy,setBusy]=useState(false)
+ const load=useCallback(async()=>{setLoading(true);try{const result=await fetchRoleManagement();setData(result.roles);setCatalog(result.permissions);setOwner(result.isOwner);setError(false)}catch{setError(true)}setLoading(false)},[])
+ useEffect(()=>{const timer=setTimeout(()=>void load(),0);return()=>clearTimeout(timer)},[load])
+ async function change(row:ManagedRole,action:"archive"|"restore"){setBusy(true);const result=await mutateRole(action,action==="archive"?{reason}:{},row.id,row.version);setBusy(false);if(!result.success)return toast.error(result.error);setArchive(null);await load()}
+ const filtered=data.filter(row=>Boolean(row.deleted_at)===archived&&(!search||[row.name_ar,row.name_en,row.name].some(value=>value.toLowerCase().includes(search.toLowerCase()))))
+ const columns:TableColumn<ManagedRole>[]=[{key:"name",header:ar?"الدور":"Role",render:row=><div className="flex items-center gap-2"><ShieldCheck className="size-4 text-muted-foreground"/><span className="font-medium">{ar?row.name_ar:row.name_en}</span>{row.name==="general_manager"&&<Lock className="size-4 text-muted-foreground"/>}</div>},{key:"description",header:ar?"الوصف":"Description",render:row=><span className="text-sm text-muted-foreground">{row.description??"—"}</span>},{key:"permission_ids",header:ar?"الصلاحيات":"Permissions",render:row=><span className="tabular-nums">{row.name==="general_manager"?(ar?"وصول كامل":"Full access"):row.permission_ids.length}</span>},{key:"user_count",header:ar?"المستخدمون":"Users",render:row=><span className="tabular-nums">{row.user_count}</span>},{key:"actions",header:t.common.actions,render:row=>owner&&row.name!=="general_manager"?<div className="flex flex-wrap gap-2">{row.deleted_at?<Button variant="outline" size="sm" disabled={busy} onClick={()=>void change(row,"restore")}><RotateCcw className="me-2 size-4"/>{ar?"استعادة":"Restore"}</Button>:<><Button variant="outline" size="sm" onClick={()=>setEditor({row})}><Pencil className="me-2 size-4"/>{ar?"تعديل الصلاحيات":"Edit permissions"}</Button>{!row.is_system_role&&row.user_count===0&&<Button variant="outline" size="sm" onClick={()=>{setReason("");setArchive(row)}}><Archive className="me-2 size-4"/>{ar?"أرشفة":"Archive"}</Button>}</>}</div>:<span className="text-xs text-muted-foreground">{ar?"محمي":"Protected"}</span>}]
+ return <div className="px-4 py-4 lg:px-6"><EnterpriseModulePage title={t.nav.roles} subtitle={ar?"المدير العام يدير صلاحيات الفريق. تُحفظ التغييرات في سجل التدقيق.":"The general manager controls team permissions. Changes are retained in the audit history."} columns={columns} data={filtered} isLoading={loading} loadError={error?(ar?"تعذر تحميل الأدوار. أعد المحاولة.":"Could not load roles. Try again."):undefined} onRetry={()=>void load()} retryLabel={t.common.retry} searchValue={search} onSearchChange={setSearch} searchPlaceholder={t.common.searchPlaceholder} primaryCtaLabel={owner&&(USER_ROLES.some(role=>role!=="general_manager"&&!data.some(row=>row.name===role)))?(ar?"إعداد دور":"Configure role"):undefined} primaryCtaIcon={Plus} onPrimaryCta={()=>setEditor({})} toolbarActions={<Button variant="outline" onClick={()=>setArchived(value=>!value)}>{archived?(ar?"الأدوار النشطة":"Active roles"):(ar?"الأدوار المؤرشفة":"Archived roles")}</Button>} emptyStateMessage={t.common.noData}/>{editor&&<RoleEditor row={editor.row} available={USER_ROLES.filter(role=>role!=="general_manager"&&!data.some(row=>row.name===role))} catalog={catalog} ar={ar} onClose={()=>setEditor(null)} onSaved={()=>{setEditor(null);void load()}}/>}<Dialog open={!!archive} onOpenChange={value=>!value&&setArchive(null)}><DialogContent><DialogHeader><DialogTitle>{ar?"أرشفة الدور":"Archive role"}</DialogTitle><DialogDescription>{ar?"يمكن أرشفة الأدوار غير النظامية دون مستخدمين فقط.":"Only non-system roles without assigned users can be archived."}</DialogDescription></DialogHeader><Label htmlFor="role-archive-reason">{ar?"السبب":"Reason"}</Label><Textarea id="role-archive-reason" value={reason} onChange={event=>setReason(event.target.value)} maxLength={500}/><DialogFooter><Button disabled={busy||reason.trim().length<5} onClick={()=>archive&&void change(archive,"archive")}>{ar?"أرشفة":"Archive"}</Button></DialogFooter></DialogContent></Dialog></div>
+}
+function RoleEditor({row,available,catalog,ar,onClose,onSaved}:{row?:ManagedRole;available:readonly string[];catalog:PermissionEntry[];ar:boolean;onClose:()=>void;onSaved:()=>void}){
+ const{t}=useTranslation()
+ const moduleLabel=(name:string)=>(t.nav as unknown as Record<string,string>)[({hr:"hrManagement",audit_log:"auditLog"} as Record<string,string>)[name]??name]??(name==="assignments"?(ar?"تعيينات المركبات":"Vehicle assignments"):name.replace(/_/g," "))
+ const[name,setName]=useState(row?.name??available[0]??"");const[labelAr,setLabelAr]=useState(row?.name_ar??"");const[labelEn,setLabelEn]=useState(row?.name_en??"");const[description,setDescription]=useState(row?.description??"");const[grants,setGrants]=useState(new Set(row?.permission_ids??[]));const[busy,setBusy]=useState(false);const[error,setError]=useState<string|null>(null);const[search,setSearch]=useState("")
+ const filtered=catalog.filter(permission=>(permission.module+" "+permission.action+" "+(permission.description??"")).toLowerCase().includes(search.toLowerCase()))
+ const groups=Array.from(new Set(filtered.map(permission=>permission.module)))
+ const actionLabel=(action:string)=>({read:ar?"عرض":"Read",create:ar?"إنشاء":"Create",update:ar?"تعديل":"Update",delete:ar?"أرشفة":"Archive",approve:ar?"اعتماد":"Approve",export:ar?"تصدير":"Export",print:ar?"طباعة":"Print",manage:ar?"إدارة":"Manage"}[action]??action)
+ async function save(event:React.FormEvent){event.preventDefault();setBusy(true);setError(null);const result=await mutateRole("save",{name,name_ar:labelAr,name_en:labelEn,description:description||null,permission_ids:Array.from(grants)},row?.id,row?.version);setBusy(false);if(!result.success)return setError(result.error??(ar?"تعذر الحفظ":"Could not save role"));onSaved()}
+ return <Dialog open onOpenChange={value=>!busy&&!value&&onClose()}><DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-3xl"><DialogHeader><DialogTitle>{ar?"صلاحيات الدور":"Role permissions"}</DialogTitle><DialogDescription>{ar?"تُطبق الصلاحيات على جميع مستخدمي هذا الدور. صلاحيات المدير العام محمية ولا تتغير.":"Permissions apply to every user with this role. The general manager’s full access remains protected."}</DialogDescription></DialogHeader><form onSubmit={event=>void save(event)} className="grid gap-5"><div className="grid gap-3 sm:grid-cols-2"><div className="grid gap-2"><Label htmlFor="managed-role-preset">{ar?"الدور":"Role"}</Label><select id="managed-role-preset" className="h-10 rounded-md border border-input bg-background px-3 text-sm" disabled={!!row} value={name} onChange={event=>setName(event.target.value)}>{(row?[row.name]:available).map(value=><option key={value} value={value}>{ROLE_META[value]?.[ar?"ar":"en"]??value}</option>)}</select></div><div className="grid gap-2"><Label htmlFor="managed-role-en">{ar?"الاسم بالإنجليزية":"English label"}</Label><Input id="managed-role-en" required maxLength={100} value={labelEn} onChange={event=>setLabelEn(event.target.value)}/></div><div className="grid gap-2"><Label htmlFor="managed-role-ar">{ar?"الاسم بالعربية":"Arabic label"}</Label><Input id="managed-role-ar" required maxLength={100} value={labelAr} onChange={event=>setLabelAr(event.target.value)}/></div><div className="grid gap-2"><Label htmlFor="managed-role-description">{ar?"الوصف":"Description"}</Label><Input id="managed-role-description" maxLength={1000} value={description} onChange={event=>setDescription(event.target.value)}/></div></div><div className="grid gap-2"><Label htmlFor="managed-role-search">{ar?"بحث في الصلاحيات":"Find permission"}</Label><Input id="managed-role-search" value={search} onChange={event=>setSearch(event.target.value)}/></div><p className="text-sm tabular-nums text-muted-foreground">{grants.size} {ar?"صلاحية محددة":"permissions selected"}</p>{groups.map(module=><fieldset key={module} className="rounded-xl border p-4"><legend className="px-2 text-sm font-semibold">{moduleLabel(module)}</legend><div className="grid gap-3 sm:grid-cols-3">{filtered.filter(permission=>permission.module===module).map(permission=><label key={permission.id} className="flex items-start gap-3 text-sm"><input type="checkbox" checked={grants.has(permission.id)} onChange={event=>setGrants(previous=>{const next=new Set(previous);if(event.target.checked)next.add(permission.id);else next.delete(permission.id);return next})} className="mt-1 accent-primary"/><span>{actionLabel(permission.action)}</span></label>)}</div></fieldset>)}{error&&<p role="alert" className="text-sm text-destructive">{error}</p>}<DialogFooter><Button type="button" variant="outline" disabled={busy} onClick={onClose}>{ar?"إلغاء":"Cancel"}</Button><Button type="submit" disabled={busy}>{busy&&<Loader2 className="me-2 size-4 animate-spin"/>}{ar?"حفظ الدور":"Save role"}</Button></DialogFooter></form></DialogContent></Dialog>
 }

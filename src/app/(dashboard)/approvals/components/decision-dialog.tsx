@@ -84,10 +84,10 @@ export function DecisionDialog({
       )
       const res =
         row.item_type === "expense"
-          ? await decideExpense({ expenseId: row.item_id, decision, reason: reason.trim() })
+          ? await decideExpense({ expenseId: row.item_id, expectedVersion: row.subject_meta.correction_version, decision, reason: reason.trim() })
           : row.item_type === "leave_request"
-            ? await decideLeaveRequest({ requestId: row.item_id, decision, reason: reason.trim() })
-            : await decideApplication({ applicationId: row.item_id, decision, reason: reason.trim() })
+            ? await decideLeaveRequest({ requestId: row.item_id, expectedVersion: row.subject_meta.workflow_version, decision, reason: reason.trim() })
+            : await decideApplication({ applicationId: row.item_id, expectedVersion: row.subject_meta.workflow_version, decision, reason: reason.trim() })
 
       if (res.success) {
         if (res.postingPending) toast.warning(isAr

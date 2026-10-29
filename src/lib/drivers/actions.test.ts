@@ -1,0 +1,27 @@
+import{beforeEach,describe,expect,it,vi}from"vitest"
+const f=vi.hoisted(()=>({rpc:vi.fn(),client:vi.fn(),permission:vi.fn(),user:vi.fn(),limit:vi.fn(),refresh:vi.fn(),emit:vi.fn()}))
+vi.mock("@/lib/supabase/server",()=>({createClient:f.client}))
+vi.mock("@/lib/auth/authorization",()=>({getCurrentUser:f.user,requirePermission:f.permission}))
+vi.mock("@/lib/auth/rate-limit",()=>({rateLimitDrivers:f.limit}))
+vi.mock("next/cache",()=>({revalidatePath:f.refresh}))
+vi.mock("@/lib/webhooks/events",()=>({emit:f.emit}))
+import{createDriver,updateDriver,setDriverStatus,archiveDriver}from"./actions"
+const id="13200000-0000-4000-8000-000000000011",input={full_name_ar:" Driver fixture ",primary_mobile:"0501320060",category:"freelancer" as const,status:"active" as const,hire_date:"2020-01-01"}
+beforeEach(()=>{vi.clearAllMocks();f.user.mockResolvedValue({id:"user",tenantId:"tenant",authUserId:"auth"});f.permission.mockResolvedValue(undefined);f.limit.mockResolvedValue({success:true});f.client.mockResolvedValue({rpc:f.rpc});f.rpc.mockResolvedValue({data:{id,profile_version:3},error:null})})
+describe("Driver core atomic action boundaries",()=>{
+ it("creates through session client and returns final version",async()=>{expect(await createDriver(input)).toMatchObject({success:true,id,profile_version:3});expect(f.rpc).toHaveBeenCalledWith("mutate_driver_profile",{p_action:"create",p_input:{...input,full_name_ar:"Driver fixture"},p_id:null,p_expected_version:null});expect(f.emit).toHaveBeenCalledWith("driver.created","tenant",expect.objectContaining({id}))})
+ it("does not accept caller ownership or audit actor",async()=>{await createDriver({...input,tenant_id:"foreign",created_by:"foreign"} as typeof input);expect(f.rpc.mock.calls[0][1].p_input).not.toHaveProperty("tenant_id");expect(f.rpc.mock.calls[0][1].p_input).not.toHaveProperty("created_by")})
+ it("requires driver permission before database use",async()=>{f.permission.mockRejectedValue(new Error("Denied"));expect((await createDriver(input)).success).toBe(false);expect(f.client).not.toHaveBeenCalled();expect(f.emit).not.toHaveBeenCalled()})
+ it("rejects unauthenticated user",async()=>{f.user.mockResolvedValue(null);expect((await updateDriver(id,{full_name_en:"Edited"},1)).success).toBe(false);expect(f.rpc).not.toHaveBeenCalled()})
+ it("rate limits mutations before RPC",async()=>{f.limit.mockResolvedValue({success:false});expect((await archiveDriver({driverId:id,reason:"Fixture archive",expectedVersion:1})).success).toBe(false);expect(f.client).not.toHaveBeenCalled()})
+ it("sends explicit version and changed fields only",async()=>{await updateDriver(id,{full_name_en:" Edited ",termination_date:null},3);expect(f.rpc).toHaveBeenCalledWith("mutate_driver_profile",{p_action:"update",p_input:{full_name_en:"Edited",termination_date:null},p_id:id,p_expected_version:3})})
+ it.each([{status:"active" as const},{current_vehicle_id:id},{payroll_rule_id:id}])("rejects fields owned by dedicated workflows %j",async payload=>{expect((await updateDriver(id,payload,3)).success).toBe(false);expect(f.rpc).not.toHaveBeenCalled()})
+ it.each([0,-1,1.5,NaN])("rejects invalid version %s",async version=>{expect((await updateDriver(id,{full_name_en:"Edited"},version)).success).toBe(false);expect(f.rpc).not.toHaveBeenCalled()})
+ it("rejects date chronology before RPC when both values supplied",async()=>{expect((await updateDriver(id,{hire_date:"2020-01-01",termination_date:"2019-12-31"},3)).success).toBe(false);expect(f.rpc).not.toHaveBeenCalled()})
+ it("rejects impossible calendar date",async()=>{expect((await updateDriver(id,{termination_date:"2020-02-31"},3)).success).toBe(false);expect(f.rpc).not.toHaveBeenCalled()})
+ it("requires explicit version in status flow",async()=>{expect((await setDriverStatus({driverId:id,status:"suspended",reason:"Fixture reason"})).success).toBe(false);expect(f.rpc).not.toHaveBeenCalled()})
+ it("passes explicit historical termination date without replacing it",async()=>{await setDriverStatus({driverId:id,status:"terminated",reason:"Historical termination",terminationDate:"2020-03-17",expectedVersion:3});expect(f.rpc).toHaveBeenCalledWith("mutate_driver_profile",{p_action:"status",p_input:{status:"terminated",reason:"Historical termination",termination_date:"2020-03-17"},p_id:id,p_expected_version:3})})
+ it("propagates protected history failure without pretending refresh success",async()=>{f.rpc.mockResolvedValue({data:null,error:{message:"DRIVER_RESOLVE_OPEN_BALANCES_FIRST"}});expect(await archiveDriver({driverId:id,expectedVersion:3,reason:"Fixture archive"})).toMatchObject({success:false,error:"DRIVER_RESOLVE_OPEN_BALANCES_FIRST"});expect(f.refresh).not.toHaveBeenCalled()})
+ it("rejects short archive explanation",async()=>{expect((await archiveDriver({driverId:id,expectedVersion:3,reason:"x"})).success).toBe(false);expect(f.rpc).not.toHaveBeenCalled()})
+ it("maps duplicate identity without exposing internal SQL details",async()=>{f.rpc.mockResolvedValue({data:null,error:{code:"23505",message:"private constraint"}});expect(await createDriver(input)).toMatchObject({success:false,error:"A driver with this code or identity already exists."});expect(f.emit).not.toHaveBeenCalled()})
+})

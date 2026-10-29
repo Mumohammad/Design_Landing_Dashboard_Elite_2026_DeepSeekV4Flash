@@ -85,6 +85,6 @@ SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claims','{"role":"authenticated","sub":"93000000-0000-4000-8000-000000000003","aal":"aal2"}',true);
 SELECT throws_ok('SELECT public.read_my_vat_position()','42501','VAT access denied','role without accounting read denied');
 SELECT is((SELECT count(*)::int FROM public.vat_output_ledger),0,'underlying ledger RLS remains enforced');
-SELECT ok((SELECT 'security_invoker=on'=ANY(reloptions) FROM pg_class WHERE oid='public.vat_reconciliation'::regclass),'canonical view remains invoker');
+SELECT ok((SELECT reloptions && ARRAY['security_invoker=on','security_invoker=true'] FROM pg_class WHERE oid='public.vat_reconciliation'::regclass),'canonical view remains invoker');
 SELECT * FROM finish();
 ROLLBACK;

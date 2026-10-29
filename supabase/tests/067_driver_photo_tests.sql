@@ -6,18 +6,13 @@
 --
 --   1. driver-photos storage bucket exists, is PRIVATE, and enforces the
 --      5 MiB limit the UI advertises (bucket limit + allowed MIME types)
---   2. storage RLS: authenticated SELECT/INSERT policies cover the bucket
---      with a tenant-folder check; no authenticated UPDATE/DELETE policies
---      (object cleanup must go through the service role)
---   3. drivers.photo_url exists (TEXT) and the drivers UPDATE policy is
---      tenant-checked — the photo action writes through the same RLS as
---      every other profile edit
---   4. audit_log INSERT policy (20260929120000): authenticated may insert
---      own-tenant + own-actor audit rows (the photo actions' audit trail);
---      cross-actor forgeries are RLS-denied (42501)
---   5. BEHAVIORAL: a photo audit row inserted as the fixture user is visible
---      back to that same user (the /audit-log surface reads it), and the
---      immutability trigger still blocks UPDATE/DELETE (ADR-007 intact)
+--   2. Storage SELECT/INSERT policies enforce tenant paths and permissions;
+--      UPDATE is absent so replacements cannot overwrite evidence bytes.
+--   3. drivers.photo_url exists and direct authenticated driver UPDATE is
+--      revoked; source/derived state/audit now use mutate_driver_evidence.
+--   4. Ordinary users cannot forge audit rows; trusted backend writers may
+--      retain a source event, whose non-sensitive event ID remains readable.
+--      Full atomic photo workflow regressions are in suite144.
 --
 -- Conventions (match 061/063): single transaction (CI passes
 -- --single-transaction), SET LOCAL ROLE + RESET ROLE between role switches,
@@ -128,8 +123,8 @@ SELECT is(
      AND tablename  = 'objects'
      AND cmd = 'UPDATE'
      AND (qual LIKE '%driver-photos%' OR with_check LIKE '%driver-photos%')),
-  1,
-  'driver-photos UPDATE is permission-gated; no DELETE policy exists'
+  0,
+  'driver-photos has no in-place UPDATE policy; replacements require fresh objects'
 );
 
 SELECT is(
@@ -149,14 +144,9 @@ SELECT is(
 SELECT has_column('public', 'drivers', 'photo_url', 'drivers.photo_url exists');
 
 SELECT ok(
-  EXISTS (
-    SELECT 1 FROM pg_policies
-    WHERE schemaname = 'public'
-      AND tablename  = 'drivers'
-      AND cmd = 'UPDATE'
-      AND (qual LIKE '%get_my_tenant_id()%' OR with_check LIKE '%get_my_tenant_id()%')
-  ),
-  'drivers UPDATE policy is tenant-checked (photo write rides normal RLS)'
+  NOT has_table_privilege('authenticated','public.drivers','UPDATE')
+  AND has_function_privilege('authenticated','public.mutate_driver_evidence(text,uuid,integer,jsonb,uuid,integer)','EXECUTE'),
+  'photo persistence is caller-bound through the reviewed evidence RPC'
 );
 
 -- ─── 4. audit_log INSERT policy (2) ─────────────────────────────────────────
@@ -208,7 +198,7 @@ SELECT ok(
   (SELECT count(*)::int FROM public.audit_log
    WHERE module = 'drivers' AND action = 'photo_updated'
      AND entity_id = '12700000-0000-0000-0000-000000000001'::uuid) >= 1,
-  'photo audit row is readable back through the audit-trail surface (same tenant)'
+  'photo event identifier remains readable for same-tenant history verification'
 );
 
 RESET ROLE;

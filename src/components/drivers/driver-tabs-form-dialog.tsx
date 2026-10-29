@@ -1,13 +1,14 @@
 "use client";
 
 import { LocalizedText, useUiText } from "@/components/localized-text"
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { emitDriverChanged } from "@/lib/drivers/driver-events";
-import { createClient } from "@/lib/supabase/client";
+import { saveDriverProfileOperation, archiveDriverProfileOperation } from "@/lib/driver-profile-operations/actions";
+import { businessTimeInput, VIOLATION_TRANSITIONS, REVIEW_TRANSITIONS } from "@/lib/driver-profile-operations/schema";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -33,7 +34,7 @@ export type DriverTabSurface = "attendance" | "violations" | "training" | "perfo
 type FieldDef = {
   key: string;
   label: string;
-  type: "date" | "text" | "number" | "textarea" | "select";
+  type: "date" | "time" | "month" | "text" | "number" | "textarea" | "select";
   required?: boolean;
   min?: string;
   options?: { value: string; label: string }[];
@@ -58,9 +59,9 @@ const CONFIG: Record<DriverTabSurface, SurfaceConfig> = {
   attendance: {
     table: "driver_attendance",
     action: "attendance",
-    editMode: "update",
+    editMode: "soft-delete",
     title: { create: "Add attendance day", edit: "Edit attendance day" },
-    description: "One row per calendar day — the date must be unique per driver.",
+    description: "One row per Saudi calendar day. Times use Asia/Riyadh (UTC+03:00). Check-out must follow check-in on the same day.",
     fields: [
       { key: "attendance_date", label: "Date", type: "date", required: true },
       {
@@ -79,8 +80,8 @@ const CONFIG: Record<DriverTabSurface, SurfaceConfig> = {
           { value: "day_off", label: "Day off" },
         ],
       },
-      { key: "check_in_time", label: "Check-in (HH:MM)", type: "text" },
-      { key: "check_out_time", label: "Check-out (HH:MM)", type: "text" },
+      { key: "check_in_time", label: "Check-in (Saudi time)", type: "time" },
+      { key: "check_out_time", label: "Check-out (Saudi time)", type: "time" },
       { key: "late_minutes", label: "Late minutes", type: "number" },
       { key: "overtime_minutes", label: "Overtime minutes", type: "number" },
       { key: "notes", label: "Notes", type: "textarea" },
@@ -91,24 +92,22 @@ const CONFIG: Record<DriverTabSurface, SurfaceConfig> = {
     action: "violation",
     editMode: "soft-delete",
     title: { create: "Add violation", edit: "Edit violation" },
-    description: "Record a violation — it stays pending until reviewed.",
+    description: "Record and review a violation. Resolving a deduction queues it for the selected payroll month.",
     fields: [
       { key: "incident_date", label: "Incident date", type: "date", required: true },
       { key: "incident_location", label: "Location", type: "text" },
       { key: "deduction_amount", label: "Deduction (SAR)", type: "number" },
-      { key: "incident_description", label: "Description", type: "textarea" },
+      { key: "incident_description", label: "Description", type: "textarea", required: true },
       {
         key: "status",
         label: "Status",
         type: "select",
         options: [
-          { value: "pending", label: "Pending" },
-          { value: "confirmed", label: "Confirmed" },
-          { value: "waived", label: "Waived" },
-          { value: "disputed", label: "Disputed" },
-          { value: "cancelled", label: "Cancelled" },
+          ...["open", "under_review", "acknowledged", "disputed", "resolved", "waived", "escalated", "closed"].map(value => ({ value, label: value.replace(/_/g, " ") })),
         ],
       },
+      { key: "review_notes", label: "Review notes / waiver reason", type: "textarea" },
+      { key: "deduction_month", label: "Deduction month (when resolving)", type: "month" },
     ],
   },
   training: {
@@ -151,6 +150,7 @@ const CONFIG: Record<DriverTabSurface, SurfaceConfig> = {
       { key: "strengths", label: "Strengths", type: "textarea" },
       { key: "improvements", label: "Improvements", type: "textarea" },
       { key: "goals", label: "Goals", type: "textarea" },
+      { key: "status", label: "Status", type: "select", options: ["pending", "in_progress", "completed", "cancelled"].map(value => ({ value, label: value.replace(/_/g, " ") })) },
     ],
   },
 };
@@ -184,42 +184,48 @@ function toDateInput(iso: unknown): string {
   return s.slice(0, 10);
 }
 
-function toTimeInput(iso: unknown): string {
-  const s = toStringValue(iso);
-  if (!s) return "";
-  return s.slice(11, 16);
+function toTimeInput(iso: unknown): string { return businessTimeInput(iso); }
+
+function initialValues(surface: DriverTabSurface, mode: "create" | "edit", row: Row | null) {
+  const next: Record<string, string> = {};
+  for (const field of CONFIG[surface].fields) {
+    const raw = row?.[field.key];
+    if (field.type === "date") next[field.key] = toDateInput(raw);
+    else if (field.key === "check_in_time" || field.key === "check_out_time")
+      next[field.key] = toTimeInput(raw);
+    else next[field.key] = toStringValue(raw);
+  }
+  if (mode === "create") {
+    if (surface === "attendance") next.status = "present";
+    if (surface === "violations") next.status = "open";
+    if (surface === "performance") next.status = "pending";
+    if (surface === "training") next.is_passed = "false";
+  }
+  return next;
 }
 
-export function DriverTabsFormDialog({
+export function DriverTabsFormDialog(props: DriverTabsFormDialogProps) {
+  if (!props.open) return null;
+  return <DriverTabsForm key={JSON.stringify([props.driverId, props.surface, props.mode, props.row])} {...props} />;
+}
+
+function DriverTabsForm({
   surface,
   mode,
   open,
   onOpenChange,
   driverId,
-  tenantId,
   row = null,
-  pendingEdit = null,
   onSaved,
 }: DriverTabsFormDialogProps) {
   const ui = useUiText()
   const config = CONFIG[surface];
-  const [values, setValues] = useState<Record<string, string>>({});
+  const [values, setValues] = useState(() => initialValues(surface, mode, row));
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    const next: Record<string, string> = {};
-    for (const field of config.fields) {
-      const raw = row?.[field.key];
-      if (field.type === "date") next[field.key] = toDateInput(raw);
-      else if (field.key === "check_in_time" || field.key === "check_out_time")
-        next[field.key] = toTimeInput(raw);
-      else next[field.key] = toStringValue(raw);
-    }
-    setValues(next);
-    setConfirmDelete(false);
-  }, [open, row, config.fields]);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const immutable = mode === "edit" && ((surface === "attendance" && Boolean(row?.is_locked)) || (surface === "performance" && ["completed", "cancelled"].includes(String(row?.status))) || (surface === "violations" && (["waived", "closed", "deduction_applied"].includes(String(row?.status)) || Boolean(row?.deduction_applied) || (Array.isArray(row?.violation_deduction_ledger) && row.violation_deduction_ledger.length > 0))));
+  const canArchive = mode === "edit" && !(surface === "attendance" && row?.is_locked) && (surface !== "performance" || row?.status !== "completed") && (surface !== "violations" || (["open", "waived", "closed"].includes(String(row?.status)) && !row?.deduction_applied && !(Array.isArray(row?.violation_deduction_ledger) && row.violation_deduction_ledger.length)));
 
   const setField = (key: string, v: string) =>
     setValues((prev) => ({ ...prev, [key]: v }));
@@ -247,59 +253,25 @@ export function DriverTabsFormDialog({
       (f) => f.required && (values[f.key] ?? "").trim() === "",
     );
     if (missing.length > 0) {
-      toast.error(`Required: ${missing.map((f) => f.label).join(", ")}`);
+      const message = `Required: ${missing.map((f) => f.label).join(", ")}`;
+      setSaveError(message);
+      toast.error(message);
       return;
     }
 
     setSaving(true);
     try {
-      const supabase = createClient();
-      const payload = buildPayload();
-
-      // Resolve the tenant from the driver row — RLS WITH CHECK requires it on
-      // insert and the tab components don't carry tenant_id.
-      let tenantIdResolved = tenantId;
-      if (mode === "create" && !tenantIdResolved) {
-        const { data: driverRow } = await supabase
-          .from("drivers")
-          .select("tenant_id")
-          .eq("id", driverId)
-          .maybeSingle();
-        tenantIdResolved = (driverRow?.tenant_id as string | undefined) ?? "";
-      }
-
-      if (mode === "create") {
-        if (!tenantIdResolved) throw new Error("Driver tenant not found");
-        const insert: Record<string, unknown> = {
-          ...payload,
-          driver_id: driverId,
-          tenant_id: tenantIdResolved,
-        };
-        if (surface === "violations") {
-          insert.source = "manual";
-          insert.status = payload.status ?? "pending";
-        }
-        if (surface === "attendance") {
-          insert.entry_method = "manual";
-        }
-        const { error } = await supabase.from(config.table).insert(insert);
-        if (error) throw error;
-        toast.success(ui("Saved"));
-      } else {
-        const update: Record<string, unknown> = { ...payload, ...(pendingEdit ?? {}) };
-        const { error } = await supabase
-          .from(config.table)
-          .update(update)
-          .eq("id", String(row?.id ?? ""));
-        if (error) throw error;
-        toast.success("Saved");
-      }
+      setSaveError(null);
+      const result = await saveDriverProfileOperation(surface, driverId, buildPayload(), mode === "edit" ? String(row?.id ?? "") : undefined, mode === "edit" ? String(row?.updated_at ?? "") : undefined);
+      if (!result.success) throw new Error(result.error);
+      toast.success(ui("Saved"));
 
       onOpenChange(false);
       onSaved?.();
       emitDriverChanged({ driverId, action: config.action });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to save";
+      setSaveError(message);
       toast.error(ui(message));
     } finally {
       setSaving(false);
@@ -310,18 +282,16 @@ export function DriverTabsFormDialog({
     if (saving || !row?.id) return;
     setSaving(true);
     try {
-      const supabase = createClient();
-      const { error } = await supabase
-        .from(config.table)
-        .update({ deleted_at: new Date().toISOString() })
-        .eq("id", String(row.id));
-      if (error) throw error;
-      toast.success("Deleted");
+      setSaveError(null);
+      const result = await archiveDriverProfileOperation(surface, driverId, String(row.id), String(row.updated_at ?? ""));
+      if (!result.success) throw new Error(result.error);
+      toast.success(ui("Archived"));
       onOpenChange(false);
       onSaved?.();
       emitDriverChanged({ driverId, action: config.action });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to delete";
+      setSaveError(message);
       toast.error(message);
     } finally {
       setSaving(false);
@@ -336,7 +306,9 @@ export function DriverTabsFormDialog({
           <DialogDescription>{ui(config.description)}</DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-3 sm:grid-cols-2">
+        {saveError ? <p role="alert" className="text-sm text-destructive">{ui(saveError)}</p> : null}
+        {immutable ? <p className="text-sm text-muted-foreground">{ui("This finalized record is retained as history.")}</p> : null}
+        <fieldset disabled={saving || immutable} className="grid gap-3 sm:grid-cols-2">
           {config.fields.map((field) => (
             <div
               key={field.key}
@@ -362,7 +334,7 @@ export function DriverTabsFormDialog({
                     <SelectValue placeholder={ui("Select…")} />
                   </SelectTrigger>
                   <SelectContent>
-                    {(field.options ?? []).map((opt) => (
+                    {(field.options ?? []).filter(opt => field.key !== "status" || (surface === "violations" ? (mode === "create" ? ["open"] : VIOLATION_TRANSITIONS[String(row?.status)] ?? []).includes(opt.value) : surface === "performance" ? (mode === "create" ? ["pending"] : REVIEW_TRANSITIONS[String(row?.status)] ?? []).includes(opt.value) : true)).map((opt) => (
                       <SelectItem key={opt.value} value={opt.value}>
                         {ui(opt.label)}
                       </SelectItem>
@@ -382,10 +354,10 @@ export function DriverTabsFormDialog({
               )}
             </div>
           ))}
-        </div>
+        </fieldset>
 
         <DialogFooter>
-          {mode === "edit" && config.editMode === "soft-delete" ? (
+          {canArchive && config.editMode === "soft-delete" ? (
             confirmDelete ? (
               <>
                 <Button
@@ -394,7 +366,7 @@ export function DriverTabsFormDialog({
                   disabled={saving}
                 ><LocalizedText text="Keep record" /></Button>
                 <Button variant="destructive" onClick={() => void softDelete()} disabled={saving}>
-                  {saving ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}<LocalizedText text="Confirm delete" /></Button>
+                  {saving ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}<LocalizedText text="Confirm archive" /></Button>
               </>
             ) : (
               <Button
@@ -403,11 +375,11 @@ export function DriverTabsFormDialog({
                 onClick={() => setConfirmDelete(true)}
                 disabled={saving}
               >
-                <Trash2 className="size-4" /><LocalizedText text="Delete" /></Button>
+                <Trash2 className="size-4" /><LocalizedText text="Archive" /></Button>
             )
           ) : null}
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}><LocalizedText text="Cancel" /></Button>
-          <Button onClick={() => void save()} disabled={saving}>
+          <Button onClick={() => void save()} disabled={saving || immutable}>
             {saving ? <Loader2 className="size-4 animate-spin" /> : null}
             {mode === "create" ? "Add" : "Save changes"}
           </Button>

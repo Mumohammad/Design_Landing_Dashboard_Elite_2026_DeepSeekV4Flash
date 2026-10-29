@@ -24,8 +24,8 @@ export const deliveryPlatformCreateSchema = z.object({
     .nullable()
     .optional(),
   rate_type: platformRateTypeSchema,
-  rate_per_order: z.number().min(0).max(9999).nullable().optional(),
-  api_base_url: z.string().trim().url("Base URL must be a valid URL").max(500).nullable().optional().or(z.literal("")),
+  rate_per_order: z.number().min(0).max(9999.99).multipleOf(0.01).nullable().optional(),
+  api_base_url: z.string().trim().url("Base URL must be a valid URL").startsWith("https://", "Use an HTTPS URL").max(500).nullable().optional().or(z.literal("")),
   sort_order: z.number().int().min(0).max(9999).optional(),
 })
 
@@ -33,6 +33,7 @@ export type DeliveryPlatformCreateInput = z.infer<typeof deliveryPlatformCreateS
 
 export const deliveryPlatformUpdateSchema = deliveryPlatformCreateSchema.extend({
   id: z.string().uuid(),
+  expected_updated_at: z.iso.datetime({offset:true}),
   is_active: z.boolean().optional(),
 })
 
@@ -41,12 +42,13 @@ export type DeliveryPlatformUpdateInput = z.infer<typeof deliveryPlatformUpdateS
 /** Record/settle a platform payment row (never hard-deleted). */
 export const platformPaymentRecordSchema = z.object({
   platform_id: z.string().uuid(),
+  expected_updated_at: z.iso.datetime({offset:true}).optional(),
   period_year: z.number().int().min(2000).max(2200),
   period_month: z.number().int().min(1).max(12),
-  expected_amount: z.number().min(0),
-  received_amount: z.number().min(0),
+  expected_amount: z.number().min(0).max(9999999999.99).multipleOf(0.01),
+  received_amount: z.number().min(0).max(9999999999.99).multipleOf(0.01),
   payment_status: z.enum(["pending", "partial", "paid", "overdue", "disputed"]).optional(),
-  payment_date: z.string().nullable().optional(),
+  payment_date: z.iso.date().nullable().optional(),
   payment_ref: z.string().trim().max(120).nullable().optional(),
   notes: z.string().trim().max(1000).nullable().optional(),
 })

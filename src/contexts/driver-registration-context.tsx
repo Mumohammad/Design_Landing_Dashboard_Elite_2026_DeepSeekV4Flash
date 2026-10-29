@@ -19,6 +19,49 @@ import type {
 } from "@/lib/driver-registration/schema"
 
 const STORAGE_KEY = "elite-registration-locale"
+const defaultLocale: RegistrationLocale = "en"
+const localeListeners = new Set<() => void>()
+let fallbackLocale: RegistrationLocale = defaultLocale
+let persistenceUnavailable = false
+
+function getLocaleSnapshot(): RegistrationLocale {
+  if (persistenceUnavailable) return fallbackLocale
+  try {
+    const saved = window.localStorage.getItem(STORAGE_KEY)
+    if (saved && Object.prototype.hasOwnProperty.call(registrationDictionaries, saved)) return saved as RegistrationLocale
+  } catch { /* optional persistence */ }
+  return fallbackLocale
+}
+
+function getServerLocaleSnapshot() {
+  return defaultLocale
+}
+
+function setLocale(next: RegistrationLocale) {
+  fallbackLocale = next
+  try {
+    window.localStorage.setItem(STORAGE_KEY, next)
+    persistenceUnavailable = false
+  } catch { persistenceUnavailable = true }
+  localeListeners.forEach((listener) => listener())
+}
+
+function subscribeToLocale(onChange: () => void) {
+  fallbackLocale = getLocaleSnapshot()
+  localeListeners.add(onChange)
+  const sync = (event: StorageEvent) => {
+    if (event.key === STORAGE_KEY && event.newValue && Object.prototype.hasOwnProperty.call(registrationDictionaries, event.newValue)) {
+      fallbackLocale = event.newValue as RegistrationLocale
+      persistenceUnavailable = false
+      onChange()
+    }
+  }
+  window.addEventListener("storage", sync)
+  return () => {
+    localeListeners.delete(onChange)
+    window.removeEventListener("storage", sync)
+  }
+}
 
 export type ApplicationData = {
   personal: PersonalValues | null
@@ -63,27 +106,8 @@ interface DriverRegistrationContextValue {
 const DriverRegistrationContext = React.createContext<DriverRegistrationContextValue | null>(null)
 
 export function DriverRegistrationProvider({ children }: { children: React.ReactNode }) {
-  const [locale, setLocaleState] = React.useState<RegistrationLocale>("en")
+  const locale = React.useSyncExternalStore(subscribeToLocale, getLocaleSnapshot, getServerLocaleSnapshot)
   const [data, setData] = React.useState<ApplicationData>(emptyData)
-
-  // Restore saved locale after mount (SSR safe default: en).
-  React.useEffect(() => {
-    try {
-      const saved = window.localStorage.getItem(STORAGE_KEY) as RegistrationLocale | null
-      if (saved && saved in registrationDictionaries) setLocaleState(saved)
-    } catch {
-      /* ignore */
-    }
-  }, [])
-
-  const setLocale = React.useCallback((next: RegistrationLocale) => {
-    setLocaleState(next)
-    try {
-      window.localStorage.setItem(STORAGE_KEY, next)
-    } catch {
-      /* ignore */
-    }
-  }, [])
 
   // Apply dir + lang to <html>. The root layout defaults to rtl/ar; the
   // registration portal owns the document direction while it is mounted.
@@ -91,12 +115,6 @@ export function DriverRegistrationProvider({ children }: { children: React.React
     if (typeof document === "undefined") return
     document.documentElement.lang = locale
     document.documentElement.dir = registrationLocaleMeta[locale].dir
-    // Persist for a hard refresh on this page.
-    try {
-      window.localStorage.setItem(STORAGE_KEY, locale)
-    } catch {
-      /* ignore */
-    }
   }, [locale])
 
   const patch = React.useCallback((partial: Partial<ApplicationData>) => {

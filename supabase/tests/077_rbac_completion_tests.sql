@@ -9,6 +9,7 @@ CREATE TEMP TABLE rbac_matrix (
   module_name text NOT NULL,
   action_name text NOT NULL,
   tenant_scoped boolean NOT NULL DEFAULT true,
+  expected_table_grant boolean NOT NULL DEFAULT true,
   PRIMARY KEY (table_name, command_name, module_name, action_name)
 );
 
@@ -124,6 +125,26 @@ VALUES
   ('zatca_transmissions', 'SELECT', 'accounting', 'read', true)
 ON CONFLICT DO NOTHING;
 
+-- Reviewed mutations now run through caller-bound transactional RPCs. The
+-- underlying policies remain defense in depth; direct table DML stays revoked.
+-- This explicit contract must not infer expected access from current grants.
+UPDATE rbac_matrix SET expected_table_grant=false
+WHERE command_name IN ('INSERT','UPDATE','DELETE') AND table_name IN (
+  'invoices','invoice_lines','bank_accounts','credit_notes','debit_notes',
+  'chart_of_accounts','customers','suppliers',
+  'attendance_periods','daily_order_entries','delivery_platforms','driver_attendance',
+  'driver_cards','driver_compliance_overrides','driver_documents','driver_card_prints',
+  'driver_leave_requests','driver_payroll_rules','drivers','monthly_driver_orders',
+  'payroll_advances','performance_reviews','platform_payments','system_settings',
+  'training_records','vat_input_ledger','vehicle_assignments','vehicle_documents',
+  'vehicle_handover_forms','vehicle_maintenance_events','vehicle_odometer_logs',
+  'vehicles','violations'
+);
+UPDATE rbac_matrix SET expected_table_grant=false
+WHERE (table_name='expenses' AND command_name='UPDATE')
+   OR (table_name='tenants' AND command_name='UPDATE')
+   OR (table_name='audit_log' AND command_name='SELECT');
+
 -- A tenant-B role with no permissions makes denial assertions non-vacuous.
 INSERT INTO public.roles
   (id, tenant_id, name, name_ar, name_en, is_system_role)
@@ -231,7 +252,7 @@ FROM rbac_matrix m ORDER BY m.table_name, m.command_name;
 
 SELECT is(
   has_table_privilege('authenticated', format('public.%I', m.table_name), m.command_name),
-  NOT (m.table_name IN ('invoices','invoice_lines','bank_accounts','credit_notes','debit_notes') AND m.command_name IN ('INSERT','UPDATE','DELETE')),
+  m.expected_table_grant,
   format('authenticated %s grant on %s follows the authorized write path', m.command_name, m.table_name)
 )
 FROM rbac_matrix m ORDER BY m.table_name, m.command_name;
@@ -450,7 +471,8 @@ SELECT is(
      AND c.relname IN ('balance_sheet', 'cash_flow', 'profit_loss',
                        'trial_balance', 'vat_reconciliation',
                        'vehicle_active_documents')
-     AND 'security_invoker=on' = ANY(c.reloptions)),
+     AND EXISTS (SELECT 1 FROM pg_options_to_table(c.reloptions) opt
+       WHERE opt.option_name='security_invoker' AND opt.option_value::boolean)),
   6,
   'all application views execute with caller RLS'
 );

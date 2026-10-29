@@ -146,3 +146,12 @@ describe("dateRangeBounds", () => {
     expect(dateRangeBounds("not-a-date", "")).toEqual({ fromIso: null, toIso: null })
   })
 })
+
+it("makes spreadsheet formula text inert without changing numeric balances",()=>{
+ const csv=auditToCsv(["Action","Amount"],[["=HYPERLINK(\"https://example.test\")",-12.34],["  @SUM(A1:A2)","+1555"],["line\rbreak",0]])
+ expect(csv).toContain('"\t=HYPERLINK(')
+ expect(csv).toContain('"\t  @SUM(A1:A2)"')
+ expect(csv).toContain(",-12.34")
+ expect(csv).toContain(",+1555")
+ expect(csv).toContain('"line\rbreak"')
+})

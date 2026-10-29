@@ -1,0 +1,40 @@
+import { expect as baseExpect } from '@playwright/test'
+import { randomUUID } from 'node:crypto'
+const expect=baseExpect.configure({timeout:20_000})
+export async function verifySettingsCrud(page,admin,tenantId,appUrl){
+ const backend=new URL(admin.supabaseUrl),app=new URL(appUrl)
+ const policy=(await fetch(appUrl+'/landing')).headers.get('content-security-policy')??''
+ const local=['localhost','127.0.0.1'].includes(backend.hostname)&&['localhost','127.0.0.1'].includes(app.hostname)
+ const stage=backend.origin==='https://viowrovartosrkqukjxy.supabase.co'&&/^elite-dashboard-[a-z0-9-]+-elitesaasc-5643\.vercel\.app$/.test(app.hostname)&&policy.includes(backend.origin)
+ if((!local&&!stage)||app.hostname==='elite-dashboard-blush.vercel.app'||policy.includes('https://wwfnsbilmyxeawgzicmv.supabase.co')||!tenantId)throw Error('Isolated settings verification required')
+ const before=await admin.from('tenants').select('logo_url').eq('id',tenantId).single();if(before.error)throw Error('Settings fixture company unavailable')
+ const name='Settings '+randomUUID().slice(0,8)
+ await page.goto(appUrl+'/settings/company?lang=en')
+ await expect(page.locator('#nameEn')).toBeEnabled()
+ const stale=await page.context().newPage()
+ try{
+  await stale.goto(appUrl+'/settings/company?lang=en');await expect(stale.locator('#nameEn')).toBeEnabled()
+  await page.locator('#nameEn').fill(name);await page.locator('#nameAr').fill('منشأة اختبار الإعدادات')
+  await page.locator('form').nth(0).getByRole('button',{name:'Save Changes',exact:true}).click()
+  await expect(page.locator('form').nth(0).getByText('Saved',{exact:true})).toBeVisible()
+  await expect.poll(async()=>{const r=await admin.from('tenants').select('name_en,logo_url').eq('id',tenantId).single();if(r.error)throw Error('Settings verification read failed');return r.data.name_en===name&&r.data.logo_url===before.data.logo_url}).toBe(true)
+  await stale.locator('#nameEn').fill('Stale editor '+name)
+  await stale.locator('form').nth(0).getByRole('button',{name:'Save Changes',exact:true}).click()
+  await expect(stale.getByText('Company settings changed. Reload the page and review the values before saving.',{exact:true})).toBeVisible()
+  const current=await admin.from('tenants').select('name_en').eq('id',tenantId).single();if(current.error||current.data.name_en!==name)throw Error('Stale settings write changed company')
+ }finally{await stale.close()}
+ await page.locator('#molReference').fill('12345678');await page.locator('#wpsIban').fill('SA0380000000608010167519')
+ await page.locator('form').nth(1).getByRole('button',{name:'Save Changes',exact:true}).click()
+ await expect(page.locator('form').nth(1).getByText('Saved',{exact:true})).toBeVisible()
+ await page.goto(appUrl+'/settings/payroll-defaults?lang=en')
+ await page.getByRole('spinbutton',{name:'Default working days / month',exact:true}).fill('26')
+ await page.getByRole('spinbutton',{name:'Saudi employee pay advisory',exact:true}).fill('4200')
+ await page.getByRole('spinbutton',{name:'Minimum net payroll floor',exact:true}).fill('1700.25')
+ await page.getByRole('button',{name:'Save Changes',exact:true}).click()
+ await expect(page.getByText('Saved',{exact:true})).toBeVisible()
+ await page.reload();await expect(page.getByRole('spinbutton',{name:'Minimum net payroll floor',exact:true})).toHaveValue('1700.25')
+ await page.setViewportSize({width:390,height:844})
+ await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true)
+ await page.setViewportSize({width:1440,height:1000})
+ console.log(JSON.stringify({check:'settings profile, stale editor, WPS and references',result:'PASS'}))
+}

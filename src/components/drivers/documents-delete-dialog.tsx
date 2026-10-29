@@ -7,7 +7,8 @@ import { Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { emitDriverChanged } from "@/lib/drivers/driver-events";
-import { createClient } from "@/lib/supabase/client";
+import { removeDriverDocument } from "@/app/actions/drivers/documents";
+import { useTranslation } from "@/hooks/use-translation";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -23,7 +24,7 @@ type DocumentsDeleteDialogProps = {
   onOpenChange: (open: boolean) => void;
   driverId: string;
   /** Row to delete: label is shown for confirmation. */
-  document: { id: string; docType: string; label: string } | null;
+  document: { id: string; docType: string; label: string; workflowVersion:number; profileVersion:number } | null;
   onDeleted?: () => void;
 };
 
@@ -34,27 +35,22 @@ export function DocumentsDeleteDialog({
   document,
   onDeleted,
 }: DocumentsDeleteDialogProps) {
+  const {locale}=useTranslation();
   const [deleting, setDeleting] = useState(false);
 
   const confirmDelete = async () => {
     if (!document || deleting) return;
     setDeleting(true);
     try {
-      const supabase = createClient();
-      // Soft delete (deleted_at filter) — no ad-hoc schema changes.
-      const { error } = await supabase
-        .from("driver_documents")
-        .update({ deleted_at: new Date().toISOString() })
-        .eq("id", document.id);
-      if (error) throw error;
+      const result=await removeDriverDocument({driverId,documentId:document.id,expectedDriverVersion:document.profileVersion,expectedVersion:document.workflowVersion});
+      if(!result.ok){toast.error(locale==="ar"?result.errorAr:result.error);return}
 
-      toast.success(`“${document.label}” deleted`);
+      toast.success(locale==="ar"?"تمت أرشفة المستند مع الاحتفاظ بالملف.":"Document retired; the file is retained.");
       onOpenChange(false);
       onDeleted?.();
       emitDriverChanged({ driverId, action: "document" });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to delete document";
-      toast.error(message);
+    } catch {
+      toast.error(locale==="ar"?"تعذر تأكيد إزالة المستند. أعد تحميل الملف قبل المحاولة مجدداً.":"Document removal could not be confirmed. Reload the profile before retrying.");
     } finally {
       setDeleting(false);
     }

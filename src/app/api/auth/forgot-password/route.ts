@@ -90,9 +90,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // 3. Send the recovery email (server-side; redirectTo is allow-listed by
   //    Supabase and validated in redirects.ts).
+  let redirectTo: string
+  try {
+    redirectTo = authCallbackUrlWithReturn()
+  } catch {
+    return NextResponse.json({ error: "Password recovery temporarily unavailable" }, { status: 503 })
+  }
   const supabase = await createClient()
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: authCallbackUrlWithReturn(),
+    redirectTo,
   })
 
   if (error) {

@@ -22,7 +22,7 @@ SELECT is((SELECT count(*)::int FROM public.invoice_lines WHERE invoice_id=(SELE
 SELECT throws_ok($$SELECT public.save_invoice_draft(input || '{"customer_id":"82000000-0000-4000-8000-000000000002"}', (result->>'id')::uuid,(result->>'updated_at')::timestamptz) FROM draft_fixture$$,'P0001','INV005: active tenant party required','cross-tenant party edit rejected');
 SELECT throws_ok($$SELECT public.save_invoice_draft(input,(result->>'id')::uuid,'2000-01-01') FROM draft_fixture$$,'P0001','INV015: invoice changed; reload before saving','stale edit rejected');
 SELECT throws_ok($$SELECT public.save_invoice_draft(jsonb_set(input,'{lines,0,discount}','5'),(result->>'id')::uuid,(result->>'updated_at')::timestamptz) FROM draft_fixture$$,'P0001','INV002: discount exceeds line value','over-discount rejected');
-SELECT throws_ok($$SELECT public.save_invoice_draft(jsonb_set(input,'{lines,0,unit_price}','1.005')) FROM draft_fixture$$,'P0001','INV002: invalid invoice line','unsupported monetary precision rejected');
+SELECT throws_ok($$SELECT public.save_invoice_draft(jsonb_set(input,'{lines,0,unit_price}','1.00001')) FROM draft_fixture$$,'P0001','INV002: invalid invoice line','unit-price precision beyond four decimals rejected');
 SELECT is((SELECT total FROM public.invoices WHERE id=(SELECT (result->>'id')::uuid FROM draft_fixture)),4.72::numeric,'invalid edits preserve header');
 SELECT is((SELECT amount FROM public.invoice_lines WHERE invoice_id=(SELECT (result->>'id')::uuid FROM draft_fixture)),4.10::numeric,'invalid edits preserve lines');
 SELECT throws_ok($$UPDATE public.invoices SET total=0 WHERE id=(SELECT (result->>'id')::uuid FROM draft_fixture)$$,'42501',NULL,'direct header write cannot bypass RPC');

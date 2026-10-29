@@ -59,44 +59,47 @@ export default function DashboardPage() {
   const ui = useUiText()
   const { t, locale } = useTranslation()
 
-  const [filters, setFilters] = React.useState<DashboardFilters>(DEFAULT_FILTERS)
-  const [snapshot, setSnapshot] = React.useState<DashboardSnapshot | null>(null)
-  const [initialLoading, setInitialLoading] = React.useState(true)
-  const [refreshing, setRefreshing] = React.useState(false)
-  const [loadError, setLoadError] = React.useState(false)
+  const [request, setRequest] = React.useState({ filters: DEFAULT_FILTERS, isRefresh: false })
+  const filters = request.filters
+  const [result, setResult] = React.useState<{ filters: DashboardFilters; snapshot: DashboardSnapshot } | null>(null)
+  const snapshot = result?.snapshot ?? null
+  const [settledRequest, setSettledRequest] = React.useState<typeof request | null>(null)
+  const [loadFailed, setLoadFailed] = React.useState(false)
   const requestId = React.useRef(0)
+  const initialLoading = settledRequest !== request && (!request.isRefresh || result?.filters !== filters)
+  const refreshing = settledRequest !== request && request.isRefresh
+  const loadError = settledRequest === request && loadFailed
   // The first load of every dashboard visit is computed fresh (and refreshes
   // the cache): many writes go straight to Supabase, so there is no complete
   // mutation hook to invalidate on. Only filter switches within the 60-second
   // window are served from the server cache.
   const visitedFresh = React.useRef(false)
 
-  const load = React.useCallback(async (f: DashboardFilters, isRefresh = false) => {
+  const requestLoad = (filters: DashboardFilters, isRefresh = false) => setRequest({ filters, isRefresh })
+  const load = React.useCallback(() => {
     const id = ++requestId.current
-    if (isRefresh) setRefreshing(true)
-    else setInitialLoading(true)
-    try {
-      // An explicit refresh and the first load of a visit bypass the cache.
-      const fresh = isRefresh || !visitedFresh.current
-      visitedFresh.current = true
-      const snap = await getDashboardSnapshot(f, { fresh })
-      if (requestId.current === id) {
-        setSnapshot(snap)
-        setLoadError(false)
-      }
-    } catch {
-      if (requestId.current === id) setLoadError(true)
-    } finally {
-      if (requestId.current === id) {
-        setInitialLoading(false)
-        setRefreshing(false)
-      }
-    }
-  }, [])
+    // An explicit refresh and the first load of a visit bypass the cache.
+    const fresh = request.isRefresh || !visitedFresh.current
+    visitedFresh.current = true
+    return getDashboardSnapshot(request.filters, { fresh }).then(
+      snap => {
+        if (requestId.current !== id) return
+        setResult({ filters: request.filters, snapshot: snap })
+        setLoadFailed(false)
+        setSettledRequest(request)
+      },
+      () => {
+        if (requestId.current !== id) return
+        setLoadFailed(true)
+        setSettledRequest(request)
+      },
+    )
+  }, [request])
 
   React.useEffect(() => {
-    void load(filters)
-  }, [filters, load])
+    void load()
+    return () => { requestId.current += 1 }
+  }, [load])
 
   const k = snapshot?.kpis
   const ordersSpark = React.useMemo(
@@ -127,7 +130,7 @@ export default function DashboardPage() {
       {/* ── Page header ── */}
       <ScrollReveal direction="fade" duration={400}>
         <div className="flex flex-col gap-4">
-          <DashboardHeader snapshot={snapshot} onRefresh={() => void load(filters, true)} refreshing={refreshing} />
+          <DashboardHeader snapshot={snapshot} onRefresh={() => requestLoad(filters, true)} refreshing={refreshing} />
           <QuickActions />
         </div>
       </ScrollReveal>
@@ -136,8 +139,8 @@ export default function DashboardPage() {
       <ScrollReveal direction="up" delay={50} duration={400}>
         <FilterBar
           filters={filters}
-          onChange={setFilters}
-          onRefresh={() => void load(filters, true)}
+          onChange={filters => requestLoad(filters)}
+          onRefresh={() => requestLoad(filters, true)}
           refreshing={refreshing}
           platforms={platformOptions}
           generatedAt={snapshot?.generatedAt ?? null}
@@ -152,7 +155,7 @@ export default function DashboardPage() {
             </div>
             <p className="text-sm font-semibold text-red-600 dark:text-red-400">{t.dashboard.unableToLoad}</p>
             <button
-              onClick={() => void load(filters)}
+              onClick={() => requestLoad(filters)}
               className="mt-3 rounded-xl bg-red-500/10 px-4 py-2 text-xs font-semibold text-red-600 transition-colors hover:bg-red-500/20 dark:text-red-400"
             >
               {t.common.retry}
@@ -306,20 +309,20 @@ export default function DashboardPage() {
           {/* ── Primary analytics ── */}
           <section aria-label={ui("Trends")} className="grid gap-4 xl:grid-cols-2">
             <ScrollReveal direction="up" delay={100}>
-              <OrdersTrend data={snapshot.trends.orders} available={snapshot.availability.orders} onRetry={() => void load(filters, true)} />
+              <OrdersTrend data={snapshot.trends.orders} available={snapshot.availability.orders} onRetry={() => requestLoad(filters, true)} />
             </ScrollReveal>
             <ScrollReveal direction="up" delay={160}>
-              <RevenueTrend data={snapshot.trends.revenue} available={snapshot.availability.orders} onRetry={() => void load(filters, true)} />
+              <RevenueTrend data={snapshot.trends.revenue} available={snapshot.availability.orders} onRetry={() => requestLoad(filters, true)} />
             </ScrollReveal>
           </section>
 
           {/* ── Secondary analytics ── */}
           <section aria-label={ui("Performance")} className="grid gap-4 xl:grid-cols-2">
             <ScrollReveal direction="left" delay={100}>
-              <PlatformPerformance data={snapshot.platforms} available={snapshot.availability.orders} onRetry={() => void load(filters, true)} />
+              <PlatformPerformance data={snapshot.platforms} available={snapshot.availability.orders} onRetry={() => requestLoad(filters, true)} />
             </ScrollReveal>
             <ScrollReveal direction="right" delay={160}>
-              <DriverTargets data={snapshot.driverTargets} buckets={snapshot.targetBuckets} available={snapshot.availability.payroll} onRetry={() => void load(filters, true)} />
+              <DriverTargets data={snapshot.driverTargets} buckets={snapshot.targetBuckets} available={snapshot.availability.payroll} onRetry={() => requestLoad(filters, true)} />
             </ScrollReveal>
           </section>
 
@@ -331,10 +334,10 @@ export default function DashboardPage() {
           {/* ── Compliance + violations ── */}
           <section aria-label={ui("Compliance")} className="grid gap-4 xl:grid-cols-2">
             <ScrollReveal direction="left" delay={100}>
-              <ComplianceRadar compliance={snapshot.compliance} available={snapshot.availability.drivers || snapshot.availability.vehicles} onRetry={() => void load(filters, true)} />
+              <ComplianceRadar compliance={snapshot.compliance} available={snapshot.availability.drivers || snapshot.availability.vehicles} onRetry={() => requestLoad(filters, true)} />
             </ScrollReveal>
             <ScrollReveal direction="right" delay={160}>
-              <ViolationsTrend data={snapshot.trends.violations} available={snapshot.availability.violations} onRetry={() => void load(filters, true)} />
+              <ViolationsTrend data={snapshot.trends.violations} available={snapshot.availability.violations} onRetry={() => requestLoad(filters, true)} />
             </ScrollReveal>
           </section>
 
@@ -353,7 +356,7 @@ export default function DashboardPage() {
 
           {/* ── Drill-down table ── */}
           <ScrollReveal direction="up" delay={100}>
-            <DriverTable data={snapshot.driverTargets} available={snapshot.availability.payroll} onRetry={() => void load(filters, true)} />
+            <DriverTable data={snapshot.driverTargets} available={snapshot.availability.payroll} onRetry={() => requestLoad(filters, true)} />
           </ScrollReveal>
         </>
       )}

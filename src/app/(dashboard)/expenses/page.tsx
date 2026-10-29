@@ -7,6 +7,7 @@ import { expensesQuery, expensesSummary, expenseDependencies, type ExpenseRow } 
 import { useTablePage } from "@/hooks/use-table-page"
 import { useReadSummary } from "@/hooks/use-read-summary"
 import { useTranslation } from "@/hooks/use-translation"
+import { correctPendingExpense } from "@/lib/expenses/correction-actions"
 import { round2 } from "@/lib/accounting/invoice-math"
 import { calculateVat, sumMoney } from "@/lib/accounting/decimal"
 import { EnterpriseModulePage, type KpiCardData, type TableColumn } from "@/components/dashboard/enterprise-module-page"
@@ -20,7 +21,7 @@ import {
   type ExpenseVatRecoverability,
 } from "@/lib/expenses/constants"
 import {
-  Wallet, Clock, DollarSign, CheckCircle2, BadgeCheck, Loader2, AlertTriangle, ReceiptText, Plus, Save, X,
+  Wallet, Clock, DollarSign, CheckCircle2, BadgeCheck, Loader2, AlertTriangle, ReceiptText, Plus, Save, X, Pencil, Ban,
 } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
@@ -73,6 +74,14 @@ export default function ExpensesPage() {
   const [isApproving, setIsApproving] = useState(false)
   const [approveError, setApproveError] = useState<string | null>(null)
 
+  const [authActor, setAuthActor] = useState<string | null>(null)
+  const [editTarget, setEditTarget] = useState<ExpenseRow | null>(null)
+  const [changeReason, setChangeReason] = useState("")
+  const [cancelTarget, setCancelTarget] = useState<ExpenseRow | null>(null)
+  const [cancelReason, setCancelReason] = useState("")
+  const [cancelRequestId, setCancelRequestId] = useState("")
+  const [cancelError, setCancelError] = useState("")
+  const [isCancelling, setIsCancelling] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [createRequestId, setCreateRequestId] = useState("")
   const [formType, setFormType] = useState<ExpenseType>("fuel")
@@ -84,6 +93,12 @@ export default function ExpensesPage() {
   const [formVatRate, setFormVatRate] = useState("15")
   const [isSaving, setIsSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let active = true
+    void createClient().auth.getUser().then(({data}) => { if(active) setAuthActor(data.user?.id ?? null) })
+    return () => { active = false }
+  }, [])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -153,7 +168,9 @@ export default function ExpensesPage() {
     },
     {
       key: "is_approved", header: t.common.status,
-      render: (r) => r.is_approved
+      render: (r) => r.cancelled_at
+        ? <div className="space-y-1"><span className="text-xs font-medium text-muted-foreground">{locale === "ar" ? "ملغى" : "Cancelled"}</span><details className="max-w-52 text-xs"><summary className="cursor-pointer underline underline-offset-2">{locale === "ar" ? "سبب الإلغاء" : "Cancellation reason"}</summary><p className="mt-1 whitespace-pre-wrap break-words text-muted-foreground">{r.cancellation_reason}</p></details></div>
+        : r.is_approved
         ? <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-600"><BadgeCheck className="h-3 w-3" />{t.common.approved}</span>
         : r.rejected_at
           ? <div className="space-y-1">
@@ -169,6 +186,8 @@ export default function ExpensesPage() {
 
   const openCreate = () => {
     if (isSaving) return
+    setEditTarget(null)
+    setChangeReason("")
     setCreateRequestId(crypto.randomUUID())
     setFormType("fuel")
     setFormCategory("")
@@ -181,23 +200,33 @@ export default function ExpensesPage() {
     setCreateOpen(true)
   }
 
+  function openEdit(row: ExpenseRow) {
+    setEditTarget(row); setCreateRequestId(crypto.randomUUID()); setChangeReason(""); setFormError(null)
+    setFormType(row.expense_type as ExpenseType); setFormCategory(row.category ?? ""); setFormAmount(String(row.amount)); setFormDate(row.expense_date)
+    setFormVendor(row.vendor ?? ""); setFormDescription(row.description ?? ""); setFormVatRate(String(row.vat_rate)); setCreateOpen(true)
+  }
+  async function handleCancel() {
+    if(!cancelTarget || isCancelling) return
+    setIsCancelling(true); setCancelError("")
+    try {
+      const result = await correctPendingExpense({id:cancelTarget.id,expectedVersion:cancelTarget.correction_version,requestId:cancelRequestId,operation:"cancel",reason:cancelReason})
+      if(result.success) { setCancelTarget(null); flash("ok",locale === "ar" ? "أُلغي المصروف المعلق وحُفظ سجله ومرفقاته." : "Pending expense cancelled; history and attachments retained."); await load() }
+      else setCancelError((locale === "ar" ? result.errorAr : result.error) ?? t.auth.genericError)
+    } catch { setCancelError(locale === "ar" ? "تعذر تأكيد الإلغاء. أعد المحاولة بالتفاصيل نفسها." : "Unable to confirm cancellation. Retry with unchanged details.") }
+    finally { setIsCancelling(false) }
+  }
+
   async function handleCreate() {
     if (isSaving) return
     setIsSaving(true)
     setFormError(null)
     try {
-      const res = await createExpense({
-        request_id: createRequestId,
-        expense_type: formType,
-        category: formCategory || undefined,
-        amount: Number(formAmount || 0),
-        expense_date: formDate,
-        vendor: formVendor || null,
-        description: formDescription || null,
-        vat_rate: Number(formVatRate || 0),
-      })
+      const details = { expense_type:formType,category:formCategory || undefined,amount:Number(formAmount || 0),expense_date:formDate,vendor:formVendor || null,description:formDescription || null,vat_rate:Number(formVatRate || 0) }
+      const res = editTarget
+        ? await correctPendingExpense({id:editTarget.id,expectedVersion:editTarget.correction_version,requestId:createRequestId,operation:"update",reason:changeReason,details})
+        : await createExpense({request_id:createRequestId,...details})
       if (res.success) {
-        flash(res.replayed ? "info" : "ok", res.replayed
+        flash(res.replayed ? "info" : "ok", editTarget ? (locale === "ar" ? "تم حفظ تصحيح المصروف المعلق." : "Pending expense correction saved.") : res.replayed
           ? locale === "ar" ? "حُفظ هذا المصروف مسبقاً. راجع حالته الحالية." : "This expense was already saved. Review its current status."
           : locale === "ar" ? "تم إنشاء المصروف (قيد الاعتماد)." : "Expense created (pending).")
         setCreateOpen(false)
@@ -217,11 +246,12 @@ export default function ExpensesPage() {
     try {
       const res = await approveExpense({
         id: approveTarget.id,
+        expectedVersion: approveTarget.correction_version,
         vat_rate: Number(approveVatRate),
         vat_recoverability: approveRecoverability,
       })
       if (res.success || res.alreadyApproved || res.alreadyDecided) {
-        if (res.alreadyDecided) flash("info", locale === "ar" ? "رُفض المصروف مسبقاً. راجع القرار بعد تحديث القائمة." : "This expense was already rejected. Review the refreshed decision.")
+        if (res.alreadyDecided) flash("info", (locale === "ar" ? res.errorAr : res.error) ?? (locale === "ar" ? "تم البت في المصروف. راجع القرار بعد تحديث القائمة." : "Expense already decided. Review the refreshed decision."))
         else if (res.alreadyApproved) flash("info", locale === "ar" ? "تم اعتماد المصروف مسبقاً. راجع بياناته بعد تحديث القائمة." : "This expense is already approved. Review the refreshed record.")
         else if (res.postingPending) flash("info", locale === "ar" ? "تم اعتماد المصروف وإنشاء الذمة الدائنة. الترحيل المحاسبي قيد المراجعة؛ راجع أحداث المحاسبة." : "Expense approved; payable created. Accounting posting needs review in Accounting events.")
         else flash("ok", locale === "ar" ? "تم اعتماد المصروف وإنشاء الذمة الدائنة ومعالجة الحدث المحاسبي." : "Expense approved; payable created and accounting event processed.")
@@ -270,8 +300,9 @@ export default function ExpensesPage() {
         onRetry={() => { void load() }}
         emptyStateMessage={t.common.noData}
         rowActions={(r) =>
-          r.is_approved || r.rejected_at ? null : (
-            <div className="flex items-center gap-1">
+          r.is_approved || r.rejected_at || r.cancelled_at ? null : (
+            <div className="flex flex-wrap items-center gap-1">
+              {authActor && r.created_by === authActor && <><button onClick={() => openEdit(r)} className="inline-flex h-7 items-center gap-1 rounded-lg border px-2 text-xs font-medium hover:bg-muted"><Pencil className="h-3 w-3" />{locale === "ar" ? "تعديل المصروف" : "Edit expense"}</button><button onClick={() => { setCancelTarget(r);setCancelReason("");setCancelRequestId(crypto.randomUUID());setCancelError("") }} className="inline-flex h-7 items-center gap-1 rounded-lg border border-destructive/30 px-2 text-xs font-medium text-destructive hover:bg-destructive/5"><Ban className="h-3 w-3" />{locale === "ar" ? "إلغاء المصروف" : "Cancel expense"}</button></>}
               <button
                 onClick={() => { setApproveTarget(r); setApproveError(null); setApproveVatRate(String(r.vat_rate)); setApproveRecoverability(mappingRecoverability[r.expense_type] ?? "pending_review") }}
                 className="inline-flex h-7 items-center gap-1 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-2 text-xs font-medium text-emerald-600 transition-colors hover:bg-emerald-500/20"
@@ -288,9 +319,9 @@ export default function ExpensesPage() {
       <Dialog open={createOpen} onOpenChange={(o) => { if (!isSaving && !o) setCreateOpen(false) }}>
         <DialogContent className="max-w-lg rounded-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle><LocalizedText text="New expense" /></DialogTitle>
+            <DialogTitle>{editTarget ? (locale === "ar" ? "تعديل المصروف المعلق" : "Edit pending expense") : <LocalizedText text="New expense" />}</DialogTitle>
             <DialogDescription>
-              <LocalizedText text="Created pending with an automatic code; approval captures VAT" />
+              {editTarget ? (locale === "ar" ? "يمكن تصحيح بيانات المصروف قبل البت فيه. تبقى المرفقات والروابط الحالية محفوظة." : "Correct the expense before its final decision. Existing attachments and linked records are retained.") : <LocalizedText text="Created pending with an automatic code; approval captures VAT" />}
             </DialogDescription>
           </DialogHeader>
           <fieldset disabled={isSaving} className="min-w-0 space-y-4">
@@ -348,12 +379,13 @@ export default function ExpensesPage() {
               </p>
             )}
 
+            {editTarget && <div className="space-y-1.5"><Label htmlFor="exp-change-reason">{locale === "ar" ? "سبب التعديل" : "Change reason"}</Label><Input id="exp-change-reason" value={changeReason} onChange={e=>setChangeReason(e.target.value)} minLength={5} maxLength={500} /></div>}
             {formError && <p role="alert" className="text-xs text-red-500">{ui(formError)}</p>}
 
             <div className="flex items-center gap-3">
               <Button
                 onClick={() => void handleCreate()}
-                disabled={isSaving || Number(formAmount || 0) <= 0 || !formDate}
+                disabled={isSaving || Number(formAmount || 0) <= 0 || !formDate || (!!editTarget && changeReason.trim().length < 5)}
                 className="bg-elite-blue-600 hover:bg-elite-blue-700"
               >
                 {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}<LocalizedText text="Save expense" /></Button>
@@ -361,6 +393,12 @@ export default function ExpensesPage() {
                 <X className="h-4 w-4" /><LocalizedText text="Cancel" /></Button>
             </div>
           </fieldset>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!cancelTarget} onOpenChange={open => { if(!open && !isCancelling) setCancelTarget(null) }}>
+        <DialogContent className="max-w-md rounded-2xl"><DialogHeader><DialogTitle>{locale === "ar" ? "إلغاء المصروف المعلق" : "Cancel pending expense"}</DialogTitle><DialogDescription>{locale === "ar" ? "يُحفظ سجل المصروف ومرفقاته ولا يُنشأ قيد محاسبي أو ذمة دائنة. أدخل سبب الإلغاء." : "The expense history and attachments remain available. No accounting entry or payable is created. Enter the cancellation reason."}</DialogDescription></DialogHeader>
+          <fieldset disabled={isCancelling} className="min-w-0 space-y-4"><div className="space-y-1.5"><Label htmlFor="exp-cancel-reason">{locale === "ar" ? "سبب الإلغاء" : "Cancellation reason"}</Label><Input id="exp-cancel-reason" value={cancelReason} onChange={e=>setCancelReason(e.target.value)} minLength={5} maxLength={500} /></div>{cancelError && <p role="alert" className="text-sm text-destructive">{cancelError}</p>}<div className="flex flex-wrap gap-2"><Button variant="destructive" onClick={()=>void handleCancel()} disabled={isCancelling || cancelReason.trim().length<5}>{isCancelling && <Loader2 className="size-4 animate-spin" />}{locale === "ar" ? "تأكيد إلغاء المصروف" : "Confirm expense cancellation"}</Button><Button variant="ghost" onClick={()=>setCancelTarget(null)}>{locale === "ar" ? "الاحتفاظ بالمصروف" : "Keep expense"}</Button></div></fieldset>
         </DialogContent>
       </Dialog>
 

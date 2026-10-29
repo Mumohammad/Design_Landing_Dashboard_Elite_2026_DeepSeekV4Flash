@@ -50,6 +50,7 @@ export type MaintenanceEventCreateInput = z.infer<typeof maintenanceEventCreateS
 /** Edit an OPEN event (status guard lives in the action, not the schema). */
 export const maintenanceEventUpdateSchema = z.object({
   id: z.string().uuid(),
+  expected_version: z.number().int().positive(),
   maintenance_type: maintenanceTypeSchema,
   fault_description: z.string().trim().min(3).max(2000),
   provider: z.string().trim().max(200).nullable().optional(),
@@ -65,6 +66,7 @@ export type MaintenanceEventUpdateInput = z.infer<typeof maintenanceEventUpdateS
 /** Complete an event: actuals (cost, odometer, dates) become immutable facts. */
 export const maintenanceEventCompleteSchema = z.object({
   id: z.string().uuid(),
+  expected_version: z.number().int().positive(),
   cost: z.number().min(0),
   date_out: z.string().nullable().optional(),
   odometer_at_service: z
@@ -83,6 +85,7 @@ export type MaintenanceEventCompleteInput = z.infer<typeof maintenanceEventCompl
 /** Cancel an event — mandatory reason, audited. */
 export const maintenanceEventCancelSchema = z.object({
   id: z.string().uuid(),
+  expected_version: z.number().int().positive(),
   reason: z.string().trim().min(3, "Cancellation reason is required").max(500),
 })
 

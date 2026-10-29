@@ -20,12 +20,18 @@ SELECT is((SELECT status::text FROM public.accounting_periods WHERE tenant_id=(S
 INSERT INTO public.tenants(id,name_ar,name_en,slug) VALUES('88000000-0000-4000-8000-000000000003','Legacy fixture','Legacy fixture','finance-legacy-fixture');
 INSERT INTO public.chart_of_accounts(tenant_id,account_code,name_ar,name_en,account_type,normal_balance)
 VALUES('88000000-0000-4000-8000-000000000003','5000','Custom fuel','Custom fuel','expense','debit');
+-- Reconstruct pre-guard legacy configuration; the new guard is enabled for the initializer and every assertion.
+ALTER TABLE public.expense_category_mappings DISABLE TRIGGER aaa_accounting_expense_binding;
 INSERT INTO public.expense_category_mappings(tenant_id,expense_type,coa_account_code,vat_recoverability)
 VALUES('88000000-0000-4000-8000-000000000003','fuel','5200','non_recoverable');
+ALTER TABLE public.expense_category_mappings ENABLE TRIGGER aaa_accounting_expense_binding;
 SELECT lives_ok($$SELECT public.ensure_default_chart_of_accounts('88000000-0000-4000-8000-000000000003')$$,'explicit initialization fills missing defaults');
 SELECT is((SELECT name_en FROM public.chart_of_accounts WHERE tenant_id='88000000-0000-4000-8000-000000000003' AND account_code='5000'),'Custom fuel','existing account configuration is preserved');
 SELECT is((SELECT coa_account_code||'|'||vat_recoverability FROM public.expense_category_mappings WHERE tenant_id='88000000-0000-4000-8000-000000000003' AND expense_type='fuel'),'5200|non_recoverable','existing category mapping is preserved');
 
+INSERT INTO public.tenants(id,name_ar,name_en,slug) VALUES('88000000-0000-4000-8000-000000000004','Fresh guarded mapping','Fresh guarded mapping','finance-guarded-mapping');
+SELECT throws_ok($$INSERT INTO public.expense_category_mappings(tenant_id,expense_type,coa_account_code,vat_recoverability) VALUES('88000000-0000-4000-8000-000000000004','fuel','5200','non_recoverable')$$,'P0001','COA002: mapping requires an active account in this tenant','new canonical mapping cannot precede its active account');
+SELECT is((SELECT count(*)::int FROM public.expense_category_mappings WHERE tenant_id='88000000-0000-4000-8000-000000000004'),0,'rejected fresh binding leaves no dangling mapping');
 CREATE FUNCTION pg_temp.fail_company_finance() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN IF EXISTS(SELECT 1 FROM public.tenants WHERE id=NEW.tenant_id AND domain='finance-company-fault.example.test') THEN
   RAISE EXCEPTION 'synthetic company finance fault';END IF;RETURN NEW;END $$;

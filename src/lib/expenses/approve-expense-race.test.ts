@@ -27,7 +27,7 @@ const { rpcMock, adminState, authState, rateLimitState, auditState, dispatcherSt
     calls: [] as Array<{ claimed: number }>,
   }
   const rpcMock = vi.fn(async (fn: string, args: Record<string, unknown>) => {
-    if (fn !== "approve_expense_with_context_atomic") throw new Error(`unexpected rpc ${fn}`)
+    if (fn !== "decide_expense_reviewed_atomic") throw new Error(`unexpected rpc ${fn}`)
     adminState.calls.push({ claimed: 0 })
     const idx = adminState.calls.length - 1
     // supabase-js .rpc() resolves to { data, error } — a raised DB exception
@@ -42,7 +42,7 @@ const { rpcMock, adminState, authState, rateLimitState, auditState, dispatcherSt
     adminState.calls[idx].claimed = 1
     return {
       data: {
-        expense_id: args.p_expense_id,
+        expense_id: args.p_id,
         expense_ref: "EXP-2026-000042",
         amount: 1000,
         vat_amount: 150,
@@ -63,6 +63,8 @@ const { rpcMock, adminState, authState, rateLimitState, auditState, dispatcherSt
   const postingEqMock=vi.fn()
   return { rpcMock, adminState, authState, rateLimitState, auditState, dispatcherState, emitState, postingState, postingEqMock }
 })
+
+vi.mock("@/lib/supabase/server", () => ({ createClient: async () => ({ rpc: rpcMock }) }))
 
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({ rpc: rpcMock, from:(table:string)=>{
@@ -129,8 +131,8 @@ describe("FX-06 approveExpense race", () => {
   it("two concurrent approvals of the same expense → exactly one claim, one success, one EXP002", async () => {
     // Fire both approvals simultaneously (double-click / two tabs).
     const [a, b] = await Promise.all([
-      approveExpense({ id: "exp-1" }),
-      approveExpense({ id: "exp-1" }),
+      approveExpense({ expectedVersion: 1, id: "exp-1" }),
+      approveExpense({ expectedVersion: 1, id: "exp-1" }),
     ])
 
     // Exactly one wins; the loser gets the taxonomy EXP002 message.
@@ -156,35 +158,55 @@ describe("FX-06 approveExpense race", () => {
     )
   }, 15_000)
 
-  it("passes tenant scoping, actor, and VAT inputs to the atomic RPC", async () => {
-    const res = await approveExpense({
+  it("binds approval to the authenticated caller and reviewed expense version", async () => {
+    const res = await approveExpense({ expectedVersion: 1,
       id: "exp-2",
       vat_rate: 5,
       vat_recoverability: "non_recoverable",
     })
 
     expect(res.success).toBe(true)
-    expect(rpcMock).toHaveBeenCalledWith("approve_expense_with_context_atomic", {
-      p_tenant_id: USER.tenantId,
-      p_expense_id: "exp-2",
+    expect(rpcMock).toHaveBeenCalledWith("decide_expense_reviewed_atomic", {
+      p_id: "exp-2",
+      p_expected_version: 1,
+      p_decision: "approved",
       p_vat_rate: 5,
-      p_vat_recoverability: "non_recoverable",
-      p_actor: USER.authUserId,
+      p_recoverability: "non_recoverable",
       p_reason: null,
       p_surface: "expenses",
     })
   })
 
+  it('requires a reviewed version before invoking the approval boundary',async()=>{
+    expect((await approveExpense({id:'exp-old-client',expectedVersion:0})).success).toBe(false)
+    expect(rpcMock).not.toHaveBeenCalled()
+  })
+  it('asks for a fresh review after a concurrent maker correction',async()=>{
+    rpcMock.mockImplementationOnce(async()=>({data:null,error:{message:'EXP_EDIT_STALE: private old values'}}))
+    const result=await approveExpense({id:'exp-stale',expectedVersion:1})
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/changed|Reload/)
+    expect(JSON.stringify(result)).not.toContain('private')
+    expect(dispatcherState.runEventDispatcher).not.toHaveBeenCalled()
+  })
+  it('preserves a cancelled decision when an old approval screen retries',async()=>{
+    rpcMock.mockImplementationOnce(async()=>({data:null,error:{message:'EXP_CANCELLED: cancelled'}}))
+    const result=await approveExpense({id:'exp-cancelled',expectedVersion:1})
+    expect(result).toMatchObject({success:false,alreadyDecided:true})
+    expect(result.error).toMatch(/cancelled/)
+    expect(dispatcherState.runEventDispatcher).not.toHaveBeenCalled()
+  })
+
   it("maps an RPC EXP002 failure to the taxonomy message", async () => {
     adminState.expenseApproved = true // already approved before this call
-    const res = await approveExpense({ id: "exp-3" })
+    const res = await approveExpense({ expectedVersion: 1, id: "exp-3" })
     expect(res.success).toBe(false)
     expect(res.error).toBe("This expense is already approved.")
     expect(res.alreadyApproved).toBe(true)
   })
   it('does not mislabel a rejected expense as approved on a stale retry',async()=>{
     rpcMock.mockImplementationOnce(async()=>({data:null,error:{message:'EXP_REJECTED: expense already rejected'}}))
-    const result=await approveExpense({id:'exp-rejected'})
+    const result=await approveExpense({ expectedVersion: 1,id:'exp-rejected'})
     expect(result).toMatchObject({success:false,alreadyDecided:true})
     expect(result.alreadyApproved).toBeUndefined()
     expect(result.error).toContain('rejected')
@@ -200,7 +222,7 @@ describe("FX-06 approveExpense race", () => {
       data: null,
       error: { message: "EXP005: no CoA mapping for category" },
     }))
-    const res = await approveExpense({ id: "exp-5" })
+    const res = await approveExpense({ expectedVersion: 1, id: "exp-5" })
     expect(res.success).toBe(false)
     expect(res.error).toBe(
       "No Chart of Accounts mapping exists for this expense category."
@@ -212,13 +234,13 @@ describe("FX-06 approveExpense race", () => {
       data: null,
       error: { message: "FX06: expected exactly 1 live payable for expense exp-4, found 0" },
     }))
-    const res = await approveExpense({ id: "exp-4" })
+    const res = await approveExpense({ expectedVersion: 1, id: "exp-4" })
     expect(res.success).toBe(false)
     expect(res.error).toContain("FX06")
   })
 
   it("rejects invalid VAT before touching the DB", async () => {
-    const res = await approveExpense({ id: "exp-vat", vat_rate: 150 })
+    const res = await approveExpense({ expectedVersion: 1, id: "exp-vat", vat_rate: 150 })
     expect(res.success).toBe(false)
     expect(res.error).toBe("Invalid VAT rate or recoverability classification.")
     expect(rpcMock).not.toHaveBeenCalled()
@@ -232,14 +254,14 @@ describe("FX-06 approveExpense race", () => {
       data: null,
       error: { message: "EXP003: invalid recoverability" },
     }))
-    const res = await approveExpense({ id: "exp-6", vat_recoverability: "recoverable" })
+    const res = await approveExpense({ expectedVersion: 1, id: "exp-6", vat_recoverability: "recoverable" })
     expect(res.success).toBe(false)
     expect(res.error).toBe("Invalid VAT rate or recoverability classification.")
   })
 
   it("rejects when not authenticated", async () => {
     authState.user = null
-    const res = await approveExpense({ id: "exp-7" })
+    const res = await approveExpense({ expectedVersion: 1, id: "exp-7" })
     expect(res.success).toBe(false)
     expect(res.error).toBe("Not authenticated.")
     expect(rpcMock).not.toHaveBeenCalled()
@@ -247,28 +269,28 @@ describe("FX-06 approveExpense race", () => {
 
   it("rejects when rate limited", async () => {
     rateLimitState.ok = false
-    const res = await approveExpense({ id: "exp-8" })
+    const res = await approveExpense({ expectedVersion: 1, id: "exp-8" })
     expect(res.success).toBe(false)
     expect(res.error).toMatch(/rate limit/i)
     expect(rpcMock).not.toHaveBeenCalled()
   })
 
   it('normalizes the retained VAT rate before the RPC',async()=>{
-    await approveExpense({id:'exp-rate',vat_rate:15.555})
+    await approveExpense({ expectedVersion: 1,id:'exp-rate',vat_rate:15.555})
     expect(rpcMock.mock.calls[0][1].p_vat_rate).toBe(15.56)
   })
   it('passes the inbox reason into the same approval transaction',async()=>{
-    await approveExpense({id:'exp-inbox',approvalReason:'  Receipts checked  ',surface:'approvals_inbox'})
+    await approveExpense({ expectedVersion: 1,id:'exp-inbox',approvalReason:'  Receipts checked  ',surface:'approvals_inbox'})
     expect(rpcMock.mock.calls[0][1]).toMatchObject({p_reason:'Receipts checked',p_surface:'approvals_inbox',p_vat_rate:null})
     expect(auditState.writeAuditLog).not.toHaveBeenCalled()
   })
   it('rejects a missing inbox reason before the RPC',async()=>{
-    expect((await approveExpense({id:'exp-inbox',surface:'approvals_inbox'})).success).toBe(false)
+    expect((await approveExpense({ expectedVersion: 1,id:'exp-inbox',surface:'approvals_inbox'})).success).toBe(false)
     expect(rpcMock).not.toHaveBeenCalled()
   })
   it.each(['pending','failed',null])('keeps confirmed approval while disclosing own event status %s',async status=>{
     postingState.status=status
-    const result=await approveExpense({id:'exp-posting'})
+    const result=await approveExpense({ expectedVersion: 1,id:'exp-posting'})
     expect(result).toEqual({success:true,postingPending:true})
     expect(postingEqMock).toHaveBeenCalledWith('tenant_id',USER.tenantId)
     expect(postingEqMock).toHaveBeenCalledWith('source_id','exp-posting')
@@ -276,16 +298,16 @@ describe("FX-06 approveExpense race", () => {
   })
   it('treats a posting read failure as unverified posting, not failed approval',async()=>{
     postingState.error=true
-    expect(await approveExpense({id:'exp-read-failure'})).toEqual({success:true,postingPending:true})
+    expect(await approveExpense({ expectedVersion: 1,id:'exp-read-failure'})).toEqual({success:true,postingPending:true})
   })
   it('retains approval confirmation if immediate dispatch throws',async()=>{
     dispatcherState.runEventDispatcher.mockRejectedValueOnce(Error('private posting diagnostic'))
-    expect(await approveExpense({id:'exp-dispatch'})).toEqual({success:true,postingPending:true})
+    expect(await approveExpense({ expectedVersion: 1,id:'exp-dispatch'})).toEqual({success:true,postingPending:true})
     expect(auditState.writeAuditLog).not.toHaveBeenCalled()
   })
   it('does not expose unknown RPC diagnostics',async()=>{
     rpcMock.mockImplementationOnce(async()=>({data:null,error:{message:'private database diagnostic'}}))
-    const result=await approveExpense({id:'exp-failure'})
+    const result=await approveExpense({ expectedVersion: 1,id:'exp-failure'})
     expect(result.success).toBe(false)
     expect(result.error).toMatch(/review/i)
     expect(JSON.stringify(result)).not.toContain('private')

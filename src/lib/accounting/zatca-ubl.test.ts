@@ -221,3 +221,23 @@ describe("buildZatcaUblInvoice", () => {
     expect(()=>buildZatcaUblInvoice({...base,invoiceCounter:1.5})).toThrow("invoice counter")
   })
 })
+
+describe("source-preserving item names and precise prices",()=>{
+  it("retains separate source fields and all four unit-price decimals",()=>{
+    const xml=buildZatcaUblInvoice({...base,lines:[{...base.lines[0],item_name:'Item & name',description:'Separate <description>',unit_price:72225.2082}]})
+    expect(xml).toContain('<cbc:Description>Separate &lt;description&gt;</cbc:Description>')
+    expect(xml).toContain('<cbc:Name>Item &amp; name</cbc:Name>')
+    expect(xml).toContain('<cbc:PriceAmount currencyID="SAR">72225.2082</cbc:PriceAmount>')
+    expect(xml.indexOf('<cbc:Description>Separate')).toBeLessThan(xml.indexOf('<cbc:Name>Item &amp; name'))
+  })
+  it("keeps the legacy description name mapping and two-decimal prices",()=>{
+    const xml=buildZatcaUblInvoice(base)
+    expect(xml).not.toContain('<cbc:Description>')
+    expect(xml).toContain('<cbc:Name>خدمات استشارية</cbc:Name>')
+    expect(xml).toContain('<cbc:PriceAmount currencyID="SAR">100000.00</cbc:PriceAmount>')
+  })
+  it.each([1.00001,-1,Infinity,1e10])("rejects price precision/range loss for %s",price=>{
+    expect(()=>buildZatcaUblInvoice({...base,lines:[{...base.lines[0],unit_price:price}]})).toThrow('unit price')
+  })
+  it("rejects malformed source item names",()=>expect(()=>buildZatcaUblInvoice({...base,lines:[{...base.lines[0],item_name:'x'.repeat(201)}]})).toThrow('item name'))
+})

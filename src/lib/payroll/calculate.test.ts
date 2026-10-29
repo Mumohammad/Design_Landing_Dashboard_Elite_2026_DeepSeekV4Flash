@@ -1,40 +1,28 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-const { state } = vi.hoisted(() => ({ state: { failures: new Set<string>(), writes: [] as Record<string, unknown>[], filters: [] as unknown[][] } }))
-vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => ({ from: (table: string) => {
-  const defaults: Record<string, unknown> = {
-    drivers: { id: "driver", tenant_id: "tenant", category: "freelancer", nationality_code: "SA" },
-    driver_payroll_rules: { id: "rule", base_salary: 4000, working_days_target: 26 },
-    attendance_periods: { status: "locked" },
-    driver_attendance_summary: { working_days_actual: 26, days_absent_unexcused: 0 },
-  }
-  const response = () => ({ data: state.failures.has(table) ? null : defaults[table] ?? [], error: state.failures.has(table) ? { message: "database unavailable" } : null })
-  const builder = {
-    select: () => builder, eq: () => builder, is: () => builder,
-    order: () => builder, limit: () => builder, gte: () => builder,
-    lt: (...args: unknown[]) => { state.filters.push([table, ...args]); return builder },
-    single: async () => response(),
-    then: (resolve: (value: unknown) => unknown) => Promise.resolve(response()).then(resolve),
-    upsert: async (record: Record<string, unknown>) => { state.writes.push(record); return { error: null } },
-  }
-  return builder
-} }) }))
+const mock = vi.hoisted(() => ({ rpc: vi.fn() }))
+vi.mock("@/lib/supabase/server", () => ({ createClient: async () => ({ rpc: mock.rpc }) }))
+vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => { throw new Error("Privileged client must not calculate payroll") } }))
 import { calculateDriverPayroll } from "./calculate"
-beforeEach(() => { state.failures.clear(); state.writes.length = 0; state.filters.length = 0 })
-describe("payroll input integrity", () => {
-  it.each(["driver_payroll_rules", "attendance_periods", "driver_attendance_summary", "monthly_driver_orders", "violation_deduction_ledger", "payroll_advances", "driver_cod_sessions"])("never persists a partial calculation when %s fails", async (table) => {
-    state.failures.add(table)
-    await expect(calculateDriverPayroll({ driverId: "driver", periodYear: 2026, periodMonth: 9 })).rejects.toThrow()
-    expect(state.writes).toHaveLength(0)
+const driverId = "a9500000-0000-4000-8000-000000000005"
+const persisted = { id: "a9500000-0000-4000-8000-000000000008", base_amount: 2306.46, orders_bonus: 0, package_deduction: 0, orders_deduction: 0, orders_prorated_target: 257, orders_variance: -254, total_deductions: 12.34, net_payroll: 2294.12, minimum_floor_applied: false, below_minimum_wage: false, deduction_lines: [], calculation_steps: ["Atomic"], warnings: [], period: { driver_id: driverId, period_year: 2026, period_month: 2, status: "calculated" } }
+beforeEach(() => { mock.rpc.mockReset(); mock.rpc.mockResolvedValue({ data: persisted, error: null }) })
+describe("atomic payroll calculation boundary", () => {
+  it("sends only identity and period; the database computes and persists amounts", async () => {
+    const result = await calculateDriverPayroll({ driverId, periodYear: 2026, periodMonth: 2, baseSalary: 9999, tenantId: "forged" } as never)
+    expect(mock.rpc).toHaveBeenCalledWith("calculate_payroll_atomic", { p_driver: driverId, p_year: 2026, p_month: 2 })
+    expect(result).toEqual(persisted)
   })
-  it("uses an exclusive UTC month boundary for rules and COD and the real schema column", async () => {
-    await calculateDriverPayroll({ driverId: "driver", periodYear: 2026, periodMonth: 12 })
-    expect(state.filters).toContainEqual(["driver_payroll_rules", "effective_date", "2027-01-01"])
-    expect(state.filters).toContainEqual(["driver_cod_sessions", "session_date", "2027-01-01"])
-    expect(state.writes[0]).toHaveProperty("target_orders_monthly")
-    expect(state.writes[0]).not.toHaveProperty("orders_target_monthly")
+  it.each([{ driverId: "invalid", periodYear: 2026, periodMonth: 2 }, { driverId, periodYear: 2026, periodMonth: 13 }, { driverId, periodYear: 2101, periodMonth: 2 }])("rejects invalid input before database work", async input => {
+    await expect(calculateDriverPayroll(input)).rejects.toThrow("Invalid payroll")
+    expect(mock.rpc).not.toHaveBeenCalled()
   })
-  it("rejects an invalid period", async () => {
-    await expect(calculateDriverPayroll({ driverId: "driver", periodYear: 2026, periodMonth: 13 })).rejects.toThrow("Invalid payroll period")
-    expect(state.writes).toHaveLength(0)
+  it.each(["PAY_INPUTS_UNREVIEWED", "PAY_RULE_INCOMPLETE", "PAY_PREPARATION_FORBIDDEN", "PAY_CALCULATION_HISTORY_IMMUTABLE"])("propagates an atomic rejection without privileged fallback: %s", async message => {
+    mock.rpc.mockResolvedValue({ data: null, error: { message } })
+    await expect(calculateDriverPayroll({ driverId, periodYear: 2026, periodMonth: 2 })).rejects.toThrow(message)
+    expect(mock.rpc).toHaveBeenCalledTimes(1)
+  })
+  it.each([null, {}, { ...persisted, net_payroll: "2294.12" }, { ...persisted, period: { ...persisted.period, period_month: 3 } }])("fails closed on an incomplete or wrong-period response", async data => {
+    mock.rpc.mockResolvedValue({ data, error: null })
+    await expect(calculateDriverPayroll({ driverId, periodYear: 2026, periodMonth: 2 })).rejects.toThrow("invalid result")
   })
 })

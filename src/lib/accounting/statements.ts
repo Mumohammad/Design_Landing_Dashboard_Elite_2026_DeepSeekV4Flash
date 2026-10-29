@@ -8,12 +8,15 @@
 // - exportStatementCsv({kind, period_year, period_month}) BOM CSV export
 // - generateStatementReport({kind, period_year, period_month}) printable A4
 //
-// The views (migration 052) compute over POSTED entries only, so draft
-// entries never leak into statements. security_invoker means the caller's
+// The views include posted originals and their dated reversal entries, while
+// excluding drafts and deleted entries. security_invoker means the caller's
 // RLS applies for browser reads; these server actions use the admin client
-// for the guarded exports/reports.
+// only for tenant branding; financial reads use the authenticated invoker RPC.
 
+import { decimalRound, sumMoney, sumMoneyValues, type DecimalInput } from "@/lib/accounting/decimal"
+import { journalLabel } from "@/lib/accounting/journal-labels"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { createClient } from "@/lib/supabase/server"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
 import { writeAuditLog } from "@/lib/auth/sessions"
 import { mapFinancialError, toCsv } from "@/lib/accounting/csv-utils"
@@ -25,7 +28,8 @@ import {
 } from "@/lib/accounting/statement-html"
 
 function errorMessage(e: unknown): string {
-  return e instanceof Error ? e.message : "Unknown error"
+  if (e && typeof e === "object" && "code" in e && e.code === "AUTH007") return "You do not have permission to perform this accounting action."
+  return "The accounting operation could not be completed. Reload and try again."
 }
 
 // ── Row shapes (mirror the 052 views) ───────────────────────────────────
@@ -35,9 +39,9 @@ type PlRow = {
   name_en: string
   account_type: "income" | "expense"
   normal_balance: "debit" | "credit"
-  total_debit: number
-  total_credit: number
-  net_balance: number
+  total_debit: DecimalInput
+  total_credit: DecimalInput
+  net_balance: DecimalInput
 }
 
 type BsRow = {
@@ -46,17 +50,17 @@ type BsRow = {
   name_en: string
   account_type: "asset" | "liability" | "equity"
   normal_balance: "debit" | "credit"
-  total_debit: number
-  total_credit: number
-  balance: number
+  total_debit: DecimalInput
+  total_credit: DecimalInput
+  balance: DecimalInput
 }
 
 type CfRow = {
   entry_type: string
   entry_count: number
-  cash_in: number
-  cash_out: number
-  net_cash_flow: number
+  cash_in: DecimalInput
+  cash_out: DecimalInput
+  net_cash_flow: DecimalInput
 }
 
 const KIND_LABELS: Record<StatementKind, { ar: string; en: string }> = {
@@ -72,34 +76,14 @@ export async function listStatementPeriods(): Promise<{
   error?: string
 }> {
   try {
+    await requirePermission("accounting", "read")
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
 
-    const admin = createAdminClient()
-    const [pl, bs, cf] = await Promise.all([
-      admin.from("profit_loss").select("period_year,period_month").eq("tenant_id", currentUser.tenantId),
-      admin.from("balance_sheet").select("period_year,period_month").eq("tenant_id", currentUser.tenantId),
-      admin.from("cash_flow").select("period_year,period_month").eq("tenant_id", currentUser.tenantId),
-    ])
-    if (pl.error) return { success: false, error: pl.error.message }
-
-    const map = new Map<string, { period_year: number; period_month: number }>()
-    const add = (rows: unknown[] | null) => {
-      for (const r of rows ?? []) {
-        const row = r as { period_year: number; period_month: number }
-        map.set(`${row.period_year}-${row.period_month}`, {
-          period_year: Number(row.period_year),
-          period_month: Number(row.period_month),
-        })
-      }
-    }
-    add(pl.data)
-    add(bs.data)
-    add(cf.data)
-
-    const periods = [...map.values()].sort((a, b) =>
-      b.period_year - a.period_year || b.period_month - a.period_month
-    )
+    const caller = await createClient()
+    const { data, error } = await caller.rpc("read_my_financial_report", { p_kind: "periods" })
+    if (error || !Array.isArray(data)) return { success: false, error: "Financial periods could not be loaded. Please retry." }
+    const periods = data as { period_year: number; period_month: number }[]
     return { success: true, periods }
   } catch (e) {
     return { success: false, error: errorMessage(e) }
@@ -118,41 +102,36 @@ export async function getFinancialStatements(input: {
   error?: string
 }> {
   try {
+    await requirePermission("accounting", "read")
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
 
-    const admin = createAdminClient()
-    const tenantEq = { tenant_id: currentUser.tenantId }
-    const periodEq = { period_year: input.period_year, period_month: input.period_month }
-
-    const [pl, bs, cf] = await Promise.all([
-      admin
-        .from("profit_loss")
-        .select("account_code,name_ar,name_en,account_type,normal_balance,total_debit,total_credit,net_balance")
-        .match({ ...tenantEq, ...periodEq })
-        .order("account_code", { ascending: true }),
-      admin
-        .from("balance_sheet")
-        .select("account_code,name_ar,name_en,account_type,normal_balance,total_debit,total_credit,balance")
-        .match({ ...tenantEq, ...periodEq })
-        .order("account_type", { ascending: true })
-        .order("account_code", { ascending: true }),
-      admin
-        .from("cash_flow")
-        .select("entry_type,entry_count,cash_in,cash_out,net_cash_flow")
-        .match({ ...tenantEq, ...periodEq })
-        .order("entry_type", { ascending: true }),
-    ])
-    if (pl.error) return { success: false, error: pl.error.message }
-    if (bs.error) return { success: false, error: bs.error.message }
-    if (cf.error) return { success: false, error: cf.error.message }
-
-    return {
-      success: true,
-      profitLoss: (pl.data ?? []) as unknown as PlRow[],
-      balanceSheet: (bs.data ?? []) as unknown as BsRow[],
-      cashFlow: (cf.data ?? []) as unknown as CfRow[],
+    const caller = await createClient()
+    const { data, error } = await caller.rpc("read_my_financial_report", {
+      p_kind: "statements", p_year: input.period_year, p_month: input.period_month,
+    })
+    if (error || !data || !Array.isArray(data.profit_loss) || !Array.isArray(data.balance_sheet) || !Array.isArray(data.cash_flow)) {
+      return { success: false, error: "Financial statements could not be loaded completely. Please retry." }
     }
+    const profitLoss = data.profit_loss as PlRow[]
+    const balanceSheet = data.balance_sheet as BsRow[]
+    const cashFlow = data.cash_flow as CfRow[]
+    // Keep exact decimal text in transit; validate every display amount and
+    // subtotal before the client renders, so invalid/oversized aggregates fail
+    // visibly rather than crashing the page or silently losing cents.
+    for (const row of profitLoss) for (const amount of [row.total_debit, row.total_credit, row.net_balance]) decimalRound(amount)
+    for (const row of balanceSheet) for (const amount of [row.total_debit, row.total_credit, row.balance]) decimalRound(amount)
+    for (const row of cashFlow) for (const amount of [row.cash_in, row.cash_out, row.net_cash_flow]) decimalRound(amount)
+    const income = sumMoneyValues(profitLoss.filter(row => row.account_type === "income").map(row => row.net_balance))
+    const expense = sumMoneyValues(profitLoss.filter(row => row.account_type === "expense").map(row => row.net_balance))
+    sumMoney(income, expense)
+    const assets = sumMoneyValues(balanceSheet.filter(row => row.account_type === "asset").map(row => row.balance))
+    const liabilities = sumMoneyValues(balanceSheet.filter(row => row.account_type === "liability").map(row => row.balance))
+    const equity = sumMoneyValues(balanceSheet.filter(row => row.account_type === "equity").map(row => row.balance))
+    sumMoney(assets, -liabilities, -equity)
+    sumMoneyValues(cashFlow.map(row => row.net_cash_flow))
+    return { success: true, profitLoss, balanceSheet, cashFlow }
+
   } catch (e) {
     return { success: false, error: errorMessage(e) }
   }
@@ -240,14 +219,15 @@ export async function generateStatementReport(input: {
     if (!res.success) return { success: false, error: res.error }
 
     const admin = createAdminClient()
-    const { data: tenant } = await admin
+    const { data: tenant, error: tenantError } = await admin
       .from("tenants")
       .select("name_ar,name_en,vat_number")
       .eq("id", currentUser.tenantId)
       .maybeSingle<{ name_ar: string | null; name_en: string | null; vat_number: string | null }>()
+    if (tenantError || !tenant) return { success: false, error: "Company details could not be loaded for this report." }
 
     const period = `${input.period_year}-${String(input.period_month).padStart(2, "0")}`
-    const fmt = (n: number | null | undefined) => Number(n ?? 0)
+    const fmt = (n: DecimalInput | null | undefined) => Number(n ?? 0)
 
     let rows: StatementRow[] = []
     let totals: StatementReportData["totals"] = []
@@ -262,16 +242,16 @@ export async function generateStatementReport(input: {
         code: r.account_code,
         nameAr: r.name_ar,
         nameEn: r.name_en,
-        amount: Math.abs(fmt(r.net_balance)),
-        kind: r.account_type === "income" ? "positive" : "negative",
+        amount: r.account_type === "expense" ? -fmt(r.net_balance) : fmt(r.net_balance),
+        kind: fmt(r.net_balance)>=0 ? "positive" : "negative",
       }))
-      const income = pl.filter((r) => r.account_type === "income").reduce((s, r) => s + fmt(r.net_balance), 0)
-      const expense = pl.filter((r) => r.account_type === "expense").reduce((s, r) => s + fmt(r.net_balance), 0)
-      const net = income + expense // expense net_balance is negative (debit side)
+      const income = sumMoneyValues(pl.filter((r) => r.account_type === "income").map((r) => r.net_balance))
+      const expense = sumMoneyValues(pl.filter((r) => r.account_type === "expense").map((r) => r.net_balance))
+      const net = sumMoney(income, expense) // expense net_balance is negative (debit side)
       totals = [
-        { labelAr: "الإيرادات", labelEn: "Total Revenue", amount: income, positive: true },
-        { labelAr: "المصروفات", labelEn: "Total Expenses", amount: Math.abs(expense), negative: true },
-        { labelAr: "صافي الربح / الخسارة", labelEn: "Net Profit / Loss", amount: net, bold: true, positive: net >= 0 },
+        { labelAr: "الإيرادات", labelEn: "Total Revenue", amount: income, positive: income>=0, negative: income<0 },
+        { labelAr: "المصروفات", labelEn: "Total Expenses", amount: -expense, negative: expense<=0, positive: expense>0 },
+        { labelAr: "صافي الربح / الخسارة", labelEn: "Net Profit / Loss", amount: net, bold: true, positive: net >= 0, negative: net < 0 },
       ]
     } else if (input.kind === "balance_sheet") {
       const bs = res.balanceSheet ?? []
@@ -282,13 +262,13 @@ export async function generateStatementReport(input: {
         code: r.account_code,
         nameAr: r.name_ar,
         nameEn: r.name_en,
-        amount: Math.abs(fmt(r.balance)),
-        kind: r.account_type === "asset" ? "positive" : "neutral",
+        amount: fmt(r.balance),
+        kind: fmt(r.balance)<0 ? "negative" : r.account_type === "asset" ? "positive" : "neutral",
       }))
-      const assets = bs.filter((r) => r.account_type === "asset").reduce((s, r) => s + fmt(r.balance), 0)
-      const liabilities = bs.filter((r) => r.account_type === "liability").reduce((s, r) => s + fmt(r.balance), 0)
-      const equity = bs.filter((r) => r.account_type === "equity").reduce((s, r) => s + fmt(r.balance), 0)
-      const balanced = Math.abs(assets - (liabilities + equity)) < 0.01
+      const assets = sumMoneyValues(bs.filter((r) => r.account_type === "asset").map((r) => r.balance))
+      const liabilities = sumMoneyValues(bs.filter((r) => r.account_type === "liability").map((r) => r.balance))
+      const equity = sumMoneyValues(bs.filter((r) => r.account_type === "equity").map((r) => r.balance))
+      const balanced = sumMoney(assets, -liabilities, -equity) === 0
       totals = [
         { labelAr: "الأصول", labelEn: "Total Assets", amount: assets, positive: true, bold: true },
         { labelAr: "الخصوم", labelEn: "Total Liabilities", amount: liabilities, negative: true },
@@ -296,7 +276,7 @@ export async function generateStatementReport(input: {
         {
           labelAr: balanced ? "متوازنة" : "غير متوازنة",
           labelEn: balanced ? "Balanced" : "NOT Balanced",
-          amount: assets - (liabilities + equity),
+          amount: sumMoney(assets, -liabilities, -equity),
           bold: true,
           positive: balanced,
         },
@@ -309,14 +289,14 @@ export async function generateStatementReport(input: {
       }
       rows = cf.map((r) => ({
         code: r.entry_type,
-        nameAr: r.entry_type,
-        nameEn: r.entry_type,
+        nameAr: journalLabel(r.entry_type, "ar"),
+        nameEn: journalLabel(r.entry_type, "en"),
         amount: fmt(r.net_cash_flow),
         kind: fmt(r.net_cash_flow) >= 0 ? "positive" : "negative",
       }))
-      const net = cf.reduce((s, r) => s + fmt(r.net_cash_flow), 0)
+      const net = sumMoneyValues(cf.map((r) => r.net_cash_flow))
       totals = [
-        { labelAr: "صافي التدفق النقدي", labelEn: "Net Cash Flow", amount: net, bold: true, positive: net >= 0 },
+        { labelAr: "صافي التدفق النقدي", labelEn: "Net Cash Flow", amount: net, bold: true, positive: net >= 0, negative: net < 0 },
       ]
     }
 
