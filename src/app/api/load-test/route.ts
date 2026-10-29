@@ -86,7 +86,6 @@ async function timeQuery(
 ): Promise<QueryTiming> {
   const start = performance.now()
   try {
-     
     const result = await fn()
     const durationMs = Math.round(performance.now() - start)
 

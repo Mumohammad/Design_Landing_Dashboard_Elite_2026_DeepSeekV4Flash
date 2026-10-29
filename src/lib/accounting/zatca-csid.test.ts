@@ -21,7 +21,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 // are intentionally unused by the no-op mock bodies. The underscore prefix
 // does NOT satisfy this repo's @typescript-eslint/no-unused-vars, so disable
 // it for this mock block only.
- 
 const mocks = vi.hoisted(() => ({
   requirePermission: vi.fn(async (_module: string, _action: string) => {}),
   getCurrentUser: vi.fn(async (): Promise<{ tenantId: string; authUserId: string } | null> => null),
@@ -115,7 +114,6 @@ function mockBuilder(overrides: BuilderOverrides = {}) {
   }
   return builder
 }
- 
 
 beforeEach(() => {
   vi.clearAllMocks()

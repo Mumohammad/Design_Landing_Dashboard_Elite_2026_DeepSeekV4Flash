@@ -20,7 +20,6 @@ const { mocks } = vi.hoisted(() => ({
       tenantId: "tenant-1",
       role: "general_manager",
     })),
- 
     rpc: vi.fn(async (fn: string, args: Record<string, unknown>) => {
       return { data: (fn === "reject_expense_atomic" ? {expense_id:args.p_expense_id,decision:"rejected"} : {}) as unknown, error: null } as { data: unknown; error: { message: string } | null }
     }),

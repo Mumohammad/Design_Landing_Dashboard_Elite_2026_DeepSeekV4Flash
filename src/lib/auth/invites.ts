@@ -89,7 +89,6 @@ async function sendInviteEmail(email: string, token: string, tokenId: string): P
 
   if (!apiKey || !fromEmail || !appUrl) {
     if (process.env.NODE_ENV !== "production") {
-       
       console.warn(
         "[invites] Resend env vars missing — skipping invite email to",
         email
@@ -208,7 +207,6 @@ export async function createInvite(
     try {
       await sendInviteEmail(email, token, tokenId)
     } catch (err) {
-       
       console.error("[invites] Resend email failed:", err)
     }
 
@@ -338,7 +336,6 @@ export async function acceptInvite(
         .auth.admin
         .deleteUser(authUserId)
         .catch((err: unknown) => {
-           
           console.error("[invites] compensating deleteUser failed:", err)
         })
       throw userError ?? new Error("Failed to create user row.")
@@ -380,14 +377,12 @@ export async function acceptInvite(
           tenant_id: invite.tenant_id,
         })
       if (assignmentError) {
-         
         console.error(
           "[invites] user_role_assignments insert failed:",
           assignmentError
         )
       }
     } else if (process.env.NODE_ENV !== "production") {
-       
       console.warn(
         "[invites] role not found for assignment:",
         invite.role
@@ -512,7 +507,6 @@ export async function listPendingInvites(): Promise<PendingInvite[]> {
     }))
   } catch (e) {
     // Signature returns an array; log and degrade to an empty list on error.
-     
     console.error("[invites] listPendingInvites failed:", e)
     return []
   }
