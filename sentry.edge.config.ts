@@ -11,5 +11,6 @@ Sentry.init({
 
   environment: process.env.NODE_ENV,
 
-  enabled: process.env.NODE_ENV === "production" || !!process.env.SENTRY_DSN,
+  enabled: !!process.env.SENTRY_DSN,
+  sendDefaultPii: false,
 })

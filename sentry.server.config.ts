@@ -15,7 +15,8 @@ Sentry.init({
   environment: process.env.NODE_ENV,
 
   // ── Enable/Disable ─────────────────────────────────────────
-  enabled: process.env.NODE_ENV === "production" || !!process.env.SENTRY_DSN,
+  enabled: !!process.env.SENTRY_DSN,
+  sendDefaultPii: false,
 
   // ── Release tracking ───────────────────────────────────────
   release: process.env.NEXT_PUBLIC_COMMIT_SHA ?? undefined,
