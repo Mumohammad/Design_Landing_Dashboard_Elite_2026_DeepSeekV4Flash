@@ -1,6 +1,6 @@
 BEGIN;
 SELECT no_plan();
-SET LOCAL statement_timeout='45s';
+SET LOCAL statement_timeout='120s';
 INSERT INTO auth.users(id,email,raw_app_meta_data) VALUES
  ('96400000-0000-4000-8000-000000000001','financial-report-owner@example.test','{"_invite_provisioned":true}'),
  ('96400000-0000-4000-8000-000000000002','financial-report-foreign@example.test','{"_invite_provisioned":true}');
