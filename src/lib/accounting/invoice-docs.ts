@@ -23,6 +23,7 @@ import path from "node:path"
 import { sumMoney } from "./decimal"
 import { renderInvoicePdf } from "./invoice-pdf"
 import { loadAuthorityQr } from "./zatca-document-qr"
+import { loadTenantLogoDataUrl } from "@/lib/branding/logo"
 
 type ActionResult = {
   success: boolean
@@ -102,6 +103,7 @@ type TenantRow = {
   phone: string | null
   address: string | null
   city: string | null
+  logo_url: string | null
 }
 
 /**
@@ -143,7 +145,7 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
 
     const { data: tenant, error: tenantError } = await admin
       .from("tenants")
-      .select("name_ar,name_en,vat_number,cr_number,phone,address,city")
+      .select("name_ar,name_en,vat_number,cr_number,phone,address,city,logo_url")
       .eq("id", currentUser.tenantId)
       .maybeSingle<TenantRow>()
 
@@ -169,11 +171,12 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
       if (result.error || !result.data) return { success: false, error: "Select an active bank account in the invoice currency." }
       bank = result.data
     }
-    const [logoBytes, fontBytes] = await Promise.all([
-      readFile(path.join(process.cwd(), "public", "logo.png")),
+    // The tenant's own uploaded logo (Settings → Company); no logo when the
+    // company has not uploaded one — never the platform's brand mark.
+    const [logoDataUrl, fontBytes] = await Promise.all([
+      loadTenantLogoDataUrl(admin, currentUser.tenantId, tenant.logo_url),
       readFile(path.join(process.cwd(), "src", "assets", "fonts", "cairo.woff2")),
     ])
-    const logoDataUrl = `data:image/png;base64,${logoBytes.toString("base64")}`
 
     const docNumber = `INVDOC-${inv.invoice_number}`
 
@@ -227,7 +230,7 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
       companyPhone: tenant?.phone ?? null,
       companyAddress: tenant?.address ?? "",
       companyCity: tenant?.city ?? "",
-      logoDataUrl,
+      logoDataUrl: logoDataUrl ?? undefined,
       fontDataUrl: `data:font/woff2;base64,${fontBytes.toString("base64")}`,
       partyNameAr: party?.name_ar ?? "—",
       partyNameEn: party?.name_en ?? "",

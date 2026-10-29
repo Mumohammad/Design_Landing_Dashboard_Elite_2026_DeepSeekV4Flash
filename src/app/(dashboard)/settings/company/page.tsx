@@ -1,15 +1,16 @@
 "use client"
 
 import { LocalizedText } from "@/components/localized-text"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useActionState } from "react"
 import { useTranslation } from "@/hooks/use-translation"
-import { updateCompanyProfile, updateCompanyWpsSettings, fetchCompanyProfile, type CompanyProfileInput, type CompanyProfile } from "@/lib/settings/actions"
+import { updateCompanyProfile, updateCompanyWpsSettings, fetchCompanyProfile, uploadCompanyLogo, removeCompanyLogo, type CompanyProfileInput, type CompanyProfile } from "@/lib/settings/actions"
+import { LOGO_ACCEPT, logoPrepMessage, prepareLogoFile } from "@/lib/branding/logo-client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
-import { Building2, AlertTriangle, Save, CheckCircle2, Landmark } from "lucide-react"
+import { Building2, AlertTriangle, Save, CheckCircle2, Landmark, ImageIcon, Upload, Trash2 } from "lucide-react"
 import { LoadingSpinner } from "@/components/ui/loading-spinner"
 
 function FormField({
@@ -72,6 +73,43 @@ export default function CompanySettingsPage() {
   const [defaultLocale, setDefaultLocale] = useState("ar")
   const [molReference, setMolReference] = useState("")
   const [wpsIban, setWpsIban] = useState("")
+  const [logoUrl, setLogoUrl] = useState<string | null>(null)
+  const [logoBusy, setLogoBusy] = useState(false)
+  const [logoMessage, setLogoMessage] = useState<{ ok: boolean; text: string } | null>(null)
+  const logoInput = useRef<HTMLInputElement>(null)
+
+  async function onLogoSelected(file: File | undefined) {
+    if (!file) return
+    setLogoMessage(null)
+    const prepared = await prepareLogoFile(file)
+    if (!prepared.ok) {
+      setLogoMessage({ ok: false, text: logoPrepMessage(prepared.error, ar) })
+      return
+    }
+    setLogoBusy(true)
+    const result = await uploadCompanyLogo(prepared.dataUrl)
+    setLogoBusy(false)
+    if (logoInput.current) logoInput.current.value = ""
+    if (result.success && result.logoUrl) {
+      setLogoUrl(result.logoUrl)
+      setLogoMessage({ ok: true, text: ar ? "تم حفظ الشعار." : "Logo saved." })
+    } else {
+      setLogoMessage({ ok: false, text: result.error ?? (ar ? "تعذر حفظ الشعار." : "Unable to save the logo.") })
+    }
+  }
+
+  async function onLogoRemove() {
+    setLogoMessage(null)
+    setLogoBusy(true)
+    const result = await removeCompanyLogo()
+    setLogoBusy(false)
+    if (result.success) {
+      setLogoUrl(null)
+      setLogoMessage({ ok: true, text: ar ? "تمت إزالة الشعار." : "Logo removed." })
+    } else {
+      setLogoMessage({ ok: false, text: result.error ?? (ar ? "تعذر إزالة الشعار." : "Unable to remove the logo.") })
+    }
+  }
 
   useEffect(() => {
     async function load() {
@@ -102,6 +140,7 @@ export default function CompanySettingsPage() {
         setDefaultLocale(data.default_locale ?? "ar")
         setMolReference(data.mol_reference ?? "")
         setWpsIban(data.wps_iban ?? "")
+        setLogoUrl(data.logo_url ?? null)
       } catch {
         setLoadError(true)
       }
@@ -188,6 +227,55 @@ export default function CompanySettingsPage() {
           </p>
         </div>
       )}
+
+      <Card className="rounded-2xl border border-border/50 bg-card shadow-sm">
+        <CardHeader className="pb-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl text-elite-blue-600 dark:text-elite-blue-300">
+              <ImageIcon className="h-5 w-5 text-elite-blue-600" />
+            </div>
+            <div>
+              <CardTitle className="text-base">{ar ? "شعار الشركة" : "Company logo"}</CardTitle>
+              <CardDescription className="text-xs">
+                {ar
+                  ? "يظهر في الفواتير وفي القائمة الجانبية. PNG أو JPEG أو WebP حتى 5 ميجابايت."
+                  : "Shown on invoices and in the sidebar. PNG, JPEG, or WebP up to 5 MB."}
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-center gap-4">
+          <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-xl border border-dashed border-border bg-muted/30">
+            {logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={logoUrl} alt={ar ? "شعار الشركة" : "Company logo"} className="h-full w-full object-contain" data-testid="company-logo-preview" />
+            ) : (
+              <ImageIcon className="h-7 w-7 text-muted-foreground" />
+            )}
+          </div>
+          <input
+            ref={logoInput}
+            id="companyLogo"
+            type="file"
+            accept={LOGO_ACCEPT}
+            className="sr-only"
+            onChange={(e) => onLogoSelected(e.target.files?.[0])}
+          />
+          <Button type="button" variant="outline" disabled={logoBusy} onClick={() => logoInput.current?.click()}>
+            {logoBusy ? <LoadingSpinner className="h-4 w-4" /> : <Upload className="h-4 w-4" />}
+            {logoUrl ? (ar ? "تغيير الشعار" : "Change logo") : (ar ? "رفع الشعار" : "Upload logo")}
+          </Button>
+          {logoUrl && (
+            <Button type="button" variant="ghost" disabled={logoBusy} onClick={onLogoRemove} className="text-red-600 hover:text-red-700">
+              <Trash2 className="h-4 w-4" />
+              {ar ? "إزالة" : "Remove"}
+            </Button>
+          )}
+          {logoMessage && (
+            <span role="status" className={logoMessage.ok ? "text-sm text-emerald-600" : "text-sm text-red-500"}>{logoMessage.text}</span>
+          )}
+        </CardContent>
+      </Card>
 
       <form action={formAction}>
         <Card className="rounded-2xl border border-border/50 bg-card shadow-sm">

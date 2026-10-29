@@ -9,6 +9,8 @@ import {
 } from '@/lib/auth/rate-limit';
 import { ERROR_CODES } from '@/lib/errors/error-codes';
 import { isValidNewPassword, newPasswordHint } from '@/lib/auth/password-policy';
+import { LogoValidationError, normalizeLogo, storeTenantLogo } from '@/lib/branding/logo';
+import { decodeLogoPayload, LOGO_MAX_INPUT_BYTES } from '@/lib/branding/logo-core';
 
 // FX-08: public registration password policy — min 10 chars, at least one
 // letter and one digit (password "a" was previously accepted).
@@ -17,7 +19,9 @@ const registerSchema = z.object({
   domain: z.string().min(3).max(253),
   email: z.string().email().max(320),
   password: z.string().refine(isValidNewPassword, newPasswordHint('en')),
-  logo_url: z.string().url().max(512).optional(),
+  // Uploaded logo (PNG/JPEG/WebP data URL, ≤2 MB decoded). External logo
+  // URLs are no longer accepted from the public form.
+  logo_base64: z.string().max(Math.ceil((LOGO_MAX_INPUT_BYTES * 4) / 3) + 64).optional(),
   brand_colors: z.string().max(32).optional(),
 });
 
@@ -75,7 +79,7 @@ export async function POST(req: NextRequest) {
     const supabase = createClient(supabaseUrl, serviceKey);
 
     const body = await req.json();
-    const { company_name, domain, email, password, logo_url, brand_colors } = body;
+    const { company_name, domain, email, password, logo_base64, brand_colors } = body;
 
     if (!company_name || !domain || !email || !password) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -90,11 +94,26 @@ export async function POST(req: NextRequest) {
       domain,
       email,
       password,
-      logo_url: logo_url || undefined,
+      logo_base64: logo_base64 || undefined,
       brand_colors: brand_colors || undefined,
     });
     if (!parsed.success) {
       return NextResponse.json({ error: 'Invalid registration details' }, { status: 400 });
+    }
+
+    // Validate + normalise the optional logo before any account is created.
+    let logoPng: Buffer | null = null;
+    if (parsed.data.logo_base64) {
+      const bytes = decodeLogoPayload(parsed.data.logo_base64);
+      if (!bytes) {
+        return NextResponse.json({ error: 'Logo must be a PNG, JPEG, or WebP image up to 2 MB.' }, { status: 400 });
+      }
+      try {
+        logoPng = await normalizeLogo(bytes);
+      } catch (err) {
+        if (err instanceof LogoValidationError) return NextResponse.json({ error: err.message }, { status: 400 });
+        throw err;
+      }
     }
 
     const slug = company_name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
@@ -155,7 +174,7 @@ export async function POST(req: NextRequest) {
     const { error: provisionError } = await supabase.rpc('provision_company_atomic', {
       p_auth_user_id: authData.user.id,
       p_company: {
-        name: company_name, slug, domain, logo_url: logo_url || null,
+        name: company_name, slug, domain, logo_url: null,
         brand_colors: { primary: brand_colors || '#1E5A99', secondary: '#E87D3E' },
       },
     });
@@ -170,6 +189,18 @@ export async function POST(req: NextRequest) {
         console.error('Company provisioning outcome requires reconciliation', { authUserId: authData.user.id });
       }
       return NextResponse.json({ error: 'Registration unavailable. Please contact support before retrying.' }, { status: 503 });
+    }
+
+    // Store the uploaded logo in the new tenant's folder. Best-effort: the
+    // workspace exists already, and the logo can be re-uploaded in Settings.
+    if (logoPng) {
+      try {
+        const { data: owner } = await supabase
+          .from('users').select('tenant_id').eq('auth_user_id', authData.user.id).maybeSingle();
+        if (owner?.tenant_id) await storeTenantLogo(supabase, owner.tenant_id, logoPng);
+      } catch {
+        console.error('Registration logo upload failed', { authUserId: authData.user.id });
+      }
     }
 
     // ── Confirmation step (only when the auth project requires it) ──

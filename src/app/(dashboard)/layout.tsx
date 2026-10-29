@@ -3,15 +3,17 @@ import type { ReactNode } from "react"
 import { AppSidebar } from "@/components/app-sidebar"
 import { AppTopbar } from "@/components/dashboard/app-topbar"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
+import { getWorkspaceBranding } from "@/lib/branding/workspace"
 
-export default function DashboardLayout({
+export default async function DashboardLayout({
   children,
 }: {
   children: ReactNode
 }) {
+  const branding = await getWorkspaceBranding()
   return (
     <SidebarProvider defaultOpen>
-      <AppSidebar collapsible="offcanvas" />
+      <AppSidebar collapsible="offcanvas" branding={branding} />
 
       <SidebarInset className="min-h-svh bg-slate-50 dark:bg-slate-950">
         <AppTopbar />

@@ -14,6 +14,8 @@ import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
 import { writeAuditLog } from "@/lib/auth/sessions"
 import { rateLimitSettings } from "@/lib/auth/rate-limit"
+import { LogoValidationError, clearTenantLogo, storeTenantLogo } from "@/lib/branding/logo"
+import { decodeLogoPayload } from "@/lib/branding/logo-core"
 
 type ActionResult = { success: boolean; error?: string }
 
@@ -157,7 +159,6 @@ export interface CompanyProfileInput {
   country?: string | null
   phone?: string | null
   email?: string | null
-  logo_url?: string | null
   timezone?: string | null
   default_locale?: string | null
 }
@@ -207,7 +208,6 @@ export async function updateCompanyProfile(
         country: input.country ?? null,
         phone: input.phone ?? null,
         email: input.email ?? null,
-        logo_url: input.logo_url ?? null,
         timezone: input.timezone ?? null,
         default_locale: input.default_locale ?? null,
       })
@@ -364,6 +364,70 @@ export async function updateCompanyWpsSettings(input: {
     })
 
     revalidatePath("/settings/company")
+    return { success: true }
+  } catch (e) {
+    return { success: false, error: errorMessage(e) }
+  }
+}
+
+// ─── Company logo ───────────────────────────────────────────────────────
+// The logo is managed separately from the profile form (saving the profile
+// never touches logo_url). Upload payload is a PNG/JPEG/WebP data URL; the
+// server re-validates by magic bytes and re-encodes it to PNG.
+
+export async function uploadCompanyLogo(
+  payload: string
+): Promise<ActionResult & { logoUrl?: string }> {
+  try {
+    await requirePermission("settings", "manage")
+    const currentUser = await getCurrentUser()
+    if (!currentUser) return { success: false, error: "Not authenticated." }
+    const rl = await rateLimitSettings(currentUser.id)
+    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
+
+    const bytes = decodeLogoPayload(payload)
+    if (!bytes) return { success: false, error: "Logo must be a PNG, JPEG, or WebP image up to 2 MB." }
+
+    const admin = createAdminClient()
+    const logoUrl = await storeTenantLogo(admin, currentUser.tenantId, bytes)
+    await writeAuditLog({
+      tenantId: currentUser.tenantId,
+      actorId: currentUser.authUserId,
+      module: "settings",
+      action: "updated",
+      entityType: "tenant",
+      entityId: currentUser.tenantId,
+      newValues: { logo_url: logoUrl },
+    })
+    revalidatePath("/settings/company")
+    revalidatePath("/", "layout")
+    return { success: true, logoUrl }
+  } catch (e) {
+    if (e instanceof LogoValidationError) return { success: false, error: e.message }
+    return { success: false, error: errorMessage(e) }
+  }
+}
+
+export async function removeCompanyLogo(): Promise<ActionResult> {
+  try {
+    await requirePermission("settings", "manage")
+    const currentUser = await getCurrentUser()
+    if (!currentUser) return { success: false, error: "Not authenticated." }
+    const rl = await rateLimitSettings(currentUser.id)
+    if (!rl.success) return { success: false, error: "Rate limit exceeded. Try again later." }
+
+    await clearTenantLogo(createAdminClient(), currentUser.tenantId)
+    await writeAuditLog({
+      tenantId: currentUser.tenantId,
+      actorId: currentUser.authUserId,
+      module: "settings",
+      action: "updated",
+      entityType: "tenant",
+      entityId: currentUser.tenantId,
+      newValues: { logo_url: null },
+    })
+    revalidatePath("/settings/company")
+    revalidatePath("/", "layout")
     return { success: true }
   } catch (e) {
     return { success: false, error: errorMessage(e) }

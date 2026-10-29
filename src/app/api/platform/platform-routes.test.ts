@@ -56,6 +56,7 @@ vi.mock("@supabase/supabase-js", () => ({
   }),
 }))
 
+vi.mock("server-only", () => ({}))
 vi.mock("@/lib/notifications/company-welcome-email", () => ({
   sendCompanyConfirmationEmail: vi.fn(async () => undefined),
 }))
@@ -207,6 +208,15 @@ describe("POST /api/platform/register (FX-08)", () => {
     const json = await res.json()
     expect(json).toEqual({ error: "Invalid registration details" })
     expect(json.success).toBeUndefined()
+  })
+
+  it("SVG logo upload → 400 before any user creation", async () => {
+    const svg = `data:image/png;base64,${Buffer.from("<svg xmlns='http://www.w3.org/2000/svg'/>").toString("base64")}`
+    const res = await registerPost(
+      jsonPost("/api/platform/register", JSON.stringify({ ...base, password: "Password123", logo_base64: svg }))
+    )
+    expect(res.status).toBe(400)
+    expect((await res.json()).success).toBeUndefined()
   })
 
   it("10 letters but no digit ('abcdefghij') → 400", async () => {
