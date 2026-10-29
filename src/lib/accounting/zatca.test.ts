@@ -16,7 +16,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
-/* eslint-disable @typescript-eslint/no-unused-vars */
 const mocks = vi.hoisted(() => ({
   requirePermission: vi.fn(async (_module: string, _action: string) => {}),
   getCurrentUser: vi.fn(async (): Promise<{ tenantId: string; authUserId: string } | null> => null),
@@ -125,7 +124,6 @@ function mockBuilder() {
   }
   return builder
 }
-/* eslint-enable @typescript-eslint/no-unused-vars */
 
 beforeEach(() => {
   vi.clearAllMocks()

@@ -30,8 +30,6 @@ import {
   Scale,
   Coins,
   Navigation,
-  Sparkles,
-  Hexagon,
   type LucideIcon,
 } from "lucide-react"
 import { cn } from "@/lib/utils"

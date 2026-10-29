@@ -103,6 +103,8 @@ type TenantRow = {
   phone: string | null
   address: string | null
   city: string | null
+  building_number: string | null
+  district: string | null
   logo_url: string | null
 }
 
@@ -145,7 +147,7 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
 
     const { data: tenant, error: tenantError } = await admin
       .from("tenants")
-      .select("name_ar,name_en,vat_number,cr_number,phone,address,city,logo_url")
+      .select("name_ar,name_en,vat_number,cr_number,phone,address,city,building_number,district,logo_url")
       .eq("id", currentUser.tenantId)
       .maybeSingle<TenantRow>()
 
@@ -202,7 +204,7 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
     const phase1 = isSales && FINAL_SALES_STATUSES.has(inv.status) && !!inv.finalized_at
     const simplified = isSales && !/^3\d{13}3$/.test(party?.tax_number ?? "")
     const payload = buildTaxQrPayload({
-      sellerName: tenant?.name_ar ?? tenant?.name_en ?? "نخبة التطوير",
+      sellerName: tenant.name_ar || tenant.name_en || "",
       sellerVatNumber: sellerVat,
       timestamp: phase1 ? new Date(inv.finalized_at!).toISOString() : timestamp,
       total: Number(inv.total),
@@ -210,26 +212,30 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
     })
     const qrDataUrl = await qrPngDataUrl(authorityQr?.qrBase64 ?? payload)
     const envLabel = authorityQr?.environment === "simulation" ? { ar: "بيئة المحاكاة", en: "simulation" } : { ar: "البيئة التجريبية", en: "sandbox" }
+    // Phase 1 prints the plain QR (as the reference invoices do); only
+    // ZATCA-environment evidence carries a disclosure note.
     const qrNote = authorityQr
       ? authorityQr.kind === "cleared"
         ? { ar: `رمز من الفاتورة المُخلَّصة لدى ZATCA (${envLabel.ar}) · ليست فاتورة إنتاج`, en: `ZATCA-cleared QR (${envLabel.en}) · not a production invoice` }
         : { ar: `رمز مختوم ومُبلّغ لـ ZATCA (${envLabel.ar}) · ليست فاتورة إنتاج`, en: `EGS-stamped reported QR (${envLabel.en}) · not a production invoice` }
-      : phase1
-        ? { ar: "رمز الفاتورة الإلكترونية (المرحلة الأولى) · لم تُرسل إلى ZATCA", en: "E-invoice QR (Phase 1) · not submitted to ZATCA" }
-        : null
+      : null
+    // National-address print lines: "<building> <street>" / "<district> <city>".
+    const district = tenant.district?.trim() ?? ""
+    const companyAddress = [tenant.building_number, tenant.address].map((v) => v?.trim()).filter(Boolean).join(" ")
+    const companyCity = [district && !district.startsWith("حي") ? `حي ${district}` : district, tenant.city?.trim()].filter(Boolean).join(" ")
 
     const doc: InvoiceDocData = {
       kind: "invoice",
       docTypeAr: docType.ar,
       docTypeEn: docType.en,
       invoiceNumber: inv.invoice_number,
-      companyNameAr: tenant?.name_ar ?? "نخبة التطوير",
-      companyNameEn: tenant?.name_en ?? "Elite Development",
+      companyNameAr: tenant.name_ar || tenant.name_en || "",
+      companyNameEn: tenant.name_en ?? "",
       companyVatNumber: sellerVat,
-      companyCrNumber: tenant?.cr_number ?? null,
-      companyPhone: tenant?.phone ?? null,
-      companyAddress: tenant?.address ?? "",
-      companyCity: tenant?.city ?? "",
+      companyCrNumber: tenant.cr_number,
+      companyPhone: tenant.phone,
+      companyAddress,
+      companyCity,
       logoDataUrl: logoDataUrl ?? undefined,
       fontDataUrl: `data:font/woff2;base64,${fontBytes.toString("base64")}`,
       partyNameAr: party?.name_ar ?? "—",
@@ -285,7 +291,7 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
     const generatedData = {
       kind: "invoice",
       file_format: "pdf",
-      layout_version: "modern-a4-1",
+      layout_version: "reference-a4-2",
       pdf_sha256: pdfHash,
       invoice_number: inv.invoice_number,
       invoice_type: inv.invoice_type,
@@ -297,7 +303,7 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
       total: Number(inv.total),
       currency: inv.currency,
       issue_date: inv.issue_date,
-      qr_kind: authorityQr ? `zatca_${authorityQr.environment}_${authorityQr.kind}` : "internal_unvalidated",
+      qr_kind: authorityQr ? `zatca_${authorityQr.environment}_${authorityQr.kind}` : phase1 ? "phase1_generated" : "internal_unvalidated",
       qr_generated_at: timestamp,
       due_date: inv.due_date,
       party: party ?? null,

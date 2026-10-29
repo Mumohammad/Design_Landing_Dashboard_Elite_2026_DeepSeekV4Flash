@@ -6,15 +6,7 @@ import { landingContent } from "@/lib/landing-content"
 import { useTranslation } from "@/hooks/use-translation"
 import { Reveal, SectionHeading, DemoNote, iconMap, iconGradients } from "./shared"
 
-const statTones = {
-  good: "text-emerald-600 dark:text-emerald-400",
-  warn: "text-amber-600 dark:text-amber-400",
-} as const
 
-const statBgs = {
-  good: "bg-emerald-500/15",
-  warn: "bg-amber-500/15",
-} as const
 
 export function Driver360Section() {
   const { locale } = useTranslation()
@@ -63,7 +55,6 @@ export function Driver360Section() {
                   {c.driver360.stats.map((stat) => {
                     const Icon = iconMap[stat.icon]
                     const gradient = iconGradients[stat.icon] || "bg-transparent text-elite-blue-600! dark:text-elite-blue-300! shadow-none h-auto! w-auto! justify-start! rounded-none"
-                    const tone = stat.tone ?? "good"
                     return (
                       <div key={stat.label} className="rounded-xl border border-white/15 bg-white/10 p-2.5 text-center transition-all duration-300 hover:-translate-y-0.5 hover:bg-white/15">
                         <div className={cn("mx-auto mb-1.5 flex h-7 w-7 items-center justify-center rounded-lg", gradient, "text-white")}>

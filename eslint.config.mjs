@@ -28,6 +28,13 @@ const eslintConfig = [
   },
   ...nextVitals,
   ...nextTs,
+  {
+    rules: {
+      // Leading underscore marks an intentionally unused binding (e.g. the
+      // (_prev, _form) signature required by useActionState).
+      "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" }],
+    },
+  },
 ];
 
 export default eslintConfig;

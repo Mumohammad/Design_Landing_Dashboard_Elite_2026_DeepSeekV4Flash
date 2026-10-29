@@ -42,9 +42,6 @@ export type LeaveRow = {
   created_at: string;
 };
 
-function toDateInputValue(date: Date) {
-  return date.toISOString().slice(0, 10);
-}
 
 function diffDaysInclusive(start: string, end: string) {
   const startMs = Date.parse(start);

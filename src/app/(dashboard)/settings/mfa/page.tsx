@@ -17,8 +17,13 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { LoadingSpinner } from "@/components/ui/loading-spinner"
 import {
-  Shield, ShieldCheck, ShieldOff, QrCode, KeyRound,
-  CheckCircle2, AlertTriangle, Smartphone
+  Shield,
+  ShieldCheck,
+  ShieldOff,
+  QrCode,
+  CheckCircle2,
+  AlertTriangle,
+  Smartphone,
 } from "lucide-react"
 import {
   enrollMfa, verifyMfaCode, unenrollMfa, listMfaFactors,
@@ -33,7 +38,7 @@ type MfaFactor = {
 }
 
 export default function MfaSettingsPage() {
-  const { t, locale } = useTranslation()
+  const { locale } = useTranslation()
   const ar = locale === "ar"
 
   const [factors, setFactors] = useState<MfaFactor[]>([])

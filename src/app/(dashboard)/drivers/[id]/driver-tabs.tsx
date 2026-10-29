@@ -18,7 +18,7 @@ import { PerformanceTab } from "@/components/drivers/performance-tab"
 import { TrainingTab } from "@/components/drivers/training-tab"
 import { DocumentUploadDialog } from "@/components/drivers/document-upload-dialog"
 import { DocumentsDeleteDialog } from "@/components/drivers/documents-delete-dialog"
-import { emitDriverChanged, subscribeDriverChanged } from "@/lib/drivers/driver-events"
+import { subscribeDriverChanged } from "@/lib/drivers/driver-events"
 import type { Driver } from "@/types/drivers"
 import {
   AlertTriangle,

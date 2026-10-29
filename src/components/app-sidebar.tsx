@@ -23,7 +23,6 @@ import {
   FileCheck2,
   Fingerprint,
   Settings,
-  ChevronRight,
 } from "lucide-react"
 import Link from "next/link"
 import { Logo } from "@/components/logo"
@@ -42,7 +41,6 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
-import { cn } from "@/lib/utils"
 
 export function AppSidebar({ branding, ...props }: React.ComponentProps<typeof Sidebar> & { branding?: WorkspaceBranding | null }) {
   const { t, locale } = useTranslation()

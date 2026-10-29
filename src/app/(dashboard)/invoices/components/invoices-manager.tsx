@@ -126,6 +126,8 @@ function fmtDate(d: string | null | undefined): string {
 
 interface LineDraft {
   key: number
+  /** Printed in the invoice "Item" column (stored as the description's first line). */
+  item: string
   description: string
   quantity: string
   unit_price: string
@@ -133,13 +135,24 @@ interface LineDraft {
   vat_rate: string
 }
 
+// No separate item column exists in invoice_lines: the item name is stored as
+// the first line of the description and the print template splits it again.
+function joinItemDescription(item: string, description: string): string {
+  return [item.trim(), description.trim()].filter(Boolean).join("\n")
+}
+
+function splitItemDescription(value: string): { item: string; description: string } {
+  const [first, ...rest] = value.split(/\r?\n/)
+  return rest.length ? { item: first, description: rest.join("\n") } : { item: "", description: value }
+}
+
 function emptyLine(key: number): LineDraft {
-  return { key, description: "", quantity: "1", unit_price: "", discount: "0", vat_rate: "15" }
+  return { key, item: "", description: "", quantity: "1", unit_price: "", discount: "0", vat_rate: "15" }
 }
 
 function lineInputs(lines: LineDraft[], defaultVatRate = "15") {
   return lines.map((l) => ({
-    description: l.description.trim(), quantity: Number(l.quantity || NaN),
+    description: joinItemDescription(l.item, l.description), quantity: Number(l.quantity || NaN),
     unit_price: Number(l.unit_price || NaN), discount: Number(l.discount || 0),
     vat_rate: Number(l.vat_rate || defaultVatRate),
   }))
@@ -401,7 +414,7 @@ export function InvoicesManager() {
   const [formError, setFormError] = useState<string | null>(null)
 
   const lineTotals = computeLineTotals(lines)
-  const hasLineInput = lines.some((line) => line.description || line.unit_price)
+  const hasLineInput = lines.some((line) => line.item || line.description || line.unit_price)
 
 
   const openCreate = () => {
@@ -439,7 +452,7 @@ export function InvoicesManager() {
     setFormVatRate(String(row.vat_rate))
     setFormCurrency(row.currency)
     setFormNotes(row.notes ?? "")
-    setLines(data.map((l) => ({ key: l.line_no, description: l.description,
+    setLines(data.map((l) => ({ key: l.line_no, ...splitItemDescription(l.description),
       quantity: String(l.quantity), unit_price: String(l.unit_price),
       discount: String(l.discount), vat_rate: String(l.vat_rate) })))
     setFormError(null)
@@ -878,7 +891,8 @@ export function InvoicesManager() {
               <p className="text-xs text-muted-foreground">{ar ? "تدعم المحاسبة الريال السعودي فقط. تبقى السجلات القديمة بعملتها الأصلية للمراجعة." : "Accounting supports SAR. Existing foreign-currency records retain their original currency for review."}</p>
             </div>
             <div className="overflow-x-auto rounded-xl border border-border/50">
-              <div className="grid min-w-[560px] grid-cols-[1fr_80px_90px_70px_70px_32px] gap-2 border-b border-border/50 bg-muted/30 px-3 py-2 text-[11px] font-medium text-muted-foreground">
+              <div className="grid min-w-[700px] grid-cols-[140px_1fr_80px_90px_70px_70px_32px] gap-2 border-b border-border/50 bg-muted/30 px-3 py-2 text-[11px] font-medium text-muted-foreground">
+                <span>{ar ? "البند" : "Item"}</span>
                 <span>{ar ? "الوصف" : "Description"}</span>
                 <span>{ar ? "الكمية" : "Qty"}</span>
                 <span>{ar ? "السعر" : "Price"}</span>
@@ -887,7 +901,14 @@ export function InvoicesManager() {
                 <span />
               </div>
               {lines.map((l) => (
-                <div key={l.key} className="grid min-w-[560px] grid-cols-[1fr_80px_90px_70px_70px_32px] items-center gap-2 px-3 py-2">
+                <div key={l.key} className="grid min-w-[700px] grid-cols-[140px_1fr_80px_90px_70px_70px_32px] items-center gap-2 px-3 py-2">
+                  <Input
+                    aria-label={ar ? "البند" : "Item"}
+                    value={l.item}
+                    onChange={(e) => updateLine(l.key, { item: e.target.value.replace(/[\r\n]+/g, " ") })}
+                    placeholder={ar ? "مثال: توصيل طلبات" : "e.g. Order delivery"}
+                    className="h-9"
+                  />
                   <Input
                     aria-label={ar ? "وصف البند" : "Line description"}
                     value={l.description}
@@ -992,7 +1013,7 @@ export function InvoicesManager() {
                     {detailLines.map((l) => (
                       <tr key={l.line_no} className="border-b border-border/40 last:border-0">
                         <td className="px-3 py-2 text-xs text-muted-foreground">{l.line_no}</td>
-                        <td className="px-3 py-2">{l.description}</td>
+                        <td className="whitespace-pre-line px-3 py-2">{l.description}</td>
                         <td className="px-3 py-2 text-xs tabular-nums" dir="ltr">{l.quantity}</td>
                         <td className="px-3 py-2 text-xs tabular-nums" dir="ltr">{fmtMoney(l.unit_price)}</td>
                         <td className="px-3 py-2 text-xs tabular-nums" dir="ltr">{fmtMoney(l.amount)}</td>

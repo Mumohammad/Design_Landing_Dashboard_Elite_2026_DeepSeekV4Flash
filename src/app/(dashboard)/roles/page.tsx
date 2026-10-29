@@ -7,17 +7,6 @@ import { EnterpriseModulePage, type KpiCardData, type TableColumn } from "@/comp
 import { ShieldCheck, Star, Lock, Eye } from "lucide-react"
 import { fetchRoles, type RoleRow } from "@/lib/auth/user-reads"
 
-const ROLE_AR: Record<string, string> = {
-  general_manager: "مدير عام",
-  admin: "مدير نظام",
-  accountant: "محاسب",
-  supervisor: "مشرف",
-  hr_officer: "موارد بشرية",
-  operations_officer: "عمليات",
-  payroll_officer: "رواتب",
-  platform_coordinator: "منسق منصات",
-  readonly_auditor: "مدقق",
-}
 
 export default function RolesPage() {
   const { t, locale } = useTranslation()

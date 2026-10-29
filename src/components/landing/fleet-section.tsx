@@ -1,7 +1,7 @@
 "use client"
 
 import { cn } from "@/lib/utils"
-import { CarFront, ArrowDown, Gauge, Fuel, Wrench, DollarSign, Activity } from "lucide-react"
+import { CarFront, ArrowDown, Gauge, Wrench, Activity } from "lucide-react"
 import { landingContent } from "@/lib/landing-content"
 import { useTranslation } from "@/hooks/use-translation"
 import { Reveal, SectionHeading, DemoNote } from "./shared"
@@ -56,7 +56,7 @@ export function FleetSection() {
               <div className="p-6">
                 <p className="text-xl font-extrabold text-foreground">{c.fleet.vehicleName}</p>
                 <div className="mt-5 grid gap-x-8 gap-y-3 sm:grid-cols-2">
-                  {c.fleet.fields.map((field, i) => (
+                  {c.fleet.fields.map((field) => (
                     <div key={field.label} className="flex items-center justify-between gap-3 border-b border-border/40 pb-2.5">
                       <span className="text-xs text-muted-foreground">{field.label}</span>
                       <span className="text-sm font-bold text-foreground">{field.value}</span>
