@@ -180,7 +180,10 @@ try {
     : /Execution context was destroyed|navigation|interrupted/i.test(error.message) ? "navigation"
     : /Target.*closed|page.*closed/i.test(error.message) ? "closed-page"
     : "assertion-or-service"
-  console.error(JSON.stringify({ result: "FAIL", stage, errorType: error.name, failureKind }))
+  const locator = failureKind === "ambiguous-locator"
+    ? (/strict mode violation: (.+?) resolved to (\d+) elements/.exec(error.message) ?? []).slice(1, 3).join(" x")
+    : undefined
+  console.error(JSON.stringify({ result: "FAIL", stage, errorType: error.name, failureKind, locator }))
   process.exitCode = 1
 } finally {
   await browser?.close()
