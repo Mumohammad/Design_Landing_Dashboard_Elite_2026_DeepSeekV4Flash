@@ -27,6 +27,8 @@ export async function verifyDashboardBusinessDate(page, appUrl) {
         const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Riyadh', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date())
         const get = type => parts.find(part => part.type === type).value
         const expected = `${get('year')}-${get('month')}-${get('day')}`
+        // Locale query cleanup can briefly keep the previous tree mounted; require it to settle to one header.
+        await expect(probe.getByTestId('dashboard-business-date')).toHaveCount(1)
         await expect(probe.getByTestId('dashboard-business-date')).toHaveAttribute('datetime', expected)
         await expect(probe.getByTestId('dashboard-business-date')).not.toHaveText('—')
         await expect(probe.getByRole('region', { name: locale === 'en' ? 'Executive KPIs' : 'مؤشرات الأداء الرئيسية', exact: true })).toBeVisible()
