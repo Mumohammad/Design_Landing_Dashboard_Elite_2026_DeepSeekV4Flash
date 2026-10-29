@@ -20,6 +20,7 @@ import {
   ShieldCheck,
   ClipboardCheck,
   FileSearch,
+  FileCheck2,
   Fingerprint,
   Settings,
   ChevronRight,
@@ -67,6 +68,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         { title: t.nav.invoices, url: "/invoices", icon: FileBadge },
         { title: t.nav.payments, url: "/payments", icon: CreditCard },
         { title: t.nav.accounting, url: "/accounting", icon: Calculator },
+        { title: t.nav.einvoicing, url: "/accounting?tab=zatca", icon: FileCheck2 },
       ],
     },
     {

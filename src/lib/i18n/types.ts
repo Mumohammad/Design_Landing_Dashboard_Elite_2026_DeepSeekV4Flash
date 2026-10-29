@@ -41,6 +41,7 @@ export type TranslationStrings = {
     security: string
     settings: string
     accounting: string
+    einvoicing: string
     settlements: string
     signOut: string
   }

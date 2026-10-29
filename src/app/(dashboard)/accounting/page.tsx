@@ -2,7 +2,8 @@
 
 import Link from "next/link"
 import { LocalizedText } from "@/components/localized-text"
-import { Fragment, useCallback, useEffect, useState } from "react"
+import { Fragment, Suspense, useCallback, useEffect, useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { useActionState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
@@ -392,10 +393,23 @@ interface LineDraft {
 }
 
 export default function AccountingPage() {
+  return (
+    <Suspense fallback={null}>
+      <AccountingPageContent />
+    </Suspense>
+  )
+}
+
+function AccountingPageContent() {
   const { t, locale } = useTranslation()
   const ar = locale === "ar"
 
   const [tab, setTab] = useState("journal")
+  // Deep link (sidebar "E-invoicing (ZATCA)" → /accounting?tab=zatca).
+  const requestedTab = useSearchParams().get("tab")
+  useEffect(() => {
+    if (requestedTab && /^[a-z]{2,20}$/.test(requestedTab)) setTab(requestedTab)
+  }, [requestedTab])
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
   const [loadRevision, setLoadRevision] = useState(0)
@@ -1486,7 +1500,7 @@ export default function AccountingPage() {
           <TabsTrigger value="periods" className="gap-2"><CalendarRange className="h-4 w-4" />{ar ? "الفترات" : "Periods"}</TabsTrigger>
           <TabsTrigger value="events" className="gap-2"><ListChecks className="h-4 w-4" />{ar ? "الأحداث" : "Events"}</TabsTrigger>
           <TabsTrigger value="statements" className="gap-2"><BookOpenText className="h-4 w-4" />{ar ? "القوائم المالية" : "Statements"}</TabsTrigger>
-          <TabsTrigger value="zatca" className="gap-2"><FileCheck2 className="h-4 w-4" />{ar ? "إشعارات ZATCA" : "ZATCA"}</TabsTrigger>
+          <TabsTrigger value="zatca" className="gap-2"><FileCheck2 className="h-4 w-4" />{ar ? "الفوترة الإلكترونية (ZATCA)" : "E-invoicing (ZATCA)"}</TabsTrigger>
         </TabsList>
 
         {ledgerTab && <LedgerToolbar journal={tab === "journal"} search={ledger.search} onSearchChange={ledger.setSearch} pagination={ledger.pagination}
@@ -2208,6 +2222,32 @@ export default function AccountingPage() {
                       <p className="text-[12px] text-muted-foreground">
                         {ar ? "بيئة المحاكاة (منصة فاتورة التجريبية) للاختبار فقط ولا تُحتسب فواتيرها لدى الهيئة. الربط الإنتاجي معطل ويتطلب موافقة صريحة بعد إشعار موجتك." : "The simulation environment (Fatoora test portal) is for testing only; its invoices do not count with ZATCA. Production is disabled and requires explicit approval after your wave is notified."}
                       </p>
+                      {zatcaStatus.mode === "local" && (
+                        <div className="space-y-2 rounded-lg border border-border/50 bg-background p-2">
+                          <ol className="list-decimal ps-4 space-y-1 text-[12px]">
+                            <li className={zatcaStatus.profileMissing.length === 0 && zatcaStatus.vatValid ? "text-emerald-700" : ""}>
+                              {ar ? "أكمل الملف الضريبي للمنشأة (الرقم الضريبي، السجل التجاري، العنوان الوطني)" : "Complete the company tax profile (VAT number, CR, National Address)"}{" "}
+                              <Link href="/settings/company" className="text-elite-blue-600 underline">{ar ? "إعدادات الشركة" : "Company settings"}</Link>
+                            </li>
+                            <li>
+                              {ar ? "ادخل بوابة فاتورة ← وحدات الحلول التقنية ← احصل على رمز OTP (صالح ساعة)" : "Sign in to the Fatoora portal → Onboard new solution unit/device → generate an OTP (valid 1 hour)"}{" "}
+                              <a href="https://fatoora.zatca.gov.sa/" target="_blank" rel="noopener noreferrer" className="text-elite-blue-600 underline">fatoora.zatca.gov.sa</a>
+                            </li>
+                            <li>{ar ? "اضغط «الربط مع ZATCA» وأدخل الرمز" : "Click “Connect to ZATCA” and enter the OTP"}</li>
+                          </ol>
+                          <Button
+                            onClick={() => setOnboardOpen(true)}
+                            disabled={!zatcaEnabled}
+                            className="bg-elite-blue-600 hover:bg-elite-blue-700"
+                          >
+                            <KeyRound className="h-4 w-4" />
+                            {ar ? `الربط مع ZATCA (${zatcaStatus.environment ?? "—"})` : `Connect to ZATCA (${zatcaStatus.environment ?? "—"})`}
+                          </Button>
+                          {!zatcaEnabled && (
+                            <p className="text-[11px] text-amber-700">{ar ? "بوابة ZATCA غير مهيأة في هذا النشر (ZATCA_MODE / ZATCA_API_BASE_URL)." : "No ZATCA gateway is configured in this deployment (ZATCA_MODE / ZATCA_API_BASE_URL)."}</p>
+                          )}
+                        </div>
+                      )}
                       {zatcaStatus.mode === "connected" && (
                         <label className="flex items-center gap-2 text-[12px]">
                           <input
@@ -2310,7 +2350,7 @@ export default function AccountingPage() {
                   <Dialog open={onboardOpen} onOpenChange={setOnboardOpen}>
                     <DialogTrigger asChild>
                       <button disabled={!zatcaEnabled} className={dialogBtn}>
-                        <KeyRound className="h-3.5 w-3.5" />{ar ? "إعداد جديد" : "Onboard"}
+                        <KeyRound className="h-3.5 w-3.5" />{ar ? "الربط / تجديد الشهادة" : "Onboard / renew"}
                       </button>
                     </DialogTrigger>
                     <DialogContent className="max-w-md rounded-2xl">
