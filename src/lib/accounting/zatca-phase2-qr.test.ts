@@ -51,8 +51,8 @@ describe("offline Phase 2 QR tag assignments and explicit encoding profiles", ()
     expect(() => buildZatcaPhase2QrCandidate("sandbox", "base64-text-digest-signature", { ...fields, certificateSignatureDer: undefined })).toThrow("CERTIFICATE_SIGNATURE")
   })
 
-  it("cannot be used as a production QR builder by bypassing TypeScript", () => {
-    expect(() => buildZatcaPhase2QrCandidate("production" as "sandbox", "base64-text-digest-signature", fields)).toThrow("ENVIRONMENT")
+  it("rejects unknown environments by bypassing TypeScript", () => {
+    expect(() => buildZatcaPhase2QrCandidate("live" as "sandbox", "base64-text-digest-signature", fields)).toThrow("ENVIRONMENT")
     expect(() => buildZatcaPhase2QrCandidate(undefined as unknown as "sandbox", "base64-text-digest-signature", fields)).toThrow("ENVIRONMENT")
   })
 

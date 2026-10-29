@@ -35,6 +35,7 @@ import { buildZatcaUblInvoice, type ZatcaInvoiceData, type ZatcaLine } from "./z
 import { transmitToZatca } from "./zatca-transport"
 import { getZatcaCsidCredential } from "./zatca-credentials"
 import { getZatcaNetworkBase, zatcaConfiguredEnvironment } from "./zatca-config"
+import { resolveTenantZatcaEnvironment } from "./zatca-environment"
 import { prepareZatcaDocumentAs, type ZatcaActor } from "./zatca-issuance"
 import { submitPreparedZatcaDocumentAs } from "./zatca-submission-core"
 import {
@@ -118,8 +119,9 @@ export async function runZatcaAdapterAs(
     // CSID first, env fallback — see zatca-transport.ts resolveCredentials).
     // Mirror that decision here so the audit log / UI flash can never report
     // "not sandbox" while the transport is actually returning the mock.
-    const networkBase = getZatcaNetworkBase()
-    const environment = zatcaConfiguredEnvironment() ?? "sandbox"
+    const tenantEnvironment = await resolveTenantZatcaEnvironment(admin, currentUser.tenantId)
+    const networkBase = getZatcaNetworkBase(tenantEnvironment ?? undefined)
+    const environment = tenantEnvironment ?? zatcaConfiguredEnvironment() ?? "sandbox"
     const storedCsid = networkBase ? await getZatcaCsidCredential(environment, "production", currentUser.tenantId) : null
     const sandbox = !networkBase
 
@@ -206,7 +208,7 @@ async function processEvent(
   authUserId: string,
   ev: EventRow,
   storedCsid: { csidBase64: string; secret: string; privateKeyPem: string | null } | null,
-  networkEnvironment: "sandbox" | "simulation" | null
+  networkEnvironment: "sandbox" | "simulation" | "production" | null
 ): Promise<Outcome> {
   const actor: ZatcaActor = { tenantId, authUserId }
   const docType = ev.event_type === "InvoiceFinalizedEvent" ? "invoice"

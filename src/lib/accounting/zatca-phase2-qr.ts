@@ -104,8 +104,8 @@ function field(tag: number, value: string | Uint8Array): Buffer {
  * The future signer must bind these fields to retained XML and the genuine
  * certificate. This function accepts no key and confers no trusted status.
  */
-export function buildZatcaPhase2QrCandidate(environment: "sandbox" | "simulation", profile: ZatcaQrEncodingProfile, p: ZatcaPhase2QrFields): string {
-  if (environment !== "sandbox" && environment !== "simulation") fail("ENVIRONMENT")
+export function buildZatcaPhase2QrCandidate(environment: "sandbox" | "simulation" | "production", profile: ZatcaQrEncodingProfile, p: ZatcaPhase2QrFields): string {
+  if (environment !== "sandbox" && environment !== "simulation" && environment !== "production") fail("ENVIRONMENT")
   if (profile !== "binary-digest-signature" && profile !== "base64-text-digest-signature") fail("PROFILE")
   validateFields(p)
   const encoded = Buffer.concat([

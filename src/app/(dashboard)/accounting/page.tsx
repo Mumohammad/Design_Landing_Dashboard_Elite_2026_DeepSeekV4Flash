@@ -57,7 +57,9 @@ import {
   type ZatcaCsidSummary,
   type ZatcaCsidEnvironment,
 } from "@/lib/accounting/zatca-csid"
-import { getZatcaStatus, type ZatcaStatus } from "@/lib/accounting/zatca-management"
+import { getZatcaStatus, setZatcaProductionMode, type ZatcaStatus } from "@/lib/accounting/zatca-management"
+import { ZATCA_PRODUCTION_ACK } from "@/lib/accounting/zatca-config"
+import { Switch } from "@/components/ui/switch"
 import type { ComplianceCheckResult } from "@/lib/accounting/zatca-compliance-checks"
 import { formatVatMoney, readVatPosition, vatNetAdjustments, type VatPosition } from "@/lib/accounting/vat-position"
 import { recordPayment, voidPayment, createBankAccount, updateBankAccount, changeBankAccountState } from "@/lib/accounting/payments"
@@ -470,6 +472,8 @@ function AccountingPageContent() {
   const [onboardBusy, setOnboardBusy] = useState(false)
   const [zatcaStatus, setZatcaStatus] = useState<ZatcaStatus | null>(null)
   const zatcaEnabled = !!zatcaStatus?.enabled
+  const [prodDialog, setProdDialog] = useState<null | "on" | "off">(null)
+  const [prodAck, setProdAck] = useState(false)
   const [onboardChecks, setOnboardChecks] = useState<ComplianceCheckResult[] | null>(null)
   const paymentsPage = useAccountingPage<PaymentRow>(tab === "payments" ? "payments" : null, payRefresh + loadRevision)
   const payments = paymentsPage.rows
@@ -830,6 +834,19 @@ function AccountingPageContent() {
       flash("ok", enabled
         ? (ar ? "تم تفعيل الإرسال التلقائي عند اعتماد الفاتورة." : "Automatic submission on finalization enabled.")
         : (ar ? "تم إيقاف الإرسال التلقائي. أرسل الفواتير يدوياً من قائمة الفواتير." : "Automatic submission disabled. Send invoices manually from the invoice list."))
+      await reloadZatca()
+    } else flash("err", res.error ?? "Failed")
+  }
+
+  async function handleProductionMode(enabled: boolean) {
+    setZatcaBusy(true)
+    const res = await setZatcaProductionMode(enabled, enabled ? ZATCA_PRODUCTION_ACK : undefined)
+    setZatcaBusy(false)
+    setProdDialog(null); setProdAck(false)
+    if (res.success) {
+      flash("ok", enabled
+        ? (ar ? "تم تفعيل الربط الإنتاجي. أكمل ربط وحدة EGS الإنتاجية برمز OTP من بوابة فاتورة." : "ZATCA production switched ON. Now onboard the production EGS unit with an OTP from the Fatoora portal.")
+        : (ar ? "تم إيقاف الربط الإنتاجي والعودة إلى بيئة المحاكاة." : "ZATCA production switched OFF; the company is back on the simulation gateway."))
       await reloadZatca()
     } else flash("err", res.error ?? "Failed")
   }
@@ -1974,15 +1991,102 @@ function AccountingPageContent() {
 
             <TabsContent value="zatca" className="mt-4 space-y-4">
               <div role="status" className={`rounded-xl border p-4 text-sm space-y-2 ${zatcaEnabled ? "border-sky-500/30 bg-sky-500/10" : "border-amber-500/30 bg-amber-500/10"}`}>
-                {zatcaEnabled ? (
+                {zatcaEnabled && zatcaStatus?.productionEnabled ? (
                   <p>{ar
-                    ? `بوابة ZATCA غير الإنتاجية مفعّلة (${zatcaStatus?.environment}). الإعداد والإرسال متاحان للاختبار فقط؛ الإرسال الإنتاجي معطل.`
-                    : `Non-production ZATCA gateway enabled (${zatcaStatus?.environment}). Onboarding and submission are available for testing only; production submission is disabled.`}</p>
+                    ? "الربط الإنتاجي مع ZATCA مفعّل لهذه المنشأة: الفواتير المعتمدة بعد ربط وحدة EGS الإنتاجية تُخلَّص أو يُبلّغ عنها لدى الهيئة وتُعدّ مستندات ضريبية رسمية."
+                    : "ZATCA production is ON for this company: invoices finalized after the production EGS unit is onboarded are cleared/reported with ZATCA and are live tax documents."}</p>
+                ) : zatcaEnabled ? (
+                  <p>{ar
+                    ? `بوابة ZATCA الاختبارية مفعّلة (${zatcaStatus?.environment}). الإعداد والإرسال للاختبار فقط${zatcaStatus?.productionAvailable ? "؛ يمكنك تفعيل الربط الإنتاجي أدناه." : "؛ الإرسال الإنتاجي غير متاح في هذا النشر."}`
+                    : `Test ZATCA gateway enabled (${zatcaStatus?.environment}). Onboarding and submission are for testing${zatcaStatus?.productionAvailable ? "; switch production ON below when your wave is due." : "; production is not available in this deployment."}`}</p>
                 ) : (
                   <p>{ar ? "ربط ZATCA غير مفعّل في هذه البيئة. الإعداد والإرسال معطلان." : "ZATCA integration is not enabled in this environment. Onboarding and submission are disabled."}</p>
                 )}
-                <p>{ar ? "الإرسال الإنتاجي يتطلب تسجيل المكلّف الفعلي في بوابة Fatoora واجتياز بيئة المحاكاة واعتماد الإصدار." : "Production submission requires real taxpayer onboarding in the Fatoora portal, a passing simulation run and release approval."}</p>
+                {!zatcaStatus?.productionEnabled && (
+                  <p>{ar ? "الإرسال الإنتاجي يتطلب تسجيل المكلّف الفعلي في بوابة فاتورة واجتياز بيئة المحاكاة ثم تفعيل الربط الإنتاجي." : "Production submission requires real taxpayer onboarding in the Fatoora portal, a passing simulation run, then switching production ON."}</p>
+                )}
               </div>
+              {zatcaStatus?.productionAvailable && (
+                <Card className={`rounded-2xl border bg-card shadow-sm overflow-hidden ${zatcaStatus.productionEnabled ? "border-emerald-500/40" : "border-border/50"}`}>
+                  <CardHeader className="pb-3 flex-row items-start justify-between gap-4">
+                    <div className="space-y-1">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        {ar ? "الربط الإنتاجي مع ZATCA" : "ZATCA production"}
+                        <Badge className={zatcaStatus.productionEnabled ? "bg-emerald-500/15 text-emerald-700" : "bg-muted text-muted-foreground"}>
+                          {zatcaStatus.productionEnabled ? (ar ? "مفعّل" : "ON") : (ar ? "متوقف" : "OFF")}
+                        </Badge>
+                      </CardTitle>
+                      <CardDescription>
+                        {ar
+                          ? "شغّله فقط عندما تُشعرك الهيئة بموعد موجة الربط الخاصة بمنشأتك. الإيقاف يعيد المنشأة إلى بيئة المحاكاة دون المساس بالفواتير المقبولة."
+                          : "Switch ON only when ZATCA has notified your integration wave. Switching OFF returns the company to simulation; documents already accepted by ZATCA stay valid."}
+                      </CardDescription>
+                    </div>
+                    <Switch
+                      aria-label={ar ? "الربط الإنتاجي مع ZATCA" : "ZATCA production"}
+                      checked={zatcaStatus.productionEnabled}
+                      disabled={zatcaBusy}
+                      onCheckedChange={(v) => { setProdAck(false); setProdDialog(v ? "on" : "off") }}
+                    />
+                  </CardHeader>
+                  <div className="px-4 pb-4 text-sm">
+                    <ol className="list-decimal ps-5 space-y-1.5 text-[12px]">
+                      <li className={zatcaStatus.profileMissing.length === 0 && zatcaStatus.vatValid ? "text-emerald-700" : ""}>
+                        {ar ? "الملف الضريبي مكتمل: الرقم الضريبي (15 رقماً)، السجل التجاري، العنوان الوطني كاملاً." : "Tax profile complete: 15-digit VAT number, CR number, full National Address."}{" "}
+                        <Link href="/settings/company" className="text-elite-blue-600 underline">{ar ? "إعدادات الشركة" : "Company settings"}</Link>
+                      </li>
+                      <li className={zatcaStatus.streams.some((st) => st.environment === "simulation") ? "text-emerald-700" : ""}>
+                        {ar ? "اجتياز بيئة المحاكاة: ربط وحدة EGS في المحاكاة وإرسال فواتير تجريبية بنجاح." : "Simulation passed: an EGS unit onboarded on simulation with test invoices accepted."}
+                      </li>
+                      <li className={zatcaStatus.productionEnabled ? "text-emerald-700" : ""}>
+                        {ar ? "تفعيل الربط الإنتاجي من هذا المفتاح (يتطلب صلاحية اعتماد المحاسبة)." : "Switch production ON here (requires accounting approval permission)."}
+                      </li>
+                      <li>
+                        {ar ? "ادخل بوابة فاتورة الإنتاجية ← وحدات الحلول التقنية ← ربط وحدة جديدة ← أنشئ رمز OTP (صالح ساعة)." : "Sign in to the production Fatoora portal → Solution units → Onboard new unit → generate an OTP (valid ~1 hour)."}{" "}
+                        <a href="https://fatoora.zatca.gov.sa/" target="_blank" rel="noopener noreferrer" className="text-elite-blue-600 underline">fatoora.zatca.gov.sa</a>
+                      </li>
+                      <li className={zatcaStatus.streams.some((st) => st.environment === "production") ? "text-emerald-700" : ""}>
+                        {ar ? "اضغط «الربط مع ZATCA (production)» وأدخل الرمز: يُنشأ المفتاح وCSR، شهادة compliance، فحوص المطابقة الستة، ثم شهادة production وتسجيل وحدة EGS." : "Click “Connect to ZATCA (production)” and enter the OTP: keypair + CSR, compliance CSID, the six compliance checks, then the production CSID and EGS registration."}
+                      </li>
+                      <li className={zatcaStatus.automation?.enabled ? "text-emerald-700" : ""}>
+                        {ar ? "فعّل الإرسال التلقائي: الفواتير القياسية (B2B) تُخلَّص قبل مشاركتها، والمبسطة (B2C) يُبلّغ عنها خلال 24 ساعة." : "Enable automatic submission: standard (B2B) invoices are cleared before sharing; simplified (B2C) are reported within 24 hours."}
+                      </li>
+                      <li>
+                        {ar ? "راقب «مستندات بانتظار الإرسال» وصلاحية الشهادات (جدّد قبل الانتهاء بنفس الخطوات)." : "Monitor “Documents awaiting submission” and certificate validity (renew before expiry with the same steps)."}
+                      </li>
+                    </ol>
+                  </div>
+                </Card>
+              )}
+              <Dialog open={prodDialog !== null} onOpenChange={(o) => { if (!o) { setProdDialog(null); setProdAck(false) } }}>
+                <DialogContent className="max-w-md rounded-2xl">
+                  <DialogHeader>
+                    <DialogTitle>{prodDialog === "on" ? (ar ? "تفعيل الربط الإنتاجي مع ZATCA" : "Switch ZATCA production ON") : (ar ? "إيقاف الربط الإنتاجي" : "Switch ZATCA production OFF")}</DialogTitle>
+                    <DialogDescription>
+                      {prodDialog === "on"
+                        ? (ar ? "بعد ربط وحدة EGS الإنتاجية، تُرسل كل فاتورة وإشعار دائن/مدين معتمد إلى بوابة الهيئة الإنتاجية ويصبح مستنداً ضريبياً رسمياً لا يمكن حذفه." : "After the production EGS unit is onboarded, every finalized invoice and credit/debit note is sent to the ZATCA core gateway and becomes a live tax document that cannot be deleted.")
+                        : (ar ? "ستعود المنشأة إلى بيئة المحاكاة. الفواتير الجديدة لن تُرسل إلى الهيئة الإنتاجية حتى تعيد التفعيل." : "The company returns to the simulation gateway. New invoices will not be sent to production until you switch it back ON.")}
+                    </DialogDescription>
+                  </DialogHeader>
+                  {prodDialog === "on" && (
+                    <label className="flex items-start gap-2 text-[12px]">
+                      <input type="checkbox" className="mt-0.5" checked={prodAck} onChange={(e) => setProdAck(e.target.checked)} />
+                      <span>{ar ? "أؤكد أن المنشأة مسجلة لدى هيئة الزكاة والضريبة والجمارك، وأن موعد موجة الربط قد حان، وأن الفواتير الصادرة من الآن مستندات ضريبية رسمية." : ZATCA_PRODUCTION_ACK}</span>
+                    </label>
+                  )}
+                  <div className="flex items-center gap-3">
+                    <Button
+                      onClick={() => void handleProductionMode(prodDialog === "on")}
+                      disabled={zatcaBusy || (prodDialog === "on" && !prodAck)}
+                      className={prodDialog === "on" ? "bg-emerald-600 hover:bg-emerald-700" : "bg-red-600 hover:bg-red-700"}
+                    >
+                      {zatcaBusy ? <LoadingSpinner className="h-4 w-4" /> : null}
+                      {prodDialog === "on" ? (ar ? "تفعيل الإنتاج" : "Switch ON") : (ar ? "إيقاف الإنتاج" : "Switch OFF")}
+                    </Button>
+                    <Button variant="outline" onClick={() => { setProdDialog(null); setProdAck(false) }}>{ar ? "إلغاء" : "Cancel"}</Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
               {zatcaStatus && (
                 <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
                   <CardHeader className="pb-3">
@@ -2007,7 +2111,9 @@ function AccountingPageContent() {
                         {zatcaStatus.mode === "connected" && <Badge className="bg-sky-500/15 text-sky-700">{ar ? `متصل · ${zatcaStatus.environment}` : `Connected · ${zatcaStatus.environment}`}</Badge>}
                       </div>
                       <p className="text-[12px] text-muted-foreground">
-                        {ar ? "بيئة المحاكاة (منصة فاتورة التجريبية) للاختبار فقط ولا تُحتسب فواتيرها لدى الهيئة. الربط الإنتاجي معطل ويتطلب موافقة صريحة بعد إشعار موجتك." : "The simulation environment (Fatoora test portal) is for testing only; its invoices do not count with ZATCA. Production is disabled and requires explicit approval after your wave is notified."}
+                        {zatcaStatus.environment === "production"
+                          ? (ar ? "البيئة الإنتاجية (البوابة الأساسية core): الفواتير تُخلَّص أو يُبلّغ عنها لدى الهيئة وتُعدّ رسمية." : "Production (core gateway): invoices are cleared/reported with ZATCA and are live tax documents.")
+                          : (ar ? "بيئة المحاكاة (منصة فاتورة التجريبية) للاختبار فقط ولا تُحتسب فواتيرها لدى الهيئة. الربط الإنتاجي يُفعَّل بمفتاح صريح بعد إشعار موجتك." : "The simulation environment (Fatoora test portal) is for testing only; its invoices do not count with ZATCA. Production is switched ON explicitly once your wave is notified.")}
                       </p>
                       {zatcaStatus.mode === "local" && (
                         <div className="space-y-2 rounded-lg border border-border/50 bg-background p-2">
@@ -2158,8 +2264,10 @@ function AccountingPageContent() {
                             onChange={(e) => setOnboardEnv(e.target.value as ZatcaCsidEnvironment)}
                             className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           >
-                            {(zatcaStatus?.environment ? [zatcaStatus.environment] : ["sandbox", "simulation"]).map((env) => (
-                              <option key={env} value={env}>{env === "sandbox" ? "sandbox · developer portal" : "simulation · Fatoora simulation"}</option>
+                            {(zatcaStatus?.testEnvironment
+                              ? [zatcaStatus.testEnvironment, ...(zatcaStatus.productionEnabled ? ["production" as const] : [])]
+                              : ["sandbox" as const, "simulation" as const]).map((env) => (
+                              <option key={env} value={env}>{env === "sandbox" ? "sandbox · developer portal" : env === "simulation" ? "simulation · Fatoora simulation" : "production · Fatoora (live)"}</option>
                             ))}
                           </select>
                         </div>

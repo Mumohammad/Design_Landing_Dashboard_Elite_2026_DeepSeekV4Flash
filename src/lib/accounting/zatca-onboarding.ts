@@ -24,7 +24,7 @@
 //
 // No ZATCA compliance is claimed (ZATCA-BOUNDARY.md §5).
 
-import { getZatcaNetworkBase } from "./zatca-config"
+import { getZatcaNetworkBase, type ZatcaEnvironment } from "./zatca-config"
 import { zatcaCsrRequestPayload } from "./zatca-crypto"
 
 export type CsidKind = "compliance" | "production"
@@ -59,8 +59,9 @@ function errorMessage(e: unknown): string {
 export async function requestComplianceCsid(input: {
   csr: string
   otp: string
+  environment?: ZatcaEnvironment
 }): Promise<ComplianceCsidResponse> {
-  const base = getZatcaNetworkBase()
+  const base = getZatcaNetworkBase(input.environment)
 
   if (base) {
     const res = await fetch(`${base}/compliance`, {
@@ -113,8 +114,9 @@ export async function requestProductionCsid(input: {
   complianceRequestId: string
   csidBase64: string
   csidSecret: string
+  environment?: ZatcaEnvironment
 }): Promise<ProductionCsidResponse> {
-  const base = getZatcaNetworkBase()
+  const base = getZatcaNetworkBase(input.environment)
 
   if (base) {
     const auth = Buffer.from(`${input.csidBase64}:${input.csidSecret}`).toString("base64")

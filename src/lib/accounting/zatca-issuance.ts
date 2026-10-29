@@ -10,7 +10,7 @@ export interface ZatcaPreparedDocument {
   id: string
   tenant_id: string
   stream_id: string
-  environment: "sandbox" | "simulation"
+  environment: "sandbox" | "simulation" | "production"
   source_type: ZatcaDocType
   source_id: string
   doc_ref: string
@@ -78,7 +78,7 @@ export async function prepareZatcaDocumentAs(
     .select("id,environment,last_counter,last_invoice_hash")
     .eq("id", streamId).eq("tenant_id", user.tenantId).maybeSingle()
   if (streamError || !stream) throw new Error("Unable to load the tenant's ZATCA preparation stream.")
-  if (!["sandbox", "simulation"].includes(stream.environment)) throw new Error("ZATCA production preparation is disabled.")
+  if (!["sandbox", "simulation", "production"].includes(stream.environment)) throw new Error("Unknown ZATCA environment.")
   const { data: existing, error: existingError } = await admin.from("zatca_document_issuances")
     .select("id,tenant_id,stream_id,environment,source_type,source_id,doc_ref,issued_at,invoice_counter,previous_invoice_hash,invoice_hash,unsigned_xml")
     .eq("tenant_id", user.tenantId).eq("environment", stream.environment)

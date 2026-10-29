@@ -36,7 +36,7 @@ export function complianceCheckMatrix(): { kind: "standard" | "simplified"; docT
 
 export async function runZatcaComplianceChecks(input: {
   seller: ZatcaParty
-  environment: "sandbox" | "simulation"
+  environment: "sandbox" | "simulation" | "production"
   certificateBase64: string
   privateKeyPem: string
   credentials: { csidBase64: string; secret: string }
@@ -67,7 +67,7 @@ export async function runZatcaComplianceChecks(input: {
       signingTime: local,
     })
     try {
-      const res = await transmitToZatca({ xml: signed.signedXml, pipeline: "compliance", docRef: ref, invoiceHash: signed.invoiceHash, uuid, credentials: input.credentials })
+      const res = await transmitToZatca({ xml: signed.signedXml, pipeline: "compliance", docRef: ref, invoiceHash: signed.invoiceHash, uuid, credentials: input.credentials, environment: input.environment })
       const v = (res.raw.validationResults ?? {}) as { warningMessages?: ZatcaValidationMessage[]; errorMessages?: ZatcaValidationMessage[] }
       results.push({ kind, docType, status: res.status, warnings: v.warningMessages?.length ?? 0, errors: v.errorMessages ?? [] })
     } catch (e) {

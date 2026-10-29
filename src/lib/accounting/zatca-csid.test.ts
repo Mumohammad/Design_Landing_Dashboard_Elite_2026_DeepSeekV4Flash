@@ -354,6 +354,7 @@ describe("onboardZatcaCsids", () => {
       complianceRequestId: "req-123",
       csidBase64: "CCSID-BASE64",
       csidSecret: "cc-secret",
+      environment: "sandbox",
     })
     expect(streamBuilder.insert).toHaveBeenCalledWith({ tenant_id: "tenant-0001", environment: "sandbox", egs_serial: res.egsSerial })
     // The onboarding user becomes the scheduled-run operator.
