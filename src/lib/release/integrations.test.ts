@@ -19,10 +19,15 @@ import { GET } from "@/app/api/webhooks/cron/route"
 afterEach(() => { vi.unstubAllEnvs(); expect(admin).not.toHaveBeenCalled() })
 
 describe("release integration boundaries", () => {
-  it("cannot be enabled by production credentials or environment flags", () => {
+  it("WPS/webhooks stay off; ZATCA production needs the explicit operator flag", () => {
     vi.stubEnv("ZATCA_MODE", "production")
-    vi.stubEnv("ZATCA_PRODUCTION_ENABLED", "true")
     for (const name of ["wps", "zatca", "webhooks"] as const) expect(integrationAvailable(name)).toBe(false)
+    vi.stubEnv("ZATCA_PRODUCTION_ENABLED", "true")
+    expect(integrationAvailable("zatca")).toBe(true)
+    expect(integrationAvailable("wps")).toBe(false)
+    expect(integrationAvailable("webhooks")).toBe(false)
+    vi.stubEnv("ZATCA_API_BASE_URL", "https://gw-fatoora.zatca.gov.sa/e-invoicing/simulation")
+    expect(integrationAvailable("zatca")).toBe(false) // production mode accepts only the core URL
   })
 
   it("enables ZATCA only for an explicit, valid non-production gateway", () => {
