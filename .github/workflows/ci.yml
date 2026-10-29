@@ -355,8 +355,7 @@ jobs:
       with:
         name: browser-verification-${{ github.sha }}-${{ github.run_attempt }}
         path: |
-          supabase/.temp/*.png
-          *.png
+          supabase/.temp/**/*.png
         if-no-files-found: ignore
         retention-days: 3
 
