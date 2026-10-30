@@ -9,7 +9,7 @@ import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
 import { fetchFleetRows } from "@/lib/vehicles/query-pages"
 import { createClient } from "@/lib/supabase/client"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Input } from "@/components/ui/input"
@@ -147,6 +147,7 @@ export function AssignDriverCard({
     if (res.success) {
       toast.success(isAr ? "تم إلغاء تعيين السائق" : "Driver unassigned")
       await load()
+      onChanged?.()
     } else {
       toast.error(res.error ?? "Failed to unassign driver")
     }

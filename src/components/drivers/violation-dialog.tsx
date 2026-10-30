@@ -1,5 +1,6 @@
 "use client"
 
+import { friendlyError } from "@/lib/errors/friendly"
 import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
@@ -22,7 +23,7 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { useTranslation } from "@/hooks/use-translation"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 import { saveDriverProfileOperation } from "@/lib/driver-profile-operations/actions"
 
 type ViolationDialogProps = {
@@ -139,7 +140,7 @@ export function ViolationDialog({ open, onOpenChange, driverId, onCreated }: Vio
               : "Record a violation on this driver's file — it stays pending until reviewed"}
           </DialogDescription>
         </DialogHeader>
-        {saveError || typesError ? <p role="alert" className="text-sm text-destructive">{saveError || typesError}</p> : null}
+        {saveError || typesError ? <p role="alert" className="text-sm text-destructive">{saveError ? friendlyError(saveError, isAr) : typesError}</p> : null}
         <fieldset disabled={isSubmitting} className="grid gap-4 py-2 sm:grid-cols-2">
           <div className="space-y-1.5 sm:col-span-2">
             <Label>{isAr ? "نوع المخالفة" : "Violation type"}</Label>

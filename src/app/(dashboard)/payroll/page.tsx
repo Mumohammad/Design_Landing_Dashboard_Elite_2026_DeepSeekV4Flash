@@ -8,7 +8,7 @@ import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
 import { EnterpriseModulePage, type KpiCardData, type TableColumn } from "@/components/dashboard/enterprise-module-page"
 import { CreditCard, FileCheck, AlertTriangle, DollarSign, Calculator, Download, Ban, Loader2, ArrowRightCircle, PackageCheck } from "lucide-react"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 import {
   calculatePayrollForPeriod,
   generateWpsFile,

@@ -12,7 +12,7 @@ import { Wrench, Clock, CheckCircle2, Car, Plus, Download, Gauge, Pencil, Play, 
 import { fetchFleetRows } from "@/lib/vehicles/query-pages"
 import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 import { formatDualDate } from "@/lib/formatting/hijri"
 import { EnterpriseModulePage, type KpiCardData, type TableColumn } from "@/components/dashboard/enterprise-module-page"
 import { Button } from "@/components/ui/button"

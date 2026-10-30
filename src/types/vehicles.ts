@@ -221,20 +221,32 @@ export interface VehicleMaintenanceEvent {
 
 // Create/update schemas — columns mirror migration 016_vehicles.sql exactly
 // (condition_status, odometer_current, insurance_expiry, … were stale before).
-function isSaudiPlate(val: string): boolean {
+export function isSaudiPlate(val: string): boolean {
   const arabicPlate = /^[\u0600-\u06FF]{1,3}\s?\d{3,4}$/
   const englishPlate = /^[A-Z]{1,3}\s?\d{3,4}$/
   const numericOnly = /^\d{4,7}$/
   return arabicPlate.test(val) || englishPlate.test(val) || numericOnly.test(val)
 }
 
+/**
+ * Canonical plate form stored by the database: letters joined, upper-case,
+ * one space before the digits ("a b c 1234" → "ABC 1234", "أ ب ج 1234" →
+ * "أبج 1234"). Users naturally type plates with spaces between letters.
+ */
+export function normalizeSaudiPlate(val: string): string {
+  const compact = val.replace(/[\u200e\u200f]/g, "").trim().replace(/\s+/g, " ").toUpperCase()
+  const m = /^([A-Z\u0600-\u06FF ]*?)[ -]*(\d+)$/.exec(compact)
+  if (!m) return compact
+  const letters = m[1].replace(/[ -]/g, "")
+  return letters ? `${letters} ${m[2]}` : m[2]
+}
+
 const vehicleCreateBaseSchema = z.object({
   vehicle_code: z.string().nullable().optional(),
   plate_number: z
     .string()
-    .trim()
-    .min(4)
-    .refine(isSaudiPlate, "Invalid Saudi plate format"),
+    .transform(normalizeSaudiPlate)
+    .pipe(z.string().min(4).refine(isSaudiPlate, "Invalid Saudi plate format")),
   plate_type: z.string().nullable().optional(),
   make: z.string().trim().min(1, "Make is required"),
   model: z.string().trim().min(1, "Model is required"),

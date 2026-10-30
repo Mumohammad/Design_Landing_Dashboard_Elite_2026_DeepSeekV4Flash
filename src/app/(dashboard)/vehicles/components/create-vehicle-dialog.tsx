@@ -1,11 +1,13 @@
 "use client"
 
+import * as React from "react"
+
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { useForm, Controller } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 import { Loader2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -28,16 +30,10 @@ import {
 } from "@/components/ui/dialog"
 import { createVehicle, updateVehicle } from "@/lib/vehicles/actions"
 import { useTranslation } from "@/hooks/use-translation"
-import type { VehicleCreateInput, VehicleStatus, VehicleCondition, FuelType } from "@/types/vehicles"
+import { isSaudiPlate, normalizeSaudiPlate, type VehicleCreateInput, type VehicleStatus, type VehicleCondition, type FuelType } from "@/types/vehicles"
 
 const SAUDI_PLATE_HINT = "أ ب ج 1234 / ABC 1234 / 1234567"
 
-function isSaudiPlate(val: string): boolean {
-  const arabicPlate = /^[\u0600-\u06FF]{1,3}\s?\d{3,4}$/
-  const englishPlate = /^[A-Z]{1,3}\s?\d{3,4}$/
-  const numericOnly = /^\d{4,7}$/
-  return arabicPlate.test(val) || englishPlate.test(val) || numericOnly.test(val)
-}
 
 // Loose client-side schema (string values from the DOM). The canonical
 // vehicleCreateSchema re-validates everything server-side in createVehicle.
@@ -48,7 +44,7 @@ const formSchema = z
       .string()
       .trim()
       .min(4, "Plate number is required")
-      .refine(isSaudiPlate, "Invalid Saudi plate format"),
+      .refine((v) => isSaudiPlate(normalizeSaudiPlate(v)), "Invalid Saudi plate format"),
     plate_type: z.string().optional(),
     make: z.string().trim().min(1, "Make is required"),
     model: z.string().trim().min(1, "Model is required"),
@@ -125,13 +121,17 @@ function Field({
   children: React.ReactNode
   className?: string
 }) {
+  // Associate the label with its control so screen readers (and tests) can find it.
+  const generatedId = React.useId()
+  const child = React.isValidElement<{ id?: string }>(children) ? children : null
+  const controlId = child?.props.id ?? generatedId
   return (
     <div className={`grid gap-1.5 ${className ?? ""}`}>
-      <Label className="text-xs font-semibold">
+      <Label className="text-xs font-semibold" htmlFor={controlId}>
         {label}
         {required && <span className="text-destructive"> *</span>}
       </Label>
-      {children}
+      {child ? React.cloneElement(child, { id: controlId }) : children}
       {error && <p className="text-[11px] font-medium text-destructive">{error}</p>}
     </div>
   )
@@ -172,7 +172,7 @@ export function CreateVehicleDialog({
     setSubmitting(true)
     const input: VehicleCreateInput = {
       vehicle_code: toNullable(values.vehicle_code),
-      plate_number: values.plate_number.trim(),
+      plate_number: normalizeSaudiPlate(values.plate_number),
       plate_type: toNullable(values.plate_type),
       make: values.make.trim(),
       model: values.model.trim(),

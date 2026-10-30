@@ -1,5 +1,6 @@
 "use client"
 
+import { friendlyError, currentIsArabic } from "@/lib/errors/friendly"
 import { useCallback, useEffect, useState } from "react"
 import { useTablePage } from "@/hooks/use-table-page"
 import { DriverHistoryToolbar } from "./driver-history-toolbar"
@@ -9,7 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Pencil, Plus, Trash2 } from "lucide-react"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 import { ViolationDialog } from "./violation-dialog"
 import { DriverTabsFormDialog } from "./driver-tabs-form-dialog"
 import { emitDriverChanged } from "@/lib/drivers/driver-events"
@@ -96,7 +97,7 @@ export function ViolationsTab({ driverId, isAr }: ViolationsTabProps) {
   const softDelete = async (row: Record<string, unknown>) => {
     setArchiveError(null)
     const result = await archiveDriverProfileOperation("violations", driverId, String(row.id), String(row.updated_at ?? ""))
-    if (!result.success) { setArchiveError(result.error ?? "Failed to archive violation"); toast.error(result.error); return }
+    if (!result.success) { setArchiveError(friendlyError(result.error, currentIsArabic(), "Failed to archive violation")); toast.error(result.error); return }
     toast.success(isAr ? "تمت أرشفة المخالفة" : "Violation archived")
     emitDriverChanged({ driverId, action: "violation" })
     await load()
@@ -116,7 +117,7 @@ export function ViolationsTab({ driverId, isAr }: ViolationsTabProps) {
     <div className="space-y-4">
       {historyToolbar}
       {loadError ? <p role="alert" className="text-sm text-destructive">{isAr ? "تعذر تحميل المخالفات." : "Could not load violations."} <Button variant="link" onClick={() => void load()}>{isAr ? "إعادة المحاولة" : "Retry"}</Button></p> : null}
-      {archiveError ? <p role="alert" className="text-sm text-destructive">{archiveError}</p> : null}
+      {archiveError ? <p role="alert" className="text-sm text-destructive">{friendlyError(archiveError, isAr)}</p> : null}
       <div className="flex flex-wrap items-center gap-3">
         <div className="rounded-2xl border border-border/50 bg-card/60 px-4 py-3">
           <span className="text-xs text-muted-foreground">

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { PackageCheck, PackageX, DollarSign, TrendingUp, Plus, Trash2, Download, Pencil } from "lucide-react"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 import { useTranslation } from "@/hooks/use-translation"
 import {
   EnterpriseModulePage,

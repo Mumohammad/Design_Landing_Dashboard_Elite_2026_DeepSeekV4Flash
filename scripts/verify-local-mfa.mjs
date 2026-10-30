@@ -158,6 +158,36 @@ try {
     const { verifyPlatformPayroll } = await import("./verify-local-payroll-platform.mjs")
     await verifyPlatformPayroll(page, admin, company.data.id, owner.data.user.id, appUrl)
   }
+  if (process.env.VERIFY_VEHICLES_CRUD === "1") {
+    stage = "vehicles CRUD browser verification"
+    const { verifyVehiclesCrud } = await import("./verify-local-vehicles.mjs")
+    await verifyVehiclesCrud(page, admin, company.data.id, appUrl)
+  }
+  if (process.env.VERIFY_ORDERS_CRUD === "1") {
+    stage = "orders CRUD browser verification"
+    const { verifyOrdersCrud } = await import("./verify-local-orders.mjs")
+    await verifyOrdersCrud(page, admin, company.data.id, appUrl)
+  }
+  if (process.env.VERIFY_USERS_INVITES === "1") {
+    stage = "users invite browser verification"
+    const { verifyUsersInvites } = await import("./verify-local-users.mjs")
+    await verifyUsersInvites(page, admin, company.data.id, appUrl)
+  }
+  if (process.env.VERIFY_VIOLATIONS_CRUD === "1") {
+    stage = "violations CRUD browser verification"
+    const { verifyViolationsCrud } = await import("./verify-local-violations.mjs")
+    await verifyViolationsCrud(page, admin, company.data.id, appUrl)
+  }
+  if (process.env.VERIFY_APPLICATIONS_REVIEW === "1") {
+    stage = "applications review browser verification"
+    const { verifyApplicationsReview } = await import("./verify-local-applications.mjs")
+    await verifyApplicationsReview(page, admin, company.data.id, appUrl)
+  }
+  if (process.env.VERIFY_LEAVE_FLOW === "1") {
+    stage = "leave browser verification"
+    const { verifyLeaveFlow } = await import("./verify-local-leave.mjs")
+    await verifyLeaveFlow(page, admin, company.data.id, appUrl)
+  }
   if (process.env.VERIFY_OVERVIEWS === "1") {
     stage = "large overview search, export, pagination, and read recovery"
     const { verifyOverviews } = await import("./verify-local-overviews.mjs")

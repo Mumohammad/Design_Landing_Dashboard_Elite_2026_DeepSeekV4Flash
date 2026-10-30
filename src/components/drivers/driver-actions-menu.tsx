@@ -3,7 +3,7 @@ import { driverErrorMessage } from "@/lib/drivers/error-messages"
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 import { createClient } from "@/lib/supabase/client"
 import { emitDriverChanged } from "@/lib/drivers/driver-events"
 import { Button } from "@/components/ui/button"

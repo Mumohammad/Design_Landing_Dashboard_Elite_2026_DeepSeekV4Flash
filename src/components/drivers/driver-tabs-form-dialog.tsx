@@ -1,10 +1,11 @@
 "use client";
 
+import { friendlyError, currentIsArabic } from "@/lib/errors/friendly"
 import { LocalizedText, useUiText } from "@/components/localized-text"
 import { useState } from "react";
 
 import { Loader2, Trash2 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 import { emitDriverChanged } from "@/lib/drivers/driver-events";
 import { saveDriverProfileOperation, archiveDriverProfileOperation } from "@/lib/driver-profile-operations/actions";
@@ -306,7 +307,7 @@ function DriverTabsForm({
           <DialogDescription>{ui(config.description)}</DialogDescription>
         </DialogHeader>
 
-        {saveError ? <p role="alert" className="text-sm text-destructive">{ui(saveError)}</p> : null}
+        {saveError ? <p role="alert" className="text-sm text-destructive">{(()=>{const f=friendlyError(saveError,currentIsArabic());return f===saveError?ui(saveError):f})()}</p> : null}
         {immutable ? <p className="text-sm text-muted-foreground">{ui("This finalized record is retained as history.")}</p> : null}
         <fieldset disabled={saving || immutable} className="grid gap-3 sm:grid-cols-2">
           {config.fields.map((field) => (
@@ -381,7 +382,7 @@ function DriverTabsForm({
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}><LocalizedText text="Cancel" /></Button>
           <Button onClick={() => void save()} disabled={saving || immutable}>
             {saving ? <Loader2 className="size-4 animate-spin" /> : null}
-            {mode === "create" ? "Add" : "Save changes"}
+            {ui(mode === "create" ? "Add" : "Save changes")}
           </Button>
         </DialogFooter>
       </DialogContent>

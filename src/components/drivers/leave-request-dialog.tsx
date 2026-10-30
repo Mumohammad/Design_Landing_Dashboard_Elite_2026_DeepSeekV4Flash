@@ -5,7 +5,7 @@ import { useTranslation } from "@/hooks/use-translation"
 import { useState } from "react";
 
 import { CalendarClock, Loader2, Send } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 import { emitDriverChanged } from "@/lib/drivers/driver-events";
 import { useLeaveTypes } from "@/hooks/use-leave-types";
@@ -79,7 +79,7 @@ function LeaveRequestForm({
   const [endDate, setEndDate] = useState(() => toDateInputValue(new Date()));
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
-  const [requestKey]=useState(() => crypto.randomUUID());
+  const [requestKey,setRequestKey]=useState(() => crypto.randomUUID());
 
   const days = diffDaysInclusive(startDate, endDate);
 
@@ -100,6 +100,9 @@ function LeaveRequestForm({
       if(!result.success)throw Error(locale==="ar"?result.errorAr:result.error)
 
       toast.success(locale==="ar"?`تم إرسال طلب إجازة ${driverName}`:`Leave request submitted for ${driverName}`);
+      // A committed request consumes its idempotency key; the next one needs a fresh key.
+      setRequestKey(crypto.randomUUID());
+      setReason("");
       onOpenChange(false);
       onSaved?.();
       emitDriverChanged({ driverId, action: "leave" });

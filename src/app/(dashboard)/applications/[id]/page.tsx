@@ -35,7 +35,7 @@ import {
   User,
   XCircle,
 } from "lucide-react"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 
 const STATUS_META: Record<
   ApplicationStatus,
