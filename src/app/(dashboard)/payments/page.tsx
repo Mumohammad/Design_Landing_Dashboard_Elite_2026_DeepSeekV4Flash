@@ -111,7 +111,7 @@ export default function PaymentsPage() {
           r.amount,
           METHOD_META[r.method]?.en ?? r.method,
           STATUS_META[r.status]?.en ?? r.status,
-          (isAr ? (r.customers?.name_ar ?? r.suppliers?.name_ar) : (r.customers?.name_en ?? r.suppliers?.name_en)) ?? "",
+          (() => { const party = r.customers ?? r.suppliers; return (isAr ? (party?.name_ar ?? party?.name_en) : (party?.name_en ?? party?.name_ar)) ?? "" })(),
           r.reference ?? "",
         ]),
       )
