@@ -1,5 +1,6 @@
 "use client"
 
+import { friendlyError } from "@/lib/errors/friendly"
 import { useCallback, useEffect, useState } from "react"
 import { useTablePage } from "@/hooks/use-table-page"
 import { DriverHistoryToolbar } from "./driver-history-toolbar"
@@ -116,7 +117,7 @@ export function ViolationsTab({ driverId, isAr }: ViolationsTabProps) {
     <div className="space-y-4">
       {historyToolbar}
       {loadError ? <p role="alert" className="text-sm text-destructive">{isAr ? "تعذر تحميل المخالفات." : "Could not load violations."} <Button variant="link" onClick={() => void load()}>{isAr ? "إعادة المحاولة" : "Retry"}</Button></p> : null}
-      {archiveError ? <p role="alert" className="text-sm text-destructive">{archiveError}</p> : null}
+      {archiveError ? <p role="alert" className="text-sm text-destructive">{friendlyError(archiveError, isAr)}</p> : null}
       <div className="flex flex-wrap items-center gap-3">
         <div className="rounded-2xl border border-border/50 bg-card/60 px-4 py-3">
           <span className="text-xs text-muted-foreground">

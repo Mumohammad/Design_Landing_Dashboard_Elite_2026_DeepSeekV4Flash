@@ -173,6 +173,11 @@ try {
     const { verifyUsersInvites } = await import("./verify-local-users.mjs")
     await verifyUsersInvites(page, admin, company.data.id, appUrl)
   }
+  if (process.env.VERIFY_VIOLATIONS_CRUD === "1") {
+    stage = "violations CRUD browser verification"
+    const { verifyViolationsCrud } = await import("./verify-local-violations.mjs")
+    await verifyViolationsCrud(page, admin, company.data.id, appUrl)
+  }
   if (process.env.VERIFY_OVERVIEWS === "1") {
     stage = "large overview search, export, pagination, and read recovery"
     const { verifyOverviews } = await import("./verify-local-overviews.mjs")

@@ -43,6 +43,7 @@ export async function verifyUsersInvites(page, admin, tenantId, appUrl) {
 
     stage = 'invite revoke'
     await page.goto(`${appUrl}/settings/users`)
+    await page.getByRole('tab', { name: /Invite/ }).click()
     const row = page.locator('tr', { hasText: email })
     await row.getByRole('button', { name: 'Revoke', exact: true }).click()
     await expect.poll(async () => (await admin.from('invites').select('status').eq('id', invite.id).single()).data?.status).toBe('revoked')
