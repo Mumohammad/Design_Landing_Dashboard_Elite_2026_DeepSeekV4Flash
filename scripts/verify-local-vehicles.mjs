@@ -53,13 +53,17 @@ export async function verifyVehiclesCrud(page, admin, tenantId, appUrl) {
     await page.getByRole('button', { name: 'Unassign', exact: true }).click()
     await expect.poll(async () => (await admin.from('vehicles').select('current_driver_id,status').eq('id', vehicleId).single()).data)
       .toMatchObject({ current_driver_id: null, status: 'available' })
+    // The record controls must pick up the new row version without a reload.
+    await expect(page.getByText('Driver unassigned')).toBeVisible()
 
     stage = 'vehicle archive'
     await page.getByRole('button', { name: 'Archive vehicle', exact: true }).click()
     dialog = page.getByRole('dialog')
     await dialog.locator('#vehicle-archive-reason').fill('Browser verification archive')
     await dialog.getByRole('button', { name: 'Archive', exact: true }).click()
-    await page.waitForURL(/\/vehicles$/)
+    await Promise.race([page.waitForURL(/\/vehicles$/), page.locator('[data-sonner-toast][data-type="error"]').first().waitFor().then(async () => {
+      throw new Error('archive toast: ' + await page.locator('[data-sonner-toast][data-type="error"]').first().innerText())
+    })])
     await expect.poll(async () => (await admin.from('vehicles').select('deleted_at').eq('id', vehicleId).single()).data?.deleted_at).not.toBeNull()
     console.log('PASS: vehicle validation/create/edit/assign/unassign/archive persisted through authenticated browser actions')
   } catch (error) {

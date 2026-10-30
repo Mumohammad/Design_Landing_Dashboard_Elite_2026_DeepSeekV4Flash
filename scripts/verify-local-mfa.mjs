@@ -168,6 +168,11 @@ try {
     const { verifyOrdersCrud } = await import("./verify-local-orders.mjs")
     await verifyOrdersCrud(page, admin, company.data.id, appUrl)
   }
+  if (process.env.VERIFY_USERS_INVITES === "1") {
+    stage = "users invite browser verification"
+    const { verifyUsersInvites } = await import("./verify-local-users.mjs")
+    await verifyUsersInvites(page, admin, company.data.id, appUrl)
+  }
   if (process.env.VERIFY_OVERVIEWS === "1") {
     stage = "large overview search, export, pagination, and read recovery"
     const { verifyOverviews } = await import("./verify-local-overviews.mjs")

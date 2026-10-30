@@ -147,6 +147,7 @@ export function AssignDriverCard({
     if (res.success) {
       toast.success(isAr ? "تم إلغاء تعيين السائق" : "Driver unassigned")
       await load()
+      onChanged?.()
     } else {
       toast.error(res.error ?? "Failed to unassign driver")
     }
