@@ -12,12 +12,13 @@
 // than fabricated values.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { endOfDay, format, startOfDay, subDays } from "date-fns"
+import { startOfDay, subDays } from "date-fns"
 import { z } from "zod"
 import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUser } from "@/lib/auth/authorization"
 import { rollupCodSessions } from "@/lib/payroll/payroll-utils"
+import { businessDateKey } from "@/lib/formatting/business-date"
 import { getFinancialKpis } from "@/lib/accounting/kpis"
 import { CACHE_TTL, cacheGet, cacheInvalidate, cacheKey } from "@/lib/cache"
 import {
@@ -129,11 +130,13 @@ async function buildDashboardSnapshot(
   const now = new Date()
   const days = PERIOD_DAYS[filters.period]
   const start = startOfDay(subDays(now, days - 1))
-  const end = endOfDay(now)
-  const prevStart = startOfDay(subDays(start, days))
-  const startIso = format(start, "yyyy-MM-dd")
-  const prevStartIso = format(prevStart, "yyyy-MM-dd")
-  const endIso = format(end, "yyyy-MM-dd")
+  // Ledger/date-keyed ranges follow the Saudi business day (Asia/Riyadh), not
+  // the server clock: between 00:00 and 03:00 Riyadh a UTC server would still
+  // be on "yesterday" and drop today's postings from the period.
+  const shiftDays = (iso: string, n: number) => new Date(Date.parse(`${iso}T00:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10)
+  const endIso = businessDateKey(now)
+  const startIso = shiftDays(endIso, days - 1)
+  const prevStartIso = shiftDays(startIso, days)
 
   const availability: Record<string, boolean> = {
     drivers: false,
