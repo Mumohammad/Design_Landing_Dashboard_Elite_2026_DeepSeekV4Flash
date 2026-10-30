@@ -762,11 +762,11 @@ export function InvoicesManager() {
 
       {/* ── Create draft dialog (Daftra-style invoice editor) ──────────── */}
       <Dialog open={createOpen} onOpenChange={(o) => { if (!o && !isSaving) setCreateOpen(false) }}>
-        <DialogContent className="max-h-[92dvh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-y-auto overflow-x-hidden rounded-2xl p-0 sm:max-w-6xl">
+        <DialogContent className="max-h-[92dvh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-y-auto overflow-x-hidden rounded-2xl p-0 sm:max-w-6xl [&>[data-slot=dialog-close]]:z-20">
           <fieldset disabled={isSaving} className="min-w-0" data-testid="invoice-draft-fields">
             <legend className="sr-only">{ar?"بيانات الفاتورة":"Invoice details"}</legend>
             {/* Top bar: title + primary actions (like Daftra: preview / save draft / save & print) */}
-            <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 border-b border-border/60 bg-background/95 px-4 py-3 pe-12 backdrop-blur sm:px-6">
+            <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 border-b border-border/60 bg-background/95 py-3 pl-4 pr-12 backdrop-blur sm:pl-6">
               <DialogHeader className="min-w-0 text-start">
                 <DialogTitle className="text-lg">{editTarget ? (ar ? "تعديل مسودة الفاتورة" : "Edit invoice draft") : (ar ? "فاتورة جديدة (مسودة)" : "New invoice (draft)")}</DialogTitle>
                 <DialogDescription className="text-xs">
