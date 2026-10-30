@@ -579,3 +579,25 @@ html {
     transition: none !important;
   }
 }
+
+/* ── Modern form controls (global, unlayered so it applies to raw inputs,
+   selects and textareas across every module). Only interaction states are
+   styled here; layout/size stays with each component's utilities. ───────── */
+:where(input:not([type=checkbox],[type=radio],[type=range],[type=file],[type=color],[type=hidden],[type=submit],[type=button]), select, textarea):not([class*="border-0"],[class*="border-none"],[data-slot=command-input]) {
+  transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease;
+}
+:where(input:not([type=checkbox],[type=radio],[type=range],[type=file],[type=color],[type=hidden],[type=submit],[type=button]), select, textarea):not([class*="border-0"],[class*="border-none"],[data-slot=command-input],:disabled,[readonly]):hover {
+  border-color: color-mix(in oklab, var(--color-elite-blue-500, #1E5A99) 45%, var(--border));
+}
+:where(input:not([type=checkbox],[type=radio],[type=range],[type=file],[type=color],[type=hidden],[type=submit],[type=button]), select, textarea):not([class*="border-0"],[class*="border-none"],[data-slot=command-input]):focus-visible {
+  border-color: var(--color-elite-blue-500, #1E5A99);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--color-elite-blue-500, #1E5A99) 16%, transparent);
+  outline: none;
+}
+:where(input, select, textarea)[aria-invalid=true]:not([class*="border-0"]) {
+  border-color: var(--destructive);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--destructive) 14%, transparent);
+}
+:where(input, textarea)::placeholder { color: color-mix(in oklab, var(--muted-foreground) 80%, transparent); }
+:where(input[type=checkbox], input[type=radio]) { accent-color: var(--color-elite-blue-600, #1a4d85); }
+:where(input[type=number]) { font-variant-numeric: tabular-nums; }

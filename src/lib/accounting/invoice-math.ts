@@ -126,3 +126,50 @@ export function computeInvoiceTotals(
     total: money(subtotal + vat),
   }
 }
+
+/** Line gross in cents: round2(quantity × unit_price), same rounding as the
+ * canonical formula. Throws on invalid precision/range. */
+export function lineGrossCents(quantity: number, unitPrice: number): bigint {
+  const qtyMills = bounded(quantity, 3, 0.001, 999999999.999)
+  const priceUnits = bounded(unitPrice, 4, 0, 9999999999.99)
+  return (qtyMills * priceUnits + BigInt(50000)) / BigInt(100000)
+}
+
+/** Percentage line discount → amount (2dp) of the line gross. */
+export function percentDiscount(quantity: number, unitPrice: number, percent: number): number {
+  const gross = lineGrossCents(quantity, unitPrice)
+  const pct = bounded(percent, 2, 0, 100)
+  return Number((gross * pct + BigInt(5000)) / BigInt(10000)) / 100
+}
+
+/** Invoice-level discount (Daftra "discount on invoice"), applied BEFORE VAT
+ * and distributed pro-rata over the lines' net amounts so every line carries its own
+ * allowance and the VAT base shrinks accordingly. Rounding
+ * remainders go to the largest lines one cent at a time. */
+export function applyInvoiceDiscount<T extends InvoiceLineInput>(
+  lines: T[],
+  discount: { mode: "percent" | "amount"; value: number },
+): T[] {
+  const value = Number(discount.value || 0)
+  if (!value) return lines
+  const nets = lines.map((l) => lineGrossCents(Number(l.quantity), Number(l.unit_price)) - bounded(Number(l.discount ?? 0), 2, 0, 9999999999.99))
+  if (nets.some((n) => n < ZERO)) throw new Error("INV002: discount exceeds line value")
+  const total = nets.reduce((a, b) => a + b, ZERO)
+  const wanted = discount.mode === "percent"
+    ? (total * bounded(value, 2, 0, 100) + BigInt(5000)) / BigInt(10000)
+    : bounded(value, 2, 0, 9999999999.99)
+  if (wanted > total) throw new Error("INV002: invoice discount exceeds invoice value")
+  if (wanted === ZERO || total === ZERO) return lines
+  const alloc = nets.map((n) => (wanted * n) / total)
+  let rest = wanted - alloc.reduce((a, b) => a + b, ZERO)
+  const order = nets.map((n, i) => [n, i] as const).sort((a, b) => (b[0] > a[0] ? 1 : b[0] < a[0] ? -1 : a[1] - b[1]))
+  while (rest > ZERO) {
+    let moved = false
+    for (const [, i] of order) {
+      if (rest === ZERO) break
+      if (alloc[i] < nets[i]) { alloc[i] += BigInt(1); rest -= BigInt(1); moved = true }
+    }
+    if (!moved) throw new Error("INV002: invoice discount exceeds invoice value")
+  }
+  return lines.map((l, i) => ({ ...l, discount: Number(bounded(Number(l.discount ?? 0), 2, 0, 9999999999.99) + alloc[i]) / 100 }))
+}
