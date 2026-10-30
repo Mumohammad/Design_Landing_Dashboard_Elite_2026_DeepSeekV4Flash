@@ -9,6 +9,7 @@
 // enroll response and is rendered locally. The TOTP URI/secret is NEVER sent
 // to third-party QR services (the previous api.qrserver.com usage leaked it).
 
+import { friendlyError, currentIsArabic } from "@/lib/errors/friendly"
 import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "@/hooks/use-translation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -108,7 +109,7 @@ export default function MfaSettingsPage() {
       setSecret(result.secret ?? null)
       setEnrollFactorId(result.factorId ?? null)
     } else {
-      setError(result.error ?? "Enrollment failed")
+      setError(friendlyError(result.error, currentIsArabic(), "Enrollment failed"))
     }
     setEnrolling(false)
   }
@@ -129,7 +130,7 @@ export default function MfaSettingsPage() {
       setVerifyCode("")
       await loadFactors()
     } else {
-      setError(result.error ?? "Verification failed")
+      setError(friendlyError(result.error, currentIsArabic(), "Verification failed"))
     }
     setVerifying(false)
   }
@@ -146,7 +147,7 @@ export default function MfaSettingsPage() {
       setSuccess(ar ? "تم تعطيل التحقق الثنائي" : "Two-factor authentication disabled")
       await loadFactors()
     } else {
-      setError(result.error ?? "Unenrollment failed")
+      setError(friendlyError(result.error, currentIsArabic(), "Unenrollment failed"))
     }
   }
 

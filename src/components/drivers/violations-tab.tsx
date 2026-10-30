@@ -1,6 +1,6 @@
 "use client"
 
-import { friendlyError } from "@/lib/errors/friendly"
+import { friendlyError, currentIsArabic } from "@/lib/errors/friendly"
 import { useCallback, useEffect, useState } from "react"
 import { useTablePage } from "@/hooks/use-table-page"
 import { DriverHistoryToolbar } from "./driver-history-toolbar"
@@ -97,7 +97,7 @@ export function ViolationsTab({ driverId, isAr }: ViolationsTabProps) {
   const softDelete = async (row: Record<string, unknown>) => {
     setArchiveError(null)
     const result = await archiveDriverProfileOperation("violations", driverId, String(row.id), String(row.updated_at ?? ""))
-    if (!result.success) { setArchiveError(result.error ?? "Failed to archive violation"); toast.error(result.error); return }
+    if (!result.success) { setArchiveError(friendlyError(result.error, currentIsArabic(), "Failed to archive violation")); toast.error(result.error); return }
     toast.success(isAr ? "تمت أرشفة المخالفة" : "Violation archived")
     emitDriverChanged({ driverId, action: "violation" })
     await load()

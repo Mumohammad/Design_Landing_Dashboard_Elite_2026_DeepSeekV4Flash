@@ -1,5 +1,6 @@
 "use client"
 
+import { friendlyError } from "@/lib/errors/friendly"
 import { LocalizedText } from "@/components/localized-text"
 import { useEffect, useRef, useState } from "react"
 import { useActionState } from "react"
@@ -96,7 +97,7 @@ export default function CompanySettingsPage() {
       if (result.configuration_version) setTenant(previous => previous ? { ...previous, configuration_version: result.configuration_version! } : previous)
       setLogoMessage({ ok: true, text: ar ? "تم حفظ الشعار." : "Logo saved." })
     } else {
-      setLogoMessage({ ok: false, text: result.error ?? (ar ? "تعذر حفظ الشعار." : "Unable to save the logo.") })
+      setLogoMessage({ ok: false, text: friendlyError(result.error, ar, ar ? "تعذر حفظ الشعار." : "Unable to save the logo.") })
     }
   }
 
@@ -110,7 +111,7 @@ export default function CompanySettingsPage() {
       if (result.configuration_version) setTenant(previous => previous ? { ...previous, configuration_version: result.configuration_version! } : previous)
       setLogoMessage({ ok: true, text: ar ? "تمت إزالة الشعار." : "Logo removed." })
     } else {
-      setLogoMessage({ ok: false, text: result.error ?? (ar ? "تعذر إزالة الشعار." : "Unable to remove the logo.") })
+      setLogoMessage({ ok: false, text: friendlyError(result.error, ar, ar ? "تعذر إزالة الشعار." : "Unable to remove the logo.") })
     }
   }
 
@@ -366,7 +367,7 @@ export default function CompanySettingsPage() {
             </span>
           )}
           {state?.error && (
-            <span className="text-sm text-red-500">{state.code ? settingsMessage(state.code, locale) : state.error}</span>
+            <span className="text-sm text-red-500">{state.code ? settingsMessage(state.code, locale) : friendlyError(state.error, ar)}</span>
           )}
         </div>
       </fieldset></form>
@@ -427,7 +428,7 @@ export default function CompanySettingsPage() {
                   <CheckCircle2 className="h-4 w-4" /> {t.common.saved}
                 </span>
               )}
-              {wpsState?.error && <span className="text-sm text-red-500">{wpsState.code ? settingsMessage(wpsState.code, locale) : wpsState.error}</span>}
+              {wpsState?.error && <span className="text-sm text-red-500">{wpsState.code ? settingsMessage(wpsState.code, locale) : friendlyError(wpsState.error, ar)}</span>}
             </div>
             <p className="mt-3 text-xs text-muted-foreground">
               {ar

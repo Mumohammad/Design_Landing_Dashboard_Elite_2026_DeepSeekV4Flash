@@ -1,5 +1,6 @@
 "use client"
 
+import { friendlyError, currentIsArabic } from "@/lib/errors/friendly"
 import Link from "next/link"
 import { LocalizedText } from "@/components/localized-text"
 import { printReportFromGesture } from "@/lib/accounting/report-print"
@@ -587,7 +588,7 @@ function AccountingPageContent() {
       const res = editTarget
         ? await updateJournalDraft({ ...payload, id: editTarget.id, expected_updated_at: editTarget.updated_at })
         : asDraft ? await createJournalDraft(payload) : await postJournalEntry(payload)
-      setJournalError(res.error ?? null)
+      setJournalError(res.error ? friendlyError(res.error, currentIsArabic()) : null)
       if (res.success) {
         closeDialog("journal")
         setLineCache({})
@@ -666,7 +667,7 @@ function AccountingPageContent() {
     setBusyEntryId(deleteTarget.id)
     const result = await deleteJournalDraft({ id: deleteTarget.id, expected_updated_at: deleteTarget.updated_at })
     setBusyEntryId(null)
-    if (!result.success) { setDeleteError(result.error ?? "Failed"); return }
+    if (!result.success) { setDeleteError(friendlyError(result.error, currentIsArabic(), "Failed")); return }
     setDeleteTarget(null)
     setLineCache({})
     setExpandedEntryId(null)
@@ -1067,7 +1068,7 @@ function AccountingPageContent() {
     const res = await changeBankAccountState({ id: bankStateTarget.bank.id,
       expected_updated_at: bankStateTarget.bank.updated_at, action: bankStateTarget.action })
     setBankBusy(false)
-    if (!res.success) { setBankStateError(res.error ?? "Failed"); return }
+    if (!res.success) { setBankStateError(friendlyError(res.error, currentIsArabic(), "Failed")); return }
     setBankStateTarget(null)
     setPayRefresh((value) => value + 1)
     flash("ok", ar ? "تم تحديث حالة الحساب البنكي." : "Bank account status updated.")
@@ -1088,7 +1089,7 @@ function AccountingPageContent() {
       flash("ok", ar ? "تم حفظ الحساب البنكي." : "Bank account saved.")
       setBankDialogOpen(false)
       setPayRefresh((value) => value + 1)
-    } else { setBankError(res.error ?? "Failed") }
+    } else { setBankError(friendlyError(res.error, currentIsArabic(), "Failed")) }
   }
 
   // Receivable form

@@ -1,5 +1,6 @@
 "use client"
 
+import { friendlyError, currentIsArabic } from "@/lib/errors/friendly"
 import { useEffect, useState } from "react"
 import { useForm, Controller } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -233,7 +234,7 @@ export function CreateOrderEntryDialog({
       onOpenChange(false)
       onCreated()
     } else {
-      setSaveError(result.error ?? "Could not save the entry. Try again.")
+      setSaveError(friendlyError(result.error, currentIsArabic(), "Could not save the entry. Try again."))
       toast.error(result.error ?? (isAr ? "حدث خطأ" : "Something went wrong"))
     }
   }

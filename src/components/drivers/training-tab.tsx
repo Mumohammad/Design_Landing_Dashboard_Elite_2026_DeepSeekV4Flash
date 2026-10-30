@@ -1,5 +1,6 @@
 "use client"
 
+import { friendlyError, currentIsArabic } from "@/lib/errors/friendly"
 import { useCallback, useEffect, useState } from "react"
 import { useTablePage } from "@/hooks/use-table-page"
 import { DriverHistoryToolbar } from "./driver-history-toolbar"
@@ -50,7 +51,7 @@ export function TrainingTab({ driverId, isAr }: TrainingTabProps) {
     setArchiveError(null)
     const result = await archiveDriverProfileOperation("training", driverId, String(row.id), String(row.updated_at ?? ""))
     if (!result.success) {
-      setArchiveError(result.error ?? "Failed to archive training record")
+      setArchiveError(friendlyError(result.error, currentIsArabic(), "Failed to archive training record"))
       toast.error(result.error)
       return
     }

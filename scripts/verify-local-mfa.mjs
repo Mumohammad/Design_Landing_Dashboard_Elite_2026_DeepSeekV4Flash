@@ -183,6 +183,11 @@ try {
     const { verifyApplicationsReview } = await import("./verify-local-applications.mjs")
     await verifyApplicationsReview(page, admin, company.data.id, appUrl)
   }
+  if (process.env.VERIFY_LEAVE_FLOW === "1") {
+    stage = "leave browser verification"
+    const { verifyLeaveFlow } = await import("./verify-local-leave.mjs")
+    await verifyLeaveFlow(page, admin, company.data.id, appUrl)
+  }
   if (process.env.VERIFY_OVERVIEWS === "1") {
     stage = "large overview search, export, pagination, and read recovery"
     const { verifyOverviews } = await import("./verify-local-overviews.mjs")
