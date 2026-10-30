@@ -178,6 +178,11 @@ try {
     const { verifyViolationsCrud } = await import("./verify-local-violations.mjs")
     await verifyViolationsCrud(page, admin, company.data.id, appUrl)
   }
+  if (process.env.VERIFY_APPLICATIONS_REVIEW === "1") {
+    stage = "applications review browser verification"
+    const { verifyApplicationsReview } = await import("./verify-local-applications.mjs")
+    await verifyApplicationsReview(page, admin, company.data.id, appUrl)
+  }
   if (process.env.VERIFY_OVERVIEWS === "1") {
     stage = "large overview search, export, pagination, and read recovery"
     const { verifyOverviews } = await import("./verify-local-overviews.mjs")
