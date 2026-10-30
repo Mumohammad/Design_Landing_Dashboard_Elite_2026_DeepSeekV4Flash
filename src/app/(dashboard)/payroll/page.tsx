@@ -370,6 +370,7 @@ export default function PayrollPage() {
         toolbarActions={
           <div className="flex flex-wrap items-center gap-2">
             <Link href="/payroll/preparation" className="inline-flex h-9 items-center rounded-xl border border-border px-3.5 text-sm font-medium hover:bg-muted">{ar ? "تحضير البيانات والسلف" : "Prepare inputs and advances"}</Link>
+            <Link href="/payroll/platform" className="inline-flex h-9 items-center rounded-xl border border-border px-3.5 text-sm font-medium hover:bg-muted">{ar ? "رواتب المنصات (استيراد Excel)" : "Platform payroll (Excel import)"}</Link>
             <select
               aria-label={ar ? "شهر الراتب" : "Payroll month"}
               value={selectedMonth}
