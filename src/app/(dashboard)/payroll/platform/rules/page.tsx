@@ -27,7 +27,7 @@ export default function PlatformPayrollRulesPage() {
     const r = await savePayrollRules({ values: Object.fromEntries(changed.map(k => [k, values[k]])) })
     setBusy(false)
     if (!r.success) { setMessage({ kind: "err", text: r.error }); return }
-    setMessage({ kind: "ok", text: tx(`${r.data.changed} rule(s) saved. Open draft runs and press Recalculate to apply them.`, `تم حفظ ${r.data.changed} قاعدة. افتح المسودات واضغط "إعادة احتساب" لتطبيقها.`) })
+    setMessage({ kind: "ok", text: tx(`${r.data.changed} rule(s) saved. ${r.data.refreshedRuns} draft payroll run(s) recalculated automatically.`, `تم حفظ ${r.data.changed} قاعدة وإعادة احتساب ${r.data.refreshedRuns} مسودة تلقائياً.`) })
     await load()
   }
 

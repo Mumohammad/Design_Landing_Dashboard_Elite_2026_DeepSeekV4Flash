@@ -117,7 +117,7 @@ span[lang="en"] { display: block; }
 .seller h1 { margin: 0 0 2pt; font-size: 12.5pt; font-weight: 700; color: #000; overflow-wrap: anywhere; }
 .identity { text-align: left; min-width: 120pt; }
 .title { margin: 0 0 6pt; font-size: 18pt; font-weight: 700; line-height: 1.2; }
-.qr { display: block; width: 76pt; height: 76pt; margin-right: auto; }
+.qr { display: block; width: 88pt; height: 88pt; margin-right: auto; image-rendering: pixelated; }
 .qr-note { max-width: 120pt; margin-top: 3pt; font-size: 6.5pt; }
 .status { display: inline-block; margin-top: 4pt; border: .75pt solid #72501b; color: #72501b; padding: 1pt 6pt; font-size: 8pt; font-weight: 700; }
 .rule { border: 0; border-top: 3pt double #000; margin: 26pt 0 18pt; }

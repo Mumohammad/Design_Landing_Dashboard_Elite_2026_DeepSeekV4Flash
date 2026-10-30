@@ -5,6 +5,8 @@ import { z } from "zod"
 import { createClient } from "@/lib/supabase/server"
 import type { DriverResultCalc, RawDriverData } from "../salary-engine"
 import { engineContext, failure, type EngineResult } from "./data"
+import { loadTenantLogoDataUrl } from "@/lib/branding/logo"
+import type { PayslipCompany } from "@/components/payroll-engine/payslip-print"
 
 const num = (v: unknown) => Number(v ?? 0) || 0
 
@@ -112,4 +114,35 @@ export async function listJournalAccounts(): Promise<EngineResult<Array<{ id: st
     if (error) return failure(error, "Could not load accounts")
     return { success: true, data: (data ?? []).map(a => ({ id: a.id, code: a.account_code, name: a.name_en || a.name_ar, type: a.account_type })) }
   } catch (e) { return failure(e, "Could not load accounts") }
+}
+
+/** Company details and logo printed on payslips (Settings → Company). */
+export async function getPayslipCompany(): Promise<EngineResult<PayslipCompany>> {
+  try {
+    const ctx = await engineContext("read")
+    const t = await ctx.admin.from("tenants").select("name_ar,name_en,legal_name,cr_number,vat_number,address,district,city,postal_code,building_number,phone,email,logo_url").eq("id", ctx.tenantId).single()
+    if (t.error) return { success: false, error: "Could not load company details" }
+    const d = t.data
+    const logoDataUrl = await loadTenantLogoDataUrl(ctx.admin, ctx.tenantId, d.logo_url).catch(() => null)
+    return { success: true, data: { nameAr: d.name_ar, nameEn: d.name_en, legalName: d.legal_name, crNumber: d.cr_number, vatNumber: d.vat_number, address: d.address, district: d.district,
+      city: d.city, postalCode: d.postal_code, buildingNumber: d.building_number, phone: d.phone, email: d.email, logoDataUrl } }
+  } catch (e) { return failure(e, "Could not load company details") }
+}
+
+export interface DriverPayslip { resultId: string; runId: string; monthKey: string; platformName: string; status: "draft" | "approved"; riderId: string; result: DriverResultCalc; bank: { beneficiaryName?: string; iban?: string; bankName?: string } | null }
+
+/** Every non-cancelled platform payroll result linked to one driver profile, newest month first. */
+export async function getDriverPayslips(driverId: unknown): Promise<EngineResult<DriverPayslip[]>> {
+  try {
+    const id = z.string().uuid().parse(driverId)
+    const ctx = await engineContext("read")
+    const rows = await ctx.admin.from("payroll_engine_results").select("id,run_id,rider_id,result,bank,payroll_engine_runs!inner(month_key,platform_name,status)")
+      .eq("tenant_id", ctx.tenantId).eq("driver_id", id).neq("payroll_engine_runs.status", "cancelled").limit(120)
+    if (rows.error) throw new Error(rows.error.message)
+    const out = (rows.data ?? []).map(r => {
+      const run = (Array.isArray(r.payroll_engine_runs) ? r.payroll_engine_runs[0] : r.payroll_engine_runs) as { month_key: string; platform_name: string; status: "draft" | "approved" }
+      return { resultId: r.id as string, runId: r.run_id as string, monthKey: run.month_key, platformName: run.platform_name, status: run.status, riderId: r.rider_id as string, result: r.result as DriverResultCalc, bank: r.bank as DriverPayslip["bank"] }
+    }).sort((a, b) => b.monthKey.localeCompare(a.monthKey) || a.platformName.localeCompare(b.platformName))
+    return { success: true, data: out }
+  } catch (e) { return failure(e, "Could not load payslips") }
 }

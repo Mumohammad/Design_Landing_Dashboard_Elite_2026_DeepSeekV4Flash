@@ -9,8 +9,11 @@ import { writeAuditLog } from "@/lib/auth/sessions"
 import { validateRuleUpdates, type RuleValues } from "../rule-validation"
 import { DEFAULT_RULE_DEFINITIONS } from "../rules"
 import { engineContext, failure, loadActiveRules, loadDriversByRider, type EngineResult } from "./data"
+import { refreshDraftRuns } from "./recalc"
 
-function revalidateAll() {
+function revalidateAll(runIds: readonly string[] = []) {
+  for (const id of runIds) revalidatePath(`/payroll/platform/runs/${id}`)
+  revalidatePath("/payroll/platform/income-expenses")
   revalidatePath("/payroll/platform")
   revalidatePath("/payroll/platform/rules")
   revalidatePath("/payroll/platform/adjustments")
@@ -31,7 +34,7 @@ export async function getPayrollRules(): Promise<EngineResult<{ id: string; name
   } catch (e) { return failure(e, "Could not load payroll rules") }
 }
 
-export async function savePayrollRules(input: unknown): Promise<EngineResult<{ changed: number }>> {
+export async function savePayrollRules(input: unknown): Promise<EngineResult<{ changed: number; refreshedRuns: number }>> {
   try {
     const p = z.object({ values: z.record(z.string(), z.unknown()) }).safeParse(input)
     if (!p.success) return { success: false, error: "Invalid request" }
@@ -41,14 +44,15 @@ export async function savePayrollRules(input: unknown): Promise<EngineResult<{ c
     const current = await loadActiveRules(ctx)
     const next = { ...current.values, ...checked.values }
     const changed = Object.keys(checked.values).filter(k => JSON.stringify(current.values[k]) !== JSON.stringify(next[k]))
-    if (changed.length === 0) return { success: true, data: { changed: 0 } }
+    if (changed.length === 0) return { success: true, data: { changed: 0, refreshedRuns: 0 } }
     const { error } = await ctx.admin.from("payroll_engine_rule_sets").update({ rule_values: next, updated_by: ctx.userId, updated_at: now() })
       .eq("id", current.id).eq("tenant_id", ctx.tenantId)
     if (error) return failure(error, "Could not save rules")
     await writeAuditLog({ tenantId: ctx.tenantId, actorId: ctx.userId, module: "payroll", action: "platform_payroll_rules_updated", entityType: "payroll_engine_rule_sets", entityId: current.id,
       oldValues: Object.fromEntries(changed.map(k => [k, current.values[k]])), newValues: Object.fromEntries(changed.map(k => [k, next[k]])) })
-    revalidateAll()
-    return { success: true, data: { changed: changed.length } }
+    const { refreshed } = await refreshDraftRuns(ctx, null)
+    revalidateAll(refreshed)
+    return { success: true, data: { changed: changed.length, refreshedRuns: refreshed.length } }
   } catch (e) { return failure(e, "Could not save rules") }
 }
 
@@ -85,7 +89,7 @@ const itemSchema = z.object({
   }
 })
 
-export async function savePayrollItem(input: unknown): Promise<EngineResult<{ id: string }>> {
+export async function savePayrollItem(input: unknown): Promise<EngineResult<{ id: string; refreshedRuns: number }>> {
   try {
     const p = itemSchema.safeParse(input)
     if (!p.success) return { success: false, error: p.error.issues.map(i => i.message).join("; ") }
@@ -112,8 +116,10 @@ export async function savePayrollItem(input: unknown): Promise<EngineResult<{ id
       id = data.id as string
     }
     await writeAuditLog({ tenantId: ctx.tenantId, actorId: ctx.userId, module: "payroll", action: v.id ? "platform_payroll_item_updated" : "platform_payroll_item_created", entityType: "payroll_engine_items", entityId: id, newValues: row })
-    revalidateAll()
-    return { success: true, data: { id: id! } }
+    // Target lists can change on edit, so every draft run is refreshed.
+    const { refreshed } = await refreshDraftRuns(ctx, null)
+    revalidateAll(refreshed)
+    return { success: true, data: { id: id!, refreshedRuns: refreshed.length } }
   } catch (e) { return failure(e, "Could not save item") }
 }
 
@@ -131,7 +137,7 @@ const adjustmentSchema = z.object({
   notes: optText(500),
 })
 
-export async function savePayrollAdjustment(input: unknown): Promise<EngineResult<{ id: string }>> {
+export async function savePayrollAdjustment(input: unknown): Promise<EngineResult<{ id: string; refreshedRuns: number }>> {
   try {
     const p = adjustmentSchema.safeParse(input)
     if (!p.success) return { success: false, error: p.error.issues.map(i => i.message).join("; ") }
@@ -141,7 +147,10 @@ export async function savePayrollAdjustment(input: unknown): Promise<EngineResul
     const row = { rider_id: v.riderId, driver_id: driver?.id ?? null, title: v.title, title_ar: v.titleAr, amount: v.amount, adjustment_type: v.adjustmentType,
       category: v.category, status: v.status, notes: v.notes, updated_at: now() }
     let id = v.id
+    const riders = [v.riderId]
     if (id) {
+      const prev = await ctx.admin.from("payroll_engine_adjustments").select("rider_id").eq("id", id).eq("tenant_id", ctx.tenantId).maybeSingle()
+      if (prev.data?.rider_id && prev.data.rider_id !== v.riderId) riders.push(prev.data.rider_id as string)
       const { error, count } = await ctx.admin.from("payroll_engine_adjustments").update(row, { count: "exact" }).eq("id", id).eq("tenant_id", ctx.tenantId)
       if (error) return failure(error, "Could not save adjustment")
       if (!count) return { success: false, error: "Adjustment not found" }
@@ -151,8 +160,9 @@ export async function savePayrollAdjustment(input: unknown): Promise<EngineResul
       id = data.id as string
     }
     await writeAuditLog({ tenantId: ctx.tenantId, actorId: ctx.userId, module: "payroll", action: v.id ? "platform_payroll_adjustment_updated" : "platform_payroll_adjustment_created", entityType: "payroll_engine_adjustments", entityId: id, newValues: row })
-    revalidateAll()
-    return { success: true, data: { id: id! } }
+    const { refreshed } = await refreshDraftRuns(ctx, riders)
+    revalidateAll(refreshed)
+    return { success: true, data: { id: id!, refreshedRuns: refreshed.length } }
   } catch (e) { return failure(e, "Could not save adjustment") }
 }
 
@@ -174,7 +184,7 @@ const trafficSchema = z.object({
   if (v.installmentEnabled && v.installmentMonthlyAmount > v.amount) c.addIssue({ code: "custom", message: "Monthly installment cannot exceed the fine amount" })
 })
 
-export async function savePayrollTrafficFine(input: unknown): Promise<EngineResult<{ id: string }>> {
+export async function savePayrollTrafficFine(input: unknown): Promise<EngineResult<{ id: string; refreshedRuns: number }>> {
   try {
     const p = trafficSchema.safeParse(input)
     if (!p.success) return { success: false, error: p.error.issues.map(i => i.message).join("; ") }
@@ -185,9 +195,11 @@ export async function savePayrollTrafficFine(input: unknown): Promise<EngineResu
       amount: v.amount, status: v.status, notes: v.notes, installment_enabled: v.installmentEnabled,
       installment_monthly_amount: v.installmentEnabled ? v.installmentMonthlyAmount : 0, updated_at: now() }
     let id = v.id
+    let prevRider: string | null = null
     if (id) {
-      const prev = await ctx.admin.from("payroll_engine_traffic_fines").select("installment_total_paid").eq("id", id).eq("tenant_id", ctx.tenantId).single()
+      const prev = await ctx.admin.from("payroll_engine_traffic_fines").select("installment_total_paid,rider_id").eq("id", id).eq("tenant_id", ctx.tenantId).single()
       if (prev.error) return { success: false, error: "Traffic fine not found" }
+      prevRider = (prev.data.rider_id as string | null) ?? null
       const paid = Number(prev.data.installment_total_paid) || 0
       if (v.installmentEnabled && paid > v.amount) return { success: false, error: "Fine amount cannot be below what was already paid" }
       const { error } = await ctx.admin.from("payroll_engine_traffic_fines").update({ ...row, installment_total_paid: v.installmentEnabled ? paid : 0,
@@ -200,8 +212,9 @@ export async function savePayrollTrafficFine(input: unknown): Promise<EngineResu
       id = data.id as string
     }
     await writeAuditLog({ tenantId: ctx.tenantId, actorId: ctx.userId, module: "payroll", action: v.id ? "platform_payroll_traffic_updated" : "platform_payroll_traffic_created", entityType: "payroll_engine_traffic_fines", entityId: id, newValues: row })
-    revalidateAll()
-    return { success: true, data: { id: id! } }
+    const { refreshed } = await refreshDraftRuns(ctx, [v.riderId, ...(prevRider && prevRider !== v.riderId ? [prevRider] : [])])
+    revalidateAll(refreshed)
+    return { success: true, data: { id: id!, refreshedRuns: refreshed.length } }
   } catch (e) { return failure(e, "Could not save traffic fine") }
 }
 
@@ -209,12 +222,14 @@ export async function savePayrollTrafficFine(input: unknown): Promise<EngineResu
 
 const DELETABLE = { item: "payroll_engine_items", adjustment: "payroll_engine_adjustments", traffic: "payroll_engine_traffic_fines" } as const
 
-export async function deletePayrollRecord(input: unknown): Promise<EngineResult> {
+export async function deletePayrollRecord(input: unknown): Promise<EngineResult<{ refreshedRuns: number }>> {
   try {
     const p = z.object({ kind: z.enum(["item", "adjustment", "traffic"]), id: z.string().uuid() }).safeParse(input)
     if (!p.success) return { success: false, error: "Invalid request" }
     const ctx = await engineContext("update") // no payroll:delete permission exists; edits are audited
     const table = DELETABLE[p.data.kind]
+    let rider: string | null = null
+    if (p.data.kind !== "item") rider = ((await ctx.admin.from(table).select("rider_id").eq("id", p.data.id).eq("tenant_id", ctx.tenantId).maybeSingle()).data?.rider_id as string | undefined) ?? null
     // Installment progress already applied by an approved run must not vanish silently.
     if (p.data.kind !== "adjustment") {
       const prev = await ctx.admin.from(table).select("installment_total_paid").eq("id", p.data.id).eq("tenant_id", ctx.tenantId).single()
@@ -225,7 +240,8 @@ export async function deletePayrollRecord(input: unknown): Promise<EngineResult>
     if (error) return failure(error, "Delete failed")
     if (!count) return { success: false, error: "Record not found" }
     await writeAuditLog({ tenantId: ctx.tenantId, actorId: ctx.userId, module: "payroll", action: `platform_payroll_${p.data.kind}_deleted`, entityType: table, entityId: p.data.id })
-    revalidateAll()
-    return { success: true, data: undefined }
+    const { refreshed } = await refreshDraftRuns(ctx, p.data.kind === "item" ? null : rider ? [rider] : [])
+    revalidateAll(refreshed)
+    return { success: true, data: { refreshedRuns: refreshed.length } }
   } catch (e) { return failure(e, "Delete failed") }
 }
