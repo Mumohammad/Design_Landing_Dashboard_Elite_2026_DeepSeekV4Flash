@@ -38,7 +38,7 @@ export async function verifyInvoiceReferenceAndPages(page,admin,tenantId,appUrl)
  if(target.kind==='loopback'){
   const [health,landing]=await Promise.all([page.request.get(appUrl+'/api/health',{maxRedirects:0,timeout:30000}),page.request.get(appUrl+'/landing',{maxRedirects:0,timeout:30000})])
   const policy=landing.headers()['content-security-policy']??'',connect=(policy.split(';').map(x=>x.trim()).find(x=>x.startsWith('connect-src '))??'').split(/\s+/).slice(1)
-  const allowedConnect=new Set(["'self'",target.backend,target.backend.replace(/^http/,'ws'),'https://api.resend.com','https://api.emailjs.com','https://zatca.gov.sa','https://*.ingest.sentry.io'])
+  const allowedConnect=new Set(["'self'",target.backend,target.backend.replace(/^http/,'ws'),'https://api.resend.com','https://api.emailjs.com','https://zatca.gov.sa','https://*.ingest.sentry.io','https://*.ingest.de.sentry.io'])
   if(health.status()!==200||landing.status()!==200||(await health.json()).status!=='healthy'||!connect.includes(target.backend)||connect.some(source=>!allowedConnect.has(source)))throw Error('Healthy exclusively local invoice runtime required')
  }else await preflightAcceptanceTarget({backendUrl:admin.supabaseUrl,appUrl,expectedCommit:sha})
  if(!uuid.test(process.env.VERIFY_RELEASE_RUN_ID??''))throw Error('Owned invoice acceptance run required')
