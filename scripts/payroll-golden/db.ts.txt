@@ -1,0 +1,23 @@
+// In-memory stand-in for Prisma used only to execute the ORIGINAL helpers.
+type Row = Record<string, any>
+export const state: Record<string, Row[]> = { customBonus: [], customDeduction: [], manualAdjustment: [], trafficViolation: [], expense: [], driverCount: [], incomeRecord: [], payrollRun: [] }
+function match(row: Row, where: Row = {}): boolean {
+  return Object.entries(where).every(([k, v]) => {
+    if (v && typeof v === 'object' && 'in' in v) return (v.in as any[]).includes(row[k])
+    if (v && typeof v === 'object' && 'contains' in v) return String(row[k] ?? '').includes(v.contains)
+    return row[k] === v
+  })
+}
+function model(name: string) {
+  return {
+    findMany: async ({ where, distinct }: any = {}) => {
+      let rows = state[name].filter(r => match(r, where))
+      if (distinct) { const seen = new Set(); rows = rows.filter(r => { const k = distinct.map((d: string) => r[d]).join('|'); if (seen.has(k)) return false; seen.add(k); return true }) }
+      return rows.map(r => ({ ...r }))
+    },
+    findUnique: async ({ where }: any) => { const r = state[name].find(x => match(x, where)); return r ? { ...r } : null },
+    findFirst: async ({ where }: any) => { const r = state[name].find(x => match(x, where)); return r ? { ...r, _count: { results: r.resultCount ?? 0 } } : null },
+    update: async ({ where, data }: any) => { const r = state[name].find(x => match(x, where)); Object.assign(r!, data); return r },
+  }
+}
+export const db: any = new Proxy({}, { get: (_t, p: string) => model(p) })

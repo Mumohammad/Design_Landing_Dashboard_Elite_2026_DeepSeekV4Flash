@@ -1,0 +1,57 @@
+// Executes the ORIGINAL Payroll-Sys-2026 logic (import route orchestration) on each scenario.
+import { readFileSync, writeFileSync } from 'fs'
+import { state } from './orig/db'
+import { getDefaultRuleMap } from './orig/rules'
+import { parseWorkbook } from './orig/excel-parser'
+import { calculateDriverSalary } from './orig/salary-engine'
+import { getAllRiderTrafficDeductions, processInstallmentDeductions } from './orig/traffic-helpers'
+import { getAllRiderManualAdjustments } from './orig/manual-adjustment-helpers'
+import { getActiveCustomBonuses, getBonusesForRider } from './orig/custom-bonus-helpers'
+import { getActiveCustomDeductions, getDeductionsForRider, processCustomDeductionInstallments } from './orig/custom-deduction-helpers'
+import { calculateIncome, calculateExpensesFromList, getActiveDriverCount } from './orig/income-expenses-engine'
+import { driverExceptionRows, sumTotals } from './orig/payroll-persist'
+const FX = '/data/app/src/lib/payroll-engine/__fixtures__/'
+const scenarios = JSON.parse(readFileSync(FX + 'scenarios.json', 'utf8'))
+const out: any = {}
+for (const sc of scenarios) {
+  for (const k of Object.keys(state)) state[k] = []
+  const clone = (x: any) => JSON.parse(JSON.stringify(x ?? []))
+  state.customBonus = clone(sc.sources.customBonuses); state.customDeduction = clone(sc.sources.customDeductions)
+  state.manualAdjustment = clone(sc.sources.manualAdjustments); state.trafficViolation = clone(sc.sources.trafficViolations)
+  const parsed = parseWorkbook(readFileSync(FX + sc.workbook))
+  const snapshot: any = { ...getDefaultRuleMap(), ...sc.rules }
+  const riderIds = parsed.drivers.map(d => d.riderId)
+  const [trafficByRider, manualByRider, customBonuses, customDeductions] = await Promise.all([
+    getAllRiderTrafficDeductions(riderIds), getAllRiderManualAdjustments(riderIds), getActiveCustomBonuses(), getActiveCustomDeductions()])
+  const results = parsed.drivers.map(raw => {
+    raw.trafficViolationsTotal = trafficByRider.get(raw.riderId)?.total ?? 0
+    raw.customBonuses = getBonusesForRider(customBonuses, raw.riderId).map(b => ({ name: b.name, nameAr: b.nameAr, amount: b.amount }))
+    raw.customDeductions = getDeductionsForRider(customDeductions, raw.riderId).map(d => ({ name: d.name, nameAr: d.nameAr, amount: d.amount, monthlyDeduction: d.monthlyDeduction }))
+    raw.manualBonuses = (manualByRider.get(raw.riderId)?.bonuses ?? []).map(b => ({ title: b.title, titleAr: b.titleAr, amount: b.amount }))
+    raw.manualDeductions = (manualByRider.get(raw.riderId)?.deductions ?? []).map(d => ({ title: d.title, titleAr: d.titleAr, amount: d.amount }))
+    return calculateDriverSalary(raw, snapshot, 'Golden rules', sc.payrollMonth)
+  })
+  const incomeRows = results.map(result => {
+    const p = result.penalties
+    const d = { basicPayment: result.uploadedBasicPayment || 0, distancePayment: p.distance || 0, segmentPayment: p.segment || 0,
+      acceptancePenalty: p.acceptance || 0, contactPenalty: p.contact || 0, stackingDeduction: p.stacking || 0, declinedPenalty: p.declined || 0,
+      latePenalty: p.late || 0, noShowPenalty: p.noshow || 0, noShowSpecialPenalty: p.noshow_special || 0, dailyAcceptancePenalty: p.daily_acceptance || 0,
+      missedDaysPenalty: p.missed_days || 0, riderBalance: p.rider_balance || 0, customFieldsJson: null }
+    const calc = calculateIncome(d)
+    return { riderId: result.riderId, ...d, totalIncome: calc.totalIncome, totalPenalties: calc.totalPenalties }
+  })
+  state.driverCount = [{ month: 'M', activeDriverCount: results.length }]
+  const activeDriverCount = await getActiveDriverCount('M')
+  const expenseAllocations = results.map(r => ({ riderId: r.riderId, ...calculateExpensesFromList(sc.expenses, r.riderId, activeDriverCount) }))
+  const exceptions = [
+    ...parsed.warnings.map(w => ({ code: 'IMPORT_WARNING', severity: 'warning', source: 'parser', rowRef: null, message: w, suggestedAction: 'Review source workbook structure' })),
+    ...results.flatMap(r => driverExceptionRows('RUN', r).map(({ payrollRunId, ...rest }) => rest)),
+  ]
+  await processCustomDeductionInstallments(); await processInstallmentDeductions(riderIds)
+  out[sc.id] = { parsed: { warnings: parsed.warnings, banking: parsed.banking, driverBanking: parsed.driverBanking, sheetNames: parsed.sheetNames, riderCount: parsed.drivers.length },
+    results, totals: sumTotals(results), exceptions, incomeRows, activeDriverCount, expenseAllocations,
+    installmentsAfter: { customDeductions: state.customDeduction.map(d => ({ id: d.id, installmentTotalPaid: d.installmentTotalPaid, installmentStatus: d.installmentStatus })),
+      trafficViolations: state.trafficViolation.map(v => ({ id: v.id, installmentTotalPaid: v.installmentTotalPaid, installmentStatus: v.installmentStatus })) } }
+}
+writeFileSync(FX + 'golden.json', JSON.stringify(out, null, 1))
+console.log(Object.entries(out).map(([k, v]: any) => `${k}: riders=${v.results.length} net=${v.totals.totalNet} exc=${v.exceptions.length}`).join('\n'))
