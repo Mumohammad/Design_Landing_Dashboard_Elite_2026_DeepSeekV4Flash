@@ -35,11 +35,17 @@ export async function verifyLeaveFlow(page, admin, tenantId, appUrl) {
     }
     await panel.getByRole('button', { name: 'Request Leave', exact: true }).click()
     let dialog = page.getByRole('dialog')
-    await dialog.locator('#leave-start').fill(day(20))
-    await dialog.locator('#leave-end').fill(day(22))
+    const submit = dialog.getByRole('button', { name: 'Submit Request', exact: true })
+    await dialog.locator('#leave-start').fill(day(22))
+    await dialog.locator('#leave-end').fill(day(20))
     await dialog.locator('#leave-reason').fill('Family visit abroad')
-    // No leave type chosen: the request cannot be submitted.
-    await expect(dialog.getByRole('button', { name: 'Submit Request', exact: true })).toBeDisabled()
+    // End before start cannot be submitted; neither can a too-short reason.
+    await expect(submit).toBeDisabled()
+    await dialog.locator('#leave-end').fill(day(23))
+    await dialog.locator('#leave-reason').fill('abc')
+    await expect(submit).toBeDisabled()
+    await dialog.locator('#leave-reason').fill('Family visit abroad')
+    await expect(submit).toBeEnabled()
     await page.keyboard.press('Escape')
     await expect(dialog).toBeHidden()
 
@@ -63,7 +69,7 @@ export async function verifyLeaveFlow(page, admin, tenantId, appUrl) {
     await pending.getByLabel('Review reason').fill('Peak season, no cover available')
     await pending.getByRole('button', { name: 'Reject', exact: true }).click()
     await expect.poll(async () => (await rows()).map(r => r.status)).toEqual(['approved', 'rejected'])
-    console.log('PASS: driver leave type gate/request/review gate/approve/reject persisted through authenticated browser actions')
+    console.log('PASS: driver leave date and reason gates/request/review gate/approve/reject persisted through authenticated browser actions')
   } catch (error) {
     console.error(JSON.stringify({ check: 'leave', stage, errorType: error.name, detail: String(error.message).slice(0, 400) }))
     throw new Error(`Leave browser verification failed: ${stage}`)
