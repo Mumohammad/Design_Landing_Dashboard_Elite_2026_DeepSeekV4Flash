@@ -49,6 +49,15 @@ export async function verifyLeaveFlow(page, admin, tenantId, appUrl) {
     await page.keyboard.press('Escape')
     await expect(dialog).toBeHidden()
 
+    stage = 'leave hire date guidance'
+    dialog = await request(day(20), day(22), 'Family visit abroad')
+    await expect(page.getByText(/hire date/).first()).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(dialog).toBeHidden()
+    expect((await admin.from('drivers').update({ hire_date: day(-400) }).eq('id', driver.data.id)).error).toBeNull()
+    await page.reload()
+    await page.getByRole('tab', { name: 'Leave', exact: true }).click()
+
     stage = 'leave request'
     dialog = await request(day(20), day(22), 'Family visit abroad')
     await expect(dialog).toBeHidden()
