@@ -29,3 +29,33 @@ const messages:Record<SettingsCode,{ar:string;en:string}>={
  SETTINGS_UNAVAILABLE:{ar:"تعذر تأكيد نتيجة الحفظ. أعد تحميل الصفحة وراجع القيم قبل المحاولة.",en:"The save result could not be confirmed. Reload and review the values before retrying."},
 }
 export function settingsMessage(code:SettingsCode,locale:"ar"|"en"):string{return messages[code]?.[locale]??messages.SETTINGS_UNAVAILABLE[locale]}
+const companyFieldLabels:Record<string,{ar:string;en:string;hint:{ar:string;en:string}}>={
+ name_ar:{ar:"الاسم بالعربية",en:"Arabic name",hint:{ar:"مطلوب",en:"required"}},
+ name_en:{ar:"الاسم بالإنجليزية",en:"English name",hint:{ar:"مطلوب",en:"required"}},
+ cr_number:{ar:"السجل التجاري",en:"CR number",hint:{ar:"10 أرقام",en:"10 digits"}},
+ vat_number:{ar:"الرقم الضريبي",en:"VAT number",hint:{ar:"15 رقماً يبدأ وينتهي بالرقم 3",en:"15 digits starting and ending with 3"}},
+ building_number:{ar:"رقم المبنى",en:"Building number",hint:{ar:"4 أرقام",en:"4 digits"}},
+ additional_number:{ar:"الرقم الإضافي",en:"Additional number",hint:{ar:"4 أرقام",en:"4 digits"}},
+ postal_code:{ar:"الرمز البريدي",en:"Postal code",hint:{ar:"5 أرقام",en:"5 digits"}},
+ email:{ar:"البريد الإلكتروني",en:"Email",hint:{ar:"بريد إلكتروني صالح",en:"a valid email address"}},
+ country:{ar:"الدولة",en:"Country",hint:{ar:"مطلوب",en:"required"}},
+ timezone:{ar:"المنطقة الزمنية",en:"Timezone",hint:{ar:"مطلوب",en:"required"}},
+}
+/** Returns a localized message naming the first invalid company field, or null when valid. */
+export function companyFieldIssue(input:unknown,locale:"ar"|"en"):string|null{
+ const parsed=companySettingsSchema.safeParse(input)
+ if(parsed.success)return null
+ const key=String(parsed.error.issues[0]?.path?.[0]??"")
+ const label=companyFieldLabels[key]
+ if(!label)return settingsMessage("SETTINGS_INVALID",locale)
+ return locale==="ar"?`${label.ar}: القيمة غير صالحة (${label.hint.ar}).`:`${label.en} is invalid (${label.hint.en}).`
+}
+/** Returns a localized message naming the invalid WPS field, or null when valid. */
+export function wpsFieldIssue(input:{molReference:string;wpsIban:string},locale:"ar"|"en"):string|null{
+ const parsed=wpsSettingsSchema.safeParse(input)
+ if(parsed.success)return null
+ const key=String(parsed.error.issues[0]?.path?.[0]??"")
+ if(key==="wpsIban")return locale==="ar"?"رقم الآيبان غير صالح (SA متبوعاً بـ 22 رقماً مع رقم تحقق صحيح).":"IBAN is invalid (SA followed by 22 digits with a valid check digit)."
+ if(key==="molReference")return locale==="ar"?"مرجع وزارة الموارد البشرية غير صالح (أحرف وأرقام فقط، حتى 50).":"MOL reference is invalid (letters and digits only, up to 50)."
+ return settingsMessage("SETTINGS_INVALID",locale)
+}

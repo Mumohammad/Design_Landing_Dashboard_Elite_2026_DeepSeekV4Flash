@@ -261,7 +261,8 @@ const nextConfig: NextConfig = {
 
 export default withSentryConfig(nextConfig, {
   // Automatically tree-shake Sentry logger to reduce bundle size
-  silent: true,
+  // Print source-map upload results in Vercel build logs.
+  silent: !process.env.VERCEL,
   org: process.env.SENTRY_ORG,
   project: process.env.SENTRY_PROJECT,
   // Auth token for source map uploads (CI only — never commit)

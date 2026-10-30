@@ -4,7 +4,7 @@ import { friendlyError } from "@/lib/errors/friendly"
 import { LocalizedText } from "@/components/localized-text"
 import { useEffect, useRef, useState } from "react"
 import { useActionState } from "react"
-import { settingsMessage } from "@/lib/settings/schema"
+import { settingsMessage, companyFieldIssue, wpsFieldIssue } from "@/lib/settings/schema"
 import { useTranslation } from "@/hooks/use-translation"
 import { updateCompanyProfile, updateCompanyWpsSettings, fetchCompanyProfile, uploadCompanyLogo, removeCompanyLogo, type CompanyProfileInput, type CompanyProfile, type SettingsActionResult } from "@/lib/settings/actions"
 import { LOGO_ACCEPT, logoPrepMessage, prepareLogoFile } from "@/lib/branding/logo-client"
@@ -153,7 +153,7 @@ export default function CompanySettingsPage() {
     load()
   }, [])
 
-  const [state, formAction, isPending] = useActionState<SettingsActionResult | null, FormData>(
+  const [state, formAction, isPending] = useActionState<(SettingsActionResult & { localMessage?: string }) | null, FormData>(
     async () => {
       const input: CompanyProfileInput = {
         name_ar: nameAr.trim(),
@@ -174,6 +174,8 @@ export default function CompanySettingsPage() {
         timezone: timezone.trim(),
         default_locale: defaultLocale,
       }
+      const issue = companyFieldIssue(input, locale)
+      if (issue) return { success: false, error: issue, localMessage: issue }
       const result = await updateCompanyProfile(input, tenant?.configuration_version ?? 0)
       if (result.success && result.configuration_version) setTenant(previous => previous ? { ...previous, configuration_version: result.configuration_version! } : previous)
       return result
@@ -181,8 +183,10 @@ export default function CompanySettingsPage() {
     null
   )
 
-  const [wpsState, wpsAction, isSavingWps] = useActionState<SettingsActionResult | null, FormData>(
+  const [wpsState, wpsAction, isSavingWps] = useActionState<(SettingsActionResult & { localMessage?: string }) | null, FormData>(
     async () => {
+      const issue = wpsFieldIssue({ molReference, wpsIban }, locale)
+      if (issue) return { success: false, error: issue, localMessage: issue }
       const result = await updateCompanyWpsSettings({ molReference, wpsIban }, tenant?.configuration_version ?? 0)
       if (result.success && result.configuration_version) setTenant(previous => previous ? { ...previous, configuration_version: result.configuration_version! } : previous)
       return result
@@ -367,7 +371,7 @@ export default function CompanySettingsPage() {
             </span>
           )}
           {state?.error && (
-            <span className="text-sm text-red-500">{state.code ? settingsMessage(state.code, locale) : friendlyError(state.error, ar)}</span>
+            <span className="text-sm text-red-500" role="alert" data-testid="company-settings-error">{state.localMessage ?? (state.code ? settingsMessage(state.code, locale) : friendlyError(state.error, ar))}</span>
           )}
         </div>
       </fieldset></form>
@@ -428,7 +432,7 @@ export default function CompanySettingsPage() {
                   <CheckCircle2 className="h-4 w-4" /> {t.common.saved}
                 </span>
               )}
-              {wpsState?.error && <span className="text-sm text-red-500">{wpsState.code ? settingsMessage(wpsState.code, locale) : friendlyError(wpsState.error, ar)}</span>}
+              {wpsState?.error && <span className="text-sm text-red-500" role="alert" data-testid="wps-settings-error">{wpsState.localMessage ?? (wpsState.code ? settingsMessage(wpsState.code, locale) : friendlyError(wpsState.error, ar))}</span>}
             </div>
             <p className="mt-3 text-xs text-muted-foreground">
               {ar

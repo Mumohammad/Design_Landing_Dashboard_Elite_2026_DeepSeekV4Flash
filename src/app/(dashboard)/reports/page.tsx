@@ -221,8 +221,9 @@ export default function ReportsPage() {
               onChange={(e) => setReportType(e.target.value as ReportType)}
               className="h-9 rounded-xl border border-border/50 bg-muted/30 px-3 text-sm"
             >
-              {REPORT_TYPES.map((rt) => (
-                <option key={rt} value={rt} disabled={rt === "custom"}>{reportNames[rt]}{rt === "custom" ? (ar ? " — غير متاح بعد" : " — not available yet") : ""}</option>
+              {/* "custom" is not offered until it is implemented. */}
+              {REPORT_TYPES.filter((rt) => rt !== "custom").map((rt) => (
+                <option key={rt} value={rt}>{reportNames[rt]}</option>
               ))}
             </select>
             <select

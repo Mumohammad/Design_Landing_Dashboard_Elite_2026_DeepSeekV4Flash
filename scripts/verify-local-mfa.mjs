@@ -188,6 +188,16 @@ try {
     const { verifyLeaveFlow } = await import("./verify-local-leave.mjs")
     await verifyLeaveFlow(page, admin, company.data.id, appUrl)
   }
+  if (process.env.VERIFY_REPORTS === "1") {
+    stage = "reports browser verification"
+    const { verifyReports } = await import("./verify-local-reports.mjs")
+    await verifyReports(page, admin, company.data.id, appUrl)
+  }
+  if (process.env.VERIFY_SETTINGS === "1") {
+    stage = "settings browser verification"
+    const { verifySettings } = await import("./verify-local-settings.mjs")
+    await verifySettings(page, admin, company.data.id, appUrl)
+  }
   if (process.env.VERIFY_OVERVIEWS === "1") {
     stage = "large overview search, export, pagination, and read recovery"
     const { verifyOverviews } = await import("./verify-local-overviews.mjs")
