@@ -101,7 +101,7 @@ export async function verifyIssuanceLedger(sql) {
   await assert.rejects(sql(`UPDATE public.zatca_document_issuances SET issued_at=now() WHERE tenant_id='${tenant}'`),/ZTC_IMMUTABLE/)
   await assert.rejects(sql(`DELETE FROM public.zatca_document_issuances WHERE tenant_id='${tenant}'`),/ZTC_IMMUTABLE/)
   await assert.rejects(sql(`UPDATE public.zatca_issuance_streams SET last_counter=99 WHERE id='${stream}'`),/ZTC_CHAIN/)
-  await assert.rejects(sql(`INSERT INTO public.zatca_issuance_streams(tenant_id,environment,egs_serial) VALUES ('${tenant}','production','UNAVAILABLE')`),/check constraint/)
+  await assert.rejects(sql(`INSERT INTO public.zatca_issuance_streams(tenant_id,environment,egs_serial) VALUES ('${tenant}','live','UNAVAILABLE')`),/check constraint/)
   await assert.rejects(sql(`INSERT INTO public.zatca_issuance_streams(tenant_id,environment,egs_serial,last_counter) VALUES ('${tenant}','sandbox','BAD-GENESIS',1)`),/ZTC_CHAIN/)
   stage="tenant RLS and RPC privileges"
   const context=who=>`BEGIN; SET LOCAL ROLE authenticated; SET LOCAL request.jwt.claims='{"sub":"${who}","role":"authenticated","aal":"aal2"}'; SET LOCAL request.jwt.claim.sub='${who}';`
