@@ -251,7 +251,7 @@ export default function UsersSettingsPage() {
                   <select
                     id="inviteRole"
                     name="role"
-                    className="h-9 rounded-md border border-input bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="h-9 rounded-xl border border-input bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     {Object.keys(ROLE_AR).filter(r=>r!=="general_manager").map((r) => (
                       <option key={r} value={r}>

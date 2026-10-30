@@ -12,7 +12,7 @@ import {Input} from "@/components/ui/input"
 import {Label} from "@/components/ui/label"
 import {Textarea} from "@/components/ui/textarea"
 import {Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription,DialogFooter} from "@/components/ui/dialog"
-const selectClass="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+const selectClass="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 const docTypes=[['registration','Registration','استمارة'],['insurance','Insurance','تأمين'],['inspection','Inspection','فحص'],['operating_card','Operating card','بطاقة تشغيل'],['ownership','Ownership','ملكية'],['modification_permit','Modification permit','تصريح تعديل'],['other','Other','أخرى']] as const
 function Field({id,label,children}:{id:string;label:string;children:React.ReactNode}){return <div className="grid gap-2"><Label htmlFor={id}>{label}</Label>{children}</div>}
 function Pagination({page,count,setPage,ar}:{page:number;count:number;setPage:(v:number)=>void;ar:boolean}){return <div className="flex items-center justify-end gap-3 pt-3"><Button variant="outline" size="sm" disabled={page===0} onClick={()=>setPage(page-1)}>{ar?"السابق":"Previous"}</Button><span className="text-sm tabular-nums">{page+1} / {Math.max(1,Math.ceil(count/25))}</span><Button variant="outline" size="sm" disabled={(page+1)*25>=count} onClick={()=>setPage(page+1)}>{ar?"التالي":"Next"}</Button></div>}

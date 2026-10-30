@@ -128,7 +128,7 @@ function LeaveRequestEditForm({
               onValueChange={setTypeId}
               disabled={saving||catalog.loading||catalog.error||leaveTypes.length === 0}
             >
-              <SelectTrigger id="leave-edit-type">
+              <SelectTrigger id="leave-edit-type" className="w-full">
                 <SelectValue
  placeholder={ui(leaveTypes.length === 0 ? "No leave types configured" : "Select leave type")}
                 />

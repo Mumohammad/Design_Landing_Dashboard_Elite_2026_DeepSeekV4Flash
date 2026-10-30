@@ -814,13 +814,13 @@ export function InvoicesManager() {
                   <h3 className="text-sm font-semibold">{ar ? "بيانات الفاتورة" : "Invoice details"}</h3>
                   <div className="grid grid-cols-[minmax(0,130px)_minmax(0,1fr)] items-center gap-x-3 gap-y-2.5">
                     <Label htmlFor="inv-number" className="text-xs text-muted-foreground">{ar ? "رقم الفاتورة" : "Invoice number"}</Label>
-                    <Input id="inv-number" readOnly dir="ltr" value={editTarget?.invoice_number ?? (ar ? "يُولّد تلقائياً" : "Auto-generated")} className="h-10 bg-muted/40 font-mono text-xs" />
+                    <Input id="inv-number" readOnly dir={editTarget ? "ltr" : undefined} value={editTarget?.invoice_number ?? (ar ? "يُولّد تلقائياً عند الحفظ" : "Auto-generated on save")} className={`h-10 bg-muted/40 text-sm ${editTarget ? "font-mono" : "text-muted-foreground"}`} />
                     <Label htmlFor="inv-issue" className="text-xs text-muted-foreground">{ar ? "تاريخ الفاتورة" : "Invoice date"}</Label>
                     <Input id="inv-issue" type="date" dir="ltr" value={formIssue} onChange={(e) => changeIssue(e.target.value)} className="h-10" />
                     <Label htmlFor="inv-terms" className="text-xs text-muted-foreground">{ar ? "شروط الدفع" : "Payment terms"}</Label>
-                    <div className="relative">
-                      <Input id="inv-terms" type="number" inputMode="numeric" dir="ltr" min="0" max="3650" step="1" value={formTerms} onChange={(e) => changeTerms(e.target.value)} className="h-10 pe-14 tabular-nums" />
-                      <span className="pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-muted-foreground">{ar ? "يوم" : "days"}</span>
+                    <div className="flex h-10 overflow-hidden rounded-xl border border-input bg-background shadow-xs focus-within:border-elite-blue-500 focus-within:ring-4 focus-within:ring-elite-blue-500/15">
+                      <input id="inv-terms" type="number" inputMode="numeric" dir="ltr" min="0" max="3650" step="1" value={formTerms} onChange={(e) => changeTerms(e.target.value)} className="w-full min-w-0 border-0 bg-transparent px-3 text-sm tabular-nums outline-none" />
+                      <span className="flex items-center border-s border-input bg-muted/40 px-3 text-xs text-muted-foreground">{ar ? "يوم" : "days"}</span>
                     </div>
                     <Label htmlFor="inv-due" className="text-xs text-muted-foreground">{ar ? "تاريخ الاستحقاق" : "Due date"}</Label>
                     <Input id="inv-due" type="date" dir="ltr" value={formDue} onChange={(e) => changeDue(e.target.value)} className="h-10" />
@@ -831,7 +831,7 @@ export function InvoicesManager() {
 
               {/* Items table */}
               <section className="min-w-0 overflow-hidden rounded-2xl border border-border/60">
-                <div className="overflow-x-auto">
+                <div className="relative overflow-x-auto">
                   <table className="w-full min-w-[920px] border-collapse text-sm">
                     <thead className="bg-elite-blue-600/5 text-xs text-muted-foreground">
                       <tr className="[&>th]:px-2 [&>th]:py-2.5 [&>th]:text-start [&>th]:font-semibold">

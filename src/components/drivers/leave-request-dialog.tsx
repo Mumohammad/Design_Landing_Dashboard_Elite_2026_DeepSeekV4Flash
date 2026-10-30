@@ -128,7 +128,7 @@ function LeaveRequestForm({
           <div className="space-y-2">
             <Label htmlFor="leave-type"><LocalizedText text="Leave type" /></Label>
             <Select value={typeId} onValueChange={setTypeId} disabled={saving||catalog.loading||catalog.error||leaveTypes.length===0}>
-              <SelectTrigger id="leave-type">
+              <SelectTrigger id="leave-type" className="w-full">
                 <SelectValue placeholder={catalog.loading?(locale==="ar"?"جارٍ التحميل…":"Loading…"):ui(leaveTypes.length?"Select leave type":"No leave types configured")} />
               </SelectTrigger>
               <SelectContent>
