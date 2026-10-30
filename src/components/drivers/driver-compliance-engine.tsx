@@ -590,7 +590,7 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
               <div className="space-y-1.5">
                 <Label>{isAr ? "المدة" : "Duration"}</Label>
                 <Select value={days} onValueChange={(v) => setDays(v as "7" | "30" | "90")}>
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -646,7 +646,7 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
                 <div className="space-y-1.5">
                   <Label>{isAr ? "نوع المستند" : "Document type"}</Label>
                   <Select value={docType} onValueChange={setDocType}>
-                    <SelectTrigger>
+                    <SelectTrigger className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>

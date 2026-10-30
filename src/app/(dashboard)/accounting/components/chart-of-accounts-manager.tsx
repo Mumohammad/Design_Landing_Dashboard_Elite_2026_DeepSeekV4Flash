@@ -136,7 +136,7 @@ function ChartParentPicker({ type, excludeId, value, onChange, disabled, selecte
   return <fieldset disabled={disabled} data-testid="coa-parent-picker" className="min-w-0 space-y-2 rounded-lg border border-border/60 p-2">
     <Label htmlFor="coa-parent">{ar ? "الحساب الأب (اختياري)" : "Parent account (optional)"}</Label>
     <AccountingPageControls state={page} />
-    <select id="coa-parent" value={value} disabled={page.loading || page.error || disabled} className="h-9 w-full min-w-0 rounded-md border border-input bg-background px-2 text-sm focus-visible:ring-2 focus-visible:ring-ring" onChange={event => { onChange(event.target.value); setSelected(options.find(row => row.id === event.target.value) ?? null) }}>
+    <select id="coa-parent" value={value} disabled={page.loading || page.error || disabled} className="h-9 w-full min-w-0 rounded-xl border border-input bg-background px-2 text-sm focus-visible:ring-2 focus-visible:ring-ring" onChange={event => { onChange(event.target.value); setSelected(options.find(row => row.id === event.target.value) ?? null) }}>
       <option value="">{ar ? "بدون حساب أب" : "No parent account"}</option>
       {value && !options.some(row => row.id === value) && <option value={value}>{selectedLabel || value}</option>}
       {options.map(row => <option key={row.id} value={row.id}>{row.account_code} · {ar ? row.name_ar : row.name_en}</option>)}

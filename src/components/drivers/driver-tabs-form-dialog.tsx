@@ -331,7 +331,7 @@ function DriverTabsForm({
                   value={values[field.key] ?? ""}
                   onValueChange={(v) => setField(field.key, v)}
                 >
-                  <SelectTrigger id={`${surface}-${field.key}`}>
+                  <SelectTrigger id={`${surface}-${field.key}`} className="w-full">
                     <SelectValue placeholder={ui("Select…")} />
                   </SelectTrigger>
                   <SelectContent>

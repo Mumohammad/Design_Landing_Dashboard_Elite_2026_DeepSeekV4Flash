@@ -29,7 +29,7 @@ import {
   exportInvoicesCsv,
   type InvoiceType,
 } from "@/lib/accounting/invoices"
-import { computeInvoiceTotals } from "@/lib/accounting/invoice-math"
+import { applyInvoiceDiscount, computeInvoiceTotals, lineGrossCents, percentDiscount } from "@/lib/accounting/invoice-math"
 import { sendDocumentToZatca } from "@/lib/accounting/zatca"
 import { getZatcaStatus } from "@/lib/accounting/zatca-management"
 import { requestInvoicePdf } from "@/lib/invoice-pdf-download"
@@ -44,6 +44,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import { BankAccountPicker } from "@/components/accounting/bank-account-picker"
 
 // ── Row shapes ────────────────────────────────────────────────────────────
@@ -113,26 +114,65 @@ interface LineDraft {
   quantity: string
   unit_price: string
   discount: string
+  discount_mode: "amount" | "percent"
   vat_rate: string
 }
 
-function emptyLine(key: number): LineDraft {
-  return { key, item_name: "", description: "", quantity: "1", unit_price: "", discount: "0", vat_rate: "15" }
+type InvoiceDiscount = { mode: "percent" | "amount"; value: string }
+
+function emptyLine(key: number, vatRate = "15"): LineDraft {
+  return { key, item_name: "", description: "", quantity: "1", unit_price: "", discount: "0", discount_mode: "amount", vat_rate: vatRate }
 }
 
-function lineInputs(lines: LineDraft[], defaultVatRate = "15") {
-  return lines.map((l) => ({
-    item_name: l.item_name.trim() || null,
-    description: l.description.trim(), quantity: Number(l.quantity || NaN),
-    unit_price: Number(l.unit_price || NaN), discount: Number(l.discount || 0),
-    vat_rate: Number(l.vat_rate || defaultVatRate),
-  }))
+// Daftra-style line discount (amount or %) + optional invoice-level discount,
+// resolved into canonical per-line amounts before VAT (line allowances).
+function lineInputs(lines: LineDraft[], defaultVatRate = "15", invoiceDiscount?: InvoiceDiscount) {
+  const base = lines.map((l) => {
+    const quantity = Number(l.quantity || NaN), unit_price = Number(l.unit_price || NaN)
+    const raw = Number(l.discount || 0)
+    const discount = l.discount_mode === "percent" && raw ? percentDiscount(quantity, unit_price, raw) : raw
+    return {
+      item_name: l.item_name.trim() || null,
+      description: l.description.trim(), quantity, unit_price, discount,
+      vat_rate: Number(l.vat_rate || defaultVatRate),
+    }
+  })
+  return invoiceDiscount && Number(invoiceDiscount.value || 0)
+    ? applyInvoiceDiscount(base, { mode: invoiceDiscount.mode, value: Number(invoiceDiscount.value) })
+    : base
 }
 
-function computeLineTotals(lines: LineDraft[]) {
-  try { return computeInvoiceTotals(lineInputs(lines)) }
+function computeLineTotals(lines: LineDraft[], invoiceDiscount?: InvoiceDiscount) {
+  try { return computeInvoiceTotals(lineInputs(lines, "15", invoiceDiscount)) }
   catch { return null }
 }
+
+function lineNet(l: LineDraft): number | null {
+  try {
+    const q = Number(l.quantity || NaN), p = Number(l.unit_price || NaN)
+    const gross = Number(lineGrossCents(q, p)) / 100
+    const raw = Number(l.discount || 0)
+    const d = l.discount_mode === "percent" && raw ? percentDiscount(q, p, raw) : raw
+    return gross - d < 0 ? null : Math.round((gross - d) * 100) / 100
+  } catch { return null }
+}
+
+function addDays(date: string, days: number): string {
+  const d = new Date(date + "T00:00:00Z")
+  if (Number.isNaN(d.getTime())) return date
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
+function dayDiff(from: string, to: string): number | null {
+  const a = Date.parse(from + "T00:00:00Z"), b = Date.parse(to + "T00:00:00Z")
+  return Number.isNaN(a) || Number.isNaN(b) ? null : Math.round((b - a) / 86400000)
+}
+
+const VAT_OPTIONS = [
+  { value: "15", ar: "ضريبة القيمة المضافة 15%", en: "VAT 15%" },
+  { value: "0", ar: "بدون ضريبة (0%)", en: "No tax (0%)" },
+]
 
 // ── Main component ────────────────────────────────────────────────────────
 
@@ -287,10 +327,14 @@ export function InvoicesManager() {
   const [formCurrency, setFormCurrency] = useState("SAR")
   const [formNotes, setFormNotes] = useState("")
   const [lines, setLines] = useState<LineDraft[]>([emptyLine(1)])
+  const [formTerms, setFormTerms] = useState("0")
+  const [invDiscount, setInvDiscount] = useState<InvoiceDiscount>({ mode: "percent", value: "" })
+  const [formTab, setFormTab] = useState<"discount" | "notes">("discount")
   const [isSaving, setIsSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
-  const lineTotals = computeLineTotals(lines)
+  const lineTotals = computeLineTotals(lines, invDiscount)
+  const grossTotal = lineTotals ? Math.round((lineTotals.subtotal + lineTotals.discount) * 100) / 100 : null
   const hasLineInput = lines.some((line) => line.item_name || line.description || line.unit_price)
 
 
@@ -305,6 +349,9 @@ export function InvoicesManager() {
     setFormShowDueDate(false)
     setFormVatRate("15")
     setFormNotes("")
+    setFormTerms("0")
+    setInvDiscount({ mode: "percent", value: "" })
+    setFormTab("discount")
     setLines([emptyLine(1)])
     setFormError(null)
     setCreateOpen(true)
@@ -312,7 +359,10 @@ export function InvoicesManager() {
 
   const updateLine = (key: number, patch: Partial<LineDraft>) =>
     setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)))
-  const addLine = () => setLines((prev) => [...prev, emptyLine(Date.now())])
+  const addLine = () => setLines((prev) => [...prev, emptyLine(Date.now(), prev[prev.length - 1]?.vat_rate ?? "15")])
+  const changeIssue = (v: string) => { setFormIssue(v); const t = Number(formTerms); if (v && Number.isInteger(t) && t >= 0) setFormDue(addDays(v, t)) }
+  const changeTerms = (v: string) => { setFormTerms(v); const t = Number(v); if (v !== "" && Number.isInteger(t) && t >= 0 && t <= 3650) setFormDue(addDays(formIssue, t)) }
+  const changeDue = (v: string) => { setFormDue(v); const d = dayDiff(formIssue, v); if (d !== null && d >= 0) setFormTerms(String(d)) }
   const removeLine = (key: number) => setLines((prev) => (prev.length > 1 ? prev.filter((l) => l.key !== key) : prev))
 
   async function openEdit(row: InvoiceRow) {
@@ -333,14 +383,19 @@ export function InvoicesManager() {
     setFormVatRate(String(row.vat_rate))
     setFormCurrency(row.currency)
     setFormNotes(row.notes ?? "")
+    setFormTerms(String(Math.max(0, dayDiff(row.issue_date, row.due_date) ?? 0)))
+    setInvDiscount({ mode: "percent", value: "" })
+    setFormTab("discount")
     setLines(data.map((l) => ({ key: l.line_no, item_name: l.item_name ?? "", description: l.description,
       quantity: String(l.quantity), unit_price: String(l.unit_price),
-      discount: String(l.discount), vat_rate: String(l.vat_rate) })))
+      discount: String(l.discount), discount_mode: "amount" as const, vat_rate: String(l.vat_rate) })))
     setFormError(null)
     setCreateOpen(true)
   }
 
-  async function handleCreate() {
+  async function handleCreate(print = false) {
+    const win = print ? window.open("", "_blank") : null
+    if (win) { win.opener = null; win.document.body.textContent = ar ? "جارٍ تجهيز PDF الفاتورة…" : "Preparing invoice PDF…" }
     setIsSaving(true)
     setFormError(null)
     try {
@@ -348,16 +403,25 @@ export function InvoicesManager() {
         customer_id: formType === "sales" ? formPartyId || null : null,
         supplier_id: formType === "purchase" ? formPartyId || null : null,
         issue_date: formIssue, due_date: formDue, show_due_date: formShowDueDate, currency: formCurrency,
-        vat_rate: Number(formVatRate || 0), notes: formNotes || null,
-        lines: lineInputs(lines, formVatRate) }
+        vat_rate: Number(lines[0]?.vat_rate || formVatRate || 0), notes: formNotes || null,
+        lines: lineInputs(lines, formVatRate, invDiscount) }
       const res = editTarget
         ? await updateInvoiceDraft({ ...input, id: editTarget.id, expected_updated_at: editTarget.updated_at })
         : await createInvoiceDraft(input)
-      if (!res.success) { setFormError((ar?res.errorAr:res.error) ?? (ar?"تعذر تأكيد الحفظ. أعد المحاولة بالتفاصيل نفسها.":"Unable to confirm the save. Retry with unchanged details.")); return }
+      if (!res.success) { win?.close(); setFormError((ar?res.errorAr:res.error) ?? (ar?"تعذر تأكيد الحفظ. أعد المحاولة بالتفاصيل نفسها.":"Unable to confirm the save. Retry with unchanged details.")); return }
       flash("ok", ar ? "تم حفظ مسودة الفاتورة." : "Invoice draft saved.")
       setCreateOpen(false)
+      const resId = (res as { id?: unknown }).id
+      const savedId = editTarget?.id ?? (typeof resId === "string" ? resId : undefined)
+      if (win && savedId) {
+        void requestInvoicePdf(savedId, undefined, ar ? "ar" : "en").then(({ blob }) => {
+          if (win.closed) return
+          const url = URL.createObjectURL(blob); win.location.replace(url)
+          const cleanup = window.setInterval(() => { if (win.closed) { URL.revokeObjectURL(url); window.clearInterval(cleanup) } }, 30_000)
+        }).catch((error) => { win.close(); flash("err", error instanceof Error ? error.message : (ar ? "تعذرت الطباعة." : "Print failed.")) })
+      }
       await load()
-    } catch { setFormError(ar ? "تعذر الحفظ. حاول مجدداً." : "Could not save. Please retry.") }
+    } catch { win?.close(); setFormError(ar ? "تعذر الحفظ. حاول مجدداً." : "Could not save. Please retry.") }
     finally { setIsSaving(false) }
   }
 
@@ -696,137 +760,184 @@ export function InvoicesManager() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Create draft dialog ───────────────────────────────────────── */}
+      {/* ── Create draft dialog (Daftra-style invoice editor) ──────────── */}
       <Dialog open={createOpen} onOpenChange={(o) => { if (!o && !isSaving) setCreateOpen(false) }}>
-        <DialogContent className="sm:max-w-2xl rounded-2xl max-h-[85dvh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{editTarget ? (ar ? "تعديل مسودة الفاتورة" : "Edit invoice draft") : (ar ? "فاتورة جديدة (مسودة)" : "New invoice (draft)")}</DialogTitle>
-            <DialogDescription>
-              {ar
-                ? "تُحسب الإجماليات في الخادم بقيم عشرية دقيقة؛ الفاتورة المعتمدة غير قابلة للتعديل"
-                : "Save a draft, review the amounts, then issue it when ready. Finalized invoices cannot be edited."}
-            </DialogDescription>
-          </DialogHeader>
-          <fieldset disabled={isSaving} className="min-w-0 space-y-4" data-testid="invoice-draft-fields">
+        <DialogContent className="max-h-[92dvh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-y-auto overflow-x-hidden rounded-2xl p-0 sm:max-w-6xl [&>[data-slot=dialog-close]]:z-20">
+          <fieldset disabled={isSaving} className="min-w-0" data-testid="invoice-draft-fields">
             <legend className="sr-only">{ar?"بيانات الفاتورة":"Invoice details"}</legend>
-            <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label>{ar ? "النوع" : "Type"}</Label>
-                <div className="flex gap-2">
-                  {(["sales", "purchase"] as InvoiceType[]).map((tp) => (
-                    <button
-                      key={tp}
-                      disabled={Boolean(editTarget) || isSaving}
-                      type="button"
-                      onClick={() => { setFormType(tp); setFormPartyId("") }}
-                      className={`flex-1 rounded-lg border px-3 py-2 text-sm transition-colors ${
-                        formType === tp
-                          ? tp === "sales"
-                            ? "border-blue-500/60 bg-blue-500/10 text-blue-600"
-                            : "border-orange-500/60 bg-orange-500/10 text-orange-600"
-                          : "border-border/50 text-muted-foreground"
-                      }`}
-                    >
-                      {ar ? (tp === "sales" ? "بيعية" : "شرائية") : tp === "sales" ? "Sales" : "Purchase"}
-                    </button>
-                  ))}
+            {/* Top bar: title + primary actions (like Daftra: preview / save draft / save & print) */}
+            <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 border-b border-border/60 bg-background/95 py-3 pl-4 pr-12 backdrop-blur sm:pl-6">
+              <DialogHeader className="min-w-0 text-start">
+                <DialogTitle className="text-lg">{editTarget ? (ar ? "تعديل مسودة الفاتورة" : "Edit invoice draft") : (ar ? "فاتورة جديدة (مسودة)" : "New invoice (draft)")}</DialogTitle>
+                <DialogDescription className="text-xs">
+                  {ar ? "احفظ مسودة وراجع المبالغ ثم أصدرها عند الجاهزية. الفاتورة المعتمدة غير قابلة للتعديل." : "Save a draft, review the amounts, then issue it when ready. Finalized invoices cannot be edited."}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button type="button" variant="outline" onClick={() => void handleCreate(true)} disabled={isSaving || !formPartyId || !lineTotals || !partyReadReady || !draftRequest} className="rounded-xl">
+                  <Printer className="h-4 w-4" />{ar ? "حفظ وطباعة" : "Save & print"}
+                </Button>
+                <Button type="button" onClick={() => void handleCreate()} disabled={isSaving || !formPartyId || !lineTotals || !partyReadReady || !draftRequest} className="rounded-xl bg-elite-blue-600 hover:bg-elite-blue-700">
+                  {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  {ar ? "حفظ المسودة" : "Save draft"}
+                </Button>
+              </div>
+            </div>
+
+            <div className="min-w-0 space-y-5 px-4 py-5 sm:px-6">
+              {/* Client card + invoice details card */}
+              <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,380px)]">
+                <section className="min-w-0 space-y-4 rounded-2xl border border-border/60 bg-muted/20 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold">{formType === "sales" ? (ar ? "بيانات العميل" : "Client details") : (ar ? "بيانات المورد" : "Supplier details")}</h3>
+                    <div role="group" aria-label={ar ? "النوع" : "Type"} className="inline-flex rounded-xl border border-border/60 bg-background p-0.5">
+                      {(["sales", "purchase"] as InvoiceType[]).map((tp) => (
+                        <button key={tp} disabled={Boolean(editTarget) || isSaving} type="button" aria-pressed={formType === tp}
+                          onClick={() => { setFormType(tp); setFormPartyId("") }}
+                          className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed ${formType === tp ? (tp === "sales" ? "bg-elite-blue-600 text-white shadow-sm" : "bg-orange-500 text-white shadow-sm") : "text-muted-foreground hover:text-foreground"}`}>
+                          {ar ? (tp === "sales" ? "فاتورة بيع" : "فاتورة شراء") : tp === "sales" ? "Sales invoice" : "Purchase invoice"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <InvoicePartyPicker key={formType+":"+(editTarget?.id??"new")} kind={formType==="sales"?"customers":"suppliers"} id="inv-party" value={formPartyId} onChange={setFormPartyId} ar={ar} disabled={isSaving} onAvailabilityChange={setPartyReadReady} label={formType==="sales"?(ar?"العميل *":"Client *"):(ar?"المورد *":"Supplier *")} selectedLabel={editTarget?(ar?(editTarget.customer_name||editTarget.supplier_name):(editTarget.customer_name_en||editTarget.customer_name||editTarget.supplier_name_en||editTarget.supplier_name)):null}/>
+                  <div className="flex items-end gap-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="inv-currency">{ar ? "العملة" : "Currency"}</Label>
+                      <Input id="inv-currency" value={formCurrency} readOnly className="h-10 w-28 bg-muted/40" dir="ltr" />
+                    </div>
+                    <p className="pb-2 text-xs text-muted-foreground">{ar ? "تدعم المحاسبة الريال السعودي فقط." : "Accounting supports SAR only."}</p>
+                  </div>
+                </section>
+
+                <section className="min-w-0 space-y-3 rounded-2xl border border-border/60 bg-muted/20 p-4">
+                  <h3 className="text-sm font-semibold">{ar ? "بيانات الفاتورة" : "Invoice details"}</h3>
+                  <div className="grid grid-cols-[minmax(0,130px)_minmax(0,1fr)] items-center gap-x-3 gap-y-2.5">
+                    <Label htmlFor="inv-number" className="text-xs text-muted-foreground">{ar ? "رقم الفاتورة" : "Invoice number"}</Label>
+                    <Input id="inv-number" readOnly dir={editTarget ? "ltr" : undefined} value={editTarget?.invoice_number ?? (ar ? "يُولّد تلقائياً عند الحفظ" : "Auto-generated on save")} className={`h-10 bg-muted/40 text-sm ${editTarget ? "font-mono" : "text-muted-foreground"}`} />
+                    <Label htmlFor="inv-issue" className="text-xs text-muted-foreground">{ar ? "تاريخ الفاتورة" : "Invoice date"}</Label>
+                    <Input id="inv-issue" type="date" dir="ltr" value={formIssue} onChange={(e) => changeIssue(e.target.value)} className="h-10" />
+                    <Label htmlFor="inv-terms" className="text-xs text-muted-foreground">{ar ? "شروط الدفع" : "Payment terms"}</Label>
+                    <div className="flex h-10 overflow-hidden rounded-xl border border-input bg-background shadow-xs focus-within:border-elite-blue-500 focus-within:ring-4 focus-within:ring-elite-blue-500/15">
+                      <input id="inv-terms" type="number" inputMode="numeric" dir="ltr" min="0" max="3650" step="1" value={formTerms} onChange={(e) => changeTerms(e.target.value)} className="w-full min-w-0 border-0 bg-transparent px-3 text-sm tabular-nums outline-none" />
+                      <span className="flex items-center border-s border-input bg-muted/40 px-3 text-xs text-muted-foreground">{ar ? "يوم" : "days"}</span>
+                    </div>
+                    <Label htmlFor="inv-due" className="text-xs text-muted-foreground">{ar ? "تاريخ الاستحقاق" : "Due date"}</Label>
+                    <Input id="inv-due" type="date" dir="ltr" value={formDue} onChange={(e) => changeDue(e.target.value)} className="h-10" />
+                  </div>
+                  <div className="flex items-center gap-2 pt-1"><input id="inv-show-due" type="checkbox" checked={formShowDueDate} onChange={e => setFormShowDueDate(e.target.checked)} className="size-4 accent-elite-blue-600" /><Label htmlFor="inv-show-due" className="text-xs font-normal">{ar ? "إظهار تاريخ الاستحقاق في الفاتورة المطبوعة" : "Show due date on the printed invoice"}</Label></div>
+                </section>
+              </div>
+
+              {/* Items table */}
+              <section className="min-w-0 overflow-hidden rounded-2xl border border-border/60">
+                <div className="relative overflow-x-auto">
+                  <table className="w-full min-w-[920px] border-collapse text-sm">
+                    <thead className="bg-elite-blue-600/5 text-xs text-muted-foreground">
+                      <tr className="[&>th]:px-2 [&>th]:py-2.5 [&>th]:text-start [&>th]:font-semibold">
+                        <th className="w-[16%]">{ar ? "البند" : "Item"}</th>
+                        <th>{ar ? "الوصف" : "Description"}</th>
+                        <th className="w-[12%]">{ar ? "سعر الوحدة" : "Unit price"}</th>
+                        <th className="w-[8%]">{ar ? "الكمية" : "Qty"}</th>
+                        <th className="w-[15%]">{ar ? "الخصم" : "Discount"}</th>
+                        <th className="w-[14%]">{ar ? "الضريبة" : "Tax"}</th>
+                        <th className="w-[10%] !text-end">{ar ? "المجموع" : "Total"}</th>
+                        <th className="w-10"><span className="sr-only">{ar ? "حذف" : "Remove"}</span></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lines.map((l) => {
+                        const net = lineNet(l)
+                        const vatOptions = VAT_OPTIONS.some((o) => Number(o.value) === Number(l.vat_rate)) ? VAT_OPTIONS : [...VAT_OPTIONS, { value: l.vat_rate, ar: `ضريبة ${l.vat_rate}%`, en: `VAT ${l.vat_rate}%` }]
+                        return (
+                          <tr key={l.key} className="border-t border-border/50 align-top [&>td]:px-2 [&>td]:py-2">
+                            <td><Input aria-label={ar ? "اسم الصنف (اختياري)" : "Item name (optional)"} maxLength={200} value={l.item_name} onChange={e => updateLine(l.key, { item_name: e.target.value })} placeholder={ar ? "اسم الصنف" : "Item name"} className="h-10" /></td>
+                            <td><Textarea maxLength={1000} rows={1} aria-label={ar ? "وصف البند" : "Line description"} value={l.description} onChange={(e) => updateLine(l.key, { description: e.target.value })} placeholder={ar ? "وصف البند" : "Line description"} className="min-h-10 resize-y py-2" /></td>
+                            <td><Input aria-label={ar ? "سعر الوحدة" : "Unit price"} type="number" inputMode="decimal" dir="ltr" min="0" step="0.0001" value={l.unit_price} onChange={(e) => updateLine(l.key, { unit_price: e.target.value })} placeholder="0.00" className="h-10 text-end tabular-nums" /></td>
+                            <td><Input aria-label={ar ? "الكمية" : "Quantity"} type="number" inputMode="decimal" dir="ltr" min="0.001" step="0.001" value={l.quantity} onChange={(e) => updateLine(l.key, { quantity: e.target.value })} className="h-10 text-end tabular-nums" /></td>
+                            <td>
+                              <div className="flex h-10 overflow-hidden rounded-xl border border-input bg-background focus-within:border-elite-blue-500 focus-within:ring-4 focus-within:ring-elite-blue-500/15">
+                                <input aria-label={ar ? "الخصم" : "Discount"} type="number" inputMode="decimal" dir="ltr" min="0" step="0.01" value={l.discount} onChange={(e) => updateLine(l.key, { discount: e.target.value })} className="w-full min-w-0 border-0 bg-transparent px-2 text-end text-sm tabular-nums outline-none" />
+                                <select aria-label={ar ? "نوع الخصم" : "Discount type"} value={l.discount_mode} onChange={(e) => updateLine(l.key, { discount_mode: e.target.value as LineDraft["discount_mode"] })} className="border-0 border-s border-input bg-muted/40 px-1.5 text-xs outline-none">
+                                  <option value="amount">{ar ? "ر.س" : "SAR"}</option>
+                                  <option value="percent">%</option>
+                                </select>
+                              </div>
+                            </td>
+                            <td>
+                              <select aria-label={ar ? "ضريبة البند" : "Line VAT rate"} value={l.vat_rate} onChange={(e) => updateLine(l.key, { vat_rate: e.target.value })} className="h-10 w-full rounded-xl border border-input bg-background px-2 text-xs">
+                                {vatOptions.map((o) => <option key={o.value} value={o.value}>{ar ? o.ar : o.en}</option>)}
+                              </select>
+                            </td>
+                            <td className="!text-end"><span dir="ltr" className="inline-block pt-2.5 font-medium tabular-nums">{net === null ? "—" : fmtMoney(net)}</span></td>
+                            <td>
+                              <button type="button" aria-label={ar ? "حذف البند" : "Remove line"} onClick={() => removeLine(l.key)} disabled={lines.length <= 1}
+                                className="mt-1 flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-500 disabled:opacity-30">
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
                 </div>
-              </div>
-              <InvoicePartyPicker key={formType+":"+(editTarget?.id??"new")} kind={formType==="sales"?"customers":"suppliers"} id="inv-party" value={formPartyId} onChange={setFormPartyId} ar={ar} disabled={isSaving} onAvailabilityChange={setPartyReadReady} label={formType==="sales"?(ar?"العميل":"Customer"):(ar?"المورد":"Supplier")} selectedLabel={editTarget?(ar?(editTarget.customer_name||editTarget.supplier_name):(editTarget.customer_name_en||editTarget.customer_name||editTarget.supplier_name_en||editTarget.supplier_name)):null}/>
-
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="inv-issue">{ar ? "تاريخ الإصدار" : "Issue date"}</Label>
-                <Input id="inv-issue" type="date" dir="ltr" value={formIssue} onChange={(e) => setFormIssue(e.target.value)} className="h-9" />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="inv-due">{ar ? "تاريخ الاستحقاق" : "Due date"}</Label>
-                <Input id="inv-due" type="date" dir="ltr" value={formDue} onChange={(e) => setFormDue(e.target.value)} className="h-9" />
-                <div className="flex items-center gap-2 pt-1"><input id="inv-show-due" type="checkbox" checked={formShowDueDate} onChange={e => setFormShowDueDate(e.target.checked)} className="size-4 accent-elite-blue-600" /><Label htmlFor="inv-show-due" className="text-xs font-normal">{ar ? "إظهار تاريخ الاستحقاق في الفاتورة المطبوعة" : "Show due date on the printed invoice"}</Label></div>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="inv-vat">{ar ? "الضريبة الافتراضية %" : "Default VAT %"}</Label>
-                <Input id="inv-vat" type="number" dir="ltr" min="0" max="100" step="0.01" value={formVatRate} onChange={(e) => setFormVatRate(e.target.value)} className="h-9 text-end tabular-nums" />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="inv-currency">{ar ? "العملة" : "Currency"}</Label>
-              <Input id="inv-currency" value={formCurrency} readOnly className="h-9 max-w-32" dir="ltr" />
-              <p className="text-xs text-muted-foreground">{ar ? "تدعم المحاسبة الريال السعودي فقط. تبقى السجلات القديمة بعملتها الأصلية للمراجعة." : "Accounting supports SAR. Existing foreign-currency records retain their original currency for review."}</p>
-            </div>
-            <div className="overflow-x-auto rounded-xl border border-border/50">
-              <div className="grid min-w-[780px] grid-cols-[minmax(120px,0.6fr)_minmax(180px,1fr)_80px_120px_70px_70px_32px] gap-2 border-b border-border/50 bg-muted/30 px-3 py-2 text-[11px] font-medium text-muted-foreground">
-                <span>{ar ? "البند" : "Item"}</span>
-                <span>{ar ? "الوصف" : "Description"}</span>
-                <span>{ar ? "الكمية" : "Qty"}</span>
-                <span>{ar ? "السعر" : "Price"}</span>
-                <span>{ar ? "الخصم" : "Disc."}</span>
-                <span><LocalizedText text="VAT %" /></span>
-                <span />
-              </div>
-              {lines.map((l) => (
-                <div key={l.key} className="grid min-w-[780px] grid-cols-[minmax(120px,0.6fr)_minmax(180px,1fr)_80px_120px_70px_70px_32px] items-center gap-2 px-3 py-2">
-                  <Input aria-label={ar ? "اسم الصنف (اختياري)" : "Item name (optional)"} maxLength={200} value={l.item_name} onChange={e => updateLine(l.key, { item_name: e.target.value })} placeholder={ar ? "اسم الصنف" : "Item name"} className="h-9" />
-                  <Input
-                    maxLength={1000}
-                    aria-label={ar ? "وصف البند" : "Line description"}
-                    value={l.description}
-                    onChange={(e) => updateLine(l.key, { description: e.target.value })}
-                    placeholder={ar ? "وصف البند" : "Line description"}
-                    className="h-9"
-                  />
-                  <Input aria-label={ar ? "الكمية" : "Quantity"} type="number" dir="ltr" min="0.001" step="0.001" value={l.quantity} onChange={(e) => updateLine(l.key, { quantity: e.target.value })} className="h-9 text-end tabular-nums" />
-                  <Input aria-label={ar ? "سعر الوحدة" : "Unit price"} type="number" dir="ltr" min="0" step="0.0001" value={l.unit_price} onChange={(e) => updateLine(l.key, { unit_price: e.target.value })} className="h-9 text-end tabular-nums" />
-                  <Input aria-label={ar ? "الخصم" : "Discount"} type="number" dir="ltr" min="0" step="0.01" value={l.discount} onChange={(e) => updateLine(l.key, { discount: e.target.value })} className="h-9 text-end tabular-nums" />
-                  <Input aria-label={ar ? "ضريبة البند" : "Line VAT rate"} type="number" dir="ltr" min="0" max="100" step="0.01" value={l.vat_rate} onChange={(e) => updateLine(l.key, { vat_rate: e.target.value })} className="h-9 text-end tabular-nums" />
-                  <button
-                    type="button"
-                    aria-label={ar ? "حذف البند" : "Remove line"}
-                    onClick={() => removeLine(l.key)}
-                    disabled={lines.length <= 1}
-                    className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-500 disabled:opacity-30"
-                  >
-                    <X className="h-3.5 w-3.5" />
+                <div className="border-t border-border/50 bg-muted/10 px-3 py-2">
+                  <button type="button" onClick={addLine} disabled={lines.length >= 200} className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-elite-blue-600 transition-colors hover:bg-elite-blue-600/10 disabled:opacity-40">
+                    <Plus className="h-4 w-4" />{ar ? "إضافة بند" : "Add line"}
                   </button>
                 </div>
-              ))}
-              <div className="px-3 py-2">
-                <button type="button" onClick={addLine} disabled={lines.length >= 200} className="text-xs font-medium text-elite-blue-600 hover:text-elite-blue-700">
-                  + {ar ? "إضافة سطر" : "Add line"}
-                </button>
+              </section>
+
+              {/* Tabs (discount / notes) + totals */}
+              <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,360px)]">
+                <section className="min-w-0 rounded-2xl border border-border/60">
+                  <div role="tablist" aria-label={ar ? "خيارات الفاتورة" : "Invoice options"} className="flex gap-1 border-b border-border/60 px-2 pt-2">
+                    {([["discount", ar ? "الخصم" : "Discount"], ["notes", ar ? "الملاحظات والشروط" : "Notes & terms"]] as const).map(([k, label]) => (
+                      <button key={k} type="button" role="tab" aria-selected={formTab === k} onClick={() => setFormTab(k)}
+                        className={`-mb-px rounded-t-lg border-b-2 px-3 py-2 text-sm font-medium transition-colors ${formTab === k ? "border-elite-blue-600 text-elite-blue-700 dark:text-elite-blue-300" : "border-transparent text-muted-foreground hover:text-foreground"}`}>{label}</button>
+                    ))}
+                  </div>
+                  <div className="p-4">
+                    {formTab === "discount" ? (
+                      <div className="space-y-2">
+                        <Label htmlFor="inv-discount">{ar ? "خصم على إجمالي الفاتورة (قبل الضريبة)" : "Invoice discount (before VAT)"}</Label>
+                        <div className="flex max-w-sm gap-2">
+                          <Input id="inv-discount" type="number" inputMode="decimal" dir="ltr" min="0" step="0.01" placeholder="0" value={invDiscount.value} onChange={(e) => setInvDiscount((d) => ({ ...d, value: e.target.value }))} className="h-10 text-end tabular-nums" />
+                          <select aria-label={ar ? "نوع خصم الفاتورة" : "Invoice discount type"} value={invDiscount.mode} onChange={(e) => setInvDiscount((d) => ({ ...d, mode: e.target.value as InvoiceDiscount["mode"] }))} className="h-10 rounded-xl border border-input bg-background px-3 text-sm">
+                            <option value="percent">{ar ? "نسبة %" : "Percent %"}</option>
+                            <option value="amount">{ar ? "مبلغ (ر.س)" : "Amount (SAR)"}</option>
+                          </select>
+                        </div>
+                        <p className="text-xs text-muted-foreground">{ar ? "يُوزَّع الخصم نسبياً على البنود قبل احتساب الضريبة فيُخفّض وعاء الضريبة لكل بند." : "Distributed pro-rata across the lines before VAT, reducing each line's taxable amount."}</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        <Label htmlFor="inv-notes">{ar ? "ملاحظات / شروط" : "Notes / terms"}</Label>
+                        <Textarea id="inv-notes" rows={3} maxLength={2000} value={formNotes} onChange={(e) => setFormNotes(e.target.value)} placeholder={ar ? "تظهر في الفاتورة المطبوعة" : "Shown on the printed invoice"} />
+                      </div>
+                    )}
+                  </div>
+                </section>
+
+                <section aria-label={ar ? "ملخص الإجماليات" : "Totals summary"} className="min-w-0 space-y-2 rounded-2xl border border-border/60 bg-muted/20 p-4 text-sm">
+                  <div className="flex justify-between gap-3 text-muted-foreground"><span>{ar ? "المجموع قبل الخصم" : "Subtotal"}</span><span dir="ltr" className="tabular-nums">{grossTotal === null ? "—" : fmtMoney(grossTotal)}</span></div>
+                  <div className="flex justify-between gap-3 text-muted-foreground"><span>{ar ? "الخصم" : "Discount"}</span><span dir="ltr" className="tabular-nums">{lineTotals ? (lineTotals.discount ? "−" : "") + fmtMoney(lineTotals.discount) : "—"}</span></div>
+                  <div className="flex justify-between gap-3 text-muted-foreground"><span>{ar ? "الإجمالي الخاضع للضريبة" : "Taxable amount"}</span><span dir="ltr" className="tabular-nums">{lineTotals ? fmtMoney(lineTotals.subtotal) : "—"}</span></div>
+                  <div className="flex justify-between gap-3 text-muted-foreground"><span><LocalizedText text="VAT" /></span><span dir="ltr" className="tabular-nums">{lineTotals ? fmtMoney(lineTotals.vat_amount) : "—"}</span></div>
+                  <div className="flex items-baseline justify-between gap-3 border-t border-border/60 pt-2 text-base font-semibold"><span>{ar ? "الإجمالي (ر.س)" : "Total (SAR)"}</span><span dir="ltr" className="tabular-nums text-emerald-600">{lineTotals ? fmtMoney(lineTotals.total) : "—"}</span></div>
+                </section>
               </div>
-            </div>
 
-            <div className="flex flex-wrap items-center justify-end gap-4 rounded-xl border border-border/50 bg-muted/20 px-4 py-3 text-sm">
-              <span className="text-muted-foreground">{ar ? "المجموع الفرعي" : "Subtotal"}: <b dir="ltr" className="tabular-nums">{lineTotals ? fmtMoney(lineTotals.subtotal) : "—"}</b></span>
-              <span className="text-muted-foreground"><LocalizedText text="VAT:" /> <b dir="ltr" className="tabular-nums">{lineTotals ? fmtMoney(lineTotals.vat_amount) : "—"}</b></span>
-              <span className="font-medium">{ar ? "الإجمالي" : "Total"}: <b dir="ltr" className="tabular-nums text-emerald-600">{lineTotals ? fmtMoney(lineTotals.total) : "—"}</b></span>
-            </div>
+              {!lineTotals && hasLineInput && <p role="status" className="rounded-xl bg-amber-500/10 px-3 py-2 text-xs text-amber-700">{ar ? "أكمل كل بند: وصف، كمية موجبة حتى ٣ منازل عشرية، وسعر وحدة حتى ٤ منازل عشرية. لا يتجاوز الخصم قيمة البند أو الفاتورة." : "Complete every line: description, a positive quantity with up to 3 decimals, and a unit price with up to 4 decimals. Discounts cannot exceed the line or invoice value."}</p>}
+              {formError && <p role="alert" className="rounded-xl bg-red-500/10 px-3 py-2 text-xs text-red-600">{formError}</p>}
 
-            <div className="space-y-1.5">
-              <Label htmlFor="inv-notes">{ar ? "ملاحظات" : "Notes"}</Label>
-              <Input id="inv-notes" value={formNotes} onChange={(e) => setFormNotes(e.target.value)} className="h-9" />
-            </div>
-
-            {!lineTotals && hasLineInput && <p role="status" className="text-xs text-amber-700">{ar ? "أكمل كل بند: وصف، كمية موجبة حتى ٣ منازل عشرية، وسعر وحدة حتى ٤ منازل عشرية. تبقى مبالغ الخصم والإجماليات بمنزلتين. يجب ألا يتجاوز الخصم قيمة البند." : "Complete every line: description, a positive quantity with up to 3 decimals, and a unit price with up to 4 decimals. Discounts and totals use 2 decimals. Discounts cannot exceed the line value."}</p>}
-            {formError && <p role="alert" className="text-xs text-red-500">{formError}</p>}
-
-            <div className="flex items-center gap-3">
-              <Button
-                onClick={() => void handleCreate()}
-                disabled={isSaving || !formPartyId || !lineTotals || !partyReadReady || !draftRequest}
-                className="bg-elite-blue-600 hover:bg-elite-blue-700"
-              >
-                {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                {ar ? "حفظ المسودة" : "Save draft"}
-              </Button>
-              <Button variant="ghost" disabled={isSaving} onClick={() => setCreateOpen(false)}>
-                <X className="h-4 w-4" />
-                {ar ? "إلغاء" : "Cancel"}
-              </Button>
+              <div className="flex items-center justify-end gap-2 border-t border-border/60 pt-4">
+                <Button variant="ghost" disabled={isSaving} onClick={() => setCreateOpen(false)}>
+                  <X className="h-4 w-4" />
+                  {ar ? "إلغاء" : "Cancel"}
+                </Button>
+              </div>
             </div>
           </fieldset>
         </DialogContent>

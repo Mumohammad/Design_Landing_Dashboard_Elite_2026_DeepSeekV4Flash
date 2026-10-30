@@ -227,7 +227,7 @@ export function VehicleAssignmentCard({ driverId, isAr }: { driverId: string; is
             <div className="space-y-2">
               <Label htmlFor="assign-vehicle">{isAr ? "المركبة" : "Vehicle"}</Label>
               <Select value={vehicleId} onValueChange={setVehicleId}>
-                <SelectTrigger id="assign-vehicle">
+                <SelectTrigger id="assign-vehicle" className="w-full">
                   <SelectValue
                     placeholder={
                       vehicles.length === 0

@@ -27,7 +27,7 @@ interface PreparationDraft {
 function attendanceDays(snapshot: Snapshot | null, driverId: string): Record<string, string> {
   return Object.fromEntries((snapshot?.attendance ?? []).filter(day => day.driver_id === driverId).map(day => [day.date, day.status]))
 }
-const inputClass = "w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-60"
+const inputClass = "w-full rounded-xl border border-input bg-background shadow-xs px-3 py-2 text-sm focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-60"
 const buttonClass = "rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50"
 function Field({ label, children }: { label: string; children: ReactNode }) { return <label className="grid gap-1.5 text-sm font-medium">{label}{children}</label> }
 

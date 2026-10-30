@@ -145,7 +145,7 @@ export function ViolationDialog({ open, onOpenChange, driverId, onCreated }: Vio
           <div className="space-y-1.5 sm:col-span-2">
             <Label>{isAr ? "نوع المخالفة" : "Violation type"}</Label>
             <Select value={form.violation_type_id} onValueChange={onTypeChange}>
-              <SelectTrigger>
+              <SelectTrigger className="w-full">
                 <SelectValue placeholder={isAr ? "اختر النوع…" : "Select type…"} />
               </SelectTrigger>
               <SelectContent>

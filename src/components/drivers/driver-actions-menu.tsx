@@ -544,7 +544,7 @@ export default function DriverActionsMenu({
                             }))
                           }
                         >
-                          <SelectTrigger id={`edit-${driverId}-${field.key}`}>
+                          <SelectTrigger id={`edit-${driverId}-${field.key}`} className="w-full">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
