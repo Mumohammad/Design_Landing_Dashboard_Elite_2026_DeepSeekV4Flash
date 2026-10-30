@@ -1,7 +1,7 @@
 "use client"
 import {useState} from "react"
 import {useRouter} from "next/navigation"
-import {toast} from "sonner"
+import { toast } from "@/lib/toast"
 import {Pencil,Archive,Loader2} from "lucide-react"
 import {useTranslation} from "@/hooks/use-translation"
 import {Button} from "@/components/ui/button"

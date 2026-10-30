@@ -26,7 +26,7 @@ import { formatDualDate } from "@/lib/formatting/hijri"
 import { useAccountingPage } from "@/hooks/use-accounting-page"
 import { readAccountingPage } from "@/lib/accounting/paged-reads"
 import { formatVatMoney } from "@/lib/accounting/vat-position"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 
 // ── Types ────────────────────────────────────────────────────────────────────
 

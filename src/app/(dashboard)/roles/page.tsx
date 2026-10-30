@@ -1,7 +1,7 @@
 "use client"
 import {useCallback,useEffect,useState} from "react"
 import {ShieldCheck,Pencil,Archive,RotateCcw,Plus,Loader2,Lock} from "lucide-react"
-import {toast} from "sonner"
+import { toast } from "@/lib/toast"
 import {useTranslation} from "@/hooks/use-translation"
 import {EnterpriseModulePage,type TableColumn} from "@/components/dashboard/enterprise-module-page"
 import {Button} from "@/components/ui/button"

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { useForm, Controller } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 import { Loader2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"

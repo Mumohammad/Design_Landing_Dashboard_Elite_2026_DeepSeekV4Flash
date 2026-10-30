@@ -5,7 +5,7 @@ import { useTranslation } from "@/hooks/use-translation"
 import { useState } from "react";
 
 import { CalendarClock, Loader2, Send } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 import { emitDriverChanged } from "@/lib/drivers/driver-events";
 import { useLeaveTypes } from "@/hooks/use-leave-types";

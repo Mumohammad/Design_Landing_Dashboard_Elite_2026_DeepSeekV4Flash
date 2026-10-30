@@ -1,7 +1,7 @@
 "use client"
 import {useCallback,useEffect,useState} from "react"
 import {Plus,Pencil,Archive,Check,FileText,Loader2} from "lucide-react"
-import {toast} from "sonner"
+import { toast } from "@/lib/toast"
 import {useTranslation} from "@/hooks/use-translation"
 import {fetchFleetRows} from "@/lib/vehicles/query-pages"
 import {createClient} from "@/lib/supabase/client"

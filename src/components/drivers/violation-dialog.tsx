@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { useTranslation } from "@/hooks/use-translation"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 import { saveDriverProfileOperation } from "@/lib/driver-profile-operations/actions"
 
 type ViolationDialogProps = {
