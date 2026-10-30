@@ -10,6 +10,7 @@ import type { RuleSnapshot } from "../salary-engine"
 
 export type EngineResult<T = undefined> = { success: true; data: T } | { success: false; error: string }
 
+/** userId is the auth.users id (all created_by/approved_by FKs and audit actor ids reference auth.users). */
 export interface EngineContext { tenantId: string; userId: string; admin: SupabaseClient }
 
 /** Permission + caller-derived tenant; service-role client is only returned after both checks. */
@@ -17,7 +18,7 @@ export async function engineContext(action: PermissionAction): Promise<EngineCon
   await requirePermission("payroll", action)
   const user = await getCurrentUser()
   if (!user?.tenantId) throw new Error("Not authenticated or MFA required.")
-  return { tenantId: user.tenantId, userId: user.id, admin: createAdminClient() }
+  return { tenantId: user.tenantId, userId: user.authUserId, admin: createAdminClient() }
 }
 
 export function failure(e: unknown, fallback: string): { success: false; error: string } {
