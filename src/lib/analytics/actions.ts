@@ -339,7 +339,7 @@ async function buildDashboardSnapshot(
     .sort((x, y) => y.orders - x.orders)
 
   // ── Payroll (module-owned calculated results) ─────────────────────────────
-  let payrollRows: {
+  const payrollRows: {
     driver_id: string
     period_year: number
     period_month: number
