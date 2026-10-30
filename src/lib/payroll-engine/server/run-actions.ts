@@ -80,6 +80,10 @@ export async function importPayrollWorkbook(input: unknown): Promise<EngineResul
     if (!(await rateLimitImports(ctx.userId)).success) return { success: false, error: "Rate limit exceeded. Try again later." }
     const { path, fileName, monthKey, platformName, platformId } = parsed.data
     if (!path.startsWith(`${ctx.tenantId}/`) || !/\.(xlsx|xls)$/i.test(path)) return { success: false, error: "Invalid workbook location." }
+    // Archived workbooks are only kept when a run references them; any failed
+    // import removes its upload so storage never accumulates orphan files.
+    let saved = false
+    try {
     const file = await ctx.admin.storage.from(BUCKET).download(path)
     if (file.error || !file.data) return { success: false, error: "Uploaded workbook not found. Upload it again." }
     const bytes = new Uint8Array(await file.data.arrayBuffer())
@@ -105,10 +109,14 @@ export async function importPayrollWorkbook(input: unknown): Promise<EngineResul
       p_results: results, p_exceptions: exceptions, p_income: income,
     })
     if (error) return failure(error, "Could not save the payroll run")
+    saved = true
     await writeAuditLog({ tenantId: ctx.tenantId, actorId: ctx.userId, module: "payroll", action: "platform_payroll_imported", entityType: "payroll_engine_runs", entityId: runId as string,
       newValues: { fileName, monthKey, platformName, drivers: results.length, totalNet: computed.totals.totalNet, ruleSet: rules.name } })
     revalidate(runId as string)
     return { success: true, data: { runId: runId as string, drivers: results.length, totalNet: computed.totals.totalNet, warnings: exceptions.length } }
+    } finally {
+      if (!saved) await ctx.admin.storage.from(BUCKET).remove([path]).catch(() => undefined)
+    }
   } catch (e) { return failure(e, "Import failed") }
 }
 
