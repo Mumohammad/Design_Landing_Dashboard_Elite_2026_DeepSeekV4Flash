@@ -8,7 +8,7 @@
 export type AuthorityQr = {
   qrBase64: string
   kind: "cleared" | "reported"
-  environment: "sandbox" | "simulation"
+  environment: "sandbox" | "simulation" | "production"
 }
 
 type AttemptRow = {
@@ -36,7 +36,7 @@ export function selectAuthorityQr(attempts: AttemptRow[]): AuthorityQr | null {
     .filter((a) => (a.pipeline === "clearance" && a.status === "cleared") || (a.pipeline === "reporting" && a.status === "reported"))
     .sort((a, b) => b.created_at.localeCompare(a.created_at))
   for (const a of accepted) {
-    if (a.environment !== "sandbox" && a.environment !== "simulation") continue
+    if (a.environment !== "sandbox" && a.environment !== "simulation" && a.environment !== "production") continue
     // Clearance returns ZATCA's stamped XML; only that copy may be printed.
     const qr = a.pipeline === "clearance" ? extractZatcaQr(a.cleared_xml) : extractZatcaQr(a.signed_xml)
     if (qr) return { qrBase64: qr, kind: a.pipeline === "clearance" ? "cleared" : "reported", environment: a.environment }

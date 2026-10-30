@@ -138,3 +138,25 @@ go-live cutoff.
 - B2C (simplified) documents must be reported within 24 hours. B2B
   (standard) invoices must be cleared before they are shared with the buyer.
   Always send the PDF only after its status is *cleared*.
+
+## Production switch (per company)
+
+Production is ready behind two gates:
+
+1. **Deployment (platform operator, once):** in Vercel → Project → Settings → Environment Variables (Production):
+   - `ZATCA_MODE=production`
+   - `ZATCA_PRODUCTION_ENABLED=true`
+   - `ZATCA_API_BASE_URL` — leave unset, or set exactly `https://gw-fatoora.zatca.gov.sa/e-invoicing/core`
+   - Redeploy. Every company keeps working on the **simulation** gateway (`/e-invoicing/simulation`) until it opts in.
+2. **Company (administrator with accounting approval), Accounting → E-invoicing (ZATCA):**
+   1. Complete the tax profile (15-digit VAT, CR, full National Address) in Settings → Company.
+   2. Pass simulation: onboard an EGS unit on simulation (OTP from the Fatoora simulation portal) and submit test invoices.
+   3. Switch **ZATCA production** ON and confirm the acknowledgement (audited: `zatca_production_enabled`).
+   4. Fatoora portal (production) → Solution units → Onboard new unit → generate an OTP (valid ~1 hour).
+   5. Connect to ZATCA (production) with the OTP: keypair + CSR (`ZATCA-Code-Signing` template) → compliance CSID → six compliance checks → production CSID → EGS stream registration. The private key never reaches the browser.
+   6. Enable automatic submission. Standard (B2B) invoices are cleared, simplified (B2C) reported; failures retry daily via `/api/cron/zatca`.
+   7. Monitor the backlog and certificate expiry; renew with a new OTP before expiry (same EGS serial keeps the ICV/PIH chain).
+
+Documents finalized before the production EGS registration are never submitted to production (go-live cutoff). Switching OFF returns the company to simulation; documents already accepted by ZATCA remain valid. Production PDFs print the ZATCA QR without the test disclosure.
+
+Data: `zatca_tenant_environment` (service-role only) stores the switch; migration `20261030090000_zatca_production_toggle.sql` widens the environment checks to include `production`.

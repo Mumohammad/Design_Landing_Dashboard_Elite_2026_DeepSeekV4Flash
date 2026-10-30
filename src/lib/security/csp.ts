@@ -56,7 +56,9 @@ export function buildCsp({ isDev, supabaseUrl }: CspOptions): string {
     // Only development adds the default local origin as a convenience.
     `connect-src 'self' ${supabaseOrigin} ${supabaseWebSocketOrigin}` +
       (isDev ? ` ${LOCAL_SUPABASE_ORIGIN} ws://127.0.0.1:54321` : "") +
-      " https://api.resend.com https://api.emailjs.com https://zatca.gov.sa https://*.ingest.sentry.io",
+      " https://api.resend.com https://api.emailjs.com https://zatca.gov.sa https://*.ingest.sentry.io https://*.ingest.de.sentry.io",
+    // Sentry Session Replay compresses in a blob: worker.
+    "worker-src 'self' blob:",
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",

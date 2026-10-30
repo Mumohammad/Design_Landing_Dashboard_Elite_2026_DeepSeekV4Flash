@@ -217,10 +217,16 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
     const envLabel = authorityQr?.environment === "simulation" ? { ar: "بيئة المحاكاة", en: "simulation" } : { ar: "البيئة التجريبية", en: "sandbox" }
     // Phase 1 prints the plain QR (as the reference invoices do); only
     // ZATCA-environment evidence carries a disclosure note.
+    // Production (core gateway) documents print the authority QR without a
+    // test disclosure; sandbox/simulation evidence keeps the explicit note.
     const qrNote = authorityQr
-      ? authorityQr.kind === "cleared"
-        ? { ar: `رمز من الفاتورة المُخلَّصة لدى ZATCA (${envLabel.ar}) · ليست فاتورة إنتاج`, en: `ZATCA-cleared QR (${envLabel.en}) · not a production invoice` }
-        : { ar: `رمز مختوم ومُبلّغ لـ ZATCA (${envLabel.ar}) · ليست فاتورة إنتاج`, en: `EGS-stamped reported QR (${envLabel.en}) · not a production invoice` }
+      ? authorityQr.environment === "production"
+        ? authorityQr.kind === "cleared"
+          ? { ar: "رمز من الفاتورة المُخلَّصة لدى هيئة الزكاة والضريبة والجمارك", en: "ZATCA-cleared invoice QR" }
+          : { ar: "فاتورة مبسطة مُبلّغ عنها لدى هيئة الزكاة والضريبة والجمارك", en: "Simplified invoice reported to ZATCA" }
+        : authorityQr.kind === "cleared"
+          ? { ar: `رمز من الفاتورة المُخلَّصة لدى ZATCA (${envLabel.ar}) · ليست فاتورة إنتاج`, en: `ZATCA-cleared QR (${envLabel.en}) · not a production invoice` }
+          : { ar: `رمز مختوم ومُبلّغ لـ ZATCA (${envLabel.ar}) · ليست فاتورة إنتاج`, en: `EGS-stamped reported QR (${envLabel.en}) · not a production invoice` }
       : null
     // National-address print lines: "<building> <street>" / "<district> <city>".
     const district = tenant.district?.trim() ?? ""

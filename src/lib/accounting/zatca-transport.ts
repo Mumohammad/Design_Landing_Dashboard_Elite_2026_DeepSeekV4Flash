@@ -9,7 +9,7 @@
 //   from the HTTP code alone.
 // * production: blocked in zatca-config.ts.
 import { moduleLogger } from "@/lib/logger"
-import { getZatcaNetworkBase } from "./zatca-config"
+import { getZatcaNetworkBase, type ZatcaEnvironment } from "./zatca-config"
 
 export type ZatcaTransmissionStatus = "reported" | "cleared" | "rejected"
 export type ZatcaPipeline = "reporting" | "clearance" | "compliance"
@@ -41,6 +41,8 @@ export interface ZatcaTransmitInput {
   /** Required by the gateway: the stamped invoice hash and document UUID. */
   invoiceHash?: string
   uuid?: string
+  /** Gateway environment (tenant-resolved); defaults to the deployment test environment. */
+  environment?: ZatcaEnvironment
   credentials?: {
     csidBase64: string
     secret: string
@@ -113,7 +115,7 @@ export function zatcaStatusFromBody(pipeline: ZatcaPipeline, body: Record<string
 
 export async function transmitToZatca(input: ZatcaTransmitInput): Promise<ZatcaTransportResponse> {
   // Invalid gateway configuration must throw, never become simulated success.
-  const base = getZatcaNetworkBase()
+  const base = getZatcaNetworkBase(input.environment)
   if (!base) {
     if (input.pipeline === "compliance") throw new ZatcaTransportError("INPUT")
     const log = moduleLogger("zatca")

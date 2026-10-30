@@ -10,7 +10,8 @@
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
 import { integrationAvailable } from "@/lib/release/integrations"
-import { zatcaConfiguredEnvironment } from "./zatca-config"
+import { ZATCA_PRODUCTION_ACK, zatcaConfiguredEnvironment, zatcaProductionAvailable } from "./zatca-config"
+import { writeAuditLog } from "@/lib/auth/sessions"
 import { daysUntil } from "./zatca-cert"
 import { missingNationalAddress, sellerParty, ZATCA_VAT_RE, type TenantPartyRow } from "./zatca-adapter-input"
 import { computeZatcaBacklog, type BacklogEvent, type BacklogTransmission, type ZatcaBacklogItem } from "./zatca-backlog"
@@ -23,8 +24,15 @@ export interface ZatcaStatus {
    * is onboarded on the configured non-production gateway.
    */
   mode: "local" | "connected"
-  environment: "sandbox" | "simulation" | null
-  productionEnabled: false
+  /** Effective environment for this tenant (production only when switched ON). */
+  environment: "sandbox" | "simulation" | "production" | null
+  /** The deployment's test environment (where tenants with production OFF work). */
+  testEnvironment: "sandbox" | "simulation" | null
+  /** This deployment allows tenants to switch to the production (core) gateway. */
+  productionAvailable: boolean
+  /** The tenant's production switch. */
+  productionEnabled: boolean
+  productionChangedAt: string | null
   profileMissing: string[]
   vatValid: boolean
   streams: { egsSerial: string; environment: string; lastCounter: number; createdAt: string }[]
@@ -52,8 +60,14 @@ export async function getZatcaStatus(): Promise<{ success: boolean; error?: stri
     if (!currentUser) return { success: false, error: "Not authenticated." }
     const tenantId = currentUser.tenantId
     const enabled = integrationAvailable("zatca")
-    const environment = enabled ? zatcaConfiguredEnvironment() : null
     const admin = createAdminClient()
+    const testEnvironment = enabled ? zatcaConfiguredEnvironment() : null
+    const productionAvailable = enabled && zatcaProductionAvailable()
+    const { data: envRow } = await admin.from("zatca_tenant_environment")
+      .select("production_enabled,changed_at").eq("tenant_id", tenantId)
+      .maybeSingle<{ production_enabled: boolean; changed_at: string }>()
+    const productionEnabled = productionAvailable && envRow?.production_enabled === true
+    const environment = productionEnabled ? "production" : testEnvironment
 
     const [tenantRes, streamRes, csidRes, eventRes, automationRes] = await Promise.all([
       admin.from("tenants")
@@ -105,7 +119,10 @@ export async function getZatcaStatus(): Promise<{ success: boolean; error?: stri
         enabled,
         mode: enabled && goLiveAt ? "connected" : "local",
         environment,
-        productionEnabled: false,
+        testEnvironment,
+        productionAvailable,
+        productionEnabled,
+        productionChangedAt: envRow?.changed_at ?? null,
         profileMissing,
         vatValid,
         goLiveAt,
@@ -127,5 +144,55 @@ export async function getZatcaStatus(): Promise<{ success: boolean; error?: stri
     }
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Failed to load ZATCA status." }
+  }
+}
+
+
+/**
+ * Per-tenant production switch (accounting:approve). ON moves this tenant's
+ * onboarding, clearance and reporting to the ZATCA core (production) gateway
+ * once a production EGS unit is onboarded with a real Fatoora OTP; documents
+ * finalized before that EGS registration are never submitted. OFF returns the
+ * tenant to the test gateway; documents already accepted by ZATCA stay valid.
+ */
+export async function setZatcaProductionMode(
+  enabled: boolean, acknowledgement?: string,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    if (typeof enabled !== "boolean") return { success: false, error: "Invalid setting." }
+    await requirePermission("accounting", "approve")
+    const currentUser = await getCurrentUser()
+    if (!currentUser) return { success: false, error: "Not authenticated." }
+    if (enabled && !zatcaProductionAvailable()) {
+      return { success: false, error: "ZATCA production is not enabled for this deployment. Ask the platform operator to set ZATCA_MODE=production and ZATCA_PRODUCTION_ENABLED=true." }
+    }
+    if (enabled && acknowledgement !== ZATCA_PRODUCTION_ACK) return { success: false, error: "Confirm the production acknowledgement to continue." }
+    const admin = createAdminClient()
+    if (enabled) {
+      const { data: tenant } = await admin.from("tenants")
+        .select("name_ar,name_en,legal_name,vat_number,cr_number,address,city,region,district,building_number,additional_number,postal_code,country")
+        .eq("id", currentUser.tenantId).maybeSingle<TenantPartyRow>()
+      const seller = tenant ? sellerParty(tenant) : null
+      const missing = seller ? missingNationalAddress(seller, "seller", "standard") : ["tenant"]
+      if (!seller?.vatNumber || !ZATCA_VAT_RE.test(seller.vatNumber) || missing.length) {
+        return { success: false, error: `Complete the company tax profile before switching to production (${[...(seller?.vatNumber && ZATCA_VAT_RE.test(seller.vatNumber) ? [] : ["vatNumber"]), ...missing.filter((f) => f !== "vatNumber")].join(", ")}).` }
+      }
+    }
+    const { error } = await admin.from("zatca_tenant_environment").upsert({
+      tenant_id: currentUser.tenantId,
+      production_enabled: enabled,
+      changed_by: currentUser.authUserId,
+      changed_at: new Date().toISOString(),
+      acknowledgement: enabled ? ZATCA_PRODUCTION_ACK : null,
+    }, { onConflict: "tenant_id" })
+    if (error) return { success: false, error: "Unable to save the ZATCA production setting." }
+    await writeAuditLog({
+      tenantId: currentUser.tenantId, actorId: currentUser.authUserId, module: "accounting",
+      action: enabled ? "zatca_production_enabled" : "zatca_production_disabled",
+      entityType: "zatca_tenant_environment", newValues: { production_enabled: enabled },
+    })
+    return { success: true }
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Failed to change the ZATCA production setting." }
   }
 }

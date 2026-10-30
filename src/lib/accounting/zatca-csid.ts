@@ -21,7 +21,8 @@ import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
 import { writeAuditLog } from "@/lib/auth/sessions"
 import { generateZatcaKeyPair, buildZatcaCsr, ZATCA_CERT_TEMPLATES, type ZatcaCsrInput } from "./zatca-crypto"
 import { requestComplianceCsid, requestProductionCsid } from "./zatca-onboarding"
-import { getZatcaNetworkBase, zatcaConfiguredEnvironment } from "./zatca-config"
+import { getZatcaNetworkBase, zatcaConfiguredEnvironment, zatcaProductionAvailable } from "./zatca-config"
+import { tenantZatcaProductionOn } from "./zatca-environment"
 import { certificateFromToken, certificateValidity } from "./zatca-cert"
 import { runZatcaComplianceChecks, type ComplianceCheckResult } from "./zatca-compliance-checks"
 import { missingNationalAddress, sellerParty, type TenantPartyRow } from "./zatca-adapter-input"
@@ -212,13 +213,16 @@ export async function onboardZatcaCsids(input: OnboardZatcaInput): Promise<Onboa
     const currentUser = await getCurrentUser()
     if (!currentUser) return { success: false, error: "Not authenticated." }
     if (!OTP_RE.test(input.otp ?? "")) return { success: false, error: "Enter the 6-digit OTP from the Fatoora portal." }
-    if (input.environment === "production") return { success: false, error: "Production onboarding is disabled." }
     const configured = zatcaConfiguredEnvironment()
-    const base = getZatcaNetworkBase()
-    if (configured && input.environment !== configured) {
+    const productionOn = await tenantZatcaProductionOn(createAdminClient(), currentUser.tenantId)
+    if (input.environment === "production") {
+      if (!zatcaProductionAvailable()) return { success: false, error: "Production onboarding is disabled." }
+      if (!productionOn) return { success: false, error: "Switch ZATCA production ON for the company before onboarding the production EGS unit." }
+    } else if (configured && input.environment !== configured) {
       return { success: false, error: `The configured ZATCA gateway is ${configured}; onboard that environment.` }
     }
     const environment = input.environment
+    const base = getZatcaNetworkBase(environment)
     const title = input.title ?? "1100"
     if (!TITLE_RE.test(title) || title.startsWith("00")) return { success: false, error: "Invalid EGS invoice-type flags." }
 
@@ -271,7 +275,7 @@ export async function onboardZatcaCsids(input: OnboardZatcaInput): Promise<Onboa
     const csr = buildZatcaCsr(csrInput, keyPair)
 
     // 3. Compliance CSID → persist.
-    const cc = await requestComplianceCsid({ csr, otp: input.otp })
+    const cc = await requestComplianceCsid({ csr, otp: input.otp, environment })
     const ccValidity = certificateValidity(cc.csidBase64)
     const complianceSaved = await saveZatcaCsidInternal(admin, currentUser, {
       environment,
@@ -311,6 +315,7 @@ export async function onboardZatcaCsids(input: OnboardZatcaInput): Promise<Onboa
       complianceRequestId: cc.requestId,
       csidBase64: cc.csidBase64,
       csidSecret: cc.secret,
+      environment,
     })
     const pcValidity = certificateValidity(pc.csidBase64)
     const productionSaved = await saveZatcaCsidInternal(admin, currentUser, {

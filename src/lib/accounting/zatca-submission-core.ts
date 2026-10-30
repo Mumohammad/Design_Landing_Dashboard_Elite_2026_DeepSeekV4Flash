@@ -7,6 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin"
 import type { ZatcaActor } from "./zatca-issuance"
 import { writeAuditLog } from "@/lib/auth/sessions"
 import { getZatcaNetworkBase } from "./zatca-config"
+import { resolveTenantZatcaEnvironment } from "./zatca-environment"
 import { certificateFromToken } from "./zatca-cert"
 import { getZatcaCsidCredential } from "./zatca-credentials"
 import { signZatcaInvoice, ZatcaSigningError } from "./zatca-signer"
@@ -41,11 +42,13 @@ export async function submitPreparedZatcaDocumentAs(
   try {
     if (!UUID.test(issuanceId) || (mode !== "compliance" && mode !== "submit")) return { success: false, error: "Invalid request." }
 
-    const base = getZatcaNetworkBase()
-    const environment = process.env.ZATCA_MODE === "simulation" ? "simulation" : "sandbox"
-    if (!base) return { success: false, error: "ZATCA gateway is not configured (offline mock mode)." }
-
     const admin = createAdminClient()
+    // Tenant-resolved: production only when the deployment allows it AND the
+    // tenant's administrator switched production ON (zatca-environment.ts).
+    const environment = await resolveTenantZatcaEnvironment(admin, user.tenantId)
+    const base = environment ? getZatcaNetworkBase(environment) : null
+    if (!base || !environment) return { success: false, error: "ZATCA gateway is not configured (offline mock mode)." }
+
     const { data: issuance, error } = await admin
       .from("zatca_document_issuances")
       .select("id,tenant_id,environment,doc_ref,invoice_hash,unsigned_xml")
@@ -83,6 +86,7 @@ export async function submitPreparedZatcaDocumentAs(
         invoiceHash: signed.invoiceHash,
         uuid,
         credentials: credential,
+        environment,
       })
       status = response.status
       raw = response.raw

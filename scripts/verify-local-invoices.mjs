@@ -119,7 +119,9 @@ export async function verifyInvoiceCrud(page, admin, tenantId, appUrl) {
     await verifyInvoiceReferenceAndPages(page,admin,tenantId,appUrl)
     console.log("PASS: invoice browser create → exact VAT → edit → mobile → PDF failure/retry → clean PDF download with preserved amounts/status/internal QR and identical private stored hash → soft delete → reload → audit")
   } catch (error) {
-    console.error(JSON.stringify({ invoiceStage: stage }))
+    const visibleDialog = await page.getByRole("dialog").allInnerTexts().catch(() => [])
+    const alerts = await page.getByRole("alert").allInnerTexts().catch(() => [])
+    console.error(JSON.stringify({ invoiceStage: stage, message: String(error?.message ?? error).slice(0, 1200), dialog: visibleDialog.map((t) => t.slice(0, 400)), alerts: alerts.map((t) => t.slice(0, 300)) }))
     await page.screenshot({ path: "supabase/.temp/invoice-crud-failure.png", fullPage: true })
     throw error
   }

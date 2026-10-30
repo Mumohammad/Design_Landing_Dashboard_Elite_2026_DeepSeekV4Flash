@@ -26,7 +26,7 @@ export function assertAcceptanceTarget(backendUrl,appUrl,sha) {
 }
 export function validateDeploymentEvidence(status,body,policy,sha) {
  const sources=(policy.split(';').map(x=>x.trim()).find(x=>x.startsWith('connect-src '))??'').split(/\s+/).slice(1)
- const allowed=new Set(["'self'",'https://'+staging+'.supabase.co','wss://'+staging+'.supabase.co','https://api.resend.com','https://api.emailjs.com','https://zatca.gov.sa','https://*.ingest.sentry.io'])
+ const allowed=new Set(["'self'",'https://'+staging+'.supabase.co','wss://'+staging+'.supabase.co','https://api.resend.com','https://api.emailjs.com','https://zatca.gov.sa','https://*.ingest.sentry.io','https://*.ingest.de.sentry.io'])
  if(status!==200||body?.status!=='healthy'||body.version!==sha||!sources.includes('https://'+staging+'.supabase.co')||policy.includes(production)||sources.some(source=>!allowed.has(source)))throw Error('Healthy exact commit and exclusive staging CSP required')
 }
 export async function preflightAcceptanceTarget({backendUrl,appUrl,expectedCommit,fetchImpl=fetch}) {

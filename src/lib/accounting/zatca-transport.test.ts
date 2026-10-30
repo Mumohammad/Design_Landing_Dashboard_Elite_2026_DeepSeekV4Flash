@@ -106,10 +106,11 @@ describe("configuration fails closed", () => {
     expect(isSandboxTransport()).toBe(false)
   })
 
-  it("a flag cannot override the independent production gate", async () => {
+  it("production mode needs the operator flag and still refuses unsigned documents", async () => {
     vi.stubEnv("ZATCA_MODE", "production")
+    await expect(transmitToZatca({ ...input, environment: "production" })).rejects.toThrow("ZATCA_PRODUCTION_ENABLED")
     vi.stubEnv("ZATCA_PRODUCTION_ENABLED", "true")
-    await expect(transmitToZatca(input)).rejects.toThrow("production remains blocked")
+    await expect(transmitToZatca({ ...input, environment: "production" })).rejects.toThrow("NOT_SIGNED")
     expect(isSandboxTransport()).toBe(false)
   })
 

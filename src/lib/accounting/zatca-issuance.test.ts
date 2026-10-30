@@ -76,9 +76,9 @@ describe("server-only non-production ZATCA preparation",()=>{
     expect(mocks.rpc.mock.calls[0][1].p_source_type).toBe("credit_note")
     expect(mocks.rpc.mock.calls[0][1].p_source_id).toBe(source)
   })
-  it.each(["production","unknown"])("blocks %s streams before XML is prepared",async environment=>{
+  it.each(["unknown","live"])("blocks %s streams before XML is prepared",async environment=>{
     streamResult.data!.environment=environment
-    await expect(prepareZatcaDocument(stream,source,input)).rejects.toThrow("production preparation is disabled")
+    await expect(prepareZatcaDocument(stream,source,input)).rejects.toThrow("Unknown ZATCA environment")
     expect(mocks.rpc).not.toHaveBeenCalled()
   })
   it.each([-1,1.2,Number.MAX_SAFE_INTEGER,"invalid"])("rejects invalid/exhausted counter %s",async counter=>{

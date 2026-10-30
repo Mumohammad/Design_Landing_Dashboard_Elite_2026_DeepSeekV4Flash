@@ -29,7 +29,7 @@ export interface ZatcaSigningCredentials {
 }
 
 export interface ZatcaSignInput {
-  environment: "sandbox" | "simulation"
+  environment: "sandbox" | "simulation" | "production"
   kind: ZatcaQrKind
   unsignedXml: string
   credentials: ZatcaSigningCredentials

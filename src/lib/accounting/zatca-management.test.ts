@@ -11,7 +11,8 @@ vi.mock("@/lib/auth/authorization", () => ({
   getCurrentUser: async () => ({ tenantId: "t1", authUserId: "u1" }),
 }))
 vi.mock("@/lib/release/integrations", () => ({ integrationAvailable: () => m.enabled }))
-vi.mock("./zatca-config", () => ({ zatcaConfiguredEnvironment: () => (m.enabled ? "sandbox" : null) }))
+vi.mock("./zatca-config", () => ({ zatcaConfiguredEnvironment: () => (m.enabled ? "sandbox" : null), zatcaProductionAvailable: () => false, ZATCA_PRODUCTION_ACK: "ack" }))
+vi.mock("@/lib/auth/sessions", () => ({ writeAuditLog: vi.fn(async () => undefined) }))
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({
     from: (table: string) => {

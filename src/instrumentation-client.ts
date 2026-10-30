@@ -1,19 +1,23 @@
-// Sentry client-side configuration.
-// This file initializes Sentry in the browser.
+// Sentry browser configuration (Next.js instrumentation-client hook; the
+// legacy sentry.client.config.ts is not loaded by @sentry/nextjs v10 / Next 16).
+// Privacy (PDPL): no default PII, replays only on error with all text masked
+// and media blocked. Inert until NEXT_PUBLIC_SENTRY_DSN is configured.
 // See: https://docs.sentry.io/platforms/javascript/guides/nextjs/
 
 import * as Sentry from "@sentry/nextjs"
 
 Sentry.init({
-  dsn: process.env.NEXT_PUBLIC_SENTRY_DSN ?? process.env.SENTRY_DSN,
+  dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+  sendDefaultPii: false,
+  integrations: [Sentry.replayIntegration({ maskAllText: true, maskAllInputs: true, blockAllMedia: true })],
 
   // ── Sampling ───────────────────────────────────────────────
   // 10% of transactions in production, 100% in dev
   tracesSampleRate: process.env.NODE_ENV === "production" ? 0.1 : 1.0,
 
   // ── Session Replay ─────────────────────────────────────────
-  // 10% of normal sessions, 100% on error — gives visual context
-  replaysSessionSampleRate: process.env.NODE_ENV === "production" ? 0.1 : 0,
+  // Never record normal sessions; record (masked) only around errors.
+  replaysSessionSampleRate: 0,
   replaysOnErrorSampleRate: 1.0,
 
   // ── Environment ────────────────────────────────────────────
@@ -21,7 +25,7 @@ Sentry.init({
 
   // ── Enable/Disable ─────────────────────────────────────────
   // Only send errors when DSN is configured OR in production
-  enabled: process.env.NODE_ENV === "production" || !!process.env.SENTRY_DSN,
+  enabled: !!process.env.NEXT_PUBLIC_SENTRY_DSN,
 
   // ── Release tracking ───────────────────────────────────────
   // Automatically set by @sentry/nextjs, but explicit is better
@@ -94,10 +98,9 @@ Sentry.init({
     "Non-Error promise rejection",
   ],
 
-  // ── Allow URLs ─────────────────────────────────────────────
-  // Only send errors from our domain
-  allowUrls: [
-    process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
-    /app\.elitedev\.com\.sa/,
-  ],
+  // ── Deny URLs ──────────────────────────────────────────────
+  // Drop errors thrown by browser extensions.
+  denyUrls: [/^chrome-extension:\/\//i, /^moz-extension:\/\//i, /^safari-extension:\/\//i],
 })
+
+export const onRouterTransitionStart = Sentry.captureRouterTransitionStart
