@@ -148,6 +148,16 @@ try {
     const { verifyOperationsCrud } = await import("./verify-local-operations.mjs")
     await verifyOperationsCrud(page, admin, company.data.id, appUrl)
   }
+  if (process.env.VERIFY_DRIVERS_CRUD === "1") {
+    stage = "drivers CRUD browser verification"
+    const { verifyDriversCrud } = await import("./verify-local-drivers.mjs")
+    await verifyDriversCrud(page, admin, company.data.id, appUrl)
+  }
+  if (process.env.VERIFY_PLATFORM_PAYROLL === "1") {
+    stage = "platform payroll import browser verification"
+    const { verifyPlatformPayroll } = await import("./verify-local-payroll-platform.mjs")
+    await verifyPlatformPayroll(page, admin, company.data.id, owner.data.user.id, appUrl)
+  }
   if (process.env.VERIFY_OVERVIEWS === "1") {
     stage = "large overview search, export, pagination, and read recovery"
     const { verifyOverviews } = await import("./verify-local-overviews.mjs")

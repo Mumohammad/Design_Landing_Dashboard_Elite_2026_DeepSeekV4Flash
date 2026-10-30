@@ -1,4 +1,5 @@
 "use client"
+import { driverErrorMessage } from "@/lib/drivers/error-messages"
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
@@ -273,7 +274,7 @@ export function CreateDriverDialog({
       router.refresh()
       if (result.id) router.push(`/drivers/${result.id}`)
     } else {
-      toast.error(result.error ?? (isAr ? "حدث خطأ" : "Something went wrong"))
+      toast.error(driverErrorMessage(result.error, isAr, isAr ? "حدث خطأ" : "Something went wrong"))
     }
   }
 

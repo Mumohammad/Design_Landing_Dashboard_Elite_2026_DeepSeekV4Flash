@@ -1,4 +1,5 @@
 "use client"
+import { driverErrorMessage } from "@/lib/drivers/error-messages"
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
@@ -352,7 +353,7 @@ export default function DriverActionsMenu({
       }
       const res = await updateDriver(driverId, payload as DriverUpdateInput, record?.profile_version ?? 0)
       if (!res.success) {
-        toast.error(res.error ?? (isAr ? "فشل الحفظ" : "Save failed"))
+        toast.error(driverErrorMessage(res.error, isAr, isAr ? "فشل الحفظ" : "Save failed"))
         return
       }
       toast.success(isAr ? "تم حفظ التغييرات" : "Changes saved")
@@ -370,7 +371,7 @@ export default function DriverActionsMenu({
       if (pending.kind === "archive") {
         const res = await archiveDriver({ driverId, reason: reason.trim(), expectedVersion:record?.profile_version??0 })
         if (!res.success) {
-          toast.error(res.error ?? (isAr ? "فشل الأرشفة" : "Archive failed"))
+          toast.error(driverErrorMessage(res.error, isAr, isAr ? "فشل الأرشفة" : "Archive failed"))
           return
         }
         toast.success(isAr ? "تمت أرشفة السائق" : "Driver archived")
@@ -388,7 +389,7 @@ export default function DriverActionsMenu({
         terminationDate:terminationDate||undefined,
       })
       if (!res.success) {
-        toast.error(res.error ?? (isAr ? "فشل تغيير الحالة" : "Status change failed"))
+        toast.error(driverErrorMessage(res.error, isAr, isAr ? "فشل تغيير الحالة" : "Status change failed"))
         return
       }
       toast.success(isAr ? "تم تحديث الحالة" : "Status updated")

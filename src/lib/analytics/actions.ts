@@ -339,7 +339,7 @@ async function buildDashboardSnapshot(
     .sort((x, y) => y.orders - x.orders)
 
   // ── Payroll (module-owned calculated results) ─────────────────────────────
-  let payrollRows: {
+  const payrollRows: {
     driver_id: string
     period_year: number
     period_month: number
@@ -352,29 +352,111 @@ async function buildDashboardSnapshot(
     net_payroll: number | null
   }[] = []
   let latestPeriod: { year: number; month: number } | null = null
+  // Trend-only rows (one per approved platform payroll run); per-driver rows
+  // for the latest/previous month are appended to payrollRows below.
+  const payrollTrendRows: { period_year: number; period_month: number; net_payroll: number | null }[] = []
+  const payrollFromYear = new Date().getFullYear() - 2
   try {
-    const { data, error } = await supabase
-      .from("driver_payroll_periods")
-      .select(
-        "driver_id, period_year, period_month, orders_achieved, target_orders_monthly, orders_prorated_target, orders_bonus, total_earnings, total_deductions, net_payroll",
-      )
-      .in("status", APPROVED_PAYROLL_STATUS)
-      .is("deleted_at", null)
-    if (!error && data) {
-      payrollRows = data as typeof payrollRows
+    // PostgREST caps every response (1,000 rows by default), so page through
+    // the last two years instead of silently truncating large fleets.
+    const pageSize = 1000
+    for (let from = 0; from < 50 * pageSize; from += pageSize) {
+      const { data, error } = await supabase
+        .from("driver_payroll_periods")
+        .select(
+          "driver_id, period_year, period_month, orders_achieved, target_orders_monthly, orders_prorated_target, orders_bonus, total_earnings, total_deductions, net_payroll",
+        )
+        .in("status", APPROVED_PAYROLL_STATUS)
+        .is("deleted_at", null)
+        .gte("period_year", payrollFromYear)
+        .order("id")
+        .range(from, from + pageSize - 1)
+      if (error || !data) break
+      payrollRows.push(...(data as typeof payrollRows))
       availability.payroll = true
-      for (const r of payrollRows) {
-        if (
-          !latestPeriod ||
-          r.period_year > latestPeriod.year ||
-          (r.period_year === latestPeriod.year && r.period_month > latestPeriod.month)
-        ) {
-          latestPeriod = { year: r.period_year, month: r.period_month }
-        }
+      if (data.length < pageSize) break
+    }
+    for (const r of payrollRows) payrollTrendRows.push(r)
+  } catch {
+    /* table missing */
+  }
+
+  // Platform payroll (Excel import engine): approved runs count as payroll too.
+  try {
+    const { data: runs, error } = await supabase
+      .from("payroll_engine_runs")
+      .select("id, month_key, total_net")
+      .eq("status", "approved")
+      .gte("month_key", `${payrollFromYear}-01`)
+      .limit(1000)
+    if (!error && runs && runs.length > 0) {
+      availability.payroll = true
+      for (const run of runs) {
+        const [y, m] = String(run.month_key).split("-").map(Number)
+        payrollTrendRows.push({ period_year: y, period_month: m, net_payroll: Number(run.total_net ?? 0) })
       }
     }
   } catch {
     /* table missing */
+  }
+  for (const r of payrollTrendRows) {
+    if (
+      !latestPeriod ||
+      r.period_year > latestPeriod.year ||
+      (r.period_year === latestPeriod.year && r.period_month > latestPeriod.month)
+    ) {
+      latestPeriod = { year: r.period_year, month: r.period_month }
+    }
+  }
+  if (latestPeriod) {
+    const lp = latestPeriod
+    const prev = lp.month === 1 ? { year: lp.year - 1, month: 12 } : { year: lp.year, month: lp.month - 1 }
+    const keys = [lp, prev].map((p) => `${p.year}-${String(p.month).padStart(2, "0")}`)
+    try {
+      const { data: runs } = await supabase
+        .from("payroll_engine_runs")
+        .select("id, month_key")
+        .eq("status", "approved")
+        .in("month_key", keys)
+      const monthByRun = new Map((runs ?? []).map((r) => [r.id as string, String(r.month_key)]))
+      if (monthByRun.size > 0) {
+        const pageSize = 1000
+        for (let from = 0; from < 50 * pageSize; from += pageSize) {
+          const { data, error } = await supabase
+            .from("payroll_engine_results")
+            .select("id, run_id, driver_id, rider_id, driver_name, completed_orders, gross_salary, final_net_salary, result")
+            .in("run_id", [...monthByRun.keys()])
+            .order("id")
+            .range(from, from + pageSize - 1)
+          if (error || !data) break
+          for (const row of data) {
+            const [y, m] = (monthByRun.get(row.run_id as string) ?? "0-0").split("-").map(Number)
+            const result = (row.result ?? {}) as Record<string, unknown>
+            const gross = Number(row.gross_salary ?? 0)
+            const net = Number(row.final_net_salary ?? 0)
+            const target = Number(result.adjustedTargetOrders ?? result.appliedMonthlyTarget ?? 0) || null
+            const driverKey = (row.driver_id as string | null) ?? `rider:${row.rider_id}`
+            if (!driverNames.has(driverKey)) driverNames.set(driverKey, String(row.driver_name || row.rider_id))
+            // Trend already holds the run totals; these rows feed KPIs and targets only.
+            payrollRows.push({
+              driver_id: driverKey,
+              period_year: y,
+              period_month: m,
+              orders_achieved: Number(row.completed_orders ?? 0),
+              target_orders_monthly: target,
+              orders_prorated_target: target,
+              orders_bonus: Number(result.bonusAmount ?? 0),
+              total_earnings: gross,
+              total_deductions: Math.round((gross - net) * 100) / 100,
+              net_payroll: net,
+            })
+          }
+          if (data.length < pageSize) break
+        }
+      }
+    } catch {
+      /* table missing */
+    }
   }
 
   const prevPeriod =
@@ -408,7 +490,7 @@ async function buildDashboardSnapshot(
   // keep payroll undefined. Neither side is zero-filled.
   const payrollTrend = mergePayrollTrend(
     [],
-    payrollRows.map((r) => ({
+    payrollTrendRows.map((r) => ({
       period_year: r.period_year,
       period_month: r.period_month,
       net_payroll: r.net_payroll,
