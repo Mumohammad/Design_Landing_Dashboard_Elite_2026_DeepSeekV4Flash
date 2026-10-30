@@ -19,6 +19,7 @@ import { DriverLeaveTab } from "@/components/drivers/driver-leave-tab"
 import { ViolationsTab } from "@/components/drivers/violations-tab"
 import { PerformanceTab } from "@/components/drivers/performance-tab"
 import { TrainingTab } from "@/components/drivers/training-tab"
+import { DriverPayslipsTab } from "@/components/payroll-engine/driver-payslips-tab"
 import { DocumentUploadDialog } from "@/components/drivers/document-upload-dialog"
 import { DocumentsDeleteDialog } from "@/components/drivers/documents-delete-dialog"
 import { subscribeDriverChanged } from "@/lib/drivers/driver-events"
@@ -1107,6 +1108,10 @@ export function DriverTabs({
           <Banknote className="h-3.5 w-3.5" />
           {isAr ? "تسوية COD" : "COD"}
         </TabsTrigger>
+        <TabsTrigger value="payslips">
+          <FileText className="h-3.5 w-3.5" />
+          {isAr ? "قسائم الرواتب" : "Payslips"}
+        </TabsTrigger>
         <TabsTrigger value="salary">
           <Wallet className="h-3.5 w-3.5" />
           {isAr ? "سجل الرواتب" : "Salary History"}
@@ -1190,6 +1195,9 @@ export function DriverTabs({
       </TabsContent>
       <TabsContent value="cod" className="mt-4">
         <CodTab driverId={driver.id} isAr={isAr} />
+      </TabsContent>
+      <TabsContent value="payslips" className="mt-4">
+        <DriverPayslipsTab driverId={driver.id} isAr={isAr} />
       </TabsContent>
       <TabsContent value="salary" className="mt-4">
         <SalaryTab driverId={driver.id} isAr={isAr} />

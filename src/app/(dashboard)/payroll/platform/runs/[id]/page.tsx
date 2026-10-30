@@ -4,11 +4,12 @@ import Link from "next/link"
 import { useParams } from "next/navigation"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { approvePayrollRun, cancelPayrollRun, createPayrollJournalDraft, payrollWorkbookDownloadUrl, recalculatePayrollRun, updatePayrollException } from "@/lib/payroll-engine/server/run-actions"
-import { getPayrollRunDetail, listJournalAccounts, type RunDetail } from "@/lib/payroll-engine/server/read-actions"
+import { getPayrollRunDetail, getPayslipCompany, listJournalAccounts, type RunDetail } from "@/lib/payroll-engine/server/read-actions"
 import { payrollResultsSheets } from "@/lib/payroll-engine/exports"
-import { payslipBreakdown } from "@/lib/payroll-engine/payslip"
 import { monthLabel, monthLabelAr, toHalalas } from "@/lib/payroll-engine/month"
-import { openPayslips } from "@/components/payroll-engine/payslip-print"
+import { openPayslips, type PayslipCompany } from "@/components/payroll-engine/payslip-print"
+import { PayslipViewer } from "@/components/payroll-engine/payslip-viewer"
+import { FileText } from "lucide-react"
 import { Field, Kpi, Notice, PageShell, StatusBadge, buttonClass, dangerButtonClass, downloadSheets, inputClass, int, primaryButtonClass, sar, useLang } from "@/components/payroll-engine/shared"
 
 type Row = RunDetail["results"][number]
@@ -20,7 +21,9 @@ export default function PlatformPayrollRunPage() {
   const [error, setError] = useState("")
   const [busy, setBusy] = useState("")
   const [message, setMessage] = useState<{ kind: "ok" | "err"; text: string } | null>(null)
-  const [tab, setTab] = useState<"results" | "exceptions" | "rules">("results")
+  const [tab, setTab] = useState<"results" | "payslips" | "exceptions" | "rules">("results")
+  const [company, setCompany] = useState<PayslipCompany | null>(null)
+  useEffect(() => { void getPayslipCompany().then(r => { if (r.success) setCompany(r.data) }) }, [])
   const [search, setSearch] = useState("")
   const [selected, setSelected] = useState<Row | null>(null)
   const [cancelOpen, setCancelOpen] = useState(false)
@@ -55,7 +58,7 @@ export default function PlatformPayrollRunPage() {
 
   const month = ar ? monthLabelAr(run.monthKey) : monthLabel(run.monthKey)
   const payable = toHalalas(detail.results.reduce((s, r) => s + toHalalas(r.result.finalNetSalary), 0))
-  const meta = { month, platform: run.platformName, status: run.status }
+  const meta = { month, platform: run.platformName, status: run.status, company }
   const exportRows = detail.results.map(r => ({ result: r.result, bank: r.bank }))
 
   return (
@@ -97,7 +100,7 @@ export default function PlatformPayrollRunPage() {
       </div>
 
       <div role="tablist" className="flex gap-2">
-        {([["results", tx("Riders", "المناديب")], ["exceptions", `${tx("Exceptions", "الملاحظات")} (${detail.exceptions.length})`], ["rules", tx("Applied rules", "القواعد المطبقة")]] as const).map(([k, l]) => (
+        {([["results", tx("Riders", "المناديب")], ["payslips", tx("Payslips", "القسائم")], ["exceptions", `${tx("Exceptions", "الملاحظات")} (${detail.exceptions.length})`], ["rules", tx("Applied rules", "القواعد المطبقة")]] as const).map(([k, l]) => (
           <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? primaryButtonClass : buttonClass} onClick={() => setTab(k)}>{l}</button>
         ))}
       </div>
@@ -134,6 +137,33 @@ export default function PlatformPayrollRunPage() {
         </div>
       </>}
 
+      {tab === "payslips" && <>
+        <input className={`${inputClass} max-w-sm`} placeholder={tx("Search rider ID or name", "ابحث برقم المندوب أو الاسم")} value={search} onChange={e => setSearch(e.target.value)} />
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {rows.map(r => {
+            const x = r.result
+            const attain = x.selectedTargetThreshold > 0 ? Math.round((x.completedOrders / x.selectedTargetThreshold) * 100) : 0
+            return (
+              <div key={r.id} className="rounded-2xl border border-border/60 bg-card p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                <div className="flex items-start justify-between gap-2">
+                  <span className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"><FileText className="h-5 w-5" /></span>
+                  <StatusBadge status={x.performanceBand} />
+                </div>
+                <div className="mt-3 font-bold">{r.driverName}</div>
+                <div className="text-xs text-muted-foreground">{r.riderId}{!r.driverId && ` · ${tx("not linked", "غير مرتبط")}`}</div>
+                <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                  <div><div className="text-muted-foreground">{tx("Net salary", "صافي الراتب")}</div><div className="font-bold tabular-nums text-emerald-700 dark:text-emerald-300">SAR {sar(x.finalNetSalary)}</div></div>
+                  <div><div className="text-muted-foreground">{tx("Orders", "الطلبات")}</div><div className="font-semibold tabular-nums">{int(x.completedOrders)}</div></div>
+                  <div><div className="text-muted-foreground">{tx("Attainment", "الإنجاز")}</div><div className="font-semibold tabular-nums">{attain}%</div></div>
+                </div>
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-emerald-500/10"><div className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-emerald-700" style={{ width: `${Math.min(100, attain)}%` }} /></div>
+                <button type="button" className={`${buttonClass} mt-4 w-full`} onClick={() => setSelected(r)}><FileText className="h-4 w-4" />{tx("View payslip", "عرض القسيمة")}</button>
+              </div>
+            )
+          })}
+        </div>
+      </>}
+
       {tab === "exceptions" && (
         <div className="space-y-2">
           {detail.exceptions.length === 0 && <p className="text-sm text-muted-foreground">{tx("No exceptions", "لا توجد ملاحظات")}</p>}
@@ -164,7 +194,8 @@ export default function PlatformPayrollRunPage() {
         </div>
       )}
 
-      {selected && <PayslipDialog row={selected} onClose={() => setSelected(null)} onPrint={() => openPayslips([{ result: selected.result, bank: selected.bank }], meta, ar)} />}
+      {selected && <PayslipViewer ar={ar} rows={[{ result: selected.result, bank: selected.bank }]} meta={meta} title={`${selected.driverName} · ${selected.riderId}`} onClose={() => setSelected(null)}
+        onPrintBlocked={() => setMessage({ kind: "err", text: tx("Allow pop-ups to print payslips", "اسمح بالنوافذ المنبثقة لطباعة القسائم") })} />}
 
       {cancelOpen && (
         <Modal title={tx("Cancel payroll run", "إلغاء مسير الرواتب")} onClose={() => setCancelOpen(false)}>
@@ -214,37 +245,4 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
       </div>
     </div>
   )
-}
-
-function PayslipDialog({ row, onClose, onPrint }: { row: Row; onClose: () => void; onPrint: () => void }) {
-  const { ar, tx } = useLang()
-  const p = payslipBreakdown(row.result)
-  const r = row.result
-  return (
-    <Modal title={`${tx("Payslip", "قسيمة الراتب")} — ${r.driverName} (${r.riderId})`} onClose={onClose}>
-      <div className="grid grid-cols-2 gap-2 text-sm md:grid-cols-4">
-        <div><span className="text-muted-foreground">{tx("Orders", "الطلبات")}:</span> {int(r.completedOrders)}</div>
-        <div><span className="text-muted-foreground">{tx("Target", "المستهدف")}:</span> {int(r.selectedTargetThreshold)}</div>
-        <div><span className="text-muted-foreground">{tx("Working days", "أيام العمل")}:</span> {int(r.actualWorkingDays)}</div>
-        <div><span className="text-muted-foreground">{tx("Rate / order", "سعر الطلب")}:</span> {sar(r.appliedSalaryPerOrder)}</div>
-      </div>
-      <div className="grid gap-4 md:grid-cols-2">
-        <table className="w-full text-sm"><thead><tr><th className="px-2 py-1 text-start">{tx("Earnings", "الاستحقاقات")}</th><th className="px-2 py-1 text-end">SAR</th></tr></thead>
-          <tbody><PayslipLines lines={p.earnings} ar={ar} /></tbody>
-          <tfoot><tr className="border-t-2 border-foreground font-semibold"><td className="px-2 py-1.5">{tx("Gross", "الإجمالي")}</td><td className="px-2 py-1.5 text-end tabular-nums">{sar(p.gross)}</td></tr></tfoot></table>
-        <table className="w-full text-sm"><thead><tr><th className="px-2 py-1 text-start">{tx("Deductions", "الاستقطاعات")}</th><th className="px-2 py-1 text-end">SAR</th></tr></thead>
-          <tbody><PayslipLines lines={p.deductions} ar={ar} /></tbody>
-          <tfoot><tr className="border-t-2 border-foreground font-semibold"><td className="px-2 py-1.5">{tx("Total", "الإجمالي")}</td><td className="px-2 py-1.5 text-end tabular-nums">{sar(p.totalDeductions)}</td></tr></tfoot></table>
-      </div>
-      <div className="rounded-lg border border-emerald-400 bg-emerald-50 p-3 text-center text-lg font-semibold text-emerald-900 dark:bg-emerald-950 dark:text-emerald-100">{tx("Net salary", "صافي الراتب")}: SAR {sar(p.net)}</div>
-      <p className="text-xs text-muted-foreground">{tx("Platform basic payment", "الدفعة الأساسية من المنصة")}: {sar(r.uploadedBasicPayment)} · {tx("Variance", "الفرق")}: {sar(r.varianceAmount)} ({int(r.variancePercentage)}%)</p>
-      <div className="flex justify-end gap-2"><button className={buttonClass} onClick={onClose}>{tx("Close", "إغلاق")}</button><button className={primaryButtonClass} onClick={onPrint}>{tx("Print", "طباعة")}</button></div>
-    </Modal>
-  )
-}
-
-function PayslipLines({ lines, ar }: { lines: ReturnType<typeof payslipBreakdown>["earnings"]; ar: boolean }) {
-  return <>{lines.map(l => (
-    <tr key={l.key} className="border-t border-border"><td className={`px-2 py-1.5 ${l.kind === "adjustment" ? "italic text-muted-foreground" : ""}`}>{ar ? l.ar : l.en}</td><td className="px-2 py-1.5 text-end tabular-nums">{sar(l.amount)}</td></tr>
-  ))}</>
 }

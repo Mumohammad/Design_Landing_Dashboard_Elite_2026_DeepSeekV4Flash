@@ -209,7 +209,8 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
     const payload = buildTaxQrPayload({
       sellerName: tenant.name_ar || tenant.name_en || "",
       sellerVatNumber: sellerVat,
-      timestamp: phase1 ? new Date(inv.finalized_at!).toISOString() : timestamp,
+      // Second precision (2026-10-12T19:14:52Z), matching the owner's Daftra reference QR.
+      timestamp: phase1 ? new Date(inv.finalized_at!).toISOString().replace(/\.\d{3}Z$/, "Z") : timestamp,
       total: Number(inv.total),
       vatAmount: Number(inv.vat_amount),
     })

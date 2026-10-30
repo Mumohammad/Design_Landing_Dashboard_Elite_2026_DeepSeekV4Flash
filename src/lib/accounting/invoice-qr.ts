@@ -77,7 +77,9 @@ export function taxQrBase64(payload: Uint8Array): string {
 export async function qrPngDataUrl(text: Uint8Array | string): Promise<string> {
   return QRCode.toDataURL(typeof text === "string" ? text : taxQrBase64(text), {
     errorCorrectionLevel: "M",
-    margin: 1,
-    width: 180,
+    // Full 4-module quiet zone and a high-resolution raster keep printed and
+    // on-screen QR codes scannable by phone cameras and the ZATCA app.
+    margin: 4,
+    width: 512,
   })
 }

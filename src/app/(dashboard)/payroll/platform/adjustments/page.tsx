@@ -29,14 +29,16 @@ export default function PlatformPayrollAdjustmentsPage() {
   }, [])
   useEffect(() => { void load() }, [load])
 
-  async function run(fn: () => Promise<{ success: boolean; error?: string }>, ok: string, after?: () => void) {
+  async function run(fn: () => Promise<{ success: boolean; error?: string; data?: unknown }>, ok: string, after?: () => void) {
     setBusy(true); setMessage(null)
     const r = await fn()
     setBusy(false)
     if (!r.success) { setMessage({ kind: "err", text: r.error ?? "Failed" }); return }
-    setMessage({ kind: "ok", text: ok }); after?.(); await load()
+    const n = Number((r.data as { refreshedRuns?: number } | undefined)?.refreshedRuns ?? 0)
+    const synced = n > 0 ? " " + tx(`Payslips updated in ${n} draft payroll run${n === 1 ? "" : "s"}.`, `تم تحديث قسائم الرواتب في ${n} مسودة.`) : ""
+    setMessage({ kind: "ok", text: ok + synced }); after?.(); await load()
   }
-  const saved = tx("Saved. Draft payroll runs pick this up when you press Recalculate.", "تم الحفظ. تُطبَّق على المسودات عند الضغط على \"إعادة احتساب\".")
+  const saved = tx("Saved.", "تم الحفظ.")
   const remove = (kind: "item" | "adjustment" | "traffic", id: string) => {
     if (window.confirm(tx("Delete this record?", "حذف هذا السجل؟"))) void run(() => deletePayrollRecord({ kind, id }), tx("Deleted", "تم الحذف"))
   }

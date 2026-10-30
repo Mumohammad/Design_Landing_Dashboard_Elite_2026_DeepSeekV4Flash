@@ -46,6 +46,11 @@ const STATUS: Record<string, { en: string; ar: string; cls: string }> = {
   open: { en: "Open", ar: "مفتوح", cls: "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200" },
   resolved: { en: "Resolved", ar: "تمت المعالجة", cls: "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200" },
   ignored: { en: "Ignored", ar: "متجاهَل", cls: "border-border bg-muted text-muted-foreground" },
+  top: { en: "Top performer", ar: "أفضل أداء", cls: "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200" },
+  high: { en: "High", ar: "مرتفع", cls: "border-teal-300 bg-teal-50 text-teal-800 dark:border-teal-800 dark:bg-teal-950 dark:text-teal-200" },
+  average: { en: "Average", ar: "متوسط", cls: "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200" },
+  low: { en: "Low", ar: "منخفض", cls: "border-orange-300 bg-orange-50 text-orange-900 dark:border-orange-800 dark:bg-orange-950 dark:text-orange-200" },
+  bottom: { en: "Needs improvement", ar: "يحتاج تحسين", cls: "border-destructive/40 bg-destructive/5 text-destructive" },
 }
 
 export function StatusBadge({ status }: { status: string }) {
@@ -64,11 +69,11 @@ export function PlatformPayrollNav() {
     { href: "/payroll/platform/income-expenses", label: tx("Income vs expenses", "الإيرادات مقابل المصروفات") },
   ]
   return (
-    <nav aria-label={tx("Platform payroll", "رواتب المنصات")} className="flex flex-wrap gap-2 border-b border-border pb-3">
-      <Link href="/payroll" className="rounded-lg px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted">← {tx("Payroll", "الرواتب")}</Link>
+    <nav aria-label={tx("Platform payroll", "رواتب المنصات")} className="flex flex-wrap items-center gap-1 rounded-2xl border border-border/60 bg-card/70 p-1.5 shadow-sm backdrop-blur">
+      <Link href="/payroll" className="rounded-xl px-3 py-1.5 text-sm text-muted-foreground transition hover:bg-muted">← {tx("Payroll", "الرواتب")}</Link>
       {tabs.map(t => {
         const active = t.exact ? path === t.href || path.startsWith("/payroll/platform/runs") : path.startsWith(t.href)
-        return <Link key={t.href} href={t.href} aria-current={active ? "page" : undefined} className={`rounded-lg px-3 py-1.5 text-sm font-medium ${active ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>{t.label}</Link>
+        return <Link key={t.href} href={t.href} aria-current={active ? "page" : undefined} className={`rounded-xl px-3 py-1.5 text-sm font-medium transition ${active ? "bg-gradient-to-r from-emerald-600 to-emerald-500 text-white shadow-md shadow-emerald-600/20" : "text-foreground/80 hover:bg-muted"}`}>{t.label}</Link>
       })}
     </nav>
   )
@@ -77,9 +82,13 @@ export function PlatformPayrollNav() {
 export function PageShell({ title, subtitle, actions, children }: { title: string; subtitle?: string; actions?: ReactNode; children: ReactNode }) {
   return (
     <div className="space-y-5 p-4 md:p-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div><h1 className="text-2xl font-bold tracking-tight">{title}</h1>{subtitle && <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>}</div>
-        {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
+      <div className="relative overflow-hidden rounded-3xl border border-emerald-500/20 bg-gradient-to-br from-emerald-700 via-emerald-600 to-teal-500 p-5 text-white shadow-lg shadow-emerald-900/10 md:p-6">
+        <div aria-hidden className="pointer-events-none absolute -end-16 -top-20 h-56 w-56 rounded-full bg-white/10 blur-2xl" />
+        <div aria-hidden className="pointer-events-none absolute -bottom-24 start-1/3 h-48 w-48 rounded-full bg-teal-300/20 blur-3xl" />
+        <div className="relative flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0"><h1 className="text-2xl font-bold tracking-tight md:text-3xl">{title}</h1>{subtitle && <p className="mt-1 text-sm text-white/80">{subtitle}</p>}</div>
+          {actions && <div className="flex flex-wrap items-center gap-2 [&_button]:border-white/30 [&_button]:bg-white/10 [&_button]:text-white [&_button]:backdrop-blur [&_button:hover]:bg-white/20 [&_a]:border-white/30 [&_a]:text-white">{actions}</div>}
+        </div>
       </div>
       <PlatformPayrollNav />
       {children}
@@ -89,7 +98,8 @@ export function PageShell({ title, subtitle, actions, children }: { title: strin
 
 export function Kpi({ label, value, tone }: { label: string; value: string; tone?: "good" | "bad" | "warn" }) {
   const color = tone === "good" ? "text-emerald-600 dark:text-emerald-400" : tone === "bad" ? "text-destructive" : tone === "warn" ? "text-amber-600 dark:text-amber-400" : ""
-  return <div className="rounded-xl border border-border bg-card p-4"><div className="text-xs text-muted-foreground">{label}</div><div className={`mt-1 text-xl font-semibold tabular-nums ${color}`}>{value}</div></div>
+  const accent = tone === "good" ? "from-emerald-500/15" : tone === "bad" ? "from-red-500/10" : tone === "warn" ? "from-amber-500/15" : "from-slate-500/5"
+  return <div className={`rounded-2xl border border-border/60 bg-gradient-to-br ${accent} to-card p-4 shadow-sm transition hover:shadow-md`}><div className="text-xs font-medium text-muted-foreground">{label}</div><div className={`mt-1 text-xl font-bold tabular-nums ${color}`}>{value}</div></div>
 }
 
 export function Notice({ kind, children }: { kind: "ok" | "err" | "info"; children: ReactNode }) {
