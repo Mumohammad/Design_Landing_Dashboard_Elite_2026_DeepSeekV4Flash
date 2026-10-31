@@ -26,6 +26,7 @@
 // into `financial_events` with stable idempotency keys so the Accounting/VAT
 // engines (Phase 9) can consume them exactly once.
 
+import { createHash } from "node:crypto"
 import { revalidatePath } from "next/cache"
 import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
@@ -34,6 +35,7 @@ import { writeAuditLog } from "@/lib/auth/sessions"
 import { mapFinancialError, toCsv } from "@/lib/accounting/csv-utils"
 import { computeInvoiceTotals, type InvoiceLineInput } from "@/lib/accounting/invoice-math"
 import { runEventDispatcher } from "@/lib/accounting/dispatcher"
+import { recordPayment } from "@/lib/accounting/payments"
 import { runZatcaForTenant } from "@/lib/accounting/zatca-adapter-core"
 import { rateLimitAccounting } from "@/lib/auth/rate-limit"
 import { getErrorDefinition } from "@/lib/errors/error-codes"
@@ -62,8 +64,14 @@ export type InvoiceDraftInput = {
   notes?: string | null
   /** Bank account printed in the invoice's bank-details box (presentation only). */
   bank_account_id?: string | null
+  /** "Already paid" intent. Money moves only when the user confirms after approval. */
+  already_paid?: boolean
+  already_paid_method?: AlreadyPaidMethod | null
   lines: InvoiceLineInput[]
 }
+
+export type AlreadyPaidMethod = "cash" | "transfer" | "card" | "cheque"
+const PAID_METHODS: readonly AlreadyPaidMethod[] = ["cash", "transfer", "card", "cheque"]
 
 // ── Decimal-safe helpers (2dp integer-minor arithmetic) ───────────────────
 
@@ -86,9 +94,13 @@ async function saveDraft(input:InvoiceDraftInput,id?:string,expectedUpdatedAt?:s
   if((input.currency??"SAR")!=="SAR")return draftFailure("INV012: SAR accounting only")
   if(input.show_due_date!==undefined&&typeof input.show_due_date!=="boolean")return draftFailure("INV002: invalid due-date visibility")
   if(input.bank_account_id!=null&&!isMasterId(input.bank_account_id))return draftFailure("INV002: invalid bank account")
+  if(input.already_paid!==undefined&&typeof input.already_paid!=="boolean")return draftFailure("INV002: invalid paid flag")
+  if(input.already_paid&&(!input.already_paid_method||!PAID_METHODS.includes(input.already_paid_method)||(input.already_paid_method!=="cash"&&!input.bank_account_id)))return {success:false,error:"Choose how the invoice was paid and, unless cash, the bank account.",errorAr:"اختر طريقة الدفع والحساب البنكي (إلا إذا كان الدفع نقداً)."}
   const computed=computeInvoiceTotals(input.lines,input.vat_rate??15)
   const {request_id,...draft}=input,client=await createClient()
   draft.bank_account_id=input.bank_account_id||null
+  draft.already_paid=!!input.already_paid
+  draft.already_paid_method=input.already_paid?input.already_paid_method??null:null
   draft.lines=computed.lines.map(line=>({item_name:line.item_name??null,description:line.description,quantity:line.quantity,unit_price:line.unit_price,discount:line.discount,vat_rate:line.vat_rate}))
   const {data,error}=await client.rpc("save_my_invoice_draft",{p_input:draft,p_invoice_id:id??null,p_expected_updated_at:expectedUpdatedAt??null,p_request_id:request_id})
   if(error)return draftFailure(error.message)
@@ -373,4 +385,72 @@ export async function exportInvoicesCsv(filters:{search?:string;status?:string;l
   if(error instanceof InvoiceReadError&&error.exportLimit)return {success:false,error:"The export is too large. Narrow the search and export again.",errorAr:"حجم التصدير كبير. ضيّق البحث ثم أعد التصدير."}
   return {success:false,error:"Unable to export complete invoice records. Retry.",errorAr:"تعذر تصدير جميع سجلات الفواتير. أعد المحاولة."}
  }
+}
+
+/** Stable payment intent per invoice: retries never record a second payment. */
+function alreadyPaidRequestId(invoiceId: string): string {
+  const h = createHash("sha256").update(`invoice-already-paid:${invoiceId}`).digest("hex")
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-${((parseInt(h[16], 16) & 3) | 8).toString(16)}${h.slice(17, 20)}-${h.slice(20, 32)}`
+}
+
+type AlreadyPaidInfo = { already_paid: boolean; method: AlreadyPaidMethod | null; open_amount: number | null }
+
+/** Reads an approved invoice's "already paid" intent and its open balance. */
+export async function getAlreadyPaidInfo(input: { id: string }): Promise<ActionResult & { info?: AlreadyPaidInfo }> {
+  try {
+    await requirePermission("invoices", "read")
+    const user = await getCurrentUser()
+    if (!user || !isMasterId(input?.id)) return { success: false, error: "Reload the invoice and try again.", errorAr: "أعد تحميل الفاتورة وحاول مجدداً." }
+    const client = await createClient()
+    const { data: inv, error } = await client.from("invoices").select("invoice_type,already_paid,already_paid_method")
+      .eq("id", input.id).is("deleted_at", null).maybeSingle()
+    if (error || !inv) return { success: false, error: "Invoice not found.", errorAr: "الفاتورة غير موجودة." }
+    if (!inv.already_paid) return { success: true, info: { already_paid: false, method: null, open_amount: null } }
+    const sales = inv.invoice_type === "sales"
+    const { data: balance } = await createAdminClient().from(sales ? "receivables" : "payables").select("total_amount,paid_amount")
+      .eq("tenant_id", user.tenantId).eq("source_entity_type", sales ? "invoice" : "purchase_invoice")
+      .eq("source_entity_id", input.id).is("deleted_at", null).maybeSingle()
+    const open = balance ? Math.round((Number(balance.total_amount) - Number(balance.paid_amount)) * 100) / 100 : null
+    return { success: true, info: { already_paid: true, method: inv.already_paid_method as AlreadyPaidMethod, open_amount: open } }
+  } catch (error) {
+    return { success: false, error: errorMessage(error), errorAr: "تعذر قراءة حالة الدفع." }
+  }
+}
+
+/**
+ * User-confirmed settlement of an approved invoice saved as "already paid":
+ * records one payment for the open balance with the saved method and bank
+ * account through the payments engine (which checks accounting:create).
+ */
+export async function recordAlreadyPaidPayment(input: { id: string }): Promise<ActionResult & { postingStatus?: "posted" | "pending" }> {
+  try {
+    await requirePermission("invoices", "read")
+    const user = await getCurrentUser()
+    if (!user) return { success: false, error: "Not authenticated.", errorAr: "يلزم تسجيل الدخول." }
+    if (!isMasterId(input?.id)) return { success: false, error: "Reload the invoice and try again.", errorAr: "أعد تحميل الفاتورة وحاول مجدداً." }
+    const client = await createClient()
+    const { data: inv } = await client.from("invoices")
+      .select("invoice_number,invoice_type,already_paid,already_paid_method,bank_account_id,customer_id,supplier_id,issue_date")
+      .eq("id", input.id).is("deleted_at", null).maybeSingle()
+    if (!inv?.already_paid || !inv.already_paid_method) return { success: false, error: "This invoice is not marked as already paid.", errorAr: "هذه الفاتورة غير محددة كمدفوعة بالفعل." }
+    const sales = inv.invoice_type === "sales"
+    const { data: balance } = await createAdminClient().from(sales ? "receivables" : "payables").select("id,total_amount,paid_amount")
+      .eq("tenant_id", user.tenantId).eq("source_entity_type", sales ? "invoice" : "purchase_invoice")
+      .eq("source_entity_id", input.id).is("deleted_at", null).maybeSingle()
+    if (!balance) return { success: false, error: "Approve the invoice and wait for its accounting posting before recording the payment.", errorAr: "اعتمد الفاتورة وانتظر ترحيلها المحاسبي قبل تسجيل الدفعة." }
+    const remaining = Math.round((Number(balance.total_amount) - Number(balance.paid_amount)) * 100) / 100
+    if (!(remaining > 0)) return { success: true, postingStatus: "posted" }
+    const result = await recordPayment({
+      request_id: alreadyPaidRequestId(input.id), direction: sales ? "in" : "out", payment_date: inv.issue_date,
+      amount: remaining, method: inv.already_paid_method as AlreadyPaidMethod, bank_account_id: inv.bank_account_id,
+      customer_id: sales ? inv.customer_id : null, supplier_id: sales ? null : inv.supplier_id,
+      reference: inv.invoice_number,
+      allocations: [sales ? { receivable_id: balance.id, amount: remaining } : { payable_id: balance.id, amount: remaining }],
+    })
+    if (!result.success) return { success: false, error: result.error ?? "Unable to record the payment.", errorAr: result.error ?? "تعذر تسجيل الدفعة." }
+    try { revalidatePath("/invoices") } catch { /* fresh reads are authoritative */ }
+    return { success: true, postingStatus: result.postingStatus }
+  } catch (error) {
+    return { success: false, error: errorMessage(error), errorAr: "تعذر تسجيل الدفعة. حاول مجدداً." }
+  }
 }
