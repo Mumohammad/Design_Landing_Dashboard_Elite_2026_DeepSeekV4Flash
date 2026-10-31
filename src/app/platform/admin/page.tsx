@@ -9,7 +9,7 @@ import Link from 'next/link';
 import {
   Building2, Users, Rocket, PauseCircle, PlayCircle, Plus, Search, Loader2,
   ShieldCheck, X, RefreshCw, ArrowLeft, LayoutDashboard, CreditCard,
-  ScrollText, Pencil, Trash2, KeyRound, BadgeDollarSign, TrendingUp,
+  ScrollText, Pencil, Trash2, KeyRound, BadgeDollarSign, TrendingUp, MessageSquare,
 } from 'lucide-react';
 import { getBrowserSupabase } from '@/lib/platform/browser';
 import { createPlatformRequest } from '@/lib/platform/request';
@@ -31,7 +31,8 @@ type Analytics = {
 };
 type BillingSummary = { pending_amount: number; overdue_amount: number; paid_this_month: number; unpaid_companies: number };
 
-type Section = 'overview' | 'companies' | 'users' | 'billing' | 'audit';
+type Section = 'overview' | 'companies' | 'users' | 'billing' | 'audit' | 'feedback';
+type FeedbackEntry = { id: string; company_name: string; kind: 'bug' | 'idea' | 'question' | 'praise'; message: string; page_path: string | null; status: 'new' | 'triaged' | 'closed'; created_at: string };
 
 const statusMeta: Record<string, { label: string; cls: string }> = {
   active: { label: 'نشطة', cls: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25' },
@@ -69,6 +70,7 @@ export default function PlatformAdminPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [billingSummary, setBillingSummary] = useState<BillingSummary | null>(null);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
+  const [feedback, setFeedback] = useState<FeedbackEntry[]>([]);
 
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'active' | 'trial' | 'suspended'>('all');
@@ -126,6 +128,8 @@ export default function PlatformAdminPage() {
     if(result[3].status==='fulfilled'){setInvoices(result[3].value.invoices);setBillingSummary(result[3].value.summary);}
     if(result[4].status==='fulfilled')setAnalytics(result[4].value);
     if(result[5].status==='fulfilled')setAudit(result[5].value.entries);
+    // Support inbox loads independently so it never blocks the core console.
+    api('/api/platform/admin/feedback').then((r) => { if (lifecycle.current.mounted) setFeedback(r.feedback ?? []) }, () => undefined);
     if(result.some(item=>item.status==='rejected'))throw Error('Some platform data could not be loaded.');
   }, [api]);
 
@@ -228,6 +232,7 @@ export default function PlatformAdminPage() {
     { key: 'users', label: ui("المستخدمون"), icon: Users, count: users.length },
     { key: 'billing', label: ui("الفوترة"), icon: CreditCard, count: billingSummary?.unpaid_companies },
     { key: 'audit', label: ui("سجل النشاط"), icon: ScrollText },
+    { key: 'feedback', label: locale === 'ar' ? 'ملاحظات العملاء' : 'Customer feedback', icon: MessageSquare, count: feedback.filter(f => f.status === 'new').length },
   ];
 
   const maxReg = Math.max(1, ...(analytics?.registrations_by_day.map(d => d.count) ?? [1]));
@@ -479,6 +484,42 @@ export default function PlatformAdminPage() {
                     </div>
                   ))}
                   {audit.length === 0 && <p className="py-10 text-center text-sm text-white/35"><LocalizedText text="لا نشاط بعد" /></p>}
+                </div>
+              </div>
+            )}
+
+            {section === 'feedback' && (
+              <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-6" data-testid="platform-feedback">
+                <h2 className="text-lg font-extrabold">{locale === 'ar' ? 'ملاحظات العملاء' : 'Customer feedback'}</h2>
+                <div className="mt-5 space-y-2">
+                  {feedback.map(f => (
+                    <div key={f.id} className="rounded-xl border border-white/5 bg-white/[0.02] px-4 py-3 text-sm">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-full border border-white/10 px-2 py-0.5 text-[11px] font-bold">{({ bug: locale === 'ar' ? 'مشكلة' : 'Bug', idea: locale === 'ar' ? 'اقتراح' : 'Idea', question: locale === 'ar' ? 'سؤال' : 'Question', praise: locale === 'ar' ? 'إشادة' : 'Praise' })[f.kind]}</span>
+                        <span className="font-semibold text-white/85">{f.company_name}</span>
+                        {f.page_path && <span className="font-mono text-[11px] text-white/40" dir="ltr">{f.page_path}</span>}
+                        <span className="ms-auto text-[11px] text-white/35 tabular-nums">{new Date(f.created_at).toLocaleString(locale === 'ar' ? 'ar-SA' : 'en-GB')}</span>
+                        <select
+                          value={f.status}
+                          aria-label={locale === 'ar' ? 'الحالة' : 'Status'}
+                          onChange={async (e) => {
+                            const status = e.target.value as FeedbackEntry['status'];
+                            try {
+                              await api('/api/platform/admin/feedback', { method: 'PATCH', body: JSON.stringify({ id: f.id, status }) });
+                              setFeedback(list => list.map(x => (x.id === f.id ? { ...x, status } : x)));
+                            } catch { /* keep previous status */ }
+                          }}
+                          className="rounded-lg border border-white/10 bg-slate-950/60 px-2 py-1 text-xs"
+                        >
+                          <option value="new">{locale === 'ar' ? 'جديد' : 'New'}</option>
+                          <option value="triaged">{locale === 'ar' ? 'قيد المعالجة' : 'Triaged'}</option>
+                          <option value="closed">{locale === 'ar' ? 'مغلق' : 'Closed'}</option>
+                        </select>
+                      </div>
+                      <p className="mt-2 whitespace-pre-wrap text-white/70">{f.message}</p>
+                    </div>
+                  ))}
+                  {feedback.length === 0 && <p className="py-10 text-center text-sm text-white/35">{locale === 'ar' ? 'لا ملاحظات بعد' : 'No feedback yet'}</p>}
                 </div>
               </div>
             )}

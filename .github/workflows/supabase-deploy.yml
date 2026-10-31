@@ -1,21 +1,43 @@
-name: Supabase migration plan (read only)
+name: Supabase production migrations
 
-# Production writes require a separately reviewed and approved rollout.
-# This workflow intentionally has no push trigger and no write step.
+# Production schema rollout. Never runs on push: an operator starts it from
+# Actions → "Supabase production migrations" → Run workflow. The job is bound
+# to the `production` environment, so GitHub holds it for an approved
+# reviewer before any credential is exposed.
+#
+#  * mode=plan  (default) — read-only: lists pending migrations (dry run).
+#  * mode=apply           — re-runs the dry run, then applies exactly the
+#                           pending files that match master's migrations dir.
+#
+# Required environment secrets (production): SUPABASE_ACCESS_TOKEN,
+# SUPABASE_DB_PASSWORD. Remote history must match local file versions
+# (reconciled 2026-10-31); never apply ad-hoc migrations outside this flow.
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "plan = dry run only; apply = apply pending migrations"
+        required: true
+        default: plan
+        type: choice
+        options: [plan, apply]
+      confirm:
+        description: "Type the project ref (wwfnsbilmyxeawgzicmv) to confirm apply"
+        required: false
+        default: ""
 
 permissions:
   contents: read
 
 concurrency:
-  group: production-migration-plan
+  group: production-migrations
   cancel-in-progress: false
 
 jobs:
-  plan:
+  migrate:
+    if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     environment: production
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -30,7 +52,20 @@ jobs:
         run: |
           test -n "$SUPABASE_ACCESS_TOKEN" || { echo "Missing SUPABASE_ACCESS_TOKEN"; exit 1; }
           test -n "$SUPABASE_DB_PASSWORD" || { echo "Missing SUPABASE_DB_PASSWORD"; exit 1; }
-      - name: Inspect pending migrations without applying them
+      - name: Link project
+        run: supabase link --project-ref "$SUPABASE_PROJECT_ID" --password "$SUPABASE_DB_PASSWORD"
+      - name: Plan (dry run)
+        run: supabase db push --dry-run --password "$SUPABASE_DB_PASSWORD" | tee /tmp/plan.txt
+      - name: Apply pending migrations
+        if: inputs.mode == 'apply'
+        env:
+          CONFIRM: ${{ inputs.confirm }}
         run: |
-          supabase link --project-ref "$SUPABASE_PROJECT_ID"
-          supabase db push --dry-run
+          test "$CONFIRM" = "$SUPABASE_PROJECT_ID" || { echo "Confirmation does not match the project ref"; exit 1; }
+          supabase db push --password "$SUPABASE_DB_PASSWORD"
+      - name: Verify history matches the repository
+        if: inputs.mode == 'apply'
+        run: |
+          supabase migration list --password "$SUPABASE_DB_PASSWORD" | tee /tmp/list.txt
+          supabase db push --dry-run --password "$SUPABASE_DB_PASSWORD" | tee /tmp/after.txt
+          grep -qi "up to date" /tmp/after.txt || { echo "Pending migrations remain after apply"; exit 1; }

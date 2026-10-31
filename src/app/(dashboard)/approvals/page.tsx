@@ -312,6 +312,7 @@ function ApprovalsInner() {
       </div>
 
       <EnterpriseModulePage<ApprovalQueueRow>
+        selectable={false}
         primaryCtaIcon={ClipboardCheck}
         title={isAr ? "صندوق القرارات" : "Approvals Inbox"}
         subtitle={

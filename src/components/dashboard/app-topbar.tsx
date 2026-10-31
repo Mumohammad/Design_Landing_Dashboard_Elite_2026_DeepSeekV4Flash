@@ -6,6 +6,8 @@ import { Languages } from "lucide-react"
 import { CommandSearch, SearchTrigger } from "@/components/command-search"
 import { ModeToggle } from "@/components/mode-toggle"
 import { NotificationCenter } from "@/components/dashboard/notification-center"
+import { FeedbackButton } from "@/components/dashboard/feedback-dialog"
+import { KeyboardShortcuts } from "@/components/dashboard/keyboard-shortcuts"
 import { Button } from "@/components/ui/button"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { LocaleContext } from "@/contexts/locale-context"
@@ -55,6 +57,8 @@ export function AppTopbar() {
             </span>
           </Button>
 
+          <FeedbackButton />
+
           <NotificationCenter />
 
           <ModeToggle variant="outline" />
@@ -62,6 +66,7 @@ export function AppTopbar() {
       </header>
 
       <CommandSearch open={commandOpen} onOpenChange={setCommandOpen} />
+      <KeyboardShortcuts />
     </>
   )
 }

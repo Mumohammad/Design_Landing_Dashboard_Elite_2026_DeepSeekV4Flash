@@ -367,7 +367,11 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    if: github.event_name == 'pull_request'
+    # Hosted staging E2E needs a per-commit staging preview (deploy.yml
+    # `preview`, currently on release hold). Until that is switched on, the
+    # same browser flows run against the disposable local stack in the pgtap
+    # job; set repository variable STAGING_E2E_ENABLED=true to re-enable.
+    if: github.event_name == 'pull_request' && vars.STAGING_E2E_ENABLED == 'true'
     env:
       BASE_URL: ${{ secrets.STAGING_URL }}
       TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
