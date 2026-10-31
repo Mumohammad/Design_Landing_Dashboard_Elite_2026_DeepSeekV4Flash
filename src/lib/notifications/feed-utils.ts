@@ -12,8 +12,37 @@ export type NotificationKind =
   | "vehicle_registration"
   | "vehicle_operating_card"
   | "vehicle_rental"
+  | "driver_document"
+  | "vehicle_document"
+  | "vehicle_inspection"
+  | "maintenance_due"
   | "invoice_overdue"
+  | "payable_due"
   | "approvals_pending"
+  | "violations_open"
+
+export type NotificationCategory = "drivers" | "vehicles" | "maintenance" | "finance" | "approvals" | "violations"
+
+export const NOTIFICATION_CATEGORIES: NotificationCategory[] = ["drivers", "vehicles", "maintenance", "finance", "approvals", "violations"]
+
+export const KIND_CATEGORY: Record<NotificationKind, NotificationCategory> = {
+  driver_iqama: "drivers",
+  driver_license: "drivers",
+  driver_passport: "drivers",
+  driver_contract: "drivers",
+  driver_document: "drivers",
+  vehicle_insurance: "vehicles",
+  vehicle_registration: "vehicles",
+  vehicle_operating_card: "vehicles",
+  vehicle_rental: "vehicles",
+  vehicle_document: "vehicles",
+  vehicle_inspection: "vehicles",
+  maintenance_due: "maintenance",
+  invoice_overdue: "finance",
+  payable_due: "finance",
+  approvals_pending: "approvals",
+  violations_open: "violations",
+}
 
 export interface NotificationItem {
   /** Stable id: kind + entity + date, so a "read" mark survives refreshes but
@@ -28,6 +57,8 @@ export interface NotificationItem {
   days: number | null
   amount?: number
   count?: number
+  /** Document type label key for driver/vehicle document rows. */
+  docType?: string
   href: string
 }
 
@@ -55,6 +86,34 @@ export interface VehicleExpiryRow {
   registration_expiry: string | null
   operating_card_expiry: string | null
   rental_contract_end: string | null
+}
+
+export interface VehicleInspectionRow {
+  id: string
+  plate_number: string | null
+  inspection_expiry: string | null
+}
+
+export interface EntityDocumentRow {
+  id: string
+  owner_id: string
+  owner_label: string | null
+  document_type: string | null
+  expiry_date: string | null
+}
+
+export interface MaintenanceDueRow {
+  vehicle_id: string
+  plate_number: string | null
+  next_service_date: string | null
+}
+
+export interface PayableDueRow {
+  id: string
+  invoice_ref: string | null
+  due_date: string | null
+  total_amount: number | string | null
+  paid_amount: number | string | null
 }
 
 export interface OverdueReceivableRow {
@@ -116,6 +175,13 @@ export function buildNotificationFeed(input: {
   vehicles?: VehicleExpiryRow[]
   receivables?: OverdueReceivableRow[]
   pendingApprovals?: number
+  vehicleInspections?: VehicleInspectionRow[]
+  driverDocuments?: EntityDocumentRow[]
+  vehicleDocuments?: EntityDocumentRow[]
+  maintenance?: MaintenanceDueRow[]
+  payables?: PayableDueRow[]
+  openViolations?: number
+  categories?: NotificationCategory[]
   horizonDays?: number
   limit?: number
   generatedAt?: string
@@ -143,6 +209,61 @@ export function buildNotificationFeed(input: {
     push(expiryItem("vehicle_registration", v.id, plate, v.registration_expiry, today, href, horizon))
     push(expiryItem("vehicle_operating_card", v.id, plate, v.operating_card_expiry, today, href, horizon))
     push(expiryItem("vehicle_rental", v.id, plate, v.rental_contract_end, today, href, horizon))
+  }
+
+  for (const v of input.vehicleInspections ?? []) {
+    push(expiryItem("vehicle_inspection", v.id, v.plate_number || v.id.slice(0, 8), v.inspection_expiry, today, `/vehicles/${v.id}`, horizon))
+  }
+
+  const docItem = (kind: "driver_document" | "vehicle_document", d: EntityDocumentRow, base: string) => {
+    const item = expiryItem(kind, d.id, d.owner_label || d.owner_id.slice(0, 8), d.expiry_date, today, `${base}/${d.owner_id}`, horizon)
+    if (item) item.docType = d.document_type ?? "other"
+    push(item)
+  }
+  for (const d of input.driverDocuments ?? []) docItem("driver_document", d, "/drivers")
+  for (const d of input.vehicleDocuments ?? []) docItem("vehicle_document", d, "/vehicles")
+
+  // Latest planned service per vehicle only.
+  const nextService = new Map<string, MaintenanceDueRow>()
+  for (const m of input.maintenance ?? []) {
+    if (!m.next_service_date) continue
+    const prev = nextService.get(m.vehicle_id)
+    if (!prev || (prev.next_service_date ?? "") < m.next_service_date) nextService.set(m.vehicle_id, m)
+  }
+  for (const m of nextService.values()) {
+    const item = expiryItem("maintenance_due", m.vehicle_id, m.plate_number || m.vehicle_id.slice(0, 8), m.next_service_date, today, "/maintenance", horizon)
+    if (item && item.days !== null && item.days >= 0) item.severity = item.days <= 3 ? "warning" : "info"
+    push(item)
+  }
+
+  for (const p of input.payables ?? []) {
+    if (!p.due_date) continue
+    const open = Math.round((Number(p.total_amount ?? 0) - Number(p.paid_amount ?? 0)) * 100) / 100
+    const days = daysBetween(today, p.due_date)
+    if (!(open > 0) || days === null || days > 7) continue
+    items.push({
+      id: `payable_due:${p.id}:${p.due_date.slice(0, 10)}`,
+      kind: "payable_due",
+      severity: days < 0 ? "critical" : "warning",
+      subject: p.invoice_ref || p.id.slice(0, 8),
+      date: p.due_date.slice(0, 10),
+      days,
+      amount: open,
+      href: "/accounting?tab=payables",
+    })
+  }
+
+  if ((input.openViolations ?? 0) > 0) {
+    items.push({
+      id: `violations_open:${today}:${input.openViolations}`,
+      kind: "violations_open",
+      severity: "warning",
+      subject: "",
+      date: null,
+      days: null,
+      count: input.openViolations,
+      href: "/violations",
+    })
   }
 
   for (const r of input.receivables ?? []) {
@@ -175,6 +296,13 @@ export function buildNotificationFeed(input: {
     })
   }
 
+  const allowed = input.categories && input.categories.length > 0 ? new Set(input.categories) : null
+  if (allowed) {
+    const kept = items.filter((i) => allowed.has(KIND_CATEGORY[i.kind]))
+    items.length = 0
+    items.push(...kept)
+  }
+
   items.sort((a, b) => {
     const s = SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]
     if (s !== 0) return s
@@ -199,11 +327,48 @@ const KIND_COPY: Record<NotificationKind, { ar: string; en: string }> = {
   vehicle_registration: { ar: "الاستمارة", en: "Vehicle registration" },
   vehicle_operating_card: { ar: "بطاقة التشغيل", en: "Operating card" },
   vehicle_rental: { ar: "عقد الإيجار", en: "Rental contract" },
+  driver_document: { ar: "وثيقة سائق", en: "Driver document" },
+  vehicle_document: { ar: "وثيقة مركبة", en: "Vehicle document" },
+  vehicle_inspection: { ar: "الفحص الدوري", en: "Periodic inspection" },
+  maintenance_due: { ar: "صيانة مجدولة", en: "Scheduled service" },
   invoice_overdue: { ar: "فاتورة متأخرة السداد", en: "Overdue invoice" },
+  payable_due: { ar: "مستحق للمورد", en: "Supplier bill due" },
   approvals_pending: { ar: "طلبات بانتظار الموافقة", en: "Pending approvals" },
+  violations_open: { ar: "مخالفات مفتوحة", en: "Open violations" },
 }
 
-export function notificationTitle(kind: NotificationKind, locale: "ar" | "en"): string {
+const DOC_TYPE_COPY: Record<string, { ar: string; en: string }> = {
+  iqama: { ar: "الإقامة", en: "Iqama" },
+  passport: { ar: "جواز السفر", en: "Passport" },
+  driving_license: { ar: "رخصة القيادة", en: "Driving license" },
+  vehicle_license: { ar: "رخصة المركبة", en: "Vehicle license" },
+  medical_certificate: { ar: "الشهادة الصحية", en: "Health certificate" },
+  police_clearance: { ar: "خلو السوابق", en: "Police clearance" },
+  employment_contract: { ar: "عقد العمل", en: "Employment contract" },
+  bank_letter: { ar: "خطاب البنك", en: "Bank letter" },
+  registration: { ar: "الاستمارة", en: "Registration" },
+  insurance: { ar: "التأمين", en: "Insurance" },
+  inspection: { ar: "الفحص الدوري", en: "Inspection" },
+  operating_card: { ar: "بطاقة التشغيل", en: "Operating card" },
+  ownership: { ar: "وثيقة الملكية", en: "Ownership" },
+  modification_permit: { ar: "تصريح تعديل", en: "Modification permit" },
+  other: { ar: "وثيقة أخرى", en: "Other document" },
+}
+
+export const CATEGORY_COPY: Record<NotificationCategory, { ar: string; en: string }> = {
+  drivers: { ar: "السائقون", en: "Drivers" },
+  vehicles: { ar: "المركبات", en: "Vehicles" },
+  maintenance: { ar: "الصيانة", en: "Maintenance" },
+  finance: { ar: "المالية", en: "Finance" },
+  approvals: { ar: "الموافقات", en: "Approvals" },
+  violations: { ar: "المخالفات", en: "Violations" },
+}
+
+export function notificationTitle(kind: NotificationKind, locale: "ar" | "en", docType?: string): string {
+  if ((kind === "driver_document" || kind === "vehicle_document") && docType) {
+    const doc = DOC_TYPE_COPY[docType] ?? DOC_TYPE_COPY.other
+    return doc[locale]
+  }
   return KIND_COPY[kind][locale]
 }
 
@@ -214,10 +379,19 @@ export function notificationStatus(item: NotificationItem, locale: "ar" | "en"):
     const n = item.count ?? 0
     return ar ? `${n} طلب بانتظار قرارك` : `${n} request${n === 1 ? "" : "s"} awaiting a decision`
   }
+  if (item.kind === "violations_open") {
+    const n = item.count ?? 0
+    return ar ? `${n} مخالفة بحاجة لمعالجة` : `${n} violation${n === 1 ? "" : "s"} need action`
+  }
   const d = item.days ?? 0
-  if (item.kind === "invoice_overdue") {
+  if (item.kind === "invoice_overdue" || (item.kind === "payable_due" && d < 0)) {
     const late = Math.abs(d)
     return ar ? `متأخرة ${late} يوم` : `${late} day${late === 1 ? "" : "s"} overdue`
+  }
+  if (item.kind === "payable_due") return ar ? (d === 0 ? "تستحق اليوم" : `تستحق خلال ${d} يوم`) : d === 0 ? "Due today" : `Due in ${d} day${d === 1 ? "" : "s"}`
+  if (item.kind === "maintenance_due") {
+    if (d < 0) return ar ? `متأخرة ${Math.abs(d)} يوم` : `${Math.abs(d)} day${d === -1 ? "" : "s"} overdue`
+    return ar ? (d === 0 ? "مستحقة اليوم" : `مستحقة خلال ${d} يوم`) : d === 0 ? "Due today" : `Due in ${d} day${d === 1 ? "" : "s"}`
   }
   if (d < 0) {
     const n = Math.abs(d)
