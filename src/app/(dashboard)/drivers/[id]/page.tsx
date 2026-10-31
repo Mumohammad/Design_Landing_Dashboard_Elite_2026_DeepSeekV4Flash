@@ -659,7 +659,7 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
                 label={isAr ? "مكان الميلاد" : "Place of Birth"}
                 value={fmt(driver.place_of_birth)}
               />
-              <InfoRow label={isAr ? "الجنس" : "Gender"} value={fmt(driver.gender)} />
+              <InfoRow label={isAr ? "الجنس" : "Gender"} value={driver.gender === "male" ? (isAr ? "ذكر" : "Male") : driver.gender === "female" ? (isAr ? "أنثى" : "Female") : fmt(driver.gender)} />
               <InfoRow
                 label={isAr ? "الحالة الاجتماعية" : "Marital Status"}
                 value={fmt(driver.marital_status)}
