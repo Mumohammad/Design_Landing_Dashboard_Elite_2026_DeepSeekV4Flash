@@ -8,6 +8,7 @@ import { LocalizedText } from "@/components/localized-text"
 import { useMemo, useState } from "react"
 import { useTranslation } from "@/hooks/use-translation"
 import { Button } from "@/components/ui/button"
+import { SuffixInput } from "@/components/forms/form-kit"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
@@ -204,7 +205,7 @@ function EventDialogForm({
 
   return (
     <Dialog open={kind != null} onOpenChange={(o) => { if (!o && !busy) onClose() }}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className={kind === "create" || kind === "edit" ? "max-h-[90dvh] overflow-y-auto rounded-2xl sm:max-w-2xl" : "rounded-2xl sm:max-w-lg"}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{desc}</DialogDescription>
@@ -212,14 +213,14 @@ function EventDialogForm({
 
         <fieldset disabled={busy} className="contents">
         {(kind === "create" || kind === "edit") && (
-          <div className="grid gap-3">
+          <div className="grid min-w-0 gap-4 rounded-2xl border border-border/60 bg-muted/20 p-4 sm:grid-cols-2">
             {kind === "create" && (
               <div className="grid gap-1.5">
                 <Label>{m.fieldVehicle}</Label>
                 <select aria-label={m.fieldVehicle}
                   value={vehicleId}
                   onChange={(e) => setVehicleId(e.target.value)}
-                  className="h-9 rounded-xl border border-border/50 bg-muted/30 px-3 text-sm"
+                  className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm shadow-xs"
                 >
                   <option value="">{isAr ? "اختر مركبة" : "Select a vehicle"}</option>
                   {vehicles.map((v) => (
@@ -241,7 +242,7 @@ function EventDialogForm({
                 <select aria-label={m.fieldReportedByDriver}
                   value={driverId}
                   onChange={(e) => setDriverId(e.target.value)}
-                  className="h-9 rounded-xl border border-border/50 bg-muted/30 px-3 text-sm"
+                  className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm shadow-xs"
                 >
                   <option value="">{isAr ? "— لا شيء —" : "— none —"}</option>
                   {drivers.map((d) => (
@@ -257,7 +258,7 @@ function EventDialogForm({
               <select aria-label={vm.maintenanceType}
                 value={type}
                 onChange={(e) => setType(e.target.value as MaintenanceType)}
-                className="h-9 rounded-xl border border-border/50 bg-muted/30 px-3 text-sm"
+                className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm shadow-xs"
               >
                 <option value="preventive">{vm.typePreventive}</option>
                 <option value="emergency">{vm.typeEmergency}</option>
@@ -265,24 +266,24 @@ function EventDialogForm({
                 <option value="repair">{vm.typeRepair}</option>
               </select>
             </div>
-            <div className="grid gap-1.5">
+            <div className="grid gap-1.5 sm:col-span-2">
               <Label>{m.fieldFaultDescription}</Label>
               <Textarea aria-label={m.fieldFaultDescription} value={fault} onChange={(e) => setFault(e.target.value)} rows={2} />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3 sm:col-span-2">
               <div className="grid gap-1.5">
                 <Label>{m.fieldCost}</Label>
-                <Input aria-label={m.fieldCost} dir="ltr" type="number" min="0" step="0.01" value={cost} onChange={(e) => setCost(e.target.value)} />
+                <SuffixInput suffix={isAr ? "ر.س" : "SAR"} aria-label={m.fieldCost} dir="ltr" type="number" min="0" step="0.01" value={cost} onChange={(e) => setCost(e.target.value)} />
               </div>
               <div className="grid gap-1.5">
                 <Label>{m.fieldProvider}</Label>
                 <Input aria-label={m.fieldProvider} value={provider} onChange={(e) => setProvider(e.target.value)} />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3 sm:col-span-2">
               <div className="grid gap-1.5">
                 <Label>{m.fieldNextServiceKm}</Label>
-                <Input aria-label={m.fieldNextServiceKm} dir="ltr" type="number" min="0" value={nextKm} onChange={(e) => setNextKm(e.target.value)} />
+                <SuffixInput suffix={isAr ? "كم" : "km"} aria-label={m.fieldNextServiceKm} dir="ltr" type="number" min="0" value={nextKm} onChange={(e) => setNextKm(e.target.value)} />
               </div>
               <div className="grid gap-1.5">
                 <Label>{m.fieldNextServiceDate}</Label>
@@ -293,7 +294,7 @@ function EventDialogForm({
               <Label>{m.fieldPartsReplaced}</Label>
               <Input aria-label={m.fieldPartsReplaced} value={parts} onChange={(e) => setParts(e.target.value)} />
             </div>
-            <div className="grid gap-1.5">
+            <div className="grid gap-1.5 sm:col-span-2">
               <Label>{m.fieldNotes}</Label>
               <Textarea aria-label={m.fieldNotes} value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
             </div>
@@ -307,11 +308,11 @@ function EventDialogForm({
             </p>
             <div className="grid gap-1.5">
               <Label>{m.fieldCost}</Label>
-              <Input aria-label={m.fieldCost} dir="ltr" type="number" min="0" step="0.01" value={cost} onChange={(e) => setCost(e.target.value)} />
+              <SuffixInput suffix={isAr ? "ر.س" : "SAR"} aria-label={m.fieldCost} dir="ltr" type="number" min="0" step="0.01" value={cost} onChange={(e) => setCost(e.target.value)} />
             </div>
             <div className="grid gap-1.5">
               <Label>{m.fieldOdometerAtService}</Label>
-              <Input aria-label={m.fieldOdometerAtService} dir="ltr" type="number" min="0" value={odometer} onChange={(e) => setOdometer(e.target.value)} />
+              <SuffixInput suffix={isAr ? "كم" : "km"} aria-label={m.fieldOdometerAtService} dir="ltr" type="number" min="0" value={odometer} onChange={(e) => setOdometer(e.target.value)} />
             </div>
             <div className="grid gap-1.5">
               <Label>{m.fieldPartsReplaced}</Label>

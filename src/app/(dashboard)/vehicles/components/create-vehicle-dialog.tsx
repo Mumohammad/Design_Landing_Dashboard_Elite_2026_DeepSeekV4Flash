@@ -8,7 +8,8 @@ import { useForm, Controller } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { toast } from "@/lib/toast"
-import { Loader2 } from "lucide-react"
+import { CarFront, CircleAlert, Cog, Gauge, Loader2, ShieldCheck, StickyNote } from "lucide-react"
+import { FORM_BODY_CLASS, FORM_DIALOG_CLASS, FORM_FOOTER_CLASS, FORM_HEADER_CLASS, FormSection, FormSectionNav, SuffixInput } from "@/components/forms/form-kit"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -108,13 +109,22 @@ const FUEL_TYPES: { value: FuelType; ar: string; en: string }[] = [
   { value: "electric", ar: "كهربائية", en: "Electric" },
 ]
 
+const ERROR_AR: Record<string, string> = {
+  "Make is required": "الماركة مطلوبة",
+  "Model is required": "الموديل مطلوب",
+  "Plate number is required": "رقم اللوحة مطلوب",
+  "Year must be 1980 or later": "سنة الصنع يجب أن تكون 1980 أو أحدث",
+}
+
 function Field({
+  isAr,
   label,
   error,
   required,
   children,
   className,
 }: {
+  isAr?: boolean
   label: string
   error?: string
   required?: boolean
@@ -126,13 +136,13 @@ function Field({
   const child = React.isValidElement<{ id?: string }>(children) ? children : null
   const controlId = child?.props.id ?? generatedId
   return (
-    <div className={`grid gap-1.5 ${className ?? ""}`}>
-      <Label className="text-xs font-semibold" htmlFor={controlId}>
+    <div className={`grid content-start gap-1.5 ${className ?? ""}`}>
+      <Label className="text-xs font-semibold text-foreground/80" htmlFor={controlId}>
         {label}
         {required && <span className="text-destructive"> *</span>}
       </Label>
-      {child ? React.cloneElement(child, { id: controlId }) : children}
-      {error && <p className="text-[11px] font-medium text-destructive">{error}</p>}
+      {child ? React.cloneElement(child as React.ReactElement<Record<string, unknown>>, { id: controlId, "aria-invalid": error ? true : undefined }) : children}
+      {error && <p className="flex items-center gap-1 text-[11px] font-medium text-destructive"><CircleAlert className="size-3 shrink-0" />{isAr ? (ERROR_AR[error] ?? error) : error}</p>}
     </div>
   )
 }
@@ -208,31 +218,36 @@ export function CreateVehicleDialog({
     }
   }
 
-  const inputClass =
-    "w-full rounded-md border border-border bg-background px-3 py-2 text-sm shadow-xs outline-none transition-[border-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30"
+  const inputClass = "h-10"
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto rounded-2xl">
-        <DialogHeader>
-          <DialogTitle>{initialVehicle ? (isAr ? "تعديل المركبة" : "Edit vehicle") : (isAr ? "إنشاء مركبة جديدة" : "Create New Vehicle")}</DialogTitle>
-          <DialogDescription>
+      <DialogContent className={`${FORM_DIALOG_CLASS} sm:max-w-5xl`}>
+        <div className={FORM_HEADER_CLASS}>
+        <DialogHeader className="text-start">
+          <DialogTitle className="text-lg">{initialVehicle ? (isAr ? "تعديل المركبة" : "Edit vehicle") : (isAr ? "إنشاء مركبة جديدة" : "Create New Vehicle")}</DialogTitle>
+          <DialogDescription className="text-xs">
             {isAr
               ? "أدخل بيانات المركبة. تتحكم التعيينات والصيانة في إتاحة المركبة."
               : "Enter the vehicle details. Assignments and maintenance control availability."}
           </DialogDescription>
         </DialogHeader>
+          <FormSectionNav label={isAr ? "أقسام النموذج" : "Form sections"} items={[
+            { id: "create-vehicle-section-identity", icon: CarFront, label: isAr ? "البيانات الأساسية" : "Identity" },
+            { id: "create-vehicle-section-technical", icon: Cog, label: isAr ? "البيانات الفنية" : "Identification" },
+            { id: "create-vehicle-section-status", icon: Gauge, label: isAr ? "الحالة والتشغيل" : "Status & operation" },
+            { id: "create-vehicle-section-documents", icon: ShieldCheck, label: isAr ? "الوثائق والصلاحيات" : "Documents & validity" },
+            { id: "create-vehicle-section-notes", icon: StickyNote, label: isAr ? "ملاحظات" : "Notes" },
+          ]} />
+        </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="grid gap-6" noValidate>
+        <form onSubmit={handleSubmit(onSubmit)} className={FORM_BODY_CLASS} noValidate>
           {/* Identity */}
-          <fieldset className="grid gap-4 rounded-2xl border border-border/50 bg-muted/20 p-4 sm:grid-cols-2">
-            <legend className="px-2 text-xs font-bold text-elite-blue-600 dark:text-elite-blue-300">
-              {isAr ? "البيانات الأساسية" : "Identity"}
-            </legend>
-            <Field label={isAr ? "رمز المركبة" : "Vehicle code"} error={errors.vehicle_code?.message}>
+          <FormSection id="create-vehicle-section-identity" icon={CarFront} cols={2} title={isAr ? "البيانات الأساسية" : "Identity"} hint={isAr ? "اللوحة والطراز وسنة الصنع" : "Plate, make, model and year"}>
+            <Field isAr={isAr} label={isAr ? "رمز المركبة" : "Vehicle code"} error={errors.vehicle_code?.message}>
               <Input {...register("vehicle_code")} className={inputClass} dir="ltr" placeholder="VEH-XXXXXX" />
             </Field>
-            <Field label={isAr ? "رقم اللوحة" : "Plate number"} required error={errors.plate_number?.message}>
+            <Field isAr={isAr} label={isAr ? "رقم اللوحة" : "Plate number"} required error={errors.plate_number?.message}>
               <Input
                 {...register("plate_number")}
                 className={inputClass}
@@ -240,44 +255,41 @@ export function CreateVehicleDialog({
                 placeholder={isAr ? "أ ب ج 1234" : "ABC 1234"}
               />
             </Field>
-            <Field label={isAr ? "نوع اللوحة" : "Plate type"} error={errors.plate_type?.message}>
+            <Field isAr={isAr} label={isAr ? "نوع اللوحة" : "Plate type"} error={errors.plate_type?.message}>
               <Input {...register("plate_type")} className={inputClass} placeholder={isAr ? "خاصة / نقل" : "Private / Transport"} />
             </Field>
-            <Field label={isAr ? "الماركة" : "Make"} required error={errors.make?.message}>
+            <Field isAr={isAr} label={isAr ? "الماركة" : "Make"} required error={errors.make?.message}>
               <Input {...register("make")} className={inputClass} placeholder={isAr ? "تويوتا" : "Toyota"} />
             </Field>
-            <Field label={isAr ? "الموديل" : "Model"} required error={errors.model?.message}>
+            <Field isAr={isAr} label={isAr ? "الموديل" : "Model"} required error={errors.model?.message}>
               <Input {...register("model")} className={inputClass} placeholder={isAr ? "كامري" : "Camry"} />
             </Field>
-            <Field label={isAr ? "سنة الصنع" : "Year"} error={errors.year?.message}>
+            <Field isAr={isAr} label={isAr ? "سنة الصنع" : "Year"} error={errors.year?.message}>
               <Input {...register("year")} inputMode="numeric" className={inputClass} dir="ltr" placeholder="2024" />
             </Field>
-            <Field label={isAr ? "اللون" : "Color"} error={errors.color?.message}>
+            <Field isAr={isAr} label={isAr ? "اللون" : "Color"} error={errors.color?.message}>
               <Input {...register("color")} className={inputClass} />
             </Field>
-          </fieldset>
+          </FormSection>
 
           {/* Identification */}
-          <fieldset className="grid gap-4 rounded-2xl border border-border/50 bg-muted/20 p-4 sm:grid-cols-2">
-            <legend className="px-2 text-xs font-bold text-elite-blue-600 dark:text-elite-blue-300">
-              {isAr ? "البيانات الفنية" : "Identification"}
-            </legend>
-            <Field label={isAr ? "رقم الشاصي" : "Chassis number"} error={errors.chassis_number?.message}>
+          <FormSection id="create-vehicle-section-technical" icon={Cog} cols={2} title={isAr ? "البيانات الفنية" : "Identification"} hint={isAr ? "الشاصي والمحرك ورقم VIN" : "Chassis, engine and VIN"}>
+            <Field isAr={isAr} label={isAr ? "رقم الشاصي" : "Chassis number"} error={errors.chassis_number?.message}>
               <Input {...register("chassis_number")} className={inputClass} dir="ltr" />
             </Field>
-            <Field label={isAr ? "رقم المحرك" : "Engine number"} error={errors.engine_number?.message}>
+            <Field isAr={isAr} label={isAr ? "رقم المحرك" : "Engine number"} error={errors.engine_number?.message}>
               <Input {...register("engine_number")} className={inputClass} dir="ltr" />
             </Field>
-            <Field label={isAr ? "رقم الهيكل (VIN)" : "VIN"} error={errors.vin?.message}>
+            <Field isAr={isAr} label={isAr ? "رقم الهيكل (VIN)" : "VIN"} error={errors.vin?.message}>
               <Input {...register("vin")} className={inputClass} dir="ltr" />
             </Field>
-            <Field label={isAr ? "نوع الوقود" : "Fuel type"} error={errors.fuel_type?.message}>
+            <Field isAr={isAr} label={isAr ? "نوع الوقود" : "Fuel type"} error={errors.fuel_type?.message}>
               <Controller
                 control={control}
                 name="fuel_type"
                 render={({ field }) => (
                   <Select value={field.value || ""} onValueChange={(v) => field.onChange(v || undefined)}>
-                    <SelectTrigger className="w-full">
+                    <SelectTrigger className="w-full data-[size=default]:h-10">
                       <SelectValue placeholder={isAr ? "اختر" : "Select"} />
                     </SelectTrigger>
                     <SelectContent>
@@ -291,20 +303,17 @@ export function CreateVehicleDialog({
                 )}
               />
             </Field>
-          </fieldset>
+          </FormSection>
 
           {/* Status */}
-          <fieldset className="grid gap-4 rounded-2xl border border-border/50 bg-muted/20 p-4 sm:grid-cols-3">
-            <legend className="px-2 text-xs font-bold text-elite-blue-600 dark:text-elite-blue-300">
-              {isAr ? "الحالة والتشغيل" : "Status & operation"}
-            </legend>
-            <Field label={isAr ? "الحالة" : "Status"} required error={errors.status?.message}>
+          <FormSection id="create-vehicle-section-status" icon={Gauge} cols={3} title={isAr ? "الحالة والتشغيل" : "Status & operation"} hint={isAr ? "الإتاحة والوقود وعداد المسافة" : "Availability, fuel and odometer"}>
+            <Field isAr={isAr} label={isAr ? "الحالة" : "Status"} required error={errors.status?.message}>
               <Controller
                 control={control}
                 name="status"
                 render={({ field }) => (
                   <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger className="w-full">
+                    <SelectTrigger className="w-full data-[size=default]:h-10">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -318,13 +327,13 @@ export function CreateVehicleDialog({
                 )}
               />
             </Field>
-            <Field label={isAr ? "حالة المركبة" : "Condition"} required error={errors.condition_status?.message}>
+            <Field isAr={isAr} label={isAr ? "حالة المركبة" : "Condition"} required error={errors.condition_status?.message}>
               <Controller
                 control={control}
                 name="condition_status"
                 render={({ field }) => (
                   <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger className="w-full">
+                    <SelectTrigger className="w-full data-[size=default]:h-10">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -338,49 +347,43 @@ export function CreateVehicleDialog({
                 )}
               />
             </Field>
-            <Field label={isAr ? "عداد الكيلومترات" : "Odometer (km)"} error={errors.odometer_current?.message}>
-              <Input {...register("odometer_current")} inputMode="numeric" className={inputClass} dir="ltr" placeholder="0" />
+            <Field isAr={isAr} label={isAr ? "عداد الكيلومترات" : "Odometer (km)"} error={errors.odometer_current?.message}>
+              <SuffixInput suffix={isAr ? "كم" : "km"} {...register("odometer_current")} inputMode="numeric" dir="ltr" placeholder="0" />
             </Field>
-          </fieldset>
+          </FormSection>
 
           {/* Documents */}
-          <fieldset className="grid gap-4 rounded-2xl border border-border/50 bg-muted/20 p-4 sm:grid-cols-2">
-            <legend className="px-2 text-xs font-bold text-elite-blue-600 dark:text-elite-blue-300">
-              {isAr ? "الوثائق والصلاحيات" : "Documents & validity"}
-            </legend>
-            <Field label={isAr ? "انتهاء التأمين" : "Insurance expiry"}>
+          <FormSection id="create-vehicle-section-documents" icon={ShieldCheck} cols={2} title={isAr ? "الوثائق والصلاحيات" : "Documents & validity"} hint={isAr ? "التأمين والاستمارة والفحص الدوري" : "Insurance, registration and inspection"}>
+            <Field isAr={isAr} label={isAr ? "انتهاء التأمين" : "Insurance expiry"}>
               <Input {...register("insurance_expiry")} type="date" className={inputClass} />
             </Field>
-            <Field label={isAr ? "شركة التأمين" : "Insurance provider"}>
+            <Field isAr={isAr} label={isAr ? "شركة التأمين" : "Insurance provider"}>
               <Input {...register("insurance_provider")} className={inputClass} />
             </Field>
-            <Field label={isAr ? "رقم وثيقة التأمين" : "Policy number"}>
+            <Field isAr={isAr} label={isAr ? "رقم وثيقة التأمين" : "Policy number"}>
               <Input {...register("insurance_policy_number")} className={inputClass} dir="ltr" />
             </Field>
-            <Field label={isAr ? "انتهاء الاستمارة" : "Registration expiry"}>
+            <Field isAr={isAr} label={isAr ? "انتهاء الاستمارة" : "Registration expiry"}>
               <Input {...register("registration_expiry")} type="date" className={inputClass} />
             </Field>
-            <Field label={isAr ? "انتهاء الفحص الدوري" : "Inspection expiry"}>
+            <Field isAr={isAr} label={isAr ? "انتهاء الفحص الدوري" : "Inspection expiry"}>
               <Input {...register("inspection_expiry")} type="date" className={inputClass} />
             </Field>
-            <Field label={isAr ? "انتهاء بطاقة التشغيل" : "Operating card expiry"}>
+            <Field isAr={isAr} label={isAr ? "انتهاء بطاقة التشغيل" : "Operating card expiry"}>
               <Input {...register("operating_card_expiry")} type="date" className={inputClass} />
             </Field>
-          </fieldset>
+          </FormSection>
 
           {/* Notes */}
-          <fieldset className="grid gap-2 rounded-2xl border border-border/50 bg-muted/20 p-4">
-            <legend className="px-2 text-xs font-bold text-elite-blue-600 dark:text-elite-blue-300">
-              {isAr ? "ملاحظات" : "Notes"}
-            </legend>
-            <Textarea {...register("notes")} rows={3} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30" />
-          </fieldset>
+          <FormSection id="create-vehicle-section-notes" icon={StickyNote} cols={1} title={isAr ? "ملاحظات" : "Notes"} hint={isAr ? "ملاحظات داخلية" : "Internal notes"}>
+            <Textarea {...register("notes")} rows={3} />
+          </FormSection>
 
           <p className="text-[11px] text-muted-foreground">
             {isAr ? "تلميح اللوحة:" : "Plate hint:"} {SAUDI_PLATE_HINT}
           </p>
 
-          <div className="flex items-center justify-end gap-3 border-t border-border/50 pt-4">
+          <div className={FORM_FOOTER_CLASS}>
             <Button
               type="button"
               variant="ghost"
@@ -392,7 +395,7 @@ export function CreateVehicleDialog({
             <Button
               type="submit"
               disabled={submitting}
-              className="bg-elite-blue-500 text-white hover:bg-elite-blue-600"
+              className="rounded-xl bg-elite-blue-500 text-white hover:bg-elite-blue-600"
             >
               {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
               {initialVehicle ? (isAr?"حفظ التغييرات":"Save changes") : (isAr ? "إنشاء المركبة" : "Create vehicle")}
