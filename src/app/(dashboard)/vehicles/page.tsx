@@ -13,12 +13,13 @@ import {
   type TableColumn,
 } from "@/components/dashboard/enterprise-module-page"
 import { Badge } from "@/components/ui/badge"
-import type { VehicleStatus, VehicleCondition, FuelType } from "@/types/vehicles"
+import { VEHICLE_OWNERSHIP, type VehicleStatus, type VehicleCondition, type FuelType, type VehicleOwnership } from "@/types/vehicles"
 import { worstDocsExpiryState, type DocsExpiryState } from "@/lib/vehicles/assignment-utils"
 import Link from "next/link"
 import { CreateVehicleDialog } from "./components/create-vehicle-dialog"
 
 interface VehicleRow {
+  ownership_type?: VehicleOwnership | null
   id: string
   vehicle_code: string | null
   plate_number: string
@@ -47,7 +48,7 @@ export default function VehiclesPage() {
   const [addOpen, setAddOpen] = useState(false)
   const buildQuery = useCallback((term: string) => {
     let query = createClient().from("vehicles")
-      .select("id,vehicle_code,plate_number,make,model,year,color,status,condition_status,fuel_type,odometer_current,insurance_expiry,registration_expiry,inspection_expiry,current_driver_id,current_driver:drivers!vehicles_current_driver_id_fkey(full_name_ar,full_name_en,driver_code)", { count: "exact" })
+      .select("id,vehicle_code,plate_number,make,model,year,color,status,condition_status,fuel_type,odometer_current,insurance_expiry,registration_expiry,inspection_expiry,ownership_type,current_driver_id,current_driver:drivers!vehicles_current_driver_id_fkey(full_name_ar,full_name_en,driver_code)", { count: "exact" })
       .is("deleted_at", null)
     if (term.trim()) query = query.or(substringFilter(["plate_number", "vehicle_code", "make", "model"], term))
     return query.order("created_at", { ascending: false }).order("id")
@@ -201,7 +202,14 @@ export default function VehiclesPage() {
       key: "plate_number",
       header: t.vehicles.colPlate,
       render: (row) => (
-        <span className="font-semibold text-foreground">{row.plate_number}</span>
+        <span className="flex flex-col">
+          <span className="font-semibold text-foreground">{row.plate_number}</span>
+          {row.ownership_type && (
+            <span className="text-[11px] text-muted-foreground">
+              {(() => { const o = VEHICLE_OWNERSHIP.find((x) => x.value === row.ownership_type); return o ? (isArLocale ? o.ar : o.en) : null })()}
+            </span>
+          )}
+        </span>
       ),
     },
     {

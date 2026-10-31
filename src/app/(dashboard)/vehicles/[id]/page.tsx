@@ -20,6 +20,7 @@ import {
   UserCheck,
   AlertCircle,
   Loader2,
+  KeyRound,
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
@@ -31,7 +32,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs"
-import type { VehicleStatus, VehicleCondition, FuelType } from "@/types/vehicles"
+import { VEHICLE_OWNERSHIP, type VehicleStatus, type VehicleCondition, type FuelType, type VehicleOwnership } from "@/types/vehicles"
 import { VehicleRecordControls } from "@/components/vehicles/vehicle-record-controls"
 import { FleetDocumentsPanel, FleetHandoverPanel } from "@/components/vehicles/fleet-history-panels"
 import { AssignDriverCard } from "@/components/vehicles/assign-driver-card"
@@ -57,6 +58,12 @@ interface VehicleDetail {
   insurance_expiry: string | null
   registration_expiry: string | null
   inspection_expiry: string | null
+  operating_card_expiry?: string | null
+  ownership_type?: VehicleOwnership | null
+  sequence_number?: string | null
+  rental_company?: string | null
+  rental_contract_end?: string | null
+  rental_monthly_cost?: number | null
   photo_url: string | null
 }
 
@@ -450,6 +457,31 @@ export default function VehicleDetailPage() {
                 value={renderExpiry(vehicle.inspection_expiry)}
                 notSet={notSet}
               />
+              <Field
+                label={locale === "ar" ? "بطاقة التشغيل" : "Operating card"}
+                value={renderExpiry(vehicle.operating_card_expiry ?? null)}
+                notSet={notSet}
+              />
+            </SectionCard>
+
+            <SectionCard icon={KeyRound} title={locale === "ar" ? "الملكية" : "Ownership"}>
+              <Field
+                label={locale === "ar" ? "نوع الملكية" : "Ownership type"}
+                value={(() => { const o = VEHICLE_OWNERSHIP.find((x) => x.value === vehicle.ownership_type); return o ? (locale === "ar" ? o.ar : o.en) : null })()}
+                notSet={notSet}
+              />
+              <Field label={locale === "ar" ? "الرقم التسلسلي" : "Sequence number"} value={vehicle.sequence_number ? <bdi dir="ltr" className="font-mono">{vehicle.sequence_number}</bdi> : null} notSet={notSet} />
+              {vehicle.ownership_type === "rented" && (
+                <>
+                  <Field label={locale === "ar" ? "شركة التأجير" : "Rental company"} value={vehicle.rental_company ?? null} notSet={notSet} />
+                  <Field label={locale === "ar" ? "انتهاء عقد الإيجار" : "Rental contract end"} value={renderExpiry(vehicle.rental_contract_end ?? null)} notSet={notSet} />
+                  <Field
+                    label={locale === "ar" ? "الإيجار الشهري" : "Monthly rent"}
+                    value={vehicle.rental_monthly_cost != null ? <span className="tabular-nums" dir="ltr">{Number(vehicle.rental_monthly_cost).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {locale === "ar" ? "ر.س" : "SAR"}</span> : null}
+                    notSet={notSet}
+                  />
+                </>
+              )}
             </SectionCard>
 
             <SectionCard icon={Settings2} title={t.vehicles.sectionSpecs}>

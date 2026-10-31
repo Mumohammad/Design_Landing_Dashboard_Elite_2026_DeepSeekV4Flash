@@ -222,8 +222,9 @@ export interface VehicleMaintenanceEvent {
 // Create/update schemas — columns mirror migration 016_vehicles.sql exactly
 // (condition_status, odometer_current, insurance_expiry, … were stale before).
 export function isSaudiPlate(val: string): boolean {
-  const arabicPlate = /^[\u0600-\u06FF]{1,3}\s?\d{3,4}$/
-  const englishPlate = /^[A-Z]{1,3}\s?\d{3,4}$/
+  // Saudi plates: up to three letters and one to four digits.
+  const arabicPlate = /^[\u0600-\u06FF]{1,3}\s?\d{1,4}$/
+  const englishPlate = /^[A-Z]{1,3}\s?\d{1,4}$/
   const numericOnly = /^\d{4,7}$/
   return arabicPlate.test(val) || englishPlate.test(val) || numericOnly.test(val)
 }
@@ -241,12 +242,42 @@ export function normalizeSaudiPlate(val: string): string {
   return letters ? `${letters} ${m[2]}` : m[2]
 }
 
+export type VehicleOwnership = "company_owned" | "rented" | "driver_owned"
+export const vehicleOwnershipSchema = z.enum(["company_owned", "rented", "driver_owned"])
+export const VEHICLE_OWNERSHIP: { value: VehicleOwnership; ar: string; en: string }[] = [
+  { value: "company_owned", ar: "ملك الشركة", en: "Company owned" },
+  { value: "rented", ar: "إيجار", en: "Rented" },
+  { value: "driver_owned", ar: "ملك السائق", en: "Driver owned" },
+]
+
+/** Arabic plate letters and their Latin counterparts on Saudi plates. */
+const PLATE_LETTERS: Record<string, string> = {
+  "ا": "A", "أ": "A", "ب": "B", "ح": "J", "د": "D", "ر": "R", "س": "S", "ص": "X", "ط": "T", "ع": "E",
+  "ق": "G", "ك": "K", "ل": "L", "م": "Z", "ن": "N", "ه": "H", "هـ": "H", "و": "U", "ى": "V", "ي": "V",
+}
+const LATIN_PLATE_LETTERS: Record<string, string> = { A: "ا", B: "ب", J: "ح", D: "د", R: "ر", S: "س", X: "ص", T: "ط", E: "ع", G: "ق", K: "ك", L: "ل", Z: "م", N: "ن", H: "هـ", U: "و", V: "ى" }
+
+/**
+ * The other script of a Saudi plate ("أ ب ح 1234" ↔ "A B J 1234"), or null
+ * when a letter is not one of the 17 plate letters.
+ */
+export function saudiPlateCounterpart(val: string): string | null {
+  const plate = normalizeSaudiPlate(val)
+  const m = /^(\S+) (\d{1,4})$/.exec(plate)
+  if (!m) return null
+  const letters = [...m[1].replace(/هـ/g, "ه")]
+  const arabic = letters.every((ch) => /[\u0600-\u06FF]/.test(ch))
+  const mapped = letters.map((ch) => (arabic ? PLATE_LETTERS[ch] : LATIN_PLATE_LETTERS[ch]))
+  if (mapped.some((ch) => !ch)) return null
+  return `${mapped.join(" ")} ${m[2]}`
+}
+
 const vehicleCreateBaseSchema = z.object({
   vehicle_code: z.string().nullable().optional(),
   plate_number: z
     .string()
     .transform(normalizeSaudiPlate)
-    .pipe(z.string().min(4).refine(isSaudiPlate, "Invalid Saudi plate format")),
+    .pipe(z.string().min(2).refine(isSaudiPlate, "Invalid Saudi plate format")),
   plate_type: z.string().nullable().optional(),
   make: z.string().trim().min(1, "Make is required"),
   model: z.string().trim().min(1, "Model is required"),
@@ -283,6 +314,11 @@ const vehicleCreateBaseSchema = z.object({
   photo_url: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
   tags: z.array(z.string()).nullable().optional(),
+  ownership_type: vehicleOwnershipSchema.nullable().optional(),
+  sequence_number: z.string().trim().regex(/^\d{6,10}$/, "Sequence number must be 6-10 digits").nullable().optional(),
+  rental_company: z.string().trim().max(200).nullable().optional(),
+  rental_contract_end: z.iso.date().nullable().optional(),
+  rental_monthly_cost: z.number().min(0).max(9_999_999.99).nullable().optional(),
 })
 
 export const vehicleCreateSchema = vehicleCreateBaseSchema

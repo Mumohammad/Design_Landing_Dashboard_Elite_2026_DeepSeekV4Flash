@@ -60,6 +60,8 @@ export type InvoiceDraftInput = {
   /** Default VAT % applied to lines that don't set their own. */
   vat_rate?: number
   notes?: string | null
+  /** Bank account printed in the invoice's bank-details box (presentation only). */
+  bank_account_id?: string | null
   lines: InvoiceLineInput[]
 }
 
@@ -83,8 +85,10 @@ async function saveDraft(input:InvoiceDraftInput,id?:string,expectedUpdatedAt?:s
   if(!input||!isMasterId(input.request_id)||(id!==undefined&&(!isMasterId(id)||!isMasterTimestamp(expectedUpdatedAt))))return draftFailure("INV002: invalid draft request")
   if((input.currency??"SAR")!=="SAR")return draftFailure("INV012: SAR accounting only")
   if(input.show_due_date!==undefined&&typeof input.show_due_date!=="boolean")return draftFailure("INV002: invalid due-date visibility")
+  if(input.bank_account_id!=null&&!isMasterId(input.bank_account_id))return draftFailure("INV002: invalid bank account")
   const computed=computeInvoiceTotals(input.lines,input.vat_rate??15)
   const {request_id,...draft}=input,client=await createClient()
+  draft.bank_account_id=input.bank_account_id||null
   draft.lines=computed.lines.map(line=>({item_name:line.item_name??null,description:line.description,quantity:line.quantity,unit_price:line.unit_price,discount:line.discount,vat_rate:line.vat_rate}))
   const {data,error}=await client.rpc("save_my_invoice_draft",{p_input:draft,p_invoice_id:id??null,p_expected_updated_at:expectedUpdatedAt??null,p_request_id:request_id})
   if(error)return draftFailure(error.message)

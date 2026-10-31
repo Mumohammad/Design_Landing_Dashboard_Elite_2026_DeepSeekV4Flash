@@ -59,6 +59,7 @@ function fmtDate(s: string | null | undefined): string {
 
 type InvoiceRow = {
   id: string
+  bank_account_id?: string | null
   invoice_number: string
   invoice_type: "sales" | "purchase"
   status: string
@@ -124,7 +125,7 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
 
     const { data: inv, error: invErr } = await admin
       .from("invoices")
-      .select("id,invoice_number,invoice_type,status,customer_id,supplier_id,issue_date,due_date,show_due_date,currency,subtotal,discount,vat_amount,total,vat_rate,notes,finalized_at")
+      .select("id,invoice_number,invoice_type,status,customer_id,supplier_id,issue_date,due_date,show_due_date,currency,subtotal,discount,vat_amount,total,vat_rate,notes,finalized_at,bank_account_id")
       .eq("id", invoiceId)
       .eq("tenant_id", currentUser.tenantId)
       .is("deleted_at", null)
@@ -168,12 +169,16 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
       .eq("source_entity_id", inv.id).is("deleted_at", null)
     if (balanceError || !Array.isArray(balances)) return { success: false, error: "Unable to load the invoice payment balance." }
     let bank: { bank_name: string; account_name: string; iban: string } | null = null
-    if (bankAccountId) {
+    // An explicit print choice wins; otherwise the bank account saved on the
+    // invoice prints. A saved account that was later deactivated is omitted
+    // rather than blocking the print.
+    const printBankId = bankAccountId ?? inv.bank_account_id ?? undefined
+    if (printBankId) {
       const result = await admin.from("bank_accounts").select("bank_name,account_name,iban")
-        .eq("id", bankAccountId).eq("tenant_id", currentUser.tenantId)
+        .eq("id", printBankId).eq("tenant_id", currentUser.tenantId)
         .eq("currency", inv.currency).eq("is_active", true).is("deleted_at", null).maybeSingle()
-      if (result.error || !result.data) return { success: false, error: "Select an active bank account in the invoice currency." }
-      bank = result.data
+      if (bankAccountId && (result.error || !result.data)) return { success: false, error: "Select an active bank account in the invoice currency." }
+      bank = result.data ?? null
     }
     // The tenant's own uploaded logo (Settings → Company); no logo when the
     // company has not uploaded one — never the platform's brand mark.

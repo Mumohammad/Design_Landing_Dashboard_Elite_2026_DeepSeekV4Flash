@@ -326,10 +326,11 @@ export function InvoicesManager() {
   const [formVatRate, setFormVatRate] = useState("15")
   const [formCurrency, setFormCurrency] = useState("SAR")
   const [formNotes, setFormNotes] = useState("")
+  const [formBank, setFormBank] = useState("")
   const [lines, setLines] = useState<LineDraft[]>([emptyLine(1)])
   const [formTerms, setFormTerms] = useState("0")
   const [invDiscount, setInvDiscount] = useState<InvoiceDiscount>({ mode: "percent", value: "" })
-  const [formTab, setFormTab] = useState<"discount" | "notes">("discount")
+  const [formTab, setFormTab] = useState<"discount" | "notes" | "bank">("discount")
   const [isSaving, setIsSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
@@ -349,6 +350,7 @@ export function InvoicesManager() {
     setFormShowDueDate(false)
     setFormVatRate("15")
     setFormNotes("")
+    setFormBank("")
     setFormTerms("0")
     setInvDiscount({ mode: "percent", value: "" })
     setFormTab("discount")
@@ -368,11 +370,14 @@ export function InvoicesManager() {
   async function openEdit(row: InvoiceRow) {
     setBusyId(row.id)
     const client = createClient()
-    const { data, error } = await client.from("invoice_lines")
-      .select("line_no,item_name,description,quantity,unit_price,discount,vat_rate")
-      .eq("invoice_id", row.id).order("line_no")
+    const [{ data, error }, header] = await Promise.all([
+      client.from("invoice_lines")
+        .select("line_no,item_name,description,quantity,unit_price,discount,vat_rate")
+        .eq("invoice_id", row.id).order("line_no"),
+      client.from("invoices").select("bank_account_id").eq("id", row.id).maybeSingle(),
+    ])
     setBusyId(null)
-    if (error || !data?.length) { flash("err", ar ? "تعذر تحميل البنود. حاول مجدداً." : "Could not load invoice lines. Retry."); return }
+    if (error || !data?.length || header.error) { flash("err", ar ? "تعذر تحميل البنود. حاول مجدداً." : "Could not load invoice lines. Retry."); return }
     setEditTarget(row)
     setDraftRequest(crypto.randomUUID());setPartyReadReady(false)
     setFormType(row.invoice_type)
@@ -383,6 +388,7 @@ export function InvoicesManager() {
     setFormVatRate(String(row.vat_rate))
     setFormCurrency(row.currency)
     setFormNotes(row.notes ?? "")
+    setFormBank((header.data as { bank_account_id?: string | null } | null)?.bank_account_id ?? "")
     setFormTerms(String(Math.max(0, dayDiff(row.issue_date, row.due_date) ?? 0)))
     setInvDiscount({ mode: "percent", value: "" })
     setFormTab("discount")
@@ -404,6 +410,7 @@ export function InvoicesManager() {
         supplier_id: formType === "purchase" ? formPartyId || null : null,
         issue_date: formIssue, due_date: formDue, show_due_date: formShowDueDate, currency: formCurrency,
         vat_rate: Number(lines[0]?.vat_rate || formVatRate || 0), notes: formNotes || null,
+        bank_account_id: formBank || null,
         lines: lineInputs(lines, formVatRate, invDiscount) }
       const res = editTarget
         ? await updateInvoiceDraft({ ...input, id: editTarget.id, expected_updated_at: editTarget.updated_at })
@@ -696,7 +703,7 @@ export function InvoicesManager() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-44 rounded-xl">
                 <DropdownMenuItem onSelect={() => void openDetail(r)}><FileText className="h-4 w-4" />{ar ? "تفاصيل" : "Details"}</DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => { setPrintTarget(r); setPrintBank(""); setPrintError("") }}><Printer className="h-4 w-4" />{ar ? "طباعة / حفظ PDF" : "Print / Save PDF"}</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => { setPrintTarget(r); setPrintBank(""); setPrintError(""); void createClient().from("invoices").select("bank_account_id").eq("id", r.id).maybeSingle().then(({ data }) => { const saved = (data as { bank_account_id?: string | null } | null)?.bank_account_id; if (saved) setPrintBank((current) => current || saved) }) }}><Printer className="h-4 w-4" />{ar ? "طباعة / حفظ PDF" : "Print / Save PDF"}</DropdownMenuItem>
                 {canIssue && <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onSelect={() => void openEdit(r)}><Pencil className="h-4 w-4" />{ar ? "تعديل" : "Edit"}</DropdownMenuItem>
@@ -893,7 +900,7 @@ export function InvoicesManager() {
               <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,360px)]">
                 <section className="min-w-0 rounded-2xl border border-border/60">
                   <div role="tablist" aria-label={ar ? "خيارات الفاتورة" : "Invoice options"} className="flex gap-1 border-b border-border/60 px-2 pt-2">
-                    {([["discount", ar ? "الخصم" : "Discount"], ["notes", ar ? "الملاحظات والشروط" : "Notes & terms"]] as const).map(([k, label]) => (
+                    {([["discount", ar ? "الخصم" : "Discount"], ["notes", ar ? "الملاحظات / الشروط" : "Notes / terms"], ["bank", ar ? "الحساب البنكي" : "Bank account"]] as const).map(([k, label]) => (
                       <button key={k} type="button" role="tab" aria-selected={formTab === k} onClick={() => setFormTab(k)}
                         className={`-mb-px rounded-t-lg border-b-2 px-3 py-2 text-sm font-medium transition-colors ${formTab === k ? "border-elite-blue-600 text-elite-blue-700 dark:text-elite-blue-300" : "border-transparent text-muted-foreground hover:text-foreground"}`}>{label}</button>
                     ))}
@@ -911,10 +918,16 @@ export function InvoicesManager() {
                         </div>
                         <p className="text-xs text-muted-foreground">{ar ? "يُوزَّع الخصم نسبياً على البنود قبل احتساب الضريبة فيُخفّض وعاء الضريبة لكل بند." : "Distributed pro-rata across the lines before VAT, reducing each line's taxable amount."}</p>
                       </div>
+                    ) : formTab === "bank" ? (
+                      <div className="space-y-2">
+                        <BankAccountPicker idPrefix="invoice" testId="invoice-bank-picker" legend={ar ? "الحساب البنكي المطبوع على الفاتورة" : "Bank account printed on the invoice"} value={formBank} onChange={setFormBank} ar={ar} disabled={isSaving} />
+                        <p className="text-xs text-muted-foreground">{ar ? "يظهر اسم البنك واسم المستفيد ورقم الآيبان في مربع «معلومات الحساب البنكي» أسفل الفاتورة المطبوعة وملف PDF." : "The bank name, beneficiary and IBAN print in the “Bank account details” box at the foot of the invoice and PDF."}</p>
+                        {formBank && <Button type="button" variant="ghost" size="sm" onClick={() => setFormBank("")}>{ar ? "بدون حساب بنكي" : "No bank account"}</Button>}
+                      </div>
                     ) : (
                       <div className="space-y-1.5">
-                        <Label htmlFor="inv-notes">{ar ? "ملاحظات / شروط" : "Notes / terms"}</Label>
-                        <Textarea id="inv-notes" rows={3} maxLength={2000} value={formNotes} onChange={(e) => setFormNotes(e.target.value)} placeholder={ar ? "تظهر في الفاتورة المطبوعة" : "Shown on the printed invoice"} />
+                        <Label htmlFor="inv-notes">{ar ? "الملاحظات / الشروط" : "Notes / terms"}</Label>
+                        <Textarea id="inv-notes" rows={5} maxLength={2000} value={formNotes} onChange={(e) => setFormNotes(e.target.value)} placeholder={ar ? "تظهر في الفاتورة المطبوعة" : "Shown on the printed invoice"} />
                       </div>
                     )}
                   </div>
