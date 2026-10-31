@@ -23,6 +23,9 @@ import {
   deleteInvoiceDraft,
   issueInvoice,
   finalizeInvoice,
+  getAlreadyPaidInfo,
+  recordAlreadyPaidPayment,
+  type AlreadyPaidMethod,
   cancelInvoice,
   issueCreditNote,
   issueDebitNote,
@@ -87,6 +90,13 @@ const STATUS_META: Record<string, { ar: string; en: string; className: string }>
   cancelled: { ar: "ملغاة", en: "Cancelled", className: "bg-gray-500/15 text-gray-600 border-gray-500/20" },
   credited: { ar: "معتمدة بإشعار", en: "Credited", className: "bg-teal-500/15 text-teal-600 border-teal-500/20" },
 }
+
+const PAID_METHODS: { value: AlreadyPaidMethod; ar: string; en: string }[] = [
+  { value: "cash", ar: "نقداً", en: "Cash" },
+  { value: "transfer", ar: "تحويل بنكي", en: "Bank transfer" },
+  { value: "card", ar: "بطاقة (مدى/ائتمانية)", en: "Card (mada/credit)" },
+  { value: "cheque", ar: "شيك", en: "Cheque" },
+]
 
 function fmtMoney(n: number | null | undefined): string {
   return (n ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -327,6 +337,8 @@ export function InvoicesManager() {
   const [formCurrency, setFormCurrency] = useState("SAR")
   const [formNotes, setFormNotes] = useState("")
   const [formBank, setFormBank] = useState("")
+  const [formPaid, setFormPaid] = useState(false)
+  const [formPaidMethod, setFormPaidMethod] = useState<AlreadyPaidMethod>("cash")
   const [lines, setLines] = useState<LineDraft[]>([emptyLine(1)])
   const [formTerms, setFormTerms] = useState("0")
   const [invDiscount, setInvDiscount] = useState<InvoiceDiscount>({ mode: "percent", value: "" })
@@ -351,6 +363,8 @@ export function InvoicesManager() {
     setFormVatRate("15")
     setFormNotes("")
     setFormBank("")
+    setFormPaid(false)
+    setFormPaidMethod("cash")
     setFormTerms("0")
     setInvDiscount({ mode: "percent", value: "" })
     setFormTab("discount")
@@ -374,7 +388,7 @@ export function InvoicesManager() {
       client.from("invoice_lines")
         .select("line_no,item_name,description,quantity,unit_price,discount,vat_rate")
         .eq("invoice_id", row.id).order("line_no"),
-      client.from("invoices").select("bank_account_id").eq("id", row.id).maybeSingle(),
+      client.from("invoices").select("bank_account_id,already_paid,already_paid_method").eq("id", row.id).maybeSingle(),
     ])
     setBusyId(null)
     if (error || !data?.length || header.error) { flash("err", ar ? "تعذر تحميل البنود. حاول مجدداً." : "Could not load invoice lines. Retry."); return }
@@ -388,7 +402,10 @@ export function InvoicesManager() {
     setFormVatRate(String(row.vat_rate))
     setFormCurrency(row.currency)
     setFormNotes(row.notes ?? "")
-    setFormBank((header.data as { bank_account_id?: string | null } | null)?.bank_account_id ?? "")
+    const saved = header.data as { bank_account_id?: string | null; already_paid?: boolean; already_paid_method?: AlreadyPaidMethod | null } | null
+    setFormBank(saved?.bank_account_id ?? "")
+    setFormPaid(!!saved?.already_paid)
+    setFormPaidMethod(saved?.already_paid_method ?? "cash")
     setFormTerms(String(Math.max(0, dayDiff(row.issue_date, row.due_date) ?? 0)))
     setInvDiscount({ mode: "percent", value: "" })
     setFormTab("discount")
@@ -402,6 +419,12 @@ export function InvoicesManager() {
   async function handleCreate(print = false) {
     const win = print ? window.open("", "_blank") : null
     if (win) { win.opener = null; win.document.body.textContent = ar ? "جارٍ تجهيز PDF الفاتورة…" : "Preparing invoice PDF…" }
+    if (formPaid && formPaidMethod !== "cash" && !formBank) {
+      win?.close()
+      setFormTab("bank")
+      setFormError(ar ? "اختر الحساب البنكي الذي استُلمت عليه الدفعة، أو اختر الدفع نقداً." : "Choose the bank account that received the payment, or choose cash.")
+      return
+    }
     setIsSaving(true)
     setFormError(null)
     try {
@@ -411,6 +434,7 @@ export function InvoicesManager() {
         issue_date: formIssue, due_date: formDue, show_due_date: formShowDueDate, currency: formCurrency,
         vat_rate: Number(lines[0]?.vat_rate || formVatRate || 0), notes: formNotes || null,
         bank_account_id: formBank || null,
+        already_paid: formPaid, already_paid_method: formPaid ? formPaidMethod : null,
         lines: lineInputs(lines, formVatRate, invDiscount) }
       const res = editTarget
         ? await updateInvoiceDraft({ ...input, id: editTarget.id, expected_updated_at: editTarget.updated_at })
@@ -535,6 +559,22 @@ export function InvoicesManager() {
 
   // ── Lifecycle actions ───────────────────────────────────────────────────
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [paidPrompt, setPaidPrompt] = useState<{ row: InvoiceRow; method: AlreadyPaidMethod | null; amount: number } | null>(null)
+  const [paidBusy, setPaidBusy] = useState(false)
+  async function confirmAlreadyPaid() {
+    if (!paidPrompt) return
+    setPaidBusy(true)
+    try {
+      const res = await recordAlreadyPaidPayment({ id: paidPrompt.row.id })
+      if (!res.success) { flash("err", (ar ? res.errorAr : res.error) ?? (ar ? "تعذر تسجيل الدفعة." : "Unable to record the payment.")); return }
+      flash("ok", res.postingStatus === "pending"
+        ? (ar ? "سُجّلت الدفعة وهي بانتظار الترحيل المحاسبي." : "Payment recorded; accounting posting is pending.")
+        : (ar ? "تم تسجيل الدفعة وأصبحت الفاتورة مدفوعة." : "Payment recorded; the invoice is paid."))
+      setPaidPrompt(null)
+      await load()
+    } catch { flash("err", ar ? "تعذر تسجيل الدفعة. حاول مجدداً." : "Could not record the payment. Please retry.") }
+    finally { setPaidBusy(false) }
+  }
   async function runAction(action: "issue" | "finalize", r: InvoiceRow) {
     setBusyId(r.id)
     try {
@@ -549,6 +589,10 @@ export function InvoicesManager() {
         flash("ok", action === "issue" ? (ar ? "تم إصدار الفاتورة." : "Invoice issued.") : finalizeMsg)
         setDetailTarget(null)
         await load()
+        if (action === "finalize") {
+          const paid = await getAlreadyPaidInfo({ id: r.id }).catch(() => null)
+          if (paid?.success && paid.info?.already_paid && (paid.info.open_amount ?? 0) > 0) setPaidPrompt({ row: r, method: paid.info.method, amount: paid.info.open_amount! })
+        }
       } else {
         flash("err", (ar ? res.errorAr : res.error) ?? (ar ? "تعذر تأكيد الإجراء." : "Unable to confirm this action."))
       }
@@ -939,6 +983,21 @@ export function InvoicesManager() {
                   <div className="flex justify-between gap-3 text-muted-foreground"><span>{ar ? "الإجمالي الخاضع للضريبة" : "Taxable amount"}</span><span dir="ltr" className="tabular-nums">{lineTotals ? fmtMoney(lineTotals.subtotal) : "—"}</span></div>
                   <div className="flex justify-between gap-3 text-muted-foreground"><span><LocalizedText text="VAT" /></span><span dir="ltr" className="tabular-nums">{lineTotals ? fmtMoney(lineTotals.vat_amount) : "—"}</span></div>
                   <div className="flex items-baseline justify-between gap-3 border-t border-border/60 pt-2 text-base font-semibold"><span>{ar ? "الإجمالي (ر.س)" : "Total (SAR)"}</span><span dir="ltr" className="tabular-nums text-emerald-600">{lineTotals ? fmtMoney(lineTotals.total) : "—"}</span></div>
+                  <div className="space-y-2 border-t border-border/60 pt-3">
+                    <div className="flex items-center gap-2">
+                      <input id="inv-already-paid" type="checkbox" checked={formPaid} onChange={(e) => setFormPaid(e.target.checked)} className="size-4 accent-elite-blue-600" />
+                      <Label htmlFor="inv-already-paid" className="text-sm font-medium">{ar ? "مدفوع بالفعل" : "Already paid"}</Label>
+                    </div>
+                    {formPaid && (
+                      <div className="space-y-1.5">
+                        <Label htmlFor="inv-paid-method" className="text-xs">{ar ? "طريقة الدفع" : "Payment method"}</Label>
+                        <select id="inv-paid-method" value={formPaidMethod} onChange={(e) => setFormPaidMethod(e.target.value as AlreadyPaidMethod)} className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm">
+                          {PAID_METHODS.map((m) => <option key={m.value} value={m.value}>{ar ? m.ar : m.en}</option>)}
+                        </select>
+                        <p className="text-xs text-muted-foreground">{ar ? "بعد اعتماد الفاتورة سيُطلب منك تأكيد تسجيل الدفعة كاملة." + (formPaidMethod !== "cash" ? " تُستخدم الدفعة الحساب البنكي المختار في تبويب «الحساب البنكي»." : "") : "After the invoice is approved you will be asked to confirm recording the full payment." + (formPaidMethod !== "cash" ? " The payment uses the bank account chosen in the Bank account tab." : "")}</p>
+                      </div>
+                    )}
+                  </div>
                 </section>
               </div>
 
@@ -953,6 +1012,26 @@ export function InvoicesManager() {
               </div>
             </div>
           </fieldset>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!paidPrompt} onOpenChange={(o) => { if (!o && !paidBusy) setPaidPrompt(null) }}>
+        <DialogContent className="rounded-2xl sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{ar ? "تسجيل دفعة الفاتورة" : "Record the invoice payment"}</DialogTitle>
+            <DialogDescription>
+              {paidPrompt && (ar
+                ? `الفاتورة ${paidPrompt.row.invoice_number} محددة كـ«مدفوع بالفعل». هل تريد تسجيل دفعة بقيمة ${fmtMoney(paidPrompt.amount)} ر.س (${PAID_METHODS.find((m) => m.value === paidPrompt.method)?.ar ?? ""}) بتاريخ الفاتورة الآن؟`
+                : `Invoice ${paidPrompt.row.invoice_number} is marked “Already paid”. Record a payment of SAR ${fmtMoney(paidPrompt.amount)} (${PAID_METHODS.find((m) => m.value === paidPrompt.method)?.en ?? ""}) on the invoice date now?`)}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button variant="ghost" disabled={paidBusy} onClick={() => setPaidPrompt(null)}>{ar ? "لاحقاً" : "Later"}</Button>
+            <Button disabled={paidBusy} onClick={() => void confirmAlreadyPaid()}>
+              {paidBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+              {ar ? "تسجيل الدفعة" : "Record payment"}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
 
