@@ -47,6 +47,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { RichTextEditor } from "@/components/ui/rich-text-editor"
+import { normalizeRichText } from "@/lib/rich-text/sanitize"
 import { Textarea } from "@/components/ui/textarea"
 import { BankAccountPicker } from "@/components/accounting/bank-account-picker"
 
@@ -432,7 +434,7 @@ export function InvoicesManager() {
         customer_id: formType === "sales" ? formPartyId || null : null,
         supplier_id: formType === "purchase" ? formPartyId || null : null,
         issue_date: formIssue, due_date: formDue, show_due_date: formShowDueDate, currency: formCurrency,
-        vat_rate: Number(lines[0]?.vat_rate || formVatRate || 0), notes: formNotes || null,
+        vat_rate: Number(lines[0]?.vat_rate || formVatRate || 0), notes: normalizeRichText(formNotes) || null,
         bank_account_id: formBank || null,
         already_paid: formPaid, already_paid_method: formPaid ? formPaidMethod : null,
         lines: lineInputs(lines, formVatRate, invDiscount) }
@@ -971,7 +973,7 @@ export function InvoicesManager() {
                     ) : (
                       <div className="space-y-1.5">
                         <Label htmlFor="inv-notes">{ar ? "الملاحظات / الشروط" : "Notes / terms"}</Label>
-                        <Textarea id="inv-notes" rows={5} maxLength={2000} value={formNotes} onChange={(e) => setFormNotes(e.target.value)} placeholder={ar ? "تظهر في الفاتورة المطبوعة" : "Shown on the printed invoice"} />
+                        <RichTextEditor id="inv-notes" data-testid="invoice-notes-editor" ar={ar} disabled={isSaving} value={formNotes} onChange={setFormNotes} aria-label={ar ? "الملاحظات / الشروط" : "Notes / terms"} placeholder={ar ? "تظهر في الفاتورة المطبوعة وملف PDF" : "Shown on the printed invoice and PDF"} />
                       </div>
                     )}
                   </div>

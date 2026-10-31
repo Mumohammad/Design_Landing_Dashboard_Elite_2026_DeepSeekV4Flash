@@ -112,3 +112,15 @@ describe('reference invoice print template',()=>{
   expect(html).not.toContain('<section class="notes">')
  })
 })
+
+describe('rich invoice notes', () => {
+ it('prints editor formatting and drops unsafe markup', () => {
+  const html = buildInvoiceHtml({ ...BASE, notes: '<b>Terms</b><ul><li>Pay in 30 days</li></ul><a href="javascript:alert(1)">x</a><span style="color: #dc2626" onclick="x()">red</span>' })
+  expect(html).toContain('<div class="rich" dir="auto"><b>Terms</b><ul><li>Pay in 30 days</li></ul><span>x</span><span style="color: #dc2626">red</span></div>')
+  expect(html).not.toContain('javascript:')
+  expect(html).not.toContain('onclick')
+ })
+ it('keeps legacy plain-text notes escaped with line breaks', () => {
+  expect(buildInvoiceHtml({ ...BASE, notes: 'Line 1\nA < B' })).toContain('Line 1<br>A &lt; B')
+ })
+})
