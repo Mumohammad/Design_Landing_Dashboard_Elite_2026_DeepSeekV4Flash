@@ -378,7 +378,7 @@ export function PartiesManager({ kind }: { kind: PartyKind }) {
 
       {/* ── Create / Edit dialog ─────────────────────────────────────── */}
       <Dialog open={createOpen || !!editTarget} onOpenChange={(o) => { if (!o && !isSavingForm) { setCreateOpen(false); setEditTarget(null) } }}>
-        <DialogContent className="max-h-[90dvh] max-w-lg overflow-y-auto rounded-2xl">
+        <DialogContent className="max-h-[90dvh] overflow-y-auto rounded-2xl sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>
               {editTarget
@@ -401,7 +401,7 @@ export function PartiesManager({ kind }: { kind: PartyKind }) {
                   value={form.code}
                   onChange={(e) => setField("code", e.target.value)}
                   placeholder={isCustomer ? "CUST-0004" : "SUPP-0004"}
-                  className="h-9 font-mono"
+                  className="h-10 font-mono"
                 />
               </div>
               <div className="space-y-1.5">
@@ -412,18 +412,18 @@ export function PartiesManager({ kind }: { kind: PartyKind }) {
                   value={form.phone}
                   onChange={(e) => setField("phone", e.target.value)}
                   placeholder="+9665xxxxxxxx"
-                  className="h-9"
+                  className="h-10"
                 />
               </div>
             </div>
 
             <div className="space-y-1.5">
               <Label htmlFor="party-ar">{ar ? "الاسم بالعربية" : "Arabic name"}</Label>
-              <Input id="party-ar" maxLength={200} dir="rtl" value={form.name_ar} onChange={(e) => setField("name_ar", e.target.value)} className="h-9" />
+              <Input id="party-ar" maxLength={200} dir="rtl" value={form.name_ar} onChange={(e) => setField("name_ar", e.target.value)} className="h-10" />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="party-en">{ar ? "الاسم بالإنجليزية" : "English name"}</Label>
-              <Input id="party-en" maxLength={200} dir="ltr" value={form.name_en} onChange={(e) => setField("name_en", e.target.value)} className="h-9" />
+              <Input id="party-en" maxLength={200} dir="ltr" value={form.name_en} onChange={(e) => setField("name_en", e.target.value)} className="h-10" />
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
@@ -435,7 +435,7 @@ export function PartiesManager({ kind }: { kind: PartyKind }) {
                   value={form.tax_number}
                   onChange={(e) => setField("tax_number", e.target.value.replace(/\D/g, "").slice(0, 15))}
                   placeholder="310122993400003"
-                  className="h-9 font-mono"
+                  className="h-10 font-mono"
                   maxLength={15}
                 />
               </div>
@@ -457,11 +457,11 @@ export function PartiesManager({ kind }: { kind: PartyKind }) {
 
             <div className="space-y-1.5">
               <Label htmlFor="party-email">{ar ? "البريد الإلكتروني" : "Email"}</Label>
-              <Input id="party-email" maxLength={254} dir="ltr" type="email" value={form.email} onChange={(e) => setField("email", e.target.value)} className="h-9" />
+              <Input id="party-email" maxLength={254} dir="ltr" type="email" value={form.email} onChange={(e) => setField("email", e.target.value)} className="h-10" />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="party-address">{ar ? "العنوان" : "Address"}</Label>
-              <Input id="party-address" maxLength={2000} value={form.address} onChange={(e) => setField("address", e.target.value)} className="h-9" />
+              <Input id="party-address" maxLength={2000} value={form.address} onChange={(e) => setField("address", e.target.value)} className="h-10" />
             </div>
             <fieldset className="space-y-3">
               <legend className="text-xs text-muted-foreground">
@@ -470,23 +470,23 @@ export function PartiesManager({ kind }: { kind: PartyKind }) {
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label htmlFor="party-city">{ar ? "المدينة" : "City"}</Label>
-                  <Input id="party-city" value={form.city} onChange={(e) => setField("city", e.target.value)} className="h-9" />
+                  <Input id="party-city" value={form.city} onChange={(e) => setField("city", e.target.value)} className="h-10" />
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="party-district">{ar ? "الحي" : "District"}</Label>
-                  <Input id="party-district" value={form.district} onChange={(e) => setField("district", e.target.value)} className="h-9" />
+                  <Input id="party-district" value={form.district} onChange={(e) => setField("district", e.target.value)} className="h-10" />
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="party-building">{ar ? "رقم المبنى" : "Building no."}</Label>
-                  <Input id="party-building" dir="ltr" inputMode="numeric" value={form.building_number} onChange={(e) => setField("building_number", e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="1234" className="h-9 tabular-nums" />
+                  <Input id="party-building" dir="ltr" inputMode="numeric" value={form.building_number} onChange={(e) => setField("building_number", e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="1234" className="h-10 tabular-nums" />
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="party-additional">{ar ? "الرقم الإضافي" : "Additional no."}</Label>
-                  <Input id="party-additional" dir="ltr" inputMode="numeric" value={form.additional_number} onChange={(e) => setField("additional_number", e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="5678" className="h-9 tabular-nums" />
+                  <Input id="party-additional" dir="ltr" inputMode="numeric" value={form.additional_number} onChange={(e) => setField("additional_number", e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="5678" className="h-10 tabular-nums" />
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="party-postal">{ar ? "الرمز البريدي" : "Postal code"}</Label>
-                  <Input id="party-postal" dir="ltr" inputMode="numeric" value={form.postal_code} onChange={(e) => setField("postal_code", e.target.value.replace(/\D/g, "").slice(0, 5))} placeholder="12345" className="h-9 tabular-nums" />
+                  <Input id="party-postal" dir="ltr" inputMode="numeric" value={form.postal_code} onChange={(e) => setField("postal_code", e.target.value.replace(/\D/g, "").slice(0, 5))} placeholder="12345" className="h-10 tabular-nums" />
                 </div>
               </div>
             </fieldset>

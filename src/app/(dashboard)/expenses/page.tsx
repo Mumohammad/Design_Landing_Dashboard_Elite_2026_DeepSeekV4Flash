@@ -317,7 +317,7 @@ export default function ExpensesPage() {
 
       {/* ── New expense dialog ────────────────────────────────────────── */}
       <Dialog open={createOpen} onOpenChange={(o) => { if (!isSaving && !o) setCreateOpen(false) }}>
-        <DialogContent className="max-w-lg rounded-2xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-h-[88dvh] overflow-y-auto rounded-2xl sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{editTarget ? (locale === "ar" ? "تعديل المصروف المعلق" : "Edit pending expense") : <LocalizedText text="New expense" />}</DialogTitle>
             <DialogDescription>
@@ -332,7 +332,7 @@ export default function ExpensesPage() {
                   id="exp-type"
                   value={formType}
                   onChange={(e) => setFormType(e.target.value as ExpenseType)}
-                  className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="h-10 w-full rounded-xl border border-input bg-background shadow-xs px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   {EXPENSE_TYPES.map((tp) => (
                     <option key={tp} value={tp}>{locale === "ar" ? (TYPE_META[tp] ?? TYPE_META.other).ar : (TYPE_META[tp] ?? TYPE_META.other).en}</option>
@@ -341,33 +341,33 @@ export default function ExpensesPage() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="exp-category"><LocalizedText text="Category" /></Label>
-                <Input id="exp-category" maxLength={200} value={formCategory} onChange={(e) => setFormCategory(e.target.value)} className="h-9" />
+                <Input id="exp-category" maxLength={200} value={formCategory} onChange={(e) => setFormCategory(e.target.value)} className="h-10" />
               </div>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="space-y-1.5">
                 <Label htmlFor="exp-amount"><LocalizedText text="Net amount" /></Label>
-                <Input id="exp-amount" type="number" dir="ltr" min="0.01" max="99999999.99" step="0.01" value={formAmount} onChange={(e) => setFormAmount(e.target.value)} className="h-9 text-end tabular-nums" />
+                <Input id="exp-amount" type="number" dir="ltr" min="0.01" max="99999999.99" step="0.01" value={formAmount} onChange={(e) => setFormAmount(e.target.value)} className="h-10 text-end tabular-nums" />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="exp-date"><LocalizedText text="Date" /></Label>
-                <Input id="exp-date" type="date" dir="ltr" value={formDate} onChange={(e) => setFormDate(e.target.value)} className="h-9" />
+                <Input id="exp-date" type="date" dir="ltr" value={formDate} onChange={(e) => setFormDate(e.target.value)} className="h-10" />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="exp-vat"><LocalizedText text="VAT %" /></Label>
-                <Input id="exp-vat" type="number" dir="ltr" min="0" max="100" step="0.01" value={formVatRate} onChange={(e) => setFormVatRate(e.target.value)} className="h-9 text-end tabular-nums" />
+                <Input id="exp-vat" type="number" dir="ltr" min="0" max="100" step="0.01" value={formVatRate} onChange={(e) => setFormVatRate(e.target.value)} className="h-10 text-end tabular-nums" />
               </div>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="exp-vendor"><LocalizedText text="Vendor" /></Label>
-                <Input id="exp-vendor" maxLength={200} value={formVendor} onChange={(e) => setFormVendor(e.target.value)} className="h-9" />
+                <Input id="exp-vendor" maxLength={200} value={formVendor} onChange={(e) => setFormVendor(e.target.value)} className="h-10" />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="exp-desc"><LocalizedText text="Description" /></Label>
-                <Input id="exp-desc" maxLength={2000} value={formDescription} onChange={(e) => setFormDescription(e.target.value)} className="h-9" />
+                <Input id="exp-desc" maxLength={2000} value={formDescription} onChange={(e) => setFormDescription(e.target.value)} className="h-10" />
               </div>
             </div>
 
@@ -421,7 +421,7 @@ export default function ExpensesPage() {
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="exp-vat-rate"><LocalizedText text="VAT %" /></Label>
-                <Input id="exp-vat-rate" type="number" dir="ltr" min="0" max="100" step="0.01" value={approveVatRate} onChange={(e) => setApproveVatRate(e.target.value)} className="h-9 text-end tabular-nums" />
+                <Input id="exp-vat-rate" type="number" dir="ltr" min="0" max="100" step="0.01" value={approveVatRate} onChange={(e) => setApproveVatRate(e.target.value)} className="h-10 text-end tabular-nums" />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="exp-recover"><LocalizedText text="Recoverability" /></Label>
@@ -429,7 +429,7 @@ export default function ExpensesPage() {
                   id="exp-recover"
                   value={approveRecoverability}
                   onChange={(e) => setApproveRecoverability(e.target.value as ExpenseVatRecoverability)}
-                  className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="h-10 w-full rounded-xl border border-input bg-background shadow-xs px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <option value="recoverable"><LocalizedText text="Recoverable" /></option>
                   <option value="non_recoverable"><LocalizedText text="Non-recoverable" /></option>

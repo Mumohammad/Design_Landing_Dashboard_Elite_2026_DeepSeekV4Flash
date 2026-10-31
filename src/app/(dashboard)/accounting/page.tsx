@@ -1164,7 +1164,7 @@ function AccountingPageContent() {
                 {ar ? "قييد جديد" : "New entry"}
               </button>
             </DialogTrigger>
-            <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl rounded-2xl">
+            <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-4xl rounded-2xl">
               <DialogHeader>
                 <DialogTitle>{editTarget ? (ar ? "تعديل مسودة القيد" : "Edit journal draft") : (ar ? "قيد يومية يدوي" : "Manual journal entry")}</DialogTitle>
                 <DialogDescription>
@@ -1173,27 +1173,27 @@ function AccountingPageContent() {
               </DialogHeader>
               <form action={journalAction} className="space-y-4 min-w-0">
                 <fieldset disabled={isPosting} className="space-y-4 min-w-0">
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-3 rounded-2xl border border-border/60 bg-muted/20 p-4 sm:grid-cols-[200px_minmax(0,1fr)]">
                   <div className="space-y-1.5">
                     <Label htmlFor="entryDate">{ar ? "التاريخ" : "Date"}</Label>
-                    <Input id="entryDate" required type="date" dir="ltr" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} className="h-9" />
+                    <Input id="entryDate" required type="date" dir="ltr" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} className="h-10" />
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="entryDesc">{ar ? "الوصف" : "Description"}</Label>
-                    <Input id="entryDesc" required maxLength={2000} value={entryDesc} onChange={(e) => setEntryDesc(e.target.value)} className="h-9" />
+                    <Input id="entryDesc" required maxLength={2000} value={entryDesc} onChange={(e) => setEntryDesc(e.target.value)} className="h-10" />
                   </div>
                 </div>
 
-                <div className="overflow-x-auto rounded-xl border border-border/50">
-                <div className="min-w-[480px]">
-                  <div className="grid grid-cols-[1fr_90px_90px_32px] gap-2 border-b border-border/50 bg-muted/30 px-3 py-2 text-[11px] font-medium text-muted-foreground">
+                <div className="relative overflow-x-auto rounded-2xl border border-border/60">
+                <div className="min-w-[560px]">
+                  <div className="grid grid-cols-[minmax(0,1fr)_140px_140px_36px] gap-2 border-b border-border/50 bg-elite-blue-600/5 px-3 py-2.5 text-xs font-semibold text-muted-foreground">
                     <span>{ar ? "الحساب" : "Account"}</span>
                     <span>{ar ? "مدين" : "Debit"}</span>
                     <span>{ar ? "دائن" : "Credit"}</span>
                     <span />
                   </div>
                   {lines.map((l, index) => (
-                    <div key={l.key} className="grid grid-cols-[1fr_90px_90px_32px] items-center gap-2 px-3 py-2">
+                    <div key={l.key} className="grid grid-cols-[minmax(0,1fr)_140px_140px_36px] items-center gap-2 px-3 py-2">
                       <AccountingOptionPicker kind="accounts" value={l.account_id} onChange={value=>updateLine(l.key,{account_id:value})} id={"journal-account-"+l.key} label={(ar ? "الحساب" : "Account")+" "+(index+1)} ar={ar} />
                       <Input
                         type="number"
@@ -1203,7 +1203,7 @@ function AccountingPageContent() {
                         aria-label={`${ar ? "مدين" : "Debit"} ${index + 1}`}
                         value={l.debit}
                         onChange={(e) => updateLine(l.key, { debit: e.target.value })}
-                        className="h-9 text-end tabular-nums"
+                        className="h-10 text-end tabular-nums"
                       />
                       <Input
                         type="number"
@@ -1213,7 +1213,7 @@ function AccountingPageContent() {
                         aria-label={`${ar ? "دائن" : "Credit"} ${index + 1}`}
                         value={l.credit}
                         onChange={(e) => updateLine(l.key, { credit: e.target.value })}
-                        className="h-9 text-end tabular-nums"
+                        className="h-10 text-end tabular-nums"
                       />
                       <button
                         type="button"
@@ -1234,11 +1234,11 @@ function AccountingPageContent() {
                     type="button"
                     disabled={lines.length >= 200}
                     onClick={addLine}
-                    className="text-xs font-medium text-elite-blue-600 hover:text-elite-blue-700"
+                    className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-elite-blue-600 transition-colors hover:bg-elite-blue-600/10 disabled:opacity-40"
                   >
                     + {ar ? "إضافة سطر" : "Add line"}
                   </button>
-                  <div className="flex items-center gap-3 text-xs">
+                  <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-muted/20 px-3 py-2 text-xs">
                     <span className="text-muted-foreground">{ar ? "المجموع" : "Totals"}:</span>
                     <span dir="ltr" className="tabular-nums font-medium">{totalDebit === null ? "—" : fmtMoney(totalDebit)}</span>
                     <span dir="ltr" className="tabular-nums font-medium">{totalCredit === null ? "—" : fmtMoney(totalCredit)}</span>
