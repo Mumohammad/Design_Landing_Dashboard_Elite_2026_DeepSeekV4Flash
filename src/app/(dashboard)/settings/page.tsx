@@ -12,6 +12,7 @@ import {
   Users,
   Globe,
   ArrowLeft,
+  BellRing,
 } from "lucide-react"
 import { ScrollReveal, StaggerContainer } from "@/components/ui/scroll-reveal"
 
@@ -75,6 +76,13 @@ export default function SettingsPage() {
       href: "/settings/mfa",
       icon: ShieldCheck,
       color: "#10B981",
+    },
+    {
+      title: t.common.status === "الحالة" ? "الإشعارات والتنبيهات" : "Notifications",
+      description: t.common.status === "الحالة" ? "ملخص بريدي دوري للإدارة بانتهاء الوثائق والفواتير المتأخرة" : "Periodic email digest of expiring documents and overdue invoices",
+      href: "/settings/notifications",
+      icon: BellRing,
+      color: "#EF4444",
     },
   ]
 

@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { Bell, BellOff, CheckCheck, CarFront, FileWarning, IdCard, RefreshCw, ClipboardCheck } from "lucide-react"
+import { Bell, BellOff, CheckCheck, CarFront, FileWarning, IdCard, RefreshCw, ClipboardCheck, Wrench, Siren, Settings2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -41,7 +41,9 @@ function saveRead(ids: Set<string>) {
 
 function iconFor(item: NotificationItem) {
   if (item.kind.startsWith("vehicle_")) return CarFront
-  if (item.kind === "invoice_overdue") return FileWarning
+  if (item.kind === "maintenance_due") return Wrench
+  if (item.kind === "violations_open") return Siren
+  if (item.kind === "invoice_overdue" || item.kind === "payable_due") return FileWarning
   if (item.kind === "approvals_pending") return ClipboardCheck
   return IdCard
 }
@@ -223,7 +225,7 @@ export function NotificationCenter() {
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center justify-between gap-2">
                           <span className={cn("truncate text-sm", !isRead ? "font-semibold" : "font-medium")}>
-                            {notificationTitle(item.kind, lang)}
+                            {notificationTitle(item.kind, lang, item.docType)}
                           </span>
                           {item.date && <span className="shrink-0 text-[11px] text-muted-foreground" dir="ltr">{item.date}</span>}
                         </span>
@@ -239,6 +241,12 @@ export function NotificationCenter() {
               })}
             </ul>
           )}
+        </div>
+        <div className="flex items-center justify-between border-t px-4 py-2">
+          <Link href="/settings/notifications" onClick={() => setOpen(false)} className="flex items-center gap-1 text-xs font-medium text-sky-700 hover:underline dark:text-sky-400">
+            <Settings2 className="h-3.5 w-3.5" />
+            {ar ? "إعدادات الملخص البريدي" : "Email digest settings"}
+          </Link>
         </div>
         {feed && feed.total > items.length && (
           <p className="border-t px-4 py-2 text-center text-xs text-muted-foreground">

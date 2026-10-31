@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { buildNotificationFeed, daysBetween, expirySeverity, notificationStatus } from "./feed-utils"
+import { buildNotificationFeed, daysBetween, expirySeverity, notificationStatus, notificationTitle } from "./feed-utils"
 
 const today = "2026-11-01"
 
@@ -52,5 +52,42 @@ describe("notification feed", () => {
     expect(notificationStatus({ ...base, days: 0 }, "en")).toBe("Expires today")
     expect(notificationStatus({ ...base, days: 1 }, "en")).toBe("Expires in 1 day")
     expect(notificationStatus({ ...base, kind: "invoice_overdue", days: -2 }, "en")).toBe("2 days overdue")
+  })
+})
+
+describe("notification feed — documents, maintenance, finance, categories", () => {
+  it("covers every dashboard source and filters by category", () => {
+    const feed = buildNotificationFeed({
+      todayIso: today,
+      driverDocuments: [{ id: "dd1", owner_id: "d1", owner_label: "سالم", document_type: "medical_certificate", expiry_date: "2026-11-03" }],
+      vehicleDocuments: [{ id: "vd1", owner_id: "v1", owner_label: "ABC 1", document_type: "insurance", expiry_date: "2026-10-31" }],
+      vehicleInspections: [{ id: "v2", plate_number: "XYZ 2", inspection_expiry: "2026-11-25" }],
+      maintenance: [
+        { vehicle_id: "v1", plate_number: "ABC 1", next_service_date: "2026-11-02" },
+        { vehicle_id: "v1", plate_number: "ABC 1", next_service_date: "2026-11-20" },
+      ],
+      payables: [
+        { id: "p1", invoice_ref: "BILL-1", due_date: "2026-11-04", total_amount: 200, paid_amount: 0 },
+        { id: "p2", invoice_ref: "BILL-2", due_date: "2026-12-30", total_amount: 200, paid_amount: 0 },
+      ],
+      openViolations: 4,
+    })
+    const kinds = feed.items.map((i) => i.kind)
+    expect(kinds).toContain("driver_document")
+    expect(kinds).toContain("vehicle_document")
+    expect(kinds).toContain("vehicle_inspection")
+    expect(kinds).toContain("violations_open")
+    expect(feed.items.filter((i) => i.kind === "maintenance_due")).toHaveLength(1)
+    expect(feed.items.find((i) => i.kind === "maintenance_due")?.date).toBe("2026-11-20")
+    expect(feed.items.filter((i) => i.kind === "payable_due").map((i) => i.subject)).toEqual(["BILL-1"])
+    expect(notificationTitle("driver_document", "ar", "medical_certificate")).toBe("الشهادة الصحية")
+
+    const onlyFinance = buildNotificationFeed({
+      todayIso: today,
+      payables: [{ id: "p1", invoice_ref: "BILL-1", due_date: "2026-11-04", total_amount: 200, paid_amount: 0 }],
+      openViolations: 4,
+      categories: ["finance"],
+    })
+    expect(onlyFinance.items.map((i) => i.kind)).toEqual(["payable_due"])
   })
 })
