@@ -291,6 +291,7 @@ async function verifyOperationalOverviews(page, admin, tenantId, appUrl, driverI
     }
   } catch (error) {
     console.error(JSON.stringify({ check: 'operational overviews', stage, errorType: error.name, callsite: /verify-local-overviews\.mjs:(\d+):(\d+)/.exec(error.stack ?? '')?.slice(1), detail: String(error.message ?? '').replace(/\u001b\[[0-9;]*m/g, '').split('\n').filter(line => /Expected|Received|Locator|waiting for/.test(line)).slice(0, 6) }))
+    console.error(JSON.stringify({ debugUrl: page.url(), debugMain: (await page.locator('main').innerText().catch(() => '')).slice(0, 1500), debugSearch: await page.getByRole('textbox').first().evaluate(el => el.outerHTML.slice(0, 300)).catch(() => '') }))
     throw Error(`Operational overview verification failed: ${stage}`)
   } finally {
     await page.unrouteAll({ behavior: 'ignoreErrors' })

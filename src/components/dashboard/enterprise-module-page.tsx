@@ -1,6 +1,8 @@
 import { LocalizedText, useUiText } from "@/components/localized-text"
 import * as React from "react"
-import { Plus, Search, ChevronLeft, ChevronRight, Inbox, AlertCircle } from "lucide-react"
+import { Plus, Search, ChevronLeft, ChevronRight, Inbox, AlertCircle, Download, X } from "lucide-react"
+import { escapeCsvCell } from "@/lib/csv-cell"
+import { useTranslation } from "@/hooks/use-translation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
@@ -20,6 +22,8 @@ export interface TableColumn<T> {
   header: string
   render?: (row: T) => React.ReactNode
   className?: string
+  /** Plain value for "Export selected"; defaults to row[key] when primitive. */
+  exportValue?: (row: T) => string | number | null | undefined
 }
 
 export interface PaginationData {
@@ -62,6 +66,12 @@ export interface EnterpriseModulePageProps<T> {
   loadError?: string
   onRetry?: () => void
   retryLabel?: string
+
+  // Bulk selection: checkbox column + action bar with "Export selected".
+  // On by default for rows with ids; pass selectable={false} to disable.
+  selectable?: boolean
+  bulkActions?: (rows: T[], clear: () => void) => React.ReactNode
+  exportFileName?: string
 
   // Children (for dialog/form content rendered by parent)
   children?: React.ReactNode
@@ -172,9 +182,56 @@ export function EnterpriseModulePage<T extends { id?: string }>({
   retryLabel = "Try again",
   children,
   className,
+  selectable = true,
+  bulkActions,
+  exportFileName,
 }: EnterpriseModulePageProps<T>) {
   const ui = useUiText()
-  const actionColumnCount = rowActions ? 1 : 0
+  const { locale } = useTranslation()
+  const ar = locale === "ar"
+  const canSelect = selectable && data.some((r) => typeof r.id === "string")
+  const [selectedIds, setSelectedIds] = React.useState<Set<string>>(() => new Set())
+  // Drop selections that are no longer on the page (filter/paging changes).
+  React.useEffect(() => {
+    setSelectedIds((prev) => {
+      const ids = new Set(data.map((r) => r.id).filter((x): x is string => typeof x === "string"))
+      const next = new Set([...prev].filter((id) => ids.has(id)))
+      return next.size === prev.size ? prev : next
+    })
+  }, [data])
+  const selectedRows = canSelect ? data.filter((r) => r.id && selectedIds.has(r.id)) : []
+  const allSelected = canSelect && selectedRows.length > 0 && selectedRows.length === data.filter((r) => r.id).length
+  const clearSelection = React.useCallback(() => setSelectedIds(new Set()), [])
+  const toggleRow = (id: string) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  const toggleAll = () =>
+    setSelectedIds(allSelected ? new Set() : new Set(data.map((r) => r.id).filter((x): x is string => typeof x === "string")))
+  const exportSelected = () => {
+    const header = columns.map((c) => ui(c.header))
+    const lines = selectedRows.map((row) =>
+      columns
+        .map((c) => {
+          if (c.exportValue) return c.exportValue(row)
+          const v = (row as Record<string, unknown>)[c.key as string]
+          return typeof v === "string" || typeof v === "number" || typeof v === "boolean" ? v : ""
+        })
+        .map(escapeCsvCell)
+        .join(","),
+    )
+    const csv = "\uFEFF" + [header.map(escapeCsvCell).join(","), ...lines].join("\n")
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }))
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `${exportFileName ?? "export"}-selected-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+  const actionColumnCount = (rowActions ? 1 : 0) + (canSelect ? 1 : 0)
 
   return (
     <div className={cn("space-y-6 page-enter", className)}>
@@ -237,6 +294,28 @@ export function EnterpriseModulePage<T extends { id?: string }>({
         )}
       </ScrollReveal>
 
+      {/* Bulk action bar */}
+      {canSelect && selectedRows.length > 0 && (
+        <div
+          data-testid="bulk-action-bar"
+          role="toolbar"
+          aria-label={ar ? "إجراءات جماعية" : "Bulk actions"}
+          className="sticky top-16 z-10 flex flex-wrap items-center gap-2 rounded-xl border border-sky-200 bg-sky-50/95 px-4 py-2 text-sm shadow-sm dark:border-sky-900 dark:bg-sky-950/90"
+        >
+          <span className="font-semibold">{ar ? `تم تحديد ${selectedRows.length}` : `${selectedRows.length} selected`}</span>
+          <div className="mx-1 h-5 w-px bg-sky-200 dark:bg-sky-800" />
+          <Button type="button" size="sm" variant="outline" className="h-8 gap-1.5 rounded-lg" onClick={exportSelected}>
+            <Download className="h-3.5 w-3.5" />
+            {ar ? "تصدير المحدد (CSV)" : "Export selected (CSV)"}
+          </Button>
+          {bulkActions?.(selectedRows, clearSelection)}
+          <Button type="button" size="sm" variant="ghost" className="ms-auto h-8 gap-1 rounded-lg" onClick={clearSelection}>
+            <X className="h-3.5 w-3.5" />
+            {ar ? "إلغاء التحديد" : "Clear"}
+          </Button>
+        </div>
+      )}
+
       {/* 4. DATA TABLE */}
       <ScrollReveal direction="up" delay={120} duration={500}>
         <div className="rounded-2xl border border-border/50 bg-card/60 shadow-sm overflow-hidden">
@@ -244,6 +323,21 @@ export function EnterpriseModulePage<T extends { id?: string }>({
             <table className="w-full">
               <thead className="bg-muted/20">
                 <tr>
+                  {canSelect && (
+                    <th className="w-10 px-4 py-3.5">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 cursor-pointer accent-sky-600"
+                        checked={allSelected}
+                        ref={(el) => {
+                          if (el) el.indeterminate = selectedRows.length > 0 && !allSelected
+                        }}
+                        onChange={toggleAll}
+                        aria-label={ar ? "تحديد الكل" : "Select all"}
+                        data-testid="bulk-select-all"
+                      />
+                    </th>
+                  )}
                   {columns.map((col) => (
                     <th
                       key={String(col.key)}
@@ -278,6 +372,19 @@ export function EnterpriseModulePage<T extends { id?: string }>({
                           : "hover:bg-muted/15"
                       )}
                     >
+                      {canSelect && (
+                        <td className="w-10 px-4 py-3" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+                          {row.id && (
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 cursor-pointer accent-sky-600"
+                              checked={selectedIds.has(row.id)}
+                              onChange={() => toggleRow(row.id as string)}
+                              aria-label={ar ? "تحديد الصف" : "Select row"}
+                            />
+                          )}
+                        </td>
+                      )}
                       {columns.map((col) => (
                         <td
                           key={String(col.key)}
