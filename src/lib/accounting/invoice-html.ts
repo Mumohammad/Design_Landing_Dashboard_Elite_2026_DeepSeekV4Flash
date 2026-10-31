@@ -145,8 +145,9 @@ span[lang="en"] { display: block; }
 .totals .grand td .money { font-weight: 700; }
 .money { white-space: nowrap; direction: ltr; display: inline-block; font-variant-numeric: tabular-nums; }
 .riyal { display: inline-block; width: .8em; height: .95em; vertical-align: -.05em; }
-.bank { margin-top: 34pt; font-style: italic; break-inside: avoid; }
-.bank div { margin-bottom: 1pt; }
+.bank { margin-top: 30pt; width: fit-content; min-width: 55%; max-width: 100%; border: 1pt dotted #555; padding: 8pt 12pt; font-style: italic; line-height: 1.6; break-inside: avoid; }
+.bank .bank-title { font-weight: 700; margin-bottom: 2pt; }
+.bank div { overflow-wrap: anywhere; }
 .notes { margin-top: 18pt; white-space: pre-line; overflow-wrap: anywhere; break-inside: avoid; }
 .notes h2 { margin: 0 0 4pt; font-size: 9pt; }
 @media screen { body { padding: 32px; } .doc { max-width: 186mm; } }
@@ -173,7 +174,7 @@ ${adjustment !== 0 ? totalRow(adjustment > 0 ? "خصم من إجمالي الف�
 ${totalRow("الإجمالي بعد الضريبة", "Total After VAT", d.total, "grand")}
 ${paid !== undefined ? `${totalRow("مدفوع", "Paid", paid)}${totalRow("الرصيد المستحق", "Due Amount", Math.max(0, Math.round((d.total - paid) * 100) / 100))}` : ""}
 </tbody></table>
-${d.bankIban ? `<section class="bank"><div>معلومات الحساب البنكي:</div>${d.bankName ? `<div>اسم البنك : ${esc(d.bankName)}</div>` : ""}${d.bankBeneficiary ? `<div>اسم المستفيد : ${esc(d.bankBeneficiary)}</div>` : ""}<div>رقم الايبان : <bdi dir="ltr">${esc(d.bankIban)}</bdi></div></section>` : ""}
-${d.notes ? `<section class="notes"><h2>ملاحظات / Notes</h2><div dir="auto">${esc(d.notes)}</div></section>` : ""}
+${d.bankIban ? `<section class="bank" aria-label="Bank account details"><div class="bank-title">معلومات الحساب البنكي:</div>${d.bankName ? `<div>اسم البنك : ${esc(d.bankName)}</div>` : ""}${d.bankBeneficiary ? `<div>اسم المستفيد : ${esc(d.bankBeneficiary)}</div>` : ""}<div>رقم الايبان : <bdi dir="ltr">${esc(d.bankIban)}</bdi></div></section>` : ""}
+${d.notes ? `<section class="notes"><h2>الملاحظات / الشروط</h2><div dir="auto">${esc(d.notes)}</div></section>` : ""}
 </main></body></html>`
 }
