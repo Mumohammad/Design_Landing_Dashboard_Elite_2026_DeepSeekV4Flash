@@ -26,6 +26,7 @@ import { useTranslation } from "@/hooks/use-translation"
 import { getDashboardSnapshot } from "@/lib/analytics/actions"
 import type { DashboardFilters, DashboardSnapshot } from "@/lib/analytics/types"
 import { QuickActions } from "./components/quick-actions"
+import { SetupChecklist } from "./components/setup-checklist"
 import { DashboardHeader } from "./components/dashboard-header"
 import { OpsPanel } from "./components/ops-panel"
 import { FilterBar } from "./components/filter-bar"
@@ -131,6 +132,7 @@ export default function DashboardPage() {
       <ScrollReveal direction="fade" duration={400}>
         <div className="flex flex-col gap-4">
           <DashboardHeader snapshot={snapshot} onRefresh={() => requestLoad(filters, true)} refreshing={refreshing} />
+          <SetupChecklist />
           <QuickActions />
         </div>
       </ScrollReveal>

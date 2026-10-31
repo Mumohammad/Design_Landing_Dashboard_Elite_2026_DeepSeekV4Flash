@@ -5,6 +5,7 @@ import { Languages } from "lucide-react"
 
 import { CommandSearch, SearchTrigger } from "@/components/command-search"
 import { ModeToggle } from "@/components/mode-toggle"
+import { NotificationCenter } from "@/components/dashboard/notification-center"
 import { Button } from "@/components/ui/button"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { LocaleContext } from "@/contexts/locale-context"
@@ -53,6 +54,8 @@ export function AppTopbar() {
               {locale === "ar" ? "EN" : "العربية"}
             </span>
           </Button>
+
+          <NotificationCenter />
 
           <ModeToggle variant="outline" />
         </div>
