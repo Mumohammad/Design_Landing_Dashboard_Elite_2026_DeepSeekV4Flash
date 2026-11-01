@@ -31,6 +31,7 @@ import {
 import { emitDriverChanged, subscribeDriverChanged } from "@/lib/drivers/driver-events"
 import { DriverPhotoProvider, useDriverPhoto } from "@/components/drivers/photo-provider"
 import { DriverTabs } from "./driver-tabs"
+import { Driver360Summary } from "@/components/drivers/driver-360-summary"
 import DriverAdminActions from "./driver-admin-actions"
 import { VehicleAssignmentCard } from "@/components/drivers/vehicle-assignment-card"
 import { DriverOrdersKpiCard } from "@/components/drivers/driver-orders-kpi-card"
@@ -536,6 +537,11 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
                     {driver.driver_code}
                   </span>
                 )}
+                {driver.rider_id && (
+                  <button type="button" onClick={() => setSelectedTab("platforms")} className="inline-flex items-center gap-1 rounded-full border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-xs font-medium text-violet-700 dark:text-violet-300">
+                    {isAr ? "رقم المندوب" : "Rider ID"}: <span dir="ltr" className="font-mono">{driver.rider_id}</span>
+                  </button>
+                )}
                 <OnboardingChecklistChip driverId={driver.id} isAr={isAr} />
                 <span
                   className={cn(
@@ -643,6 +649,8 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
         value={selectedTab}
         onValueChange={setSelectedTab}
         overview={
+          <div className="space-y-4">
+          <Driver360Summary driver={driver} isAr={isAr} onNavigate={setSelectedTab} />
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <VehicleAssignmentCard driverId={driver.id} isAr={isAr} />
 
@@ -792,10 +800,6 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
 
             <InfoGroup icon={Car} title={isAr ? "العمليات" : "Operations"}>
               <InfoRow
-                label={isAr ? "المركبة الحالية" : "Current Vehicle"}
-                value={fmt(driver.current_vehicle_id)}
-              />
-              <InfoRow
                 label={isAr ? "نوع السائق" : "Driver Type"}
                 value={fmt(driver.driver_type)}
               />
@@ -823,6 +827,7 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
 
             <DriverOrdersKpiCard driverId={driver.id} isAr={isAr} />
             <DriverAssetsCard driverId={driver.id} isAr={isAr} />
+          </div>
           </div>
         }
       />

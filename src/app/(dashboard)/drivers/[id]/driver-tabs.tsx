@@ -19,6 +19,7 @@ import { DriverLeaveTab } from "@/components/drivers/driver-leave-tab"
 import { ViolationsTab } from "@/components/drivers/violations-tab"
 import { PerformanceTab } from "@/components/drivers/performance-tab"
 import { TrainingTab } from "@/components/drivers/training-tab"
+import { DriverPlatformAccountsPanel } from "@/components/drivers/driver-platform-accounts-panel"
 import { DriverPayslipsTab } from "@/components/payroll-engine/driver-payslips-tab"
 import { DocumentUploadDialog } from "@/components/drivers/document-upload-dialog"
 import { DocumentsDeleteDialog } from "@/components/drivers/documents-delete-dialog"
@@ -27,6 +28,7 @@ import type { Driver } from "@/types/drivers"
 import {
   AlertTriangle,
   Banknote,
+  Bike,
   Briefcase,
   CalendarClock,
   CalendarOff,
@@ -1092,6 +1094,10 @@ export function DriverTabs({
           <Briefcase className="h-3.5 w-3.5" />
           {isAr ? "نظرة عامة" : "Overview"}
         </TabsTrigger>
+        <TabsTrigger value="platforms">
+          <Bike className="h-3.5 w-3.5" />
+          {isAr ? "المنصات وبطاقات الهوية" : "Platforms & ID cards"}
+        </TabsTrigger>
         <TabsTrigger value="documents">
           <FileText className="h-3.5 w-3.5" />
           {isAr ? "المستندات" : "Documents"}
@@ -1152,6 +1158,9 @@ export function DriverTabs({
 
       <TabsContent value="overview" className="mt-4">
         {overview}
+      </TabsContent>
+      <TabsContent value="platforms" className="mt-4">
+        <DriverPlatformAccountsPanel driver={driver} isAr={isAr} />
       </TabsContent>
       <TabsContent value="documents" className="mt-4">
         <DocumentsTab driverId={driver.id} driverVersion={driver.profile_version??0} isAr={isAr} />

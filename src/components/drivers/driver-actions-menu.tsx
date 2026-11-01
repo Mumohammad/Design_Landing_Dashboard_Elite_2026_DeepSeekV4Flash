@@ -40,6 +40,7 @@ import {
   updateDriver,
 } from "@/lib/drivers/actions"
 import type { Driver, DriverStatus, DriverUpdateInput } from "@/types/drivers"
+import { NationalityPicker, SaudiCityPicker } from "@/components/drivers/reference-pickers"
 import {
   Archive,
   Ban,
@@ -55,7 +56,7 @@ import {
 
 const SAUDI_MOBILE_REGEX = /^(05\d{8}|\+9665\d{8})$/
 
-type FieldType = "text" | "date" | "number" | "textarea" | "select"
+type FieldType = "text" | "date" | "number" | "textarea" | "select" | "nationality" | "city" | "hidden"
 
 interface FieldDef {
   key: string
@@ -81,7 +82,8 @@ const EDIT_SECTIONS: SectionDef[] = [
       { key: "full_name_ar", en: "Full name (Arabic)", ar: "الاسم الكامل (عربي)" },
       { key: "full_name_en", en: "Full name (English)", ar: "الاسم الكامل (إنجليزي)", dirLtr: true },
       { key: "preferred_name", en: "Preferred name", ar: "الاسم المفضل" },
-      { key: "nationality", en: "Nationality", ar: "الجنسية" },
+      { key: "nationality", en: "Nationality", ar: "الجنسية", type: "nationality" },
+      { key: "nationality_code", en: "Nationality code", ar: "رمز الجنسية", type: "hidden" },
       { key: "date_of_birth", en: "Date of birth", ar: "تاريخ الميلاد", type: "date" },
       { key: "gender", en: "Gender", ar: "الجنس" },
       { key: "marital_status", en: "Marital status", ar: "الحالة الاجتماعية" },
@@ -95,7 +97,8 @@ const EDIT_SECTIONS: SectionDef[] = [
       { key: "secondary_mobile", en: "Secondary mobile", ar: "الجوال الثانوي", dirLtr: true },
       { key: "personal_email", en: "Personal email", ar: "البريد الشخصي", dirLtr: true },
       { key: "work_email", en: "Work email", ar: "البريد الوظيفي", dirLtr: true },
-      { key: "current_city", en: "City", ar: "المدينة" },
+      { key: "current_city", en: "City", ar: "المدينة", type: "city" },
+      { key: "current_region", en: "Region", ar: "المنطقة", type: "hidden" },
       { key: "national_address", en: "National address", ar: "العنوان الوطني", type: "textarea", span: true },
     ],
   },
@@ -527,14 +530,29 @@ export default function DriverActionsMenu({
                 </h3>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   {section.fields.map((field) => (
-                    <div
+                    field.type === "hidden" ? null : <div
                       key={field.key}
                       className={field.span ? "space-y-1.5 sm:col-span-2" : "space-y-1.5"}
                     >
                       <Label htmlFor={`edit-${driverId}-${field.key}`} className="text-xs">
                         {isAr ? field.ar : field.en}
                       </Label>
-                      {field.type === "select" && field.options ? (
+                      {field.type === "nationality" ? (
+                        <NationalityPicker
+                          id={`edit-${driverId}-${field.key}`}
+                          isAr={isAr}
+                          value={form.nationality}
+                          code={form.nationality_code}
+                          onChange={(name, code) => setForm((prev) => ({ ...prev, nationality: name, nationality_code: code }))}
+                        />
+                      ) : field.type === "city" ? (
+                        <SaudiCityPicker
+                          id={`edit-${driverId}-${field.key}`}
+                          isAr={isAr}
+                          value={form.current_city}
+                          onChange={(city, region) => setForm((prev) => ({ ...prev, current_city: city, ...(region ? { current_region: region } : {}) }))}
+                        />
+                      ) : field.type === "select" && field.options ? (
                         <Select
                           value={form[field.key] || "none"}
                           onValueChange={(v) =>
