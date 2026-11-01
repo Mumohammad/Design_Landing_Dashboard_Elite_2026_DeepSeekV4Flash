@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Pencil, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { DriverTabsFormDialog } from "./driver-tabs-form-dialog"
+import { DriverScorecard } from "./driver-scorecard"
 
 type PerformanceTabProps = { driverId: string; isAr: boolean }
 
@@ -153,6 +154,7 @@ export function PerformanceTab({ driverId, isAr }: PerformanceTabProps) {
 
   return (
     <div className="space-y-4">
+      <DriverScorecard driverId={driverId} isAr={isAr} />
       {historyToolbar}
       <div className="flex items-center justify-end gap-2">
         <Button
