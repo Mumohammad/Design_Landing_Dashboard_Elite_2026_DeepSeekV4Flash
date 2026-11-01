@@ -153,3 +153,15 @@ export function DriverCardPreview({
 }
 
 export { buildCardPrintHtml, buildRiderCardsPrintHtml } from "@/lib/drivers/card-print"
+
+/** A single scaled card face — used by the overview spotlight and live previews. */
+export function RiderCardFace({ side = "front", scale = 1, ...props }: RiderCardProps & { side?: "front" | "back"; scale?: number }) {
+  const Face = side === "front" ? FrontCard : BackCard
+  return (
+    <div dir="ltr" style={{ width: 300 * scale, height: 476 * scale }}>
+      <div style={scale === 1 ? undefined : { transform: `scale(${scale})`, transformOrigin: "top left" }}>
+        <Face {...props} />
+      </div>
+    </div>
+  )
+}

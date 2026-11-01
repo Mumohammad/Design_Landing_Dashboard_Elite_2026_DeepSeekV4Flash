@@ -32,6 +32,8 @@ import { useTranslation } from "@/hooks/use-translation"
 import { PlatformIdsEditor, platformRowsError, type PlatformIdRow } from "@/components/drivers/platform-ids-editor"
 import { saveDriverPlatformAccount } from "@/app/actions/drivers/platform-accounts"
 import { uploadDriverPhoto, validateDriverPhoto } from "@/lib/drivers/upload-photo"
+import { RiderCardFace } from "@/components/drivers/driver-card-preview"
+import { COMPANY_CARD_THEME, platformTheme } from "@/lib/drivers/platforms"
 import { NationalityPicker, SaudiCityPicker, SaudiRegionPicker } from "@/components/drivers/reference-pickers"
 import { isSaudiShortAddress, isValidSaudiId } from "@/lib/validation/saudi-id"
 import {
@@ -399,6 +401,8 @@ export function CreateDriverDialog({
   }
 
   const nationalityCode = useWatch({ control, name: "nationality_code" })
+  const [cardNameEn, cardNameAr, cardMobile, cardIqama] = useWatch({ control, name: ["full_name_en", "full_name_ar", "primary_mobile", "iqama_number"] })
+  const cardPlatform = platformRows.find((r) => r.code && r.riderId.trim())
   const inputClass = "h-10"
 
   return (
@@ -651,6 +655,19 @@ export function CreateDriverDialog({
           {/* Platforms */}
           <Section id="platforms" isAr={isAr} cols={1}>
             <PlatformIdsEditor rows={platformRows} onChange={setPlatformRows} isAr={isAr} idPrefix="create-driver" />
+            <div className="mt-2 flex flex-col items-center gap-4 rounded-xl border border-border/50 bg-gradient-to-br from-elite-blue-500/5 via-transparent to-violet-500/5 p-4 sm:flex-row sm:items-start" data-testid="create-driver-card-preview">
+              <div className="rounded-[16px] shadow-[0_14px_32px_-16px_rgba(15,30,51,0.5)]">
+                <RiderCardFace side="front" scale={0.56}
+                  theme={cardPlatform ? platformTheme(cardPlatform.code) : COMPANY_CARD_THEME}
+                  riderId={cardPlatform?.riderId.trim() || (isAr ? "يُولّد تلقائيًا" : "Auto-generated")}
+                  person={{ name: cardNameEn?.trim() || cardNameAr?.trim() || "—", phone: cardMobile?.trim() || null, idNumber: cardIqama?.trim() || null, photoUrl: photoPreview }} />
+              </div>
+              <div className="grid gap-1 text-center sm:text-start">
+                <p className="flex items-center justify-center gap-1.5 text-sm font-semibold sm:justify-start"><IdCard className="h-4 w-4 text-elite-blue-500" aria-hidden />{isAr ? "معاينة بطاقة السائق" : "Driver ID card preview"}</p>
+                <p className="text-xs text-muted-foreground">{isAr ? "تتحدث مباشرة أثناء الكتابة. بعد الحفظ تجدها في ملف السائق ويمكن طباعتها فورًا." : "Updates live as you type. After saving, it's on the driver profile ready to print."}</p>
+                {!photoPreview && <Button type="button" size="sm" variant="outline" className="mt-1 w-fit gap-1.5 justify-self-center sm:justify-self-start" onClick={() => document.getElementById("create-driver-photo")?.click()}><Camera className="h-4 w-4" aria-hidden />{isAr ? "أضف صورة للبطاقة" : "Add a photo for the card"}</Button>}
+              </div>
+            </div>
           </Section>
 
           {/* Payroll */}

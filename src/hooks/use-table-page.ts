@@ -9,6 +9,12 @@ type PageQuery = PromiseLike<PageResult> & {
 }
 export const TABLE_PAGE_SIZE = 25
 
+/** The `?q=` search pre-fill used by cross-module deep links. */
+export function readDeepLinkQuery(): string {
+  if (typeof window === "undefined") return ""
+  return (new URLSearchParams(window.location.search).get("q") ?? "").trim().slice(0, 200)
+}
+
 /** RLS-scoped reads, bounded rendering, debounced search, and stale-request cancellation. */
 export function useTablePage<T>(buildQuery: ((search: string) => PageQuery) | null) {
   const [search, setSearchValue] = useState("")
@@ -29,6 +35,16 @@ export function useTablePage<T>(buildQuery: ((search: string) => PageQuery) | nu
     setPageValue(next); pending()
   }, [page, pending])
   const reload = useCallback(() => { setRevision((value) => value + 1); pending() }, [pending])
+
+  // Deep links from other modules (e.g. a driver profile) pre-fill the
+  // search with ?q=<driver code>. Read after mount to keep hydration stable.
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      const q = readDeepLinkQuery()
+      if (q) { setSearchValue(q); setPageValue(1) }
+    }, 0)
+    return () => window.clearTimeout(id)
+  }, [])
 
   useEffect(() => {
     const controller = new AbortController()
