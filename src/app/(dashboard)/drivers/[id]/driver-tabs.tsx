@@ -21,6 +21,8 @@ import { PerformanceTab } from "@/components/drivers/performance-tab"
 import { TrainingTab } from "@/components/drivers/training-tab"
 import { DriverPlatformAccountsPanel } from "@/components/drivers/driver-platform-accounts-panel"
 import { DriverPayslipsTab } from "@/components/payroll-engine/driver-payslips-tab"
+import { docTypeLabel } from "@/lib/drivers/documents"
+import { DriverDocumentVault } from "@/components/drivers/driver-document-vault"
 import { DocumentUploadDialog } from "@/components/drivers/document-upload-dialog"
 import { DocumentsDeleteDialog } from "@/components/drivers/documents-delete-dialog"
 import { subscribeDriverChanged } from "@/lib/drivers/driver-events"
@@ -95,20 +97,7 @@ function StatusBadge({ value, ok, warn }: { value: string; ok: string; warn: str
 }
 
 function DocTypeLabel({ type, isAr }: { type: string; isAr: boolean }) {
-  const map: Record<string, [string, string]> = {
-    iqama: ["إقامة", "Iqama"],
-    passport: ["جواز سفر", "Passport"],
-    driving_license: ["رخصة قيادة", "Driving License"],
-    vehicle_license: ["رخصة مركبة", "Vehicle License"],
-    medical_certificate: ["شهادة طبية", "Medical Certificate"],
-    police_clearance: ["صحيفة جنائية", "Police Clearance"],
-    employment_contract: ["عقد عمل", "Employment Contract"],
-    bank_letter: ["خطاب بنكي", "Bank Letter"],
-    photo: ["صورة", "Photo"],
-    other: ["أخرى", "Other"],
-  }
-  const v = map[type]
-  return <span>{v ? (isAr ? v[0] : v[1]) : type}</span>
+  return <span>{docTypeLabel(type, isAr)}</span>
 }
 
 function CodStatusLabel({ status, isAr }: { status: string; isAr: boolean }) {
@@ -243,7 +232,10 @@ function DocumentsTab({ driverId,driverVersion, isAr }: DocumentsTabProps) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
+      <DriverDocumentVault driverId={driverId} isAr={isAr} canUpload={!!driverVersion} onUpload={(type) => { setReplaceTarget(type || null); setDialogOpen(true) }} onView={(path) => void openFile(path)} />
+      <div className="space-y-4 rounded-2xl border border-border/50 bg-card/40 p-4">
+      <h3 className="text-sm font-semibold">{isAr ? "كل السجلات وسجل الاستبدال" : "All records & replacement history"}</h3>
       {toolbar}
       <div className="flex items-center justify-between gap-3">
         <span className="text-xs text-muted-foreground">
@@ -337,6 +329,7 @@ function DocumentsTab({ driverId,driverVersion, isAr }: DocumentsTabProps) {
         </div>
       )}
 
+      </div>
       <DocumentUploadDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}

@@ -595,7 +595,7 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
           </div>
           <DriverConnectedModules driver={driver} isAr={isAr} />
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <VehicleAssignmentCard driverId={driver.id} isAr={isAr} />
+            <VehicleAssignmentCard driverId={driver.id} isAr={isAr} driverVersion={driver.profile_version ?? 0} onOpenTab={setSelectedTab} />
 
             <InfoGroup icon={User} title={isAr ? "الهوية" : "Identity"}>
               <InfoRow
