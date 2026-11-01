@@ -13,7 +13,8 @@ export function PlatformDot({ code, className = "size-2.5" }: { code: string; cl
 }
 
 export function platformRowsError(rows: PlatformIdRow[], isAr: boolean): string | null {
-  const filled = rows.filter((r) => r.code || r.riderId.trim())
+  // Rows without a rider ID are ignored (the default HungerStation row is optional).
+  const filled = rows.filter((r) => r.riderId.trim())
   for (const r of filled) {
     if (!r.code) return isAr ? "اختر المنصة لكل رقم مندوب." : "Choose a platform for every rider ID."
     if (!RIDER_ID_PATTERN.test(r.riderId.trim())) return isAr ? "رقم المندوب يقبل الحروف والأرقام والنقطة والشرطة فقط." : "Rider IDs may contain letters, digits, dot, dash, slash or underscore."
