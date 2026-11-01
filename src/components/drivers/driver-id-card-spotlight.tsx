@@ -9,9 +9,9 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { useDriverPhoto } from "@/components/drivers/photo-provider"
 import { PlatformDot } from "@/components/drivers/platform-ids-editor"
 import { RiderCardFace } from "@/components/drivers/driver-card-preview"
-import { cardPersonFromDriver, printRiderCards } from "@/components/drivers/driver-platform-accounts-panel"
+import { cardPersonFromDriver, logPlatformCardPrint, printRiderCards } from "@/components/drivers/driver-platform-accounts-panel"
 import { buildRiderCardsPrintHtml } from "@/lib/drivers/card-print"
-import { DEFAULT_CARD_THEME, platformLabel, platformTheme } from "@/lib/drivers/platforms"
+import { DEFAULT_CARD_PLATFORM, DEFAULT_CARD_THEME, platformLabel, platformTheme } from "@/lib/drivers/platforms"
 import { fetchDriverPlatformAccounts, sortAccounts, type DriverPlatformAccount } from "@/lib/drivers/platform-accounts"
 import { subscribeDriverChanged } from "@/lib/drivers/driver-events"
 import type { Driver } from "@/types/drivers"
@@ -55,7 +55,8 @@ export function DriverIdCardSpotlight({ driver, isAr, onUploadPhoto, onManage }:
 
   const print = async () => {
     const html = buildRiderCardsPrintHtml([{ theme, riderId, footerRef: driver.driver_code ?? null, title: `${current ? platformLabel(current.platform_code, false) : "Rider"} card ${riderId}` }], person, "pvc")
-    if (!(await printRiderCards(html))) toast.error(isAr ? "اسمح بالنوافذ المنبثقة ثم أعد المحاولة." : "Allow popups and try again.")
+    if (!(await printRiderCards(html))) return void toast.error(isAr ? "اسمح بالنوافذ المنبثقة ثم أعد المحاولة." : "Allow popups and try again.")
+    logPlatformCardPrint(driver.id, [{ platform_code: current?.platform_code ?? DEFAULT_CARD_PLATFORM, rider_id: riderId }], "pvc")
   }
 
   return (

@@ -17,9 +17,10 @@ import { PlatformDot } from "@/components/drivers/platform-ids-editor"
 import { RiderCardPreview } from "@/components/drivers/driver-card-preview"
 import { DriverCardPanel } from "@/components/drivers/driver-card-panel"
 import { buildRiderCardsPrintHtml, type DriverCardOutputFormat } from "@/lib/drivers/card-print"
-import { DEFAULT_CARD_THEME, DELIVERY_PLATFORMS, RIDER_ID_PATTERN, platformByCode, platformLabel, platformTheme } from "@/lib/drivers/platforms"
+import { DEFAULT_CARD_PLATFORM, DEFAULT_CARD_THEME, DELIVERY_PLATFORMS, RIDER_ID_PATTERN, platformByCode, platformLabel, platformTheme } from "@/lib/drivers/platforms"
 import { fetchDriverPlatformAccounts, sortAccounts, type DriverPlatformAccount } from "@/lib/drivers/platform-accounts"
-import { removeDriverPlatformAccount, saveDriverPlatformAccount } from "@/app/actions/drivers/platform-accounts"
+import { recordPlatformCardPrints, removeDriverPlatformAccount, saveDriverPlatformAccount } from "@/app/actions/drivers/platform-accounts"
+import { createClient } from "@/lib/supabase/client"
 import { emitDriverChanged } from "@/lib/drivers/driver-events"
 import type { DriverCardPerson } from "@/lib/drivers/cards"
 import type { Driver } from "@/types/drivers"
@@ -59,6 +60,13 @@ export async function printRiderCards(html: string): Promise<boolean> {
   popup.focus()
   popup.print()
   return true
+}
+
+/** Records a successful platform card print, then notifies print-log listeners. */
+export function logPlatformCardPrint(driverId: string, cards: { platform_code: string; rider_id: string | null }[], format: "pvc" | "a4") {
+  void recordPlatformCardPrints({ driverId, cards, format }).then((r) => {
+    if (r.ok && typeof window !== "undefined") window.dispatchEvent(new CustomEvent("platform-card-printed", { detail: { driverId } }))
+  })
 }
 
 export function DriverPlatformAccountsPanel({ driver, isAr }: { driver: Driver; isAr: boolean }) {
@@ -133,12 +141,14 @@ export function DriverPlatformAccountsPanel({ driver, isAr }: { driver: Driver; 
       person,
       format,
     )
-    if (!(await printRiderCards(html))) toast.error(isAr ? "اسمح بالنوافذ المنبثقة ثم أعد المحاولة." : "Allow popups and try again.")
+    if (!(await printRiderCards(html))) return void toast.error(isAr ? "اسمح بالنوافذ المنبثقة ثم أعد المحاولة." : "Allow popups and try again.")
+    logPlatformCardPrint(driver.id, list.map((a) => ({ platform_code: a.platform_code, rider_id: a.platform_driver_id })), format)
   }
 
   const printCompany = async () => {
     const html = buildRiderCardsPrintHtml([{ theme: DEFAULT_CARD_THEME, riderId: driver.rider_id ?? driver.driver_code ?? "—", footerRef: driver.driver_code ?? null, title: `Rider card ${driver.rider_id ?? driver.driver_code ?? ""}` }], person, format)
-    if (!(await printRiderCards(html))) toast.error(isAr ? "اسمح بالنوافذ المنبثقة ثم أعد المحاولة." : "Allow popups and try again.")
+    if (!(await printRiderCards(html))) return void toast.error(isAr ? "اسمح بالنوافذ المنبثقة ثم أعد المحاولة." : "Allow popups and try again.")
+    logPlatformCardPrint(driver.id, [{ platform_code: DEFAULT_CARD_PLATFORM, rider_id: driver.rider_id ?? driver.driver_code ?? null }], format)
   }
 
   const copy = async (value: string) => {
@@ -254,6 +264,8 @@ export function DriverPlatformAccountsPanel({ driver, isAr }: { driver: Driver; 
         )}
       </section>
 
+      <PlatformCardPrintLog driverId={driver.id} isAr={isAr} />
+
       <section className="rounded-2xl border border-border/50 bg-card p-5 shadow-sm [&>[data-testid=driver-card-panel]]:mt-0 [&>[data-testid=driver-card-panel]]:border-t-0 [&>[data-testid=driver-card-panel]]:pt-0">
         <DriverCardPanel driverId={driver.id} isAr={isAr} />
       </section>
@@ -327,5 +339,37 @@ export function DriverPlatformAccountsPanel({ driver, isAr }: { driver: Driver; 
         </DialogContent>
       </Dialog>
     </div>
+  )
+}
+
+type PrintLogRow = { id: string; platform_code: string; rider_id: string | null; format: string; printed_at: string }
+
+/** Platform rider card print history (append-only, newest first). */
+function PlatformCardPrintLog({ driverId, isAr }: { driverId: string; isAr: boolean }) {
+  const [rows, setRows] = useState<PrintLogRow[] | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    const load = () => void createClient().from("driver_platform_card_prints")
+      .select("id,platform_code,rider_id,format,printed_at").eq("driver_id", driverId)
+      .order("printed_at", { ascending: false }).limit(20)
+      .then(({ data, error }) => { if (!cancelled) setRows(error ? [] : ((data ?? []) as PrintLogRow[])) })
+    load()
+    const onPrinted = (e: Event) => { if ((e as CustomEvent<{ driverId: string }>).detail?.driverId === driverId) load() }
+    window.addEventListener("platform-card-printed", onPrinted)
+    return () => { cancelled = true; window.removeEventListener("platform-card-printed", onPrinted) }
+  }, [driverId])
+  if (!rows || rows.length === 0) return null
+  return (
+    <section className="rounded-2xl border border-border/50 bg-card p-5 shadow-sm" data-testid="platform-card-print-log">
+      <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold"><Printer className="size-4 text-elite-blue-500" />{isAr ? "سجل طباعة بطاقات المنصات" : "Platform card print log"}</h3>
+      <ul className="divide-y rounded-xl border text-xs">
+        {rows.map((r) => (
+          <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+            <span className="flex items-center gap-2"><PlatformDot code={r.platform_code} />{platformLabel(r.platform_code, isAr)}{r.rider_id && <span dir="ltr" className="font-mono text-muted-foreground">{r.rider_id}</span>}</span>
+            <span className="flex items-center gap-3 text-muted-foreground"><span className="uppercase">{r.format}</span><time dateTime={r.printed_at} className="tabular-nums">{new Date(r.printed_at).toLocaleString(isAr ? "ar-SA" : "en-GB", { dateStyle: "medium", timeStyle: "short" })}</time></span>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }

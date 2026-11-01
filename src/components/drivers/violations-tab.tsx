@@ -1,5 +1,6 @@
 "use client"
 
+import { DriverTrafficFines } from "./driver-traffic-fines"
 import { friendlyError, currentIsArabic } from "@/lib/errors/friendly"
 import { useCallback, useEffect, useState } from "react"
 import { useTablePage } from "@/hooks/use-table-page"
@@ -115,6 +116,7 @@ export function ViolationsTab({ driverId, isAr }: ViolationsTabProps) {
 
   return (
     <div className="space-y-4">
+      <DriverTrafficFines driverId={driverId} isAr={isAr} onConverted={() => void load()} />
       {historyToolbar}
       {loadError ? <p role="alert" className="text-sm text-destructive">{isAr ? "تعذر تحميل المخالفات." : "Could not load violations."} <Button variant="link" onClick={() => void load()}>{isAr ? "إعادة المحاولة" : "Retry"}</Button></p> : null}
       {archiveError ? <p role="alert" className="text-sm text-destructive">{friendlyError(archiveError, isAr)}</p> : null}

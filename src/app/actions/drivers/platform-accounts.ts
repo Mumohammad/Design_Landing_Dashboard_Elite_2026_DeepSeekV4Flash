@@ -73,3 +73,20 @@ export async function removeDriverPlatformAccount(input: unknown): Promise<Platf
     return failure(error instanceof Error ? error.message : undefined)
   }
 }
+
+const printSchema = z.object({
+  driverId: z.uuid(),
+  format: z.enum(["pvc", "a4", "pdf", "png", "print"]),
+  cards: z.array(z.object({ platform_code: z.string().trim().toLowerCase().regex(/^[a-z][a-z0-9_]{1,39}$/), rider_id: z.string().trim().max(64).nullable() })).min(1).max(30),
+})
+
+/** Append-only log of platform rider card prints (who printed what, when). */
+export async function recordPlatformCardPrints(input: unknown): Promise<{ ok: boolean }> {
+  try {
+    await requirePermission("drivers", "read")
+    const p = printSchema.parse(input)
+    const db = await createClient()
+    const { error } = await db.rpc("record_driver_platform_card_prints", { p_driver_id: p.driverId, p_cards: p.cards, p_format: p.format })
+    return { ok: !error }
+  } catch { return { ok: false } }
+}

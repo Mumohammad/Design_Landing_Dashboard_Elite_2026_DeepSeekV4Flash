@@ -352,6 +352,11 @@ const DOC_TYPE_COPY: Record<string, { ar: string; en: string }> = {
   operating_card: { ar: "بطاقة التشغيل", en: "Operating card" },
   ownership: { ar: "وثيقة الملكية", en: "Ownership" },
   modification_permit: { ar: "تصريح تعديل", en: "Modification permit" },
+  medical_insurance: { ar: "التأمين الطبي", en: "Medical insurance" },
+  vehicle_insurance: { ar: "تأمين المركبة", en: "Vehicle insurance" },
+  vehicle_handover_report: { ar: "محضر تسليم المركبة", en: "Vehicle handover report" },
+  vehicle_return_report: { ar: "محضر استلام المركبة", en: "Vehicle return report" },
+  accident_report: { ar: "تقرير الحادث", en: "Accident report" },
   other: { ar: "وثيقة أخرى", en: "Other document" },
 }
 
