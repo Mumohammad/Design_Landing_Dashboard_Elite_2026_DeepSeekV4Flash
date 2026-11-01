@@ -1,4 +1,5 @@
 "use client"
+import { readDeepLinkQuery } from "@/hooks/use-table-page"
 
 // /maintenance — fleet maintenance workspace (Prompt O Part 1).
 // Composes vehicle_maintenance_events + vehicle_odometer_logs over the
@@ -47,6 +48,7 @@ export default function MaintenancePage() {
 
   // filters
   const [search, setSearch] = useState("")
+  useEffect(() => { const id = window.setTimeout(() => { const q = readDeepLinkQuery(); if (q) setSearch(q) }, 0); return () => window.clearTimeout(id) }, [])
   const [statusFilter, setStatusFilter] = useState("all")
   const [typeFilter, setTypeFilter] = useState("all")
   const [vehicleFilter, setVehicleFilter] = useState("all")

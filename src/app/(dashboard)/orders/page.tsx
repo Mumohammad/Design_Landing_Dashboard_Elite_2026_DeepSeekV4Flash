@@ -1,4 +1,5 @@
 "use client"
+import { readDeepLinkQuery } from "@/hooks/use-table-page"
 
 import { useEffect, useMemo, useState } from "react"
 import { PackageCheck, PackageX, DollarSign, TrendingUp, Plus, Trash2, Download, Pencil } from "lucide-react"
@@ -53,6 +54,7 @@ export default function OrdersPage() {
   const [rows, setRows] = useState<OrderRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [search, setSearch] = useState("")
+  useEffect(() => { const id = window.setTimeout(() => { const q = readDeepLinkQuery(); if (q) setSearch(q) }, 0); return () => window.clearTimeout(id) }, [])
   const [month, setMonth] = useState(currentMonth())
   const [addOpen, setAddOpen] = useState(false)
   const [editing, setEditing] = useState<OrderRow | null>(null)

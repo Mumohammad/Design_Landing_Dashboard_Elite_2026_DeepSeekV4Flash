@@ -22,6 +22,8 @@ import { emitDriverChanged, subscribeDriverChanged } from "@/lib/drivers/driver-
 import { DriverPhotoProvider, useDriverPhoto } from "@/components/drivers/photo-provider"
 import { DriverTabs } from "./driver-tabs"
 import { Driver360Summary } from "@/components/drivers/driver-360-summary"
+import { DriverIdCardSpotlight } from "@/components/drivers/driver-id-card-spotlight"
+import { DriverConnectedModules } from "@/components/drivers/driver-connected-modules"
 import { uploadDriverPhoto, validateDriverPhoto } from "@/lib/drivers/upload-photo"
 import DriverAdminActions from "./driver-admin-actions"
 import { VehicleAssignmentCard } from "@/components/drivers/vehicle-assignment-card"
@@ -386,10 +388,8 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
 
       {/* Profile header */}
       <div className="relative overflow-hidden rounded-2xl border border-border/50 bg-card p-6 shadow-sm">
-        <div
-          className="absolute top-0 right-0 h-32 w-32 rounded-full opacity-[0.06]"
-          style={{ backgroundColor: "#1E5A99", transform: "translate(30%, -30%)" }}
-        />
+        <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-r from-elite-blue-600/15 via-violet-500/10 to-emerald-500/10" />
+        <div aria-hidden className="pointer-events-none absolute -top-16 -end-16 h-48 w-48 rounded-full bg-elite-blue-500/10 blur-3xl" />
         <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-4">
             <div className="group relative shrink-0">
@@ -589,7 +589,11 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
         onValueChange={setSelectedTab}
         overview={
           <div className="space-y-4">
-          <Driver360Summary driver={driver} isAr={isAr} onNavigate={setSelectedTab} />
+          <div className="grid gap-4 2xl:grid-cols-[minmax(0,520px)_1fr]">
+            <DriverIdCardSpotlight driver={driver} isAr={isAr} onUploadPhoto={() => photoInputRef.current?.click()} onManage={() => setSelectedTab("platforms")} />
+            <Driver360Summary driver={driver} isAr={isAr} onNavigate={setSelectedTab} />
+          </div>
+          <DriverConnectedModules driver={driver} isAr={isAr} />
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <VehicleAssignmentCard driverId={driver.id} isAr={isAr} />
 
