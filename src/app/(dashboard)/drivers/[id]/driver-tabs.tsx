@@ -1,5 +1,7 @@
 "use client"
 
+import { DriverOffboardingPanel } from "@/components/drivers/driver-offboarding-panel"
+import { DriverHandoverTab } from "@/components/drivers/driver-handover-tab"
 import { useTablePage } from "@/hooks/use-table-page"
 import { DriverHistoryToolbar } from "@/components/drivers/driver-history-toolbar"
 
@@ -49,6 +51,7 @@ import {
   Wallet,
   Wrench,
   XCircle,
+  LogOut,
 } from "lucide-react"
 
 /* ──────────────────────── shared bits ──────────────────────── */
@@ -145,31 +148,7 @@ function MaintenanceStatusLabel({ status, isAr }: { status: string; isAr: boolea
   return <Badge className={v[2]}>{isAr ? v[0] : v[1]}</Badge>
 }
 
-function FormTypeLabel({ type, isAr }: { type: string; isAr: boolean }) {
-  return (
-    <Badge
-      className={
-        type === "handover"
-          ? "bg-elite-blue-500/15 text-elite-blue-700 dark:text-elite-blue-300"
-          : "bg-teal-500/15 text-teal-700 dark:text-teal-400"
-      }
-    >
-      {isAr ? (type === "handover" ? "تسليم" : "استلام") : type === "handover" ? "Handover" : "Return"}
-    </Badge>
-  )
-}
 
-function OverallConditionLabel({ condition, isAr }: { condition: string; isAr: boolean }) {
-  const map: Record<string, [string, string, string]> = {
-    excellent: ["ممتازة", "Excellent", "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"],
-    good: ["جيدة", "Good", "bg-elite-blue-500/15 text-elite-blue-700 dark:text-elite-blue-300"],
-    fair: ["متوسطة", "Fair", "bg-amber-500/15 text-amber-700 dark:text-amber-400"],
-    poor: ["ضعيفة", "Poor", "bg-orange-500/15 text-orange-700 dark:text-orange-400"],
-    damaged: ["متضررة", "Damaged", "bg-red-500/15 text-red-700 dark:text-red-400"],
-  }
-  const v = map[condition] ?? [condition, condition, "bg-muted text-muted-foreground"]
-  return <Badge className={v[2]}>{isAr ? v[0] : v[1]}</Badge>
-}
 
 function OdometerSourceLabel({ source, isAr }: { source: string; isAr: boolean }) {
   const map: Record<string, [string, string]> = {
@@ -815,88 +794,6 @@ function AssignmentsTab({ driverId, isAr }: AssignmentsTabProps) {
   )
 }
 
-type HandoverTabProps = { driverId: string; isAr: boolean }
-
-function HandoverTab({ driverId, isAr }: HandoverTabProps) {
-  const [rows, setRows] = useState<Record<string, unknown>[] | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      const supabase = createClient()
-      const { data, error } = await supabase
-        .from("vehicle_handover_forms")
-        .select("id, form_type, form_date, odometer_reading, fuel_level, overall_condition, defects_noted, vehicle_assignments(driver_id, vehicles(plate_number, make, model))")
-        .eq("vehicle_assignments.driver_id", driverId)
-        .is("vehicle_assignments.deleted_at", null)
-        .order("form_date", { ascending: false })
-        .limit(20)
-      if (!cancelled) setRows(error ? [] : (data as Record<string, unknown>[]))
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [driverId])
-
-  if (rows === null) {
-    return (
-      <div className="space-y-3">
-        <Skeleton className="h-10 w-full rounded-xl" />
-        <Skeleton className="h-10 w-full rounded-xl" />
-      </div>
-    )
-  }
-  if (rows.length === 0) {
-    return <EmptyState message={isAr ? "لا توجد نماذج تسليم/استلام" : "No handover forms yet"} />
-  }
-
-  return (
-    <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60">
-      <table className="w-full min-w-[680px] text-start text-sm">
-        <thead>
-          <tr className="border-b border-border/50 text-[11px] text-muted-foreground">
-            <th className="px-4 py-3 text-start font-semibold">{isAr ? "النوع" : "Type"}</th>
-            <th className="px-4 py-3 text-start font-semibold">{isAr ? "التاريخ" : "Date"}</th>
-            <th className="px-4 py-3 text-start font-semibold">{isAr ? "المركبة" : "Vehicle"}</th>
-            <th className="px-4 py-3 text-start font-semibold">{isAr ? "العداد" : "Odometer"}</th>
-            <th className="px-4 py-3 text-start font-semibold">{isAr ? "الوقود" : "Fuel"}</th>
-            <th className="px-4 py-3 text-start font-semibold">{isAr ? "الحالة العامة" : "Condition"}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => {
-            const a = r.vehicle_assignments as Record<string, unknown> | null
-            const v = (a?.vehicles as Record<string, unknown> | null) ?? null
-            return (
-              <tr key={String(r.id)} className="border-b border-border/40 last:border-0 hover:bg-muted/30">
-                <td className="px-4 py-3">
-                  <FormTypeLabel type={String(r.form_type ?? "handover")} isAr={isAr} />
-                </td>
-                <td className="px-4 py-3 text-muted-foreground">{String(r.form_date)}</td>
-                <td className="px-4 py-3 font-medium text-foreground">
-                  {v ? `${String(v.make ?? "")} ${String(v.model ?? "")}` : "—"}
-                  {v?.plate_number ? (
-                    <span className="ms-2 font-mono text-xs text-muted-foreground" dir="ltr">
-                      {String(v.plate_number)}
-                    </span>
-                  ) : null}
-                </td>
-                <td className="px-4 py-3 tabular-nums text-foreground/80" dir="ltr">
-                  {r.odometer_reading != null ? `${Number(r.odometer_reading).toLocaleString("en-US")} km` : "—"}
-                </td>
-                <td className="px-4 py-3 text-muted-foreground">{String(r.fuel_level ?? "—")}</td>
-                <td className="px-4 py-3">
-                  <OverallConditionLabel condition={String(r.overall_condition ?? "good")} isAr={isAr} />
-                </td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
 type MaintenanceTabProps = { driverId: string; isAr: boolean }
 
 function MaintenanceTab({ driverId, isAr }: MaintenanceTabProps) {
@@ -1147,6 +1044,10 @@ export function DriverTabs({
           <ShieldAlert className="h-3.5 w-3.5" />
           {isAr ? "الامتثال" : "Compliance"}
         </TabsTrigger>
+        <TabsTrigger value="offboarding">
+          <LogOut className="h-3.5 w-3.5" />
+          {isAr ? "إنهاء الخدمة" : "Exit & clearance"}
+        </TabsTrigger>
       </TabsList>
 
       <TabsContent value="overview" className="mt-4">
@@ -1211,7 +1112,7 @@ export function DriverTabs({
         <AssignmentsTab driverId={driver.id} isAr={isAr} />
       </TabsContent>
       <TabsContent value="handover" className="mt-4">
-        <HandoverTab driverId={driver.id} isAr={isAr} />
+        <DriverHandoverTab driver={driver} isAr={isAr} />
       </TabsContent>
       <TabsContent value="maintenance" className="mt-4">
         <MaintenanceTab driverId={driver.id} isAr={isAr} />
@@ -1228,6 +1129,9 @@ export function DriverTabs({
       <TabsContent value="compliance" className="mt-4 space-y-4">
         <DriverComplianceEngine driver={driver} isAr={isAr} />
         <ComplianceTab driver={driver} isAr={isAr} />
+      </TabsContent>
+      <TabsContent value="offboarding" className="mt-4">
+        <DriverOffboardingPanel driver={driver} isAr={isAr} />
       </TabsContent>
     </Tabs>
   )
