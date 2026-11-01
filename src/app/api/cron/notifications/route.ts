@@ -7,6 +7,7 @@
 import { NextResponse } from "next/server"
 import { timingSafeEqual } from "node:crypto"
 import { runScheduledDigests } from "@/lib/notifications/digest"
+import { runDriverExpiryReminders } from "@/lib/notifications/driver-reminders"
 import { moduleLogger } from "@/lib/logger"
 
 export const dynamic = "force-dynamic"
@@ -29,7 +30,9 @@ export async function GET(req: Request): Promise<NextResponse> {
   try {
     const summary = await runScheduledDigests()
     log.info(summary, "notification digest run")
-    return NextResponse.json(summary)
+    const drivers = await runDriverExpiryReminders().catch((err) => { log.error({ err }, "driver reminders failed"); return null })
+    if (drivers) log.info(drivers, "driver expiry reminders run")
+    return NextResponse.json({ ...summary, driverReminders: drivers })
   } catch (err) {
     log.error({ err }, "notification digest run failed")
     return NextResponse.json({ error: "Digest run failed" }, { status: 500 })

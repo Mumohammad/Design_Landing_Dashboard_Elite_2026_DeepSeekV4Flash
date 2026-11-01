@@ -9,7 +9,7 @@ import { useTablePage } from "@/hooks/use-table-page"
 import { useReadSummary } from "@/hooks/use-read-summary"
 import { useTranslation } from "@/hooks/use-translation"
 import { EnterpriseModulePage, type KpiCardData, type TableColumn } from "@/components/dashboard/enterprise-module-page"
-import { ShieldAlert, AlertCircle, MessageSquareWarning, DollarSign } from "lucide-react"
+import { ShieldAlert, AlertCircle, MessageSquareWarning, DollarSign, Gavel } from "lucide-react"
 
 const SEVERITY_META: Record<string, { ar: string; en: string; className: string }> = {
   minor: { ar: "بسيطة", en: "Minor", className: "bg-blue-500/15 text-blue-600 border-blue-500/20" },
@@ -95,6 +95,10 @@ export default function ViolationsPage() {
 
   return (
     <div className="px-4 lg:px-6 py-4">
+      <Link href="/violations/fines" className="mb-4 flex items-center justify-between gap-3 rounded-2xl border bg-gradient-to-r from-rose-500/10 to-amber-500/10 p-4 transition hover:shadow-sm">
+        <span className="flex items-center gap-3"><Gavel className="size-5 text-rose-600" /><span><span className="block font-semibold">{locale === "ar" ? "المخالفات المرورية والمطابقة التلقائية" : "Traffic fines & auto-matching"}</span><span className="block text-xs text-muted-foreground">{locale === "ar" ? "استورد كشف المرور وطابقه تلقائياً مع السائق المسؤول" : "Import the Muroor statement and match each fine to the responsible driver"}</span></span></span>
+        <span className="text-sm font-medium text-primary">{locale === "ar" ? "فتح" : "Open"} →</span>
+      </Link>
       <EnterpriseModulePage
         title={t.nav.violations}
         subtitle={locale === "ar" ? "إدارة المخالفات من ملف السائق. الملخص لجميع المخالفات." : "Manage violations from the driver profile. Summary covers all violations."}

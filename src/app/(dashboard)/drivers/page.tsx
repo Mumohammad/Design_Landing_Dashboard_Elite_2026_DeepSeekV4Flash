@@ -28,6 +28,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { CreateDriverDialog } from "./components/create-driver-dialog"
+import { DriverImportDialog } from "@/components/drivers/driver-import-dialog"
 import DriverActionsMenu from "@/components/drivers/driver-actions-menu"
 import type { Driver, DriverCategory, DriverStatus } from "@/types/drivers"
 import {
@@ -35,6 +36,7 @@ import {
   CalendarClock,
   CheckCircle2,
   Download,
+  Upload,
   UserX,
   Users,
 } from "lucide-react"
@@ -221,6 +223,7 @@ export default function DriversPage() {
   const [counts, setCounts] = useState<number[] | null>(null)
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   const loadCounts = useCallback(async () => {
     const base = () => createClient().from("drivers").select("id", { count: "exact", head: true }).is("deleted_at", null)
     const results = await Promise.all([
@@ -521,6 +524,10 @@ export default function DriversPage() {
               ? `${filtered.length} من ${pagination.totalRecords}`
               : `${filtered.length} of ${pagination.totalRecords}`}
           </span>
+          <Button variant="outline" size="sm" className="h-9 gap-1.5 rounded-xl" onClick={() => setImportOpen(true)}>
+            <Upload className="h-3.5 w-3.5" />
+            {isAr ? "استيراد Excel" : "Import Excel"}
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -592,6 +599,7 @@ export default function DriversPage() {
           setDialogOpen(open)
           if (!open) { reload(); void loadCounts() }
         }} />
+        <DriverImportDialog open={importOpen} onOpenChange={setImportOpen} isAr={isAr} onImported={() => { reload(); void loadCounts() }} />
       </EnterpriseModulePage>
     </div>
   )
