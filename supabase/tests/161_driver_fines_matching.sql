@@ -15,9 +15,9 @@ INSERT INTO public.drivers(id,tenant_id,full_name_ar,primary_mobile,category,sta
 ('16100000-0000-4000-8000-000000000011',(SELECT tenant_id FROM fin_tenants WHERE kind='own'),'Fine driver A','0501610001','freelancer','active'),
 ('16100000-0000-4000-8000-000000000012',(SELECT tenant_id FROM fin_tenants WHERE kind='own'),'Fine driver B','0501610002','freelancer','active'),
 ('16100000-0000-4000-8000-000000000013',(SELECT tenant_id FROM fin_tenants WHERE kind='foreign'),'Foreign driver','0501610003','freelancer','active');
-INSERT INTO public.vehicles(id,tenant_id,plate_number) VALUES
-('16100000-0000-4000-8000-000000000021',(SELECT tenant_id FROM fin_tenants WHERE kind='own'),'أ ب ح 1234'),
-('16100000-0000-4000-8000-000000000022',(SELECT tenant_id FROM fin_tenants WHERE kind='foreign'),'XYZ 9999');
+INSERT INTO public.vehicles(id,tenant_id,plate_number,make,model,status) VALUES
+('16100000-0000-4000-8000-000000000021',(SELECT tenant_id FROM fin_tenants WHERE kind='own'),'أ ب ح 1234','Toyota','Hilux','available'),
+('16100000-0000-4000-8000-000000000022',(SELECT tenant_id FROM fin_tenants WHERE kind='foreign'),'XYZ 9999','Toyota','Hilux','available');
 INSERT INTO public.vehicle_assignments(tenant_id,vehicle_id,driver_id,assigned_at,unassigned_at,is_current) VALUES
 ((SELECT tenant_id FROM fin_tenants WHERE kind='own'),'16100000-0000-4000-8000-000000000021','16100000-0000-4000-8000-000000000011','2026-01-01 08:00+03','2026-02-10 18:00+03',false),
 ((SELECT tenant_id FROM fin_tenants WHERE kind='own'),'16100000-0000-4000-8000-000000000021','16100000-0000-4000-8000-000000000012','2026-02-11 08:00+03',NULL,true);
