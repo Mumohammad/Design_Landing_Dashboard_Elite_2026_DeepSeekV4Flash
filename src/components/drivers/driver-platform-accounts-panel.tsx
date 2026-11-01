@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useDriverPhoto } from "@/components/drivers/photo-provider"
 import { PlatformDot } from "@/components/drivers/platform-ids-editor"
 import { RiderCardPreview } from "@/components/drivers/driver-card-preview"
+import { DriverCardPanel } from "@/components/drivers/driver-card-panel"
 import { buildRiderCardsPrintHtml, type DriverCardOutputFormat } from "@/lib/drivers/card-print"
 import { DELIVERY_PLATFORMS, RIDER_ID_PATTERN, platformByCode, platformLabel, platformTheme } from "@/lib/drivers/platforms"
 import { fetchDriverPlatformAccounts, sortAccounts, type DriverPlatformAccount } from "@/lib/drivers/platform-accounts"
@@ -237,6 +238,10 @@ export function DriverPlatformAccountsPanel({ driver, isAr }: { driver: Driver; 
             ))}
           </div>
         )}
+      </section>
+
+      <section className="rounded-2xl border border-border/50 bg-card p-5 shadow-sm [&>[data-testid=driver-card-panel]]:mt-0 [&>[data-testid=driver-card-panel]]:border-t-0 [&>[data-testid=driver-card-panel]]:pt-0">
+        <DriverCardPanel driverId={driver.id} isAr={isAr} />
       </section>
 
       <Dialog open={!!draft} onOpenChange={(o) => { if (!o && !busy) setDraft(null) }}>
