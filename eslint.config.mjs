@@ -7,6 +7,8 @@ const eslintConfig = [
       "**/node_modules/**",
       ".next/**",
       "**/.next/**",
+      // Vendored, minified third-party OCR engine (tesseract.js, Apache-2.0).
+      "public/ocr/**",
       // Operational tooling, not shipped app code: k6 load scripts (k6 globals)
       // and one-off .mjs/.js verification scripts. App code in src/ and e2e/
       // remains fully linted. Patterns are glob-nested so copies that live

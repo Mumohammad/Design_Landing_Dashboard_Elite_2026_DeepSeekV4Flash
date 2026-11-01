@@ -1,5 +1,7 @@
 "use client"
 
+import { DriverPortalPanel } from "@/components/drivers/driver-portal-panel"
+import { DriverGovernmentChecks } from "@/components/drivers/driver-government-checks"
 import { DriverOffboardingPanel } from "@/components/drivers/driver-offboarding-panel"
 import { DriverHandoverTab } from "@/components/drivers/driver-handover-tab"
 import { useTablePage } from "@/hooks/use-table-page"
@@ -1057,7 +1059,10 @@ export function DriverTabs({
         <DriverPlatformAccountsPanel driver={driver} isAr={isAr} />
       </TabsContent>
       <TabsContent value="documents" className="mt-4">
-        <DocumentsTab driverId={driver.id} driverVersion={driver.profile_version??0} isAr={isAr} />
+        <div className="space-y-4">
+          <DriverPortalPanel driver={driver} isAr={isAr} />
+          <DocumentsTab driverId={driver.id} driverVersion={driver.profile_version??0} isAr={isAr} />
+        </div>
       </TabsContent>
       <TabsContent value="attendance" className="mt-4">
         <AttendanceTab driverId={driver.id} isAr={isAr} />
@@ -1128,6 +1133,7 @@ export function DriverTabs({
       </TabsContent>
       <TabsContent value="compliance" className="mt-4 space-y-4">
         <DriverComplianceEngine driver={driver} isAr={isAr} />
+        <DriverGovernmentChecks driverId={driver.id} isAr={isAr} />
         <ComplianceTab driver={driver} isAr={isAr} />
       </TabsContent>
       <TabsContent value="offboarding" className="mt-4">

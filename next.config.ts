@@ -4,7 +4,7 @@ import { verifyNativePreviewEnvironment } from "./scripts/preview-safety.mjs"
 // Validate before Next embeds public values or compiles a hosted preview.
 verifyNativePreviewEnvironment(process.env)
 import { withSentryConfig } from "@sentry/nextjs"
-import { buildCsp } from "./src/lib/security/csp"
+import { buildCsp, buildOcrWorkerCsp } from "./src/lib/security/csp"
 import { realpathSync } from "node:fs"
 import { relative } from "node:path"
 
@@ -130,10 +130,20 @@ const nextConfig: NextConfig = {
     }
 
 
+    // The self-hosted OCR worker (/ocr/*) runs Tesseract WebAssembly inside a
+    // dedicated worker. Workers use their own response CSP, so only these
+    // static files get 'wasm-unsafe-eval'; app pages keep the strict policy.
+    const ocrHeaders = headers.map((h) =>
+      h.key === 'Content-Security-Policy' ? { key: h.key, value: buildOcrWorkerCsp() } : h,
+    );
     return [
       {
-        source: '/(.*)',
+        source: '/((?!ocr/).*)',
         headers,
+      },
+      {
+        source: '/ocr/:path*',
+        headers: ocrHeaders,
       },
     ];
   },

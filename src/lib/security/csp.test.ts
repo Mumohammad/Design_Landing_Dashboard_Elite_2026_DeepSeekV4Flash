@@ -95,3 +95,16 @@ describe("buildCsp (Prompt M2 regression guard)", () => {
     }
   })
 })
+
+describe("OCR worker CSP", () => {
+  it("allows only WebAssembly compilation, never JS eval, and only same-origin loads", async () => {
+    const { buildOcrWorkerCsp } = await import("./csp")
+    const map = parseCsp(buildOcrWorkerCsp())
+    expect(map.get("script-src")).toBe("'self' 'wasm-unsafe-eval'")
+    expect(map.get("default-src")).toBe("'none'")
+    expect(map.get("connect-src")).toBe("'self'")
+  })
+  it("app pages keep wasm compilation disabled", () => {
+    expect(parseCsp(buildCsp({ isDev: false, supabaseUrl: "https://x.supabase.co" })).get("script-src")).not.toContain("wasm-unsafe-eval")
+  })
+})
