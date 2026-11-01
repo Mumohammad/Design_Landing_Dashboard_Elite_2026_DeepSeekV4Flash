@@ -34,7 +34,7 @@ REVOKE ALL ON public.driver_platform_accounts FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON public.driver_platform_accounts TO authenticated;
 DROP POLICY IF EXISTS driver_platform_accounts_tenant_sel ON public.driver_platform_accounts;
 CREATE POLICY driver_platform_accounts_tenant_sel ON public.driver_platform_accounts
-  FOR SELECT TO authenticated USING (tenant_id = public.get_my_tenant_id() AND deleted_at IS NULL);
+  FOR SELECT TO authenticated USING (tenant_id = public.get_my_tenant_id() AND deleted_at IS NULL AND public.user_has_permission('drivers', 'read'));
 
 COMMENT ON TABLE public.driver_platform_accounts IS
   'Per-platform rider IDs for a driver (one per platform). The primary account mirrors into drivers.rider_id.';
