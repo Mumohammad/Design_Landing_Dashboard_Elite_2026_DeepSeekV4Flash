@@ -3,11 +3,11 @@ import { driverErrorMessage } from "@/lib/drivers/error-messages"
 
 import { cloneElement, isValidElement, useState } from "react"
 import { useRouter } from "next/navigation"
-import { useForm, Controller } from "react-hook-form"
+import { useForm, useWatch, Controller } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { toast } from "@/lib/toast"
-import { Briefcase, CircleAlert, IdCard, Loader2, Phone, StickyNote, UserRound, Wallet } from "lucide-react"
+import { Bike, Briefcase, CircleAlert, IdCard, Loader2, Phone, StickyNote, UserRound, Wallet } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -29,6 +29,9 @@ import {
 } from "@/components/ui/dialog"
 import { createDriver } from "@/lib/drivers/actions"
 import { useTranslation } from "@/hooks/use-translation"
+import { PlatformIdsEditor, platformRowsError, type PlatformIdRow } from "@/components/drivers/platform-ids-editor"
+import { saveDriverPlatformAccount } from "@/app/actions/drivers/platform-accounts"
+import { NationalityPicker, SaudiCityPicker, SaudiRegionPicker } from "@/components/drivers/reference-pickers"
 import { isSaudiShortAddress, isValidSaudiId } from "@/lib/validation/saudi-id"
 import {
   validateSaudiIBAN,
@@ -64,14 +67,12 @@ const formSchema = z
       .regex(IQAMA_REGEX, "Invalid iqama number")
       .or(z.literal(""))
       .optional(),
-    iqama_issue_date: z.string().optional(),
     iqama_expiry_date: z.string().optional(),
     profession_on_iqama: z.string().max(120).optional(),
     passport_number: z.string().optional(),
     passport_expiry_date: z.string().optional(),
     license_number: z.string().optional(),
     license_type: z.string().optional(),
-    license_issue_date: z.string().optional(),
     license_expiry_date: z.string().optional(),
     national_address: z
       .string()
@@ -135,14 +136,6 @@ const formSchema = z
   .refine((d) => !d.iqama_number || !(d.nationality || d.nationality_code) || (d.iqama_number[0] === "1") === isSaudiNationality(d), {
     message: "Saudi citizens use a National ID starting with 1; residents an Iqama starting with 2",
     path: ["iqama_number"],
-  })
-  .refine((d) => !d.iqama_issue_date || !d.iqama_expiry_date || d.iqama_expiry_date > d.iqama_issue_date, {
-    message: "Expiry must be after issue",
-    path: ["iqama_expiry_date"],
-  })
-  .refine((d) => !d.license_issue_date || !d.license_expiry_date || d.license_expiry_date > d.license_issue_date, {
-    message: "Expiry must be after issue",
-    path: ["license_expiry_date"],
   })
   .refine(
     (d) => !d.contract_start || !d.contract_end || d.contract_end > d.contract_start,
@@ -212,31 +205,12 @@ const ERROR_AR: Record<string, string> = {
   "Termination date must match employment status and be on or after hire date": "تاريخ انتهاء العمل للحالات المنهية أو المحظورة فقط، ويجب أن يكون بعد تاريخ التعيين",
 }
 
-// The 13 administrative regions of Saudi Arabia.
-const SAUDI_REGIONS: { ar: string; en: string }[] = [
-  { ar: "الرياض", en: "Riyadh" }, { ar: "مكة المكرمة", en: "Makkah" }, { ar: "المدينة المنورة", en: "Madinah" },
-  { ar: "المنطقة الشرقية", en: "Eastern Province" }, { ar: "القصيم", en: "Qassim" }, { ar: "عسير", en: "Asir" },
-  { ar: "تبوك", en: "Tabuk" }, { ar: "حائل", en: "Hail" }, { ar: "الحدود الشمالية", en: "Northern Borders" },
-  { ar: "جازان", en: "Jazan" }, { ar: "نجران", en: "Najran" }, { ar: "الباحة", en: "Al Bahah" }, { ar: "الجوف", en: "Al Jawf" },
-]
-
-// Common rider nationalities: picking one fills the ISO code automatically.
-const NATIONALITIES: { code: string; ar: string; en: string }[] = [
-  { code: "SA", ar: "سعودي", en: "Saudi" }, { code: "EG", ar: "مصري", en: "Egyptian" },
-  { code: "PK", ar: "باكستاني", en: "Pakistani" }, { code: "IN", ar: "هندي", en: "Indian" },
-  { code: "BD", ar: "بنغلاديشي", en: "Bangladeshi" }, { code: "YE", ar: "يمني", en: "Yemeni" },
-  { code: "SD", ar: "سوداني", en: "Sudanese" }, { code: "PH", ar: "فلبيني", en: "Filipino" },
-  { code: "NP", ar: "نيبالي", en: "Nepali" }, { code: "LK", ar: "سريلانكي", en: "Sri Lankan" },
-  { code: "JO", ar: "أردني", en: "Jordanian" }, { code: "SY", ar: "سوري", en: "Syrian" },
-  { code: "ET", ar: "إثيوبي", en: "Ethiopian" }, { code: "KE", ar: "كيني", en: "Kenyan" },
-  { code: "UG", ar: "أوغندي", en: "Ugandan" }, { code: "ID", ar: "إندونيسي", en: "Indonesian" },
-]
-
 const SECTIONS = [
   { id: "identity", icon: UserRound, ar: "الهوية", en: "Identity", hintAr: "الاسم والجنسية والبيانات الشخصية", hintEn: "Name, nationality and personal details" },
   { id: "legal", icon: IdCard, ar: "البيانات الرسمية", en: "Legal documents", hintAr: "الإقامة والجواز ورخصة القيادة", hintEn: "Iqama, passport and driving license" },
   { id: "contact", icon: Phone, ar: "التواصل", en: "Contact", hintAr: "أرقام الجوال والبريد والموقع", hintEn: "Mobiles, email and location" },
   { id: "employment", icon: Briefcase, ar: "التوظيف", en: "Employment", hintAr: "الفئة والحالة والعقد", hintEn: "Category, status and contract" },
+  { id: "platforms", icon: Bike, ar: "المنصات وأرقام المندوب", en: "Platforms & rider IDs", hintAr: "هنقرستيشن، كيتا، جاهز وغيرها", hintEn: "HungerStation, Keeta, Jahez and more" },
   { id: "payroll", icon: Wallet, ar: "الراتب والبنك", en: "Payroll & bank", hintAr: "الراتب والبدلات وحساب البنك", hintEn: "Salary, allowances and bank account" },
   { id: "notes", icon: StickyNote, ar: "ملاحظات داخلية", en: "Internal notes", hintAr: "لا تظهر للسائق", hintEn: "Not visible to the driver" },
 ] as const
@@ -318,6 +292,7 @@ export function CreateDriverDialog({
   const isAr = locale === "ar"
   const router = useRouter()
   const [submitting, setSubmitting] = useState(false)
+  const [platformRows, setPlatformRows] = useState<PlatformIdRow[]>([{ code: "hungerstation", riderId: "" }])
 
   const {
     register,
@@ -335,6 +310,12 @@ export function CreateDriverDialog({
   })
 
   async function onSubmit(values: FormValues) {
+    const platformError = platformRowsError(platformRows, isAr)
+    if (platformError) {
+      toast.error(platformError)
+      document.getElementById("create-driver-section-platforms")?.scrollIntoView({ behavior: "smooth", block: "start" })
+      return
+    }
     setSubmitting(true)
     const result = await createDriver({
       full_name_ar: values.full_name_ar.trim(),
@@ -345,14 +326,12 @@ export function CreateDriverDialog({
       date_of_birth: toNullable(values.date_of_birth),
       gender: toNullable(values.gender),
       iqama_number: toNullable(values.iqama_number),
-      iqama_issue_date: toNullable(values.iqama_issue_date),
       iqama_expiry_date: toNullable(values.iqama_expiry_date),
       profession_on_iqama: toNullable(values.profession_on_iqama),
       passport_number: toNullable(values.passport_number),
       passport_expiry_date: toNullable(values.passport_expiry_date),
       license_number: toNullable(values.license_number),
       license_type: toNullable(values.license_type),
-      license_issue_date: toNullable(values.license_issue_date),
       license_expiry_date: toNullable(values.license_expiry_date),
       national_address: values.national_address?.trim() ? values.national_address.replace(/\s+/g, "").toUpperCase() : null,
       primary_mobile: values.primary_mobile.trim(),
@@ -378,11 +357,21 @@ export function CreateDriverDialog({
       iban: toNullable(values.iban),
       internal_notes: toNullable(values.internal_notes),
     })
+    if (result.success && result.id) {
+      const rows = platformRows.filter((r) => r.code && r.riderId.trim())
+      let failed = 0
+      for (const [i, r] of rows.entries()) {
+        const saved = await saveDriverPlatformAccount({ driverId: result.id, platformCode: r.code, platformDriverId: r.riderId.trim(), isPrimary: i === 0 })
+        if (!saved.ok) { failed += 1; toast.error(isAr ? saved.errorAr : saved.error) }
+      }
+      if (failed) toast.warning(isAr ? "تم إنشاء السائق، أكمل أرقام المنصات من ملفه." : "Driver created; finish the platform IDs from the profile.")
+    }
     setSubmitting(false)
 
     if (result.success) {
       toast.success(isAr ? "تم إنشاء السائق بنجاح" : "Driver created successfully")
       reset()
+      setPlatformRows([{ code: "hungerstation", riderId: "" }])
       onOpenChange(false)
       router.refresh()
       if (result.id) router.push(`/drivers/${result.id}`)
@@ -391,6 +380,7 @@ export function CreateDriverDialog({
     }
   }
 
+  const nationalityCode = useWatch({ control, name: "nationality_code" })
   const inputClass = "h-10"
 
   return (
@@ -430,11 +420,13 @@ export function CreateDriverDialog({
               <Input id="create-driver-preferred_name" {...register("preferred_name")} className={inputClass} />
             </Field>
             <Field isAr={isAr} id="create-driver-nationality" label={isAr ? "الجنسية" : "Nationality"} error={errors.nationality?.message}>
-              <Input id="create-driver-nationality" list="create-driver-nationalities" autoComplete="off" {...register("nationality", { onChange: (e) => { const v = String(e.target.value).trim().toLowerCase(); const m = NATIONALITIES.find((n) => n.ar === v || n.en.toLowerCase() === v); if (m) setValue("nationality_code", m.code, { shouldValidate: true }) } })} className={inputClass} placeholder={isAr ? "اختر أو اكتب" : "Choose or type"} />
-              <datalist id="create-driver-nationalities">{NATIONALITIES.map((n) => <option key={n.code} value={isAr ? n.ar : n.en} />)}</datalist>
+              <Controller control={control} name="nationality" render={({ field }) => (
+                <NationalityPicker id="create-driver-nationality" isAr={isAr} value={field.value} code={nationalityCode}
+                  onChange={(name, code) => { field.onChange(name); setValue("nationality_code", code, { shouldValidate: true }) }} />
+              )} />
             </Field>
             <Field isAr={isAr} id="create-driver-nationality_code" hint={isAr ? "يُملأ تلقائياً عند اختيار الجنسية" : "Filled automatically from the nationality"} label={isAr ? "رمز الجنسية (ISO)" : "Nationality code (ISO)"} error={errors.nationality_code?.message}>
-              <Input id="create-driver-nationality_code" {...register("nationality_code")} maxLength={2} className={inputClass} dir="ltr" placeholder="SA, EG, PK..." />
+              <Input id="create-driver-nationality_code" {...register("nationality_code")} readOnly tabIndex={-1} maxLength={2} className={`${inputClass} bg-muted/40`} dir="ltr" placeholder="SA, EG, PK..." />
             </Field>
             <Field isAr={isAr} id="create-driver-date_of_birth" label={isAr ? "تاريخ الميلاد" : "Date of birth"} error={errors.date_of_birth?.message}>
               <Input id="create-driver-date_of_birth" {...register("date_of_birth")} type="date" className={inputClass} />
@@ -463,14 +455,9 @@ export function CreateDriverDialog({
             <Field isAr={isAr} id="create-driver-iqama_number" label={isAr ? "رقم الهوية / الإقامة" : "National ID / Iqama number"} hint={isAr ? "10 أرقام: 1 للمواطن، 2 للمقيم" : "10 digits: 1 for citizens, 2 for residents"} error={errors.iqama_number?.message}>
               <Input id="create-driver-iqama_number" {...register("iqama_number")} className={inputClass} dir="ltr" placeholder="1XXXXXXXXX" />
             </Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field isAr={isAr} id="create-driver-iqama_issue_date" label={isAr ? "إصدار الإقامة" : "Iqama issue"}>
-                <Input id="create-driver-iqama_issue_date" {...register("iqama_issue_date")} type="date" className={inputClass} />
-              </Field>
-              <Field isAr={isAr} id="create-driver-iqama_expiry_date" label={isAr ? "انتهاء الهوية/الإقامة" : "ID / Iqama expiry"} error={errors.iqama_expiry_date?.message}>
-                <Input id="create-driver-iqama_expiry_date" {...register("iqama_expiry_date")} type="date" className={inputClass} />
-              </Field>
-            </div>
+            <Field isAr={isAr} id="create-driver-iqama_expiry_date" label={isAr ? "انتهاء الهوية/الإقامة" : "ID / Iqama expiry"} error={errors.iqama_expiry_date?.message}>
+              <Input id="create-driver-iqama_expiry_date" {...register("iqama_expiry_date")} type="date" className={inputClass} />
+            </Field>
             <Field isAr={isAr} id="create-driver-profession_on_iqama" label={isAr ? "المهنة في الإقامة" : "Profession on Iqama"} hint={isAr ? "كما في منصة مقيم/أبشر، مثل: سائق" : "As shown in Muqeem/Absher, e.g. Driver"} error={errors.profession_on_iqama?.message}>
               <Input id="create-driver-profession_on_iqama" {...register("profession_on_iqama")} className={inputClass} />
             </Field>
@@ -487,14 +474,9 @@ export function CreateDriverDialog({
               <Input id="create-driver-license_type" list="create-driver-license-types" autoComplete="off" {...register("license_type")} className={inputClass} placeholder={isAr ? "خاصة / عمومي / دراجة نارية" : "Private / Public / Motorcycle"} />
               <datalist id="create-driver-license-types">{(isAr ? ["خاصة", "نقل خفيف", "نقل ثقيل", "عمومي", "دراجة نارية", "معدات ثقيلة"] : ["Private", "Light transport", "Heavy transport", "Public", "Motorcycle", "Heavy equipment"]).map((v) => <option key={v} value={v} />)}</datalist>
             </Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field isAr={isAr} id="create-driver-license_issue_date" label={isAr ? "إصدار الرخصة" : "License issue"}>
-                <Input id="create-driver-license_issue_date" {...register("license_issue_date")} type="date" className={inputClass} />
-              </Field>
-              <Field isAr={isAr} id="create-driver-license_expiry_date" label={isAr ? "انتهاء الرخصة" : "License expiry"} error={errors.license_expiry_date?.message}>
-                <Input id="create-driver-license_expiry_date" {...register("license_expiry_date")} type="date" className={inputClass} />
-              </Field>
-            </div>
+            <Field isAr={isAr} id="create-driver-license_expiry_date" label={isAr ? "انتهاء الرخصة" : "License expiry"} error={errors.license_expiry_date?.message}>
+              <Input id="create-driver-license_expiry_date" {...register("license_expiry_date")} type="date" className={inputClass} />
+            </Field>
           </Section>
 
           {/* Contact */}
@@ -512,14 +494,18 @@ export function CreateDriverDialog({
               <Input id="create-driver-work_email" {...register("work_email")} type="email" className={inputClass} dir="ltr" />
             </Field>
             <Field isAr={isAr} id="create-driver-current_city" label={isAr ? "المدينة" : "City"} error={errors.current_city?.message}>
-              <Input id="create-driver-current_city" {...register("current_city")} className={inputClass} />
+              <Controller control={control} name="current_city" render={({ field }) => (
+                <SaudiCityPicker id="create-driver-current_city" isAr={isAr} value={field.value}
+                  onChange={(city, region) => { field.onChange(city); if (region) setValue("current_region", region, { shouldValidate: true }) }} />
+              )} />
             </Field>
             <Field isAr={isAr} id="create-driver-national_address" label={isAr ? "العنوان الوطني المختصر" : "Short national address"} hint={isAr ? "من سبل، مثل RRRD2929" : "From SPL, e.g. RRRD2929"} error={errors.national_address?.message}>
               <Input id="create-driver-national_address" {...register("national_address")} maxLength={9} className={inputClass} dir="ltr" placeholder="RRRD2929" />
             </Field>
             <Field isAr={isAr} id="create-driver-current_region" label={isAr ? "المنطقة" : "Region"} error={errors.current_region?.message}>
-              <Input id="create-driver-current_region" list="create-driver-regions" autoComplete="off" {...register("current_region")} className={inputClass} />
-              <datalist id="create-driver-regions">{SAUDI_REGIONS.map((r) => <option key={r.en} value={isAr ? r.ar : r.en} />)}</datalist>
+              <Controller control={control} name="current_region" render={({ field }) => (
+                <SaudiRegionPicker id="create-driver-current_region" isAr={isAr} value={field.value} onChange={field.onChange} />
+              )} />
             </Field>
           </Section>
 
@@ -623,6 +609,11 @@ export function CreateDriverDialog({
                 <Input id="create-driver-contract_end" {...register("contract_end")} type="date" className={inputClass} />
               </Field>
             </div>
+          </Section>
+
+          {/* Platforms */}
+          <Section id="platforms" isAr={isAr} cols={1}>
+            <PlatformIdsEditor rows={platformRows} onChange={setPlatformRows} isAr={isAr} idPrefix="create-driver" />
           </Section>
 
           {/* Payroll */}

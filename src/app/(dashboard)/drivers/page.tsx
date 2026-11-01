@@ -54,6 +54,7 @@ type DriverListItem = Pick<
   | "license_expiry_date"
   | "hire_date"
   | "profile_completeness_score"
+  | "rider_id"
 >
 
 const DRIVER_FIELDS = [
@@ -70,6 +71,7 @@ const DRIVER_FIELDS = [
   "license_expiry_date",
   "hire_date",
   "profile_completeness_score",
+  "rider_id",
 ].join(", ")
 
 const STATUS_META: Record<DriverStatus, { ar: string; en: string; className: string }> = {
@@ -209,7 +211,7 @@ export default function DriversPage() {
 
   const buildQuery = useCallback((term: string) => {
     let query = createClient().from("drivers").select(DRIVER_FIELDS, { count: "exact" }).is("deleted_at", null)
-    if (term.trim()) query = query.or(substringFilter(["full_name_ar", "full_name_en", "driver_code", "primary_mobile"], term))
+    if (term.trim()) query = query.or(substringFilter(["full_name_ar", "full_name_en", "driver_code", "primary_mobile", "rider_id"], term))
     if (statusFilter !== "all") query = query.eq("status", statusFilter)
     if (categoryFilter !== "all") query = query.eq("category", categoryFilter)
     if (expiringOnly) query = query.or(expiringFilter())
@@ -337,9 +339,10 @@ export default function DriversPage() {
             <div className="truncate font-medium text-foreground">
               {row.full_name_ar ?? "—"}
             </div>
-            {row.driver_code && (
+            {(row.driver_code || row.rider_id) && (
               <div className="truncate text-xs text-muted-foreground">
                 {row.driver_code}
+                {row.rider_id && <span dir="ltr" className="ms-1.5 font-mono text-violet-600 dark:text-violet-400">#{row.rider_id}</span>}
               </div>
             )}
           </div>
