@@ -601,3 +601,10 @@ html {
 :where(input, textarea)::placeholder { color: color-mix(in oklab, var(--muted-foreground) 80%, transparent); }
 :where(input[type=checkbox], input[type=radio]) { accent-color: var(--color-elite-blue-600, #1a4d85); }
 :where(input[type=number]) { font-variant-numeric: tabular-nums; }
+
+/* Rich text (invoice notes/terms editor + previews) — Tailwind preflight resets lists. */
+.rich-text-content ul { list-style: disc; padding-inline-start: 1.5em; margin: .25em 0; }
+.rich-text-content ol { list-style: decimal; padding-inline-start: 1.5em; margin: .25em 0; }
+.rich-text-content hr { border: 0; border-top: 1px solid currentColor; opacity: .35; margin: .5em 0; }
+.rich-text-content a { color: #1e5a99; text-decoration: underline; }
+.rich-text-content b { font-weight: 700; }

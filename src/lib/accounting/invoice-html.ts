@@ -1,4 +1,5 @@
 import { RIYAL_SYMBOL } from "./riyal-symbol"
+import { richTextToSafeHtml } from "@/lib/rich-text/sanitize"
 
 export interface InvoiceDocLine {
   line_no: number; itemName?: string; description: string; quantity: number
@@ -52,6 +53,7 @@ function splitItem(line: InvoiceDocLine): { item: string; description: string } 
 export function buildInvoiceHtml(d: InvoiceDocData): string {
   const rates = [...new Set(d.lines.map((line) => line.vat_rate))]
   const vatLabel = rates.length === 1 ? `${rates[0]}%` : ""
+  const notesHtml = richTextToSafeHtml(d.notes)
   const money = (value: number) => `<span class="money" aria-label="${esc(d.currency)} ${number(value)}">${d.currency === "SAR" ? RIYAL_SYMBOL : esc(d.currency)} ${number(value)}</span>`
   const head = (ar: string, en: string) => `<span>${ar}</span><span lang="en">${en}</span>`
   const rows = d.lines.map((line) => {
@@ -148,7 +150,12 @@ span[lang="en"] { display: block; }
 .bank { margin-top: 30pt; width: fit-content; min-width: 55%; max-width: 100%; border: 1pt dotted #555; padding: 8pt 12pt; font-style: italic; line-height: 1.6; break-inside: avoid; }
 .bank .bank-title { font-weight: 700; margin-bottom: 2pt; }
 .bank div { overflow-wrap: anywhere; }
-.notes { margin-top: 18pt; white-space: pre-line; overflow-wrap: anywhere; break-inside: avoid; }
+.notes { margin-top: 18pt; overflow-wrap: anywhere; break-inside: avoid; }
+.notes .rich p, .notes .rich div { margin: 0; }
+.notes .rich ul { list-style: disc; padding-inline-start: 16pt; margin: 2pt 0; }
+.notes .rich ol { list-style: decimal; padding-inline-start: 16pt; margin: 2pt 0; }
+.notes .rich hr { border: 0; border-top: .75pt solid #999; margin: 4pt 0; }
+.notes .rich a { color: inherit; text-decoration: underline; }
 .notes h2 { margin: 0 0 4pt; font-size: 9pt; }
 @media screen { body { padding: 32px; } .doc { max-width: 186mm; } }
 @media print { body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
@@ -175,6 +182,6 @@ ${totalRow("الإجمالي بعد الضريبة", "Total After VAT", d.total,
 ${paid !== undefined ? `${totalRow("مدفوع", "Paid", paid)}${totalRow("الرصيد المستحق", "Due Amount", Math.max(0, Math.round((d.total - paid) * 100) / 100))}` : ""}
 </tbody></table>
 ${d.bankIban ? `<section class="bank" aria-label="Bank account details"><div class="bank-title">معلومات الحساب البنكي:</div>${d.bankName ? `<div>اسم البنك : ${esc(d.bankName)}</div>` : ""}${d.bankBeneficiary ? `<div>اسم المستفيد : ${esc(d.bankBeneficiary)}</div>` : ""}<div>رقم الايبان : <bdi dir="ltr">${esc(d.bankIban)}</bdi></div></section>` : ""}
-${d.notes ? `<section class="notes"><h2>الملاحظات / الشروط</h2><div dir="auto">${esc(d.notes)}</div></section>` : ""}
+${notesHtml ? `<section class="notes"><h2>الملاحظات / الشروط</h2><div class="rich" dir="auto">${notesHtml}</div></section>` : ""}
 </main></body></html>`
 }
