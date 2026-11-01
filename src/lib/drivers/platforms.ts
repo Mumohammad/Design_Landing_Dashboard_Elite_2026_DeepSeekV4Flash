@@ -35,7 +35,7 @@ const theme = (t: Omit<CardTheme, "bandAccent"> & { bandAccent?: string }): Card
 
 export const DELIVERY_PLATFORMS: readonly DeliveryPlatform[] = [
   { code: "hungerstation", en: "HungerStation", ar: "هنقرستيشن", kind: "food", color: "#F8C400",
-    theme: theme({ body: "#F8E71C", band: "#0AA9CE", frame: "#5C2E2E", label: "#0AA9CE", value: "#8B3A2F", bandText: "#FFFFFF", wordmark: ["HUNGER", "STATION"] }) },
+    theme: theme({ body: "#FED000", band: "#00ACEE", frame: "#522305", label: "#00ACEE", value: "#522305", bandText: "#FFFFFF", wordmark: ["HUNGER", "STATION"] }) },
   { code: "keeta", en: "Keeta", ar: "كيتا", kind: "food", color: "#FFD100",
     theme: theme({ body: "#FFD100", band: "#1F1F1F", frame: "#1F1F1F", label: "#1F1F1F", value: "#4A3B00", bandText: "#FFD100", bandAccent: "#FFFFFF", wordmark: ["KEETA"] }) },
   { code: "jahez", en: "Jahez", ar: "جاهز", kind: "food", color: "#E4002B",

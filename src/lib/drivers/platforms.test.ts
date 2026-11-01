@@ -38,9 +38,9 @@ describe("rider card print", () => {
   it("issued card shows the primary rider ID and keeps the serial as reference", () => {
     const card = { workflow_version: 1, id: "c", driver_id: "d", card_serial: "EDC-0001", status: "active" as const, issued_at: "2026-01-01T00:00:00Z", expires_at: null, reprint_count: 0 }
     const withPlatform = buildCardPrintHtml(card, person, "pvc", { code: "hungerstation", riderId: "4747290" })
-    expect(withPlatform).toMatch(/Rider ID: <\/span><span[^>]*>4747290</)
+    expect(withPlatform).toMatch(/Rider ID: <\/tspan><tspan[^>]*>4747290</)
     expect(withPlatform).toContain("EDC-0001")
-    expect(buildCardPrintHtml(card, person)).toMatch(/Rider ID: <\/span><span[^>]*>EDC-0001</)
+    expect(buildCardPrintHtml(card, person)).toMatch(/Rider ID: <\/tspan><tspan[^>]*>EDC-0001</)
     expect(() => buildRiderCardsPrintHtml([], person)).toThrow()
   })
 })
