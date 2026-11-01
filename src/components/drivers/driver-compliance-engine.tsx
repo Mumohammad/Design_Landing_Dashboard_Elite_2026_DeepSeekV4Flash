@@ -19,7 +19,7 @@ import {
   type ComplianceOverride,
   type ComplianceResult,
 } from "@/lib/drivers/compliance"
-import { DOC_UPLOAD_TYPES, type DriverDocument } from "@/lib/drivers/documents"
+import { DOC_UPLOAD_TYPES, docTypeLabel, type DriverDocument } from "@/lib/drivers/documents"
 import type { Driver } from "@/types/drivers"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -656,7 +656,7 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
                       ) : (
                         DOC_UPLOAD_TYPES.map((t) => (
                           <SelectItem key={t} value={t}>
-                            {isAr ? docTypeLabels[t].ar : docTypeLabels[t].en}
+                            {docTypeLabel(t, isAr)}
                           </SelectItem>
                         ))
                       )}
