@@ -22,7 +22,7 @@ type Company = {
   trial_ends_at: string | null; billing_status: string; created_at: string; users_count: number;
 };
 type AdminUser = { id: string; tenant_id: string; email: string; full_name_en: string | null; role: string; status: string; created_at: string; last_login_at: string | null; company_name: string; version: string; protected: boolean; tenant_active: boolean };
-type Invoice = { id: string; tenant_id: string; invoice_number: string; period_label: string | null; amount: number; currency: string; status: string; due_date: string | null; paid_at: string | null; created_at: string; company_name: string };
+type Invoice = { id: string; tenant_id: string; invoice_number: string; period_label: string | null; amount: number; currency: string; status: string; due_date: string | null; paid_at: string | null; payment_method?: string | null; created_at: string; company_name: string };
 type AuditEntry = { id: string; company_name: string; action: string; entity_type: string | null; module: string; created_at: string };
 type Analytics = {
   registrations_by_day: { date: string; count: number }[];
@@ -451,7 +451,7 @@ export default function PlatformAdminPage() {
                             <td className="px-5 py-4">{i.company_name}</td>
                             <td className="px-5 py-4 font-extrabold tabular-nums">{fmtMoney(Number(i.amount))}</td>
                             <td className="px-5 py-4 text-xs text-white/45">{fmtDate(i.due_date)}</td>
-                            <td className="px-5 py-4"><span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold ${i.status === 'paid' ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-400' : i.status === 'overdue' ? 'border-rose-500/25 bg-rose-500/10 text-rose-400' : 'border-amber-500/25 bg-amber-500/10 text-amber-400'}`}>{i.status === 'paid' ? ui("مدفوعة") : i.status === 'overdue' ? ui("متأخرة") : i.status === 'void' ? 'ملغاة' : ui("معلّقة")}</span></td>
+                            <td className="px-5 py-4"><span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold ${i.status === 'paid' ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-400' : i.status === 'overdue' ? 'border-rose-500/25 bg-rose-500/10 text-rose-400' : 'border-amber-500/25 bg-amber-500/10 text-amber-400'}`}>{i.status === 'paid' ? ui("مدفوعة") : i.status === 'overdue' ? ui("متأخرة") : i.status === 'void' ? 'ملغاة' : ui("معلّقة")}</span>{i.status === 'paid' && i.payment_method === 'card' && <span className="ms-2 text-[11px] text-sky-400">{ui("بطاقة")}</span>}</td>
                             <td className="px-5 py-4">
                               {i.status !== 'paid' && i.status !== 'void' && (
                                 <button disabled={busyId === i.id} onClick={async () => { if (!confirm(ui("تأكيد استلام الدفع؟"))) return; setBusyId(i.id); try { await api('/api/platform/admin/billing', { method: 'PATCH', body: JSON.stringify({ invoice_id: i.id, action: 'mark_paid' }) }); await load(); } finally { setBusyId(null); } }} className="rounded-lg bg-emerald-500/15 px-3 py-1.5 text-xs font-bold text-emerald-400 transition hover:bg-emerald-500/25 disabled:opacity-40">
