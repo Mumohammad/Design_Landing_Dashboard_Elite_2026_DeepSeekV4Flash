@@ -33,7 +33,7 @@ import { PlatformIdsEditor, platformRowsError, type PlatformIdRow } from "@/comp
 import { saveDriverPlatformAccount } from "@/app/actions/drivers/platform-accounts"
 import { uploadDriverPhoto, validateDriverPhoto } from "@/lib/drivers/upload-photo"
 import { RiderCardFace } from "@/components/drivers/driver-card-preview"
-import { COMPANY_CARD_THEME, platformTheme } from "@/lib/drivers/platforms"
+import { DEFAULT_CARD_PLATFORM, platformTheme } from "@/lib/drivers/platforms"
 import { NationalityPicker, SaudiCityPicker, SaudiRegionPicker } from "@/components/drivers/reference-pickers"
 import { isSaudiShortAddress, isValidSaudiId } from "@/lib/validation/saudi-id"
 import {
@@ -656,11 +656,11 @@ export function CreateDriverDialog({
           <Section id="platforms" isAr={isAr} cols={1}>
             <PlatformIdsEditor rows={platformRows} onChange={setPlatformRows} isAr={isAr} idPrefix="create-driver" />
             <div className="mt-2 flex flex-col items-center gap-4 rounded-xl border border-border/50 bg-gradient-to-br from-elite-blue-500/5 via-transparent to-violet-500/5 p-4 sm:flex-row sm:items-start" data-testid="create-driver-card-preview">
-              <div className="rounded-[16px] shadow-[0_14px_32px_-16px_rgba(15,30,51,0.5)]">
-                <RiderCardFace side="front" scale={0.56}
-                  theme={cardPlatform ? platformTheme(cardPlatform.code) : COMPANY_CARD_THEME}
-                  riderId={cardPlatform?.riderId.trim() || (isAr ? "يُولّد تلقائيًا" : "Auto-generated")}
-                  person={{ name: cardNameEn?.trim() || cardNameAr?.trim() || "—", phone: cardMobile?.trim() || null, idNumber: cardIqama?.trim() || null, photoUrl: photoPreview }} />
+              <div className="flex gap-3">{(["front", "back"] as const).map((side) => (<div key={side} className="rounded-[14px] shadow-[0_14px_32px_-16px_rgba(15,30,51,0.5)]">
+                <RiderCardFace side={side} scale={0.5}
+                  theme={platformTheme(cardPlatform?.code ?? platformRows.find((r) => r.code)?.code ?? DEFAULT_CARD_PLATFORM)}
+                  riderId={cardPlatform?.riderId.trim() || "—"}
+                  person={{ name: cardNameEn?.trim() || cardNameAr?.trim() || "—", phone: cardMobile?.trim() || null, idNumber: cardIqama?.trim() || null, photoUrl: photoPreview }} /></div>))}
               </div>
               <div className="grid gap-1 text-center sm:text-start">
                 <p className="flex items-center justify-center gap-1.5 text-sm font-semibold sm:justify-start"><IdCard className="h-4 w-4 text-elite-blue-500" aria-hidden />{isAr ? "معاينة بطاقة السائق" : "Driver ID card preview"}</p>

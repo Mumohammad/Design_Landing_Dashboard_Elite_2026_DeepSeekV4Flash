@@ -589,7 +589,7 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
         onValueChange={setSelectedTab}
         overview={
           <div className="space-y-4">
-          <div className="grid gap-4 2xl:grid-cols-[minmax(0,520px)_1fr]">
+          <div className="grid gap-4 2xl:grid-cols-[minmax(0,700px)_1fr]">
             <DriverIdCardSpotlight driver={driver} isAr={isAr} onUploadPhoto={() => photoInputRef.current?.click()} onManage={() => setSelectedTab("platforms")} />
             <Driver360Summary driver={driver} isAr={isAr} onNavigate={setSelectedTab} />
           </div>

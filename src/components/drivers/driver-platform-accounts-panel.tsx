@@ -17,7 +17,7 @@ import { PlatformDot } from "@/components/drivers/platform-ids-editor"
 import { RiderCardPreview } from "@/components/drivers/driver-card-preview"
 import { DriverCardPanel } from "@/components/drivers/driver-card-panel"
 import { buildRiderCardsPrintHtml, type DriverCardOutputFormat } from "@/lib/drivers/card-print"
-import { COMPANY_CARD_THEME, DELIVERY_PLATFORMS, RIDER_ID_PATTERN, platformByCode, platformLabel, platformTheme } from "@/lib/drivers/platforms"
+import { DEFAULT_CARD_THEME, DELIVERY_PLATFORMS, RIDER_ID_PATTERN, platformByCode, platformLabel, platformTheme } from "@/lib/drivers/platforms"
 import { fetchDriverPlatformAccounts, sortAccounts, type DriverPlatformAccount } from "@/lib/drivers/platform-accounts"
 import { removeDriverPlatformAccount, saveDriverPlatformAccount } from "@/app/actions/drivers/platform-accounts"
 import { emitDriverChanged } from "@/lib/drivers/driver-events"
@@ -137,7 +137,7 @@ export function DriverPlatformAccountsPanel({ driver, isAr }: { driver: Driver; 
   }
 
   const printCompany = async () => {
-    const html = buildRiderCardsPrintHtml([{ theme: COMPANY_CARD_THEME, riderId: driver.driver_code ?? "—", footerRef: driver.driver_code ?? null, title: `EliteDev card ${driver.driver_code ?? ""}` }], person, format)
+    const html = buildRiderCardsPrintHtml([{ theme: DEFAULT_CARD_THEME, riderId: driver.rider_id ?? driver.driver_code ?? "—", footerRef: driver.driver_code ?? null, title: `Rider card ${driver.rider_id ?? driver.driver_code ?? ""}` }], person, format)
     if (!(await printRiderCards(html))) toast.error(isAr ? "اسمح بالنوافذ المنبثقة ثم أعد المحاولة." : "Allow popups and try again.")
   }
 
@@ -231,13 +231,13 @@ export function DriverPlatformAccountsPanel({ driver, isAr }: { driver: Driver; 
         {activeAccounts.length === 0 ? (
           <figure className="rounded-xl border border-border/50 bg-muted/20 p-4" data-testid="company-card-preview">
             <figcaption className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs font-semibold">
-              <span className="flex items-center gap-2"><span className="size-2.5 rounded-full bg-elite-blue-500" />{isAr ? "بطاقة EliteDev الافتراضية" : "Default EliteDev card"}</span>
+              <span className="flex items-center gap-2"><PlatformDot code="hungerstation" />{isAr ? "بطاقة السائق (تصميم هنقرستيشن)" : "Driver card (HungerStation design)"}</span>
               <span className="flex items-center gap-2 font-normal text-muted-foreground">
                 {isAr ? "أضف رقم مندوب نشط لإصدار بطاقة المنصة." : "Add an active rider ID for the platform-branded card."}
                 <Button size="sm" variant="outline" className="h-7 gap-1 px-2 text-xs" onClick={() => void printCompany()}><Printer className="size-3" />{isAr ? "طباعة" : "Print"}</Button>
               </span>
             </figcaption>
-            <RiderCardPreview theme={COMPANY_CARD_THEME} riderId={driver.driver_code ?? "—"} footerRef={driver.driver_code ?? null} person={person} scale={0.62} />
+            <RiderCardPreview theme={DEFAULT_CARD_THEME} riderId={driver.rider_id ?? driver.driver_code ?? "—"} footerRef={driver.driver_code ?? null} person={person} scale={0.62} />
           </figure>
         ) : (
           <div className="grid gap-6 xl:grid-cols-2">

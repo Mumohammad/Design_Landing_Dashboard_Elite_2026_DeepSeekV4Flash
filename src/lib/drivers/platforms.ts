@@ -96,5 +96,5 @@ export function platformLabel(code: string, isAr: boolean): string {
 /** Rider IDs printed on cards / matched in payroll imports. */
 export const RIDER_ID_PATTERN = /^[A-Za-z0-9._/-]{1,64}$/
 
-/** EliteDev staff card used when a driver has no active platform account yet. */
-export const COMPANY_CARD_THEME: CardTheme = { ...platformTheme(null, "ELITEDEV"), wordmark: ["ELITEDEV", "إيليت ديف"] }
+/** Card design used before a driver has an active platform account (the HungerStation reference card). */
+export const DEFAULT_CARD_THEME: CardTheme = platformTheme(DEFAULT_CARD_PLATFORM)
