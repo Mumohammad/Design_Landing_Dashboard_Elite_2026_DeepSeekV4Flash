@@ -16,22 +16,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
-import {
-  removeDriverPhoto,
-  updateDriverPhoto,
-} from "@/app/actions/drivers/driver-photo"
-import {
-  DRIVER_PHOTO_BUCKET,
-  DRIVER_PHOTO_MAX_BYTES,
-  driverPhotoImageMeta,
-  driverPhotoPath,
-  driverPhotoTenantId,
-  logPhotoRenderFailure,
-} from "@/lib/drivers/photo"
+import { removeDriverPhoto } from "@/app/actions/drivers/driver-photo"
+import { logPhotoRenderFailure } from "@/lib/drivers/photo"
 import { emitDriverChanged, subscribeDriverChanged } from "@/lib/drivers/driver-events"
 import { DriverPhotoProvider, useDriverPhoto } from "@/components/drivers/photo-provider"
 import { DriverTabs } from "./driver-tabs"
 import { Driver360Summary } from "@/components/drivers/driver-360-summary"
+import { uploadDriverPhoto, validateDriverPhoto } from "@/lib/drivers/upload-photo"
 import DriverAdminActions from "./driver-admin-actions"
 import { VehicleAssignmentCard } from "@/components/drivers/vehicle-assignment-card"
 import { DriverOrdersKpiCard } from "@/components/drivers/driver-orders-kpi-card"
@@ -46,6 +37,7 @@ import {
   Briefcase,
   Camera,
   Car,
+  IdCard,
   Loader2,
   Phone,
   Trash2,
@@ -231,103 +223,39 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
 
   const onPhotoFile = async (file: File) => {
     if (!driver) return
-    const meta = driverPhotoImageMeta(file)
-    if (!meta.ok) {
-      toast.error(
-        isAr
-          ? "يسمح بالصور فقط (JPG/PNG/WebP/GIF/AVIF/HEIC — الحد الأقصى 5MB)"
-          : "Only image files are allowed (JPG/PNG/WebP/GIF/AVIF/HEIC — max 5MB)",
-      )
+    const valid = validateDriverPhoto(file)
+    if (!valid.ok) {
+      toast.error(isAr ? valid.errorAr : valid.error)
       return
     }
-    if (file.size > DRIVER_PHOTO_MAX_BYTES) {
-      toast.error(
-        isAr ? "الصورة كبيرة جدًا (الحد الأقصى 5MB)" : "Image is too large (max 5MB)",
-      )
-      return
-    }
-
-    // Instant optimistic preview — the photo shows the moment it is picked.
-    // It is ROLLED BACK on any failure below so a failed upload never leaves
-    // the UI showing a photo that was never persisted.
+    // Instant optimistic preview, rolled back on any failure.
     if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current)
     const objectUrl = URL.createObjectURL(file)
     objectUrlRef.current = objectUrl
     setLocalPhotoUrl(objectUrl)
-
-    // Roll the visible avatar back to the last persisted photo: clearing the
-    // local blob makes resolvedPhotoUrl fall through to the provider value.
-    const rollbackPreview = () => {
+    const clearPreview = () => {
       if (objectUrlRef.current) {
         URL.revokeObjectURL(objectUrlRef.current)
         objectUrlRef.current = null
       }
       setLocalPhotoUrl(null)
     }
-
     setPhotoUploading(true)
     try {
-      const supabase = createClient()
-      const {
-        data: { session },
-      } = await supabase.auth.getSession()
-      // Resolve the tenant folder from the DRIVER row (single source of
-      // truth — the driver was loaded with select("*") above). Session
-      // user_metadata.tenant_id is not guaranteed to exist on every prod
-      // account, and a missing tenant folder here fails every profile-header
-      // upload with a generic error even though the compliance-engine
-      // surface (which uses driver.tenant_id) works fine.
-      const tenantId = driverPhotoTenantId(
-        driver,
-        session?.user?.user_metadata?.tenant_id as string | undefined,
-      )
-      if (!tenantId) {
-        toast.error(t.common.error)
-        rollbackPreview()
-        return
-      }
-      const path = driverPhotoPath(tenantId, driver.id, file.name)
-      const { error: uploadError } = await supabase.storage
-        .from(DRIVER_PHOTO_BUCKET)
-        .upload(path, file, {
-          cacheControl: "3600",
-          upsert: false,
-          contentType: meta.contentType,
-        })
-      if (uploadError) {
-        toast.error(
-          isAr ? `فشل رفع الصورة: ${uploadError.message}` : `Photo upload failed: ${uploadError.message}`,
-        )
-        rollbackPreview()
-        return
-      }
-      const result = await updateDriverPhoto({
-        driverId: driver.id,
-        expectedDriverVersion: driver.profile_version,
-        filePath: path,
-        contentType: meta.contentType,
-        size: file.size,
-      })
+      const result = await uploadDriverPhoto({ id: driver.id, tenant_id: driver.tenant_id, profile_version: driver.profile_version ?? 0 }, file)
       if (!result.ok) {
-        // DB update failed: the action already removed the orphaned object;
-        // here we only restore the previous photo in the UI.
         toast.error(isAr ? result.errorAr : result.error)
-        rollbackPreview()
+        clearPreview()
         return
       }
-      if (objectUrlRef.current) {
-        URL.revokeObjectURL(objectUrlRef.current)
-        objectUrlRef.current = null
-      }
-      setLocalPhotoUrl(null)
+      clearPreview()
       refreshProviderPhoto()
       setDriver((prev) => (prev ? { ...prev, photo_url: result.filePath, profile_version: result.profileVersion } : prev))
       toast.success(isAr ? "تم تحديث الصورة" : "Photo updated")
-      // Tell every other surface (list rows, compliance card, card panel)
-      // to re-read the persisted photo.
+      // Every other surface (list rows, ID cards) re-reads the persisted photo.
       emitDriverChanged({ driverId: driver.id, action: "photo" })
     } catch (err) {
-      rollbackPreview()
+      clearPreview()
       toast.error(err instanceof Error ? err.message : t.common.error)
     } finally {
       setPhotoUploading(false)
@@ -475,7 +403,7 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
                   resolvedPhotoUrl && "cursor-zoom-in group-hover:scale-[1.03]",
                 )}
               >
-                <Avatar className="h-16 w-16 rounded-full bg-muted ring-2 ring-elite-blue-500/30 ring-offset-2 ring-offset-background">
+                <Avatar className="h-20 w-20 rounded-full bg-muted ring-2 ring-elite-blue-500/30 ring-offset-2 ring-offset-background">
                   {resolvedPhotoUrl && (
                     <AvatarImage
                       src={resolvedPhotoUrl}
@@ -513,7 +441,7 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
                 onClick={() => photoInputRef.current?.click()}
                 title={isAr ? "تغيير الصورة" : "Change photo"}
                 aria-label={isAr ? "تغيير الصورة" : "Change photo"}
-                className="absolute -bottom-1 -end-1 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-border/60 bg-card text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground disabled:opacity-60"
+                className="absolute -bottom-1 -end-1 z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 border-background bg-elite-blue-500 text-white shadow-md transition-colors hover:bg-elite-blue-600 disabled:opacity-60"
               >
                 {photoUploading ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -567,6 +495,16 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
                 isAr={isAr}
                 className="mt-2"
               />
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Button size="sm" variant={resolvedPhotoUrl ? "outline" : "default"} className="h-8 gap-1.5" disabled={photoUploading} onClick={() => photoInputRef.current?.click()} data-testid="driver-photo-upload">
+                  {photoUploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
+                  {resolvedPhotoUrl ? (isAr ? "تغيير صورة السائق" : "Change driver photo") : (isAr ? "رفع صورة السائق" : "Upload driver photo")}
+                </Button>
+                <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => { setSelectedTab("platforms"); requestAnimationFrame(() => document.getElementById("driver-tabs-top")?.scrollIntoView({ behavior: "smooth", block: "start" })) }} data-testid="driver-id-cards-link">
+                  <IdCard className="h-3.5 w-3.5" />
+                  {isAr ? "بطاقات الهوية" : "ID cards"}
+                </Button>
+              </div>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-4 sm:gap-6">
@@ -644,6 +582,7 @@ function DriverDetailInner({ driverId }: { driverId: string }) {
         </DialogContent>
       </Dialog>
 
+      <div id="driver-tabs-top" className="scroll-mt-4" />
       <DriverTabs
         driver={driver}
         value={selectedTab}

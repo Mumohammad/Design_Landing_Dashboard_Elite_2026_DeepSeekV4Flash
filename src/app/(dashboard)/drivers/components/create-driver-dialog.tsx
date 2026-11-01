@@ -7,7 +7,7 @@ import { useForm, useWatch, Controller } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { toast } from "@/lib/toast"
-import { Bike, Briefcase, CircleAlert, IdCard, Loader2, Phone, StickyNote, UserRound, Wallet } from "lucide-react"
+import { Bike, Briefcase, Camera, CircleAlert, IdCard, Loader2, Phone, StickyNote, UserRound, Wallet } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -31,6 +31,7 @@ import { createDriver } from "@/lib/drivers/actions"
 import { useTranslation } from "@/hooks/use-translation"
 import { PlatformIdsEditor, platformRowsError, type PlatformIdRow } from "@/components/drivers/platform-ids-editor"
 import { saveDriverPlatformAccount } from "@/app/actions/drivers/platform-accounts"
+import { uploadDriverPhoto, validateDriverPhoto } from "@/lib/drivers/upload-photo"
 import { NationalityPicker, SaudiCityPicker, SaudiRegionPicker } from "@/components/drivers/reference-pickers"
 import { isSaudiShortAddress, isValidSaudiId } from "@/lib/validation/saudi-id"
 import {
@@ -293,6 +294,17 @@ export function CreateDriverDialog({
   const router = useRouter()
   const [submitting, setSubmitting] = useState(false)
   const [platformRows, setPlatformRows] = useState<PlatformIdRow[]>([{ code: "hungerstation", riderId: "" }])
+  const [photoFile, setPhotoFile] = useState<File | null>(null)
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null)
+
+  function pickPhoto(file: File | null) {
+    if (photoPreview) URL.revokeObjectURL(photoPreview)
+    if (!file) { setPhotoFile(null); setPhotoPreview(null); return }
+    const valid = validateDriverPhoto(file)
+    if (!valid.ok) { toast.error(isAr ? valid.errorAr : valid.error); setPhotoFile(null); setPhotoPreview(null); return }
+    setPhotoFile(file)
+    setPhotoPreview(URL.createObjectURL(file))
+  }
 
   const {
     register,
@@ -358,6 +370,11 @@ export function CreateDriverDialog({
       internal_notes: toNullable(values.internal_notes),
     })
     if (result.success && result.id) {
+      // Upload the photo first: platform-account saves bump profile_version.
+      if (photoFile) {
+        const up = await uploadDriverPhoto({ id: result.id, profile_version: result.profile_version ?? 0 }, photoFile)
+        if (!up.ok) toast.warning(isAr ? `تم إنشاء السائق، لكن ${up.errorAr}` : `Driver created, but ${up.error}`)
+      }
       const rows = platformRows.filter((r) => r.code && r.riderId.trim())
       let failed = 0
       for (const [i, r] of rows.entries()) {
@@ -372,6 +389,7 @@ export function CreateDriverDialog({
       toast.success(isAr ? "تم إنشاء السائق بنجاح" : "Driver created successfully")
       reset()
       setPlatformRows([{ code: "hungerstation", riderId: "" }])
+      pickPhoto(null)
       onOpenChange(false)
       router.refresh()
       if (result.id) router.push(`/drivers/${result.id}`)
@@ -410,6 +428,25 @@ export function CreateDriverDialog({
         <form onSubmit={handleSubmit(onSubmit)} className="grid min-w-0 gap-4 px-4 py-4 sm:px-6" noValidate>
           {/* Identity */}
           <Section id="identity" isAr={isAr}>
+            <div className="flex items-center gap-4 rounded-xl border border-dashed border-border/70 bg-muted/30 p-3 sm:col-span-2 lg:col-span-3">
+              <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-background">
+                {photoPreview
+                  ? // eslint-disable-next-line @next/next/no-img-element -- local blob preview
+                    <img src={photoPreview} alt={isAr ? "معاينة صورة السائق" : "Driver photo preview"} className="h-full w-full object-cover" />
+                  : <Camera className="h-7 w-7 text-muted-foreground" aria-hidden />}
+              </div>
+              <div className="grid min-w-0 gap-1.5">
+                <Label htmlFor="create-driver-photo" className="text-sm font-medium">{isAr ? "الصورة الشخصية للسائق" : "Driver profile photo"}</Label>
+                <p className="text-xs text-muted-foreground">{isAr ? "تظهر على بطاقة الهوية والملف (JPG/PNG/WebP — حتى 5MB)" : "Shown on the ID card and profile (JPG/PNG/WebP — up to 5MB)"}</p>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" size="sm" variant="outline" onClick={() => document.getElementById("create-driver-photo")?.click()} data-testid="create-driver-photo-button">
+                    <Camera className="h-4 w-4" aria-hidden />{photoFile ? (isAr ? "تغيير الصورة" : "Change photo") : (isAr ? "رفع صورة" : "Upload photo")}
+                  </Button>
+                  {photoFile && <Button type="button" size="sm" variant="ghost" onClick={() => pickPhoto(null)}>{isAr ? "إزالة" : "Remove"}</Button>}
+                </div>
+                <input id="create-driver-photo" type="file" accept="image/*" className="sr-only" onChange={(e) => { pickPhoto(e.target.files?.[0] ?? null); e.target.value = "" }} />
+              </div>
+            </div>
             <Field isAr={isAr} id="create-driver-full_name_ar" label={isAr ? "الاسم الكامل (عربي)" : "Full name (Arabic)"} required error={errors.full_name_ar?.message}>
               <Input id="create-driver-full_name_ar" {...register("full_name_ar")} className={inputClass} />
             </Field>

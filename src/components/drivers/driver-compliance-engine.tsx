@@ -29,7 +29,6 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { DriverCardPanel } from "@/components/drivers/driver-card-panel"
 import { Check, Eye, FileText, RefreshCw, ShieldAlert, Trash2, Upload } from "lucide-react"
 
 const levelStyles: Record<ComplianceLevel, { en: string; ar: string; cls: string }> = {
@@ -560,7 +559,6 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
         </div>
       )}
 
-      {!readFailed&&<DriverCardPanel driverId={driver.id} isAr={isAr} />}
 
       {error && <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">{error}</p>}
 
