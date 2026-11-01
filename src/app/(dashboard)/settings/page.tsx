@@ -13,6 +13,7 @@ import {
   Globe,
   ArrowLeft,
   BellRing,
+  Wallet,
 } from "lucide-react"
 import { ScrollReveal, StaggerContainer } from "@/components/ui/scroll-reveal"
 
@@ -83,6 +84,13 @@ export default function SettingsPage() {
       href: "/settings/notifications",
       icon: BellRing,
       color: "#EF4444",
+    },
+    {
+      title: t.common.status === "الحالة" ? "الفوترة والاشتراك" : "Billing & subscription",
+      description: t.common.status === "الحالة" ? "فواتير الاشتراك والدفع بمدى وفيزا وApple Pay" : "Subscription invoices, pay by mada, Visa or Apple Pay",
+      href: "/settings/billing",
+      icon: Wallet,
+      color: "#0EA5E9",
     },
   ]
 

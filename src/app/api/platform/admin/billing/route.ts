@@ -7,7 +7,7 @@ export async function GET(req: NextRequest) {
 
   const { data: invoices, error } = await guard.service
     .from('platform_invoices')
-    .select('id, tenant_id, invoice_number, period_label, amount, currency, status, due_date, paid_at, created_at')
+    .select('id, tenant_id, invoice_number, period_label, amount, currency, status, due_date, paid_at, payment_method, payment_reference, created_at')
     .order('created_at', { ascending: false })
     .limit(200);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -82,7 +82,8 @@ export async function PATCH(req: NextRequest) {
       status: 'paid',
       paid_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-    }).eq('id', invoice_id);
+      payment_method: 'manual',
+    }).eq('id', invoice_id).in('status', ['pending', 'overdue']);
     if (error) throw error;
 
     await guard.service.from('tenants').update({ billing_status: 'active_paid', updated_by: guard.userId }).eq('id', invoice.tenant_id);
