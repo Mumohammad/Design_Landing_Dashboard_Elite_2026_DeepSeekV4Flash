@@ -4,6 +4,10 @@
 -- server re-reads the payment from Moyasar with the secret key.
 BEGIN;
 
+-- Reconcile drift: production gained tenants.billing_status out of band
+-- (platform admin console). No-op there; creates it for fresh databases.
+ALTER TABLE public.tenants ADD COLUMN IF NOT EXISTS billing_status text NOT NULL DEFAULT 'trialing';
+
 CREATE TABLE public.platform_payment_attempts (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   platform_invoice_id uuid NOT NULL REFERENCES public.platform_invoices(id) ON DELETE CASCADE,
