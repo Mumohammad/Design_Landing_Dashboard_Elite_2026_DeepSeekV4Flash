@@ -23,6 +23,7 @@ import {
   FileCheck2,
   Fingerprint,
   Settings,
+  ReceiptText,
 } from "lucide-react"
 import Link from "next/link"
 import { Logo } from "@/components/logo"
@@ -76,6 +77,7 @@ export function AppSidebar({ branding, ...props }: React.ComponentProps<typeof S
       items: [
         { title: t.nav.maintenance, url: "/maintenance", icon: Wrench },
         { title: t.nav.violations, url: "/violations", icon: Siren },
+        { title: locale === "ar" ? "المخالفات المرورية" : "Traffic fines", url: "/violations/fines", icon: ReceiptText },
       ],
     },
     {
