@@ -64,3 +64,20 @@ export function buildCsp({ isDev, supabaseUrl }: CspOptions): string {
     "form-action 'self'",
   ].join("; ")
 }
+
+/**
+ * CSP for the self-hosted OCR worker files under /ocr only. Tesseract runs as a
+ * dedicated worker whose policy comes from its own response, so WebAssembly
+ * compilation ('wasm-unsafe-eval', not JS eval) is allowed there and nowhere
+ * else. The worker may only load same-origin scripts and language data.
+ */
+export function buildOcrWorkerCsp(): string {
+  return [
+    "default-src 'none'",
+    "script-src 'self' 'wasm-unsafe-eval'",
+    "connect-src 'self'",
+    "frame-ancestors 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+  ].join("; ")
+}
