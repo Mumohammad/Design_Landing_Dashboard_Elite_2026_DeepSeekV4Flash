@@ -186,3 +186,14 @@ it("maps RPC errors to friendly bilingual messages", () => {
   expect(claimErrorMessage({ message: "EXC008: x" }, "ar")).toMatch(/التكرار/)
   expect(claimErrorMessage("boom")).toMatch(/could not be completed/)
 })
+
+describe("Telegram link code pasted on its own", () => {
+  it("accepts bare codes and rejects ordinary words", async () => {
+    const { bareLinkCode } = await import("./receipt-parse")
+    expect(bareLinkCode("ZNQD7PAUCA")).toBe("ZNQD7PAUCA")
+    expect(bareLinkCode(" znqd 7pau ca ")).toBe("ZNQD7PAUCA")
+    expect(bareLinkCode("ربط S656WFZKQM")).toBe("S656WFZKQM")
+    expect(bareLinkCode("HelloWorld")).toBeNull()
+    expect(bareLinkCode("total 115")).toBeNull()
+  })
+})

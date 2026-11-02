@@ -191,3 +191,14 @@ export function parseCaption(caption: string | null | undefined, categories?: st
   }
   return out
 }
+
+/**
+ * A Telegram one-time link code pasted on its own (e.g. "ZNQD7PAUCA",
+ * "znqd 7pau ca", "ربط ZNQD7PAUCA"). Codes are 10 characters of A–Z/0–9;
+ * plain words are not treated as codes unless all upper case or containing a digit.
+ */
+export function bareLinkCode(text: string): string | null {
+  const t = text.trim().replace(/^(?:link|code|ربط|رمز|الرمز)\s*[:：]?\s*/i, "").replace(/[\s-]/g, "")
+  if (!/^[A-Za-z0-9]{10}$/.test(t)) return null
+  return /\d/.test(t) || t === t.toUpperCase() ? t.toUpperCase() : null
+}
