@@ -10,6 +10,7 @@ import {
   LayoutTemplate,
   HandCoins,
   WalletCards,
+  Receipt,
   FileBadge,
   Calculator,
   CreditCard,
@@ -65,6 +66,7 @@ export function AppSidebar({ branding, ...props }: React.ComponentProps<typeof S
       items: [
         { title: t.nav.payroll, url: "/payroll", icon: HandCoins },
         { title: t.nav.expenses, url: "/expenses", icon: WalletCards },
+        { title: locale === "ar" ? "مطالبات المصروفات" : "Expense claims", url: "/expenses/claims", icon: Receipt },
         { title: t.nav.invoices, url: "/invoices", icon: FileBadge },
         { title: t.nav.payments, url: "/payments", icon: CreditCard },
         { title: t.nav.accounting, url: "/accounting", icon: Calculator },
