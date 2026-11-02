@@ -28,8 +28,8 @@ const EMPTY: Form = {
 }
 
 const EXT: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/heic": "heic", "image/heif": "heif", "application/pdf": "pdf", "application/xml": "xml", "text/xml": "xml" }
-const MIME: Record<string, string> = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", heic: "image/heic", heif: "image/heif", pdf: "application/pdf", xml: "application/xml" }
-function extOf(f: File): string | null {
+export const MIME: Record<string, string> = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", heic: "image/heic", heif: "image/heif", pdf: "application/pdf", xml: "application/xml" }
+export function extOf(f: File): string | null {
   const byName = /\.([a-z0-9]{2,5})$/i.exec(f.name)?.[1]?.toLowerCase()
   const ext = byName === "jpeg" ? "jpg" : byName
   if (ext && MIME[ext]) return ext

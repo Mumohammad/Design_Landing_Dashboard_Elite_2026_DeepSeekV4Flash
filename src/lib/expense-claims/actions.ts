@@ -364,3 +364,46 @@ export async function registerTelegramWebhook(): Promise<ActionResult> {
     return { ok: true }
   } catch { return fail("Telegram rejected the webhook registration. Check the bot token.", "رفض تيليجرام تسجيل الـ webhook. تحقق من رمز البوت.") }
 }
+
+/**
+ * Quick upload: reads the claim's uploaded receipt on the server (ZATCA QR, e-invoice XML,
+ * PDF text) and fills EMPTY fields only, marked unverified. Only the submitter's own draft
+ * or needs-info claim is touched (expense_claim_save re-checks ownership and status).
+ */
+export async function autofillClaimFromReceipt(claimId: string): Promise<ActionResult<{ version: number; fields: Record<string, string>; source: string[]; summary: string }>> {
+  const me = await guard("autofill", 20)
+  if (!me) return denied()
+  if (me === "busy") return busy()
+  try {
+    const supabase = await createClient()
+    const { data: c } = await supabase.from("expense_claims").select("*").eq("id", claimId).maybeSingle()
+    if (!c || c.submitter_id !== me.authUserId || !["draft", "needs_info"].includes(c.status)) return failFrom(new Error("EXC002"))
+    const { data: atts } = await supabase.from("expense_claim_attachments").select("storage_path,mime_type").eq("claim_id", claimId).order("uploaded_at", { ascending: true }).limit(5)
+    const { extractReceiptDataWithin, readSummary } = await import("./extract")
+    const admin = createAdminClient()
+    let ex: Awaited<ReturnType<typeof extractReceiptDataWithin>> | null = null
+    for (const a of atts ?? []) {
+      const { data: blob } = await admin.storage.from(RECEIPT_BUCKET).download(a.storage_path)
+      if (!blob) continue
+      const r = await extractReceiptDataWithin(new Uint8Array(await blob.arrayBuffer()), a.mime_type, 20_000)
+      if (Object.keys(r.fields).length && (!ex || Object.keys(r.fields).length > Object.keys(ex.fields).length)) ex = r
+      if (ex?.source.includes("qr")) break
+    }
+    const found = (ex?.fields ?? {}) as Record<string, string>
+    const row = c as Record<string, unknown>
+    const fill: Record<string, string> = {}
+    for (const [k, v] of Object.entries(found)) if (v && (row[k] === null || row[k] === "" || (k === "currency" && row[k] === "SAR"))) fill[k] = v
+    let version = c.version as number
+    if (Object.keys(fill).length) {
+      const prevUnverified = Array.isArray(c.unverified_fields) ? (c.unverified_fields as string[]) : []
+      const saved = await saveExpenseClaim(claimId, {
+        ...fill,
+        unverified_fields: Array.from(new Set([...prevUnverified, ...Object.keys(fill)])),
+        ocr_suggestions: { ...(typeof c.ocr_suggestions === "object" && c.ocr_suggestions ? c.ocr_suggestions : {}), file: found, file_source: ex?.source ?? [], qr_phase2: ex?.qrPhase2 ?? null },
+      }, version)
+      if (!saved.ok) return saved
+      version = saved.version
+    }
+    return { ok: true, version, fields: fill, source: ex?.source ?? [], summary: readSummary(found, ex?.source ?? []).trim() }
+  } catch (e) { return failFrom(e) }
+}

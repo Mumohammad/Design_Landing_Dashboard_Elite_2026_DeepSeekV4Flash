@@ -22,6 +22,7 @@ import {
 } from "@/lib/expenses/constants"
 import {
   Wallet, Clock, DollarSign, CheckCircle2, BadgeCheck, Loader2, AlertTriangle, ReceiptText, Plus, Save, X, Pencil, Ban, Receipt, Send,
+  Camera,
 } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
@@ -292,6 +293,7 @@ export default function ExpensesPage() {
           </div>
         </div>
         <div className="flex shrink-0 gap-2">
+          <Button asChild size="sm" variant="outline"><Link href="/expenses/claims/quick"><Camera className="h-4 w-4" />{locale === "ar" ? "رفع إيصال سريع" : "Quick upload"}</Link></Button>
           <Button asChild size="sm" variant="outline"><Link href="/expenses/claims?telegram=1"><Send className="h-4 w-4" />{locale === "ar" ? "ربط تيليجرام" : "Link Telegram"}</Link></Button>
           <Button asChild size="sm"><Link href="/expenses/claims"><Receipt className="h-4 w-4" />{locale === "ar" ? "مطالبات المصروفات" : "Expense claims"}</Link></Button>
         </div>
