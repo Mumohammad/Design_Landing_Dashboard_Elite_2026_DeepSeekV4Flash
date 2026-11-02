@@ -13,6 +13,9 @@ export default function manifest(): MetadataRoute.Manifest {
     lang: "ar",
     background_color: "#ffffff",
     theme_color: "#1E5A99",
+    shortcuts: [
+      { name: "رفع إيصال — Upload receipt", short_name: "Receipt", url: "/expenses/claims/quick", icons: [{ src: "/apple-icon.png", sizes: "180x180", type: "image/png" }] },
+    ],
     icons: [
       { src: "/favicon.png", sizes: "64x64", type: "image/png" },
       { src: "/apple-icon.png", sizes: "180x180", type: "image/png" },

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { AlertTriangle, Copy, FileSpreadsheet, FileWarning, Loader2, MessageSquareWarning, Plus, Search, Send, Settings2, ScanText } from "lucide-react"
+import { AlertTriangle, Camera, Copy, FileSpreadsheet, FileWarning, Loader2, MessageSquareWarning, Plus, Search, Send, Settings2, ScanText } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -111,6 +111,7 @@ export function ClaimsDashboard() {
           <h1 className="text-xl font-semibold">{t("Expense claims", "مطالبات المصروفات")}</h1>
           <p className="text-sm text-muted-foreground">{teamView ? t("Employee expense claims and receipts — separate from the accounting ledger and e-invoicing.", "مطالبات مصروفات الموظفين وإيصالاتها — منفصلة عن دفتر الحسابات والفوترة الإلكترونية.") : t("Your expense claims and receipts.", "مطالبات مصروفاتك وإيصالاتها.")}</p>
         </div>
+        {access.create && <Button asChild variant="outline"><Link href="/expenses/claims/quick"><Camera className="size-4" />{t("Quick upload", "رفع سريع")}</Link></Button>}
         {access.create && <Button asChild><Link href="/expenses/claims/new"><Plus className="size-4" />{t("New expense", "مصروف جديد")}</Link></Button>}
         {access.create && <Button variant="outline" onClick={() => setTgOpen(true)}><Send className="size-4" />{t("Link Telegram", "ربط تيليجرام")}</Button>}
         {access.export && <Button variant="outline" onClick={() => setExportOpen(true)}><FileSpreadsheet className="size-4" />{t("Export Expenses", "تصدير المصروفات")}</Button>}

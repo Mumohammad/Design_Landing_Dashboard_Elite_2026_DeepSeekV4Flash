@@ -59,7 +59,7 @@ export function parseReceiptText(raw: string, today = new Date().toISOString().s
 
   const rnRe = /(?:\b(?:invoice|receipt|bill|inv|order|txn|transaction)\b\.?|رقم\s*الفاتورة|فاتورة\s*رقم|رقم\s*الإيصال|رقم\s*الايصال)\s*(?:\b(?:no|number|num)\b\.?|#)?\s*[:#]?\s*([A-Z0-9][A-Z0-9\-/]{2,29})/gi
   const rn = [...text.matchAll(rnRe)].map((m) => m[1]).find((v) => /\d/.test(v) && !/^\d{15}$/.test(v))
-  if (rn) f.receipt_number = rn
+  if (rn) f.receipt_number = rn.replace(/[-/]+$/, "")
 
   const dates = findDates(text).filter((d) => d.iso <= today)
   if (dates.length) f.expense_date = dates[0].iso

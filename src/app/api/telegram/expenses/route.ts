@@ -13,6 +13,7 @@ import { uploadAndRegister } from "@/lib/expense-claims/attachments"
 import { MAX_ATTACHMENT_BYTES } from "@/lib/expense-claims/constants"
 import { sniffFile } from "@/lib/expense-claims/file-check"
 import { bareLinkCode, parseCaption } from "@/lib/expense-claims/receipt-parse"
+import { claimPayload, extractReceiptDataWithin, readSummary } from "@/lib/expense-claims/extract"
 import { zatcaPurchaseCheck } from "@/lib/expense-claims/zatca-check"
 import { downloadTelegramFile, sendMessage } from "@/lib/expense-claims/telegram"
 
@@ -107,9 +108,12 @@ async function handle(msg: TgMessage, from: TgUser) {
   if (!sniff.ok) { await sendMessage(chat, `${sniff.message.en}\n${sniff.message.ar}`); return }
 
   const { data: settings } = await admin.from("expense_claim_settings").select("categories").eq("tenant_id", id.tenant_id).maybeSingle()
-  const fields = parseCaption(msg.caption, Array.isArray(settings?.categories) ? (settings!.categories as string[]) : undefined)
-  const payload = { ...fields, unverified_fields: Object.keys(fields), ocr_suggestions: { caption: (msg.caption ?? "").slice(0, 1000), parsed: fields } }
-  const { data: created, error } = await admin.rpc("expense_telegram_claim", { p_user: id.user_id, p_fields: msg.media_group_id && !msg.caption ? {} : payload, p_media_group: msg.media_group_id ?? null })
+  const typed = parseCaption(msg.caption, Array.isArray(settings?.categories) ? (settings!.categories as string[]) : undefined)
+  // Album pages without a caption attach to the existing claim and must not overwrite it.
+  const albumPage = !!msg.media_group_id && !msg.caption
+  const ex = albumPage ? { fields: {}, source: [], qrPhase2: null, textChars: 0 } : await extractReceiptDataWithin(bytes, sniff.mime, 25_000)
+  const { fields, payload } = claimPayload(typed, ex, msg.caption)
+  const { data: created, error } = await admin.rpc("expense_telegram_claim", { p_user: id.user_id, p_fields: albumPage ? {} : payload, p_media_group: msg.media_group_id ?? null })
   if (error || !created) { await sendMessage(chat, T.failed); return }
   const claim = created as { id: string; claim_no: string; existing: boolean }
   const res = await uploadAndRegister({ actor: id.user_id, tenantId: id.tenant_id, claimId: claim.id, bytes, originalName: file.name, source: "telegram" })
@@ -118,8 +122,9 @@ async function handle(msg: TgMessage, from: TgUser) {
   const base = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "")
   const dup = res.duplicateStatus === "possible" ? "\n⚠️ Possible duplicate — a reviewer will check it. / تكرار محتمل — سيتحقق منه المراجع." : ""
   const f = fields as Record<string, string | undefined>
+  const summary = readSummary(f, ex.source)
   const z = zatcaPurchaseCheck({ currency: f.currency ?? "SAR", supplier_name: f.supplier_name ?? null, supplier_vat_number: f.supplier_vat_number ?? null, receipt_number: f.receipt_number ?? null, expense_date: f.expense_date ?? null, amount_before_vat: f.amount_before_vat ?? null, vat_rate: f.vat_rate ?? null, vat_amount: f.vat_amount ?? null, total_amount: f.total_amount ?? null })
   const zErr = z.issues.filter((i) => i.severity === "error").slice(0, 4)
   const zatca = zErr.length ? `\n\nZATCA invoice check — please add in the dashboard / التحقق حسب متطلبات الهيئة — أكمل في لوحة التحكم:\n${zErr.map((i) => `• ${i.text.en}\n  ${i.text.ar}`).join("\n")}` : ""
-  await sendMessage(chat, `🧾 Receipt received — claim ${claim.claim_no} is pending review. Details from your caption are unverified until reviewed.\nتم استلام الإيصال — المطالبة ${claim.claim_no} بانتظار المراجعة. البيانات من الوصف غير متحقق منها حتى تتم المراجعة.${dup}${zatca}${base ? `\n${base}/expenses/claims/${claim.id}` : ""}`)
+  await sendMessage(chat, `🧾 Receipt received — claim ${claim.claim_no} is pending review. Details are unverified until reviewed.\nتم استلام الإيصال — المطالبة ${claim.claim_no} بانتظار المراجعة. البيانات غير متحقق منها حتى تتم المراجعة.${summary}${dup}${zatca}${base ? `\n${base}/expenses/claims/${claim.id}` : ""}`)
 }

@@ -39,7 +39,7 @@ const LANDING_PATH = LANDING_URL.slice(LANDING_URL.indexOf("://") + 3).split("/"
 
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["@sparticuz/chromium", "playwright-core"],
+  serverExternalPackages: ["@sparticuz/chromium", "playwright-core", "unpdf"],
   outputFileTracingIncludes: {
     "/api/invoices/*/pdf": [
       `${packagePath("@sparticuz/chromium")}/bin/*.br`,
