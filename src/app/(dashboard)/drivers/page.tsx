@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/select"
 import { CreateDriverDialog } from "./components/create-driver-dialog"
 import { DriverImportDialog } from "@/components/drivers/driver-import-dialog"
+import { RiderCardEditor } from "@/components/drivers/rider-card-editor"
 import DriverActionsMenu from "@/components/drivers/driver-actions-menu"
 import type { Driver, DriverCategory, DriverStatus } from "@/types/drivers"
 import {
@@ -39,6 +40,7 @@ import {
   Upload,
   UserX,
   Users,
+  Palette,
 } from "lucide-react"
 
 type DriverListItem = Pick<
@@ -224,6 +226,7 @@ export default function DriversPage() {
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
+  const [cardDesignerOpen, setCardDesignerOpen] = useState(false)
   const loadCounts = useCallback(async () => {
     const base = () => createClient().from("drivers").select("id", { count: "exact", head: true }).is("deleted_at", null)
     const results = await Promise.all([
@@ -528,6 +531,10 @@ export default function DriversPage() {
             <Upload className="h-3.5 w-3.5" />
             {isAr ? "استيراد Excel" : "Import Excel"}
           </Button>
+          <Button variant="outline" size="sm" className="h-9 gap-1.5 rounded-xl" onClick={() => setCardDesignerOpen(true)} data-testid="open-card-designer">
+            <Palette className="h-3.5 w-3.5" />
+            {isAr ? "بطاقة المندوب" : "Rider card"}
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -599,6 +606,7 @@ export default function DriversPage() {
           setDialogOpen(open)
           if (!open) { reload(); void loadCounts() }
         }} />
+        <RiderCardEditor open={cardDesignerOpen} onOpenChange={setCardDesignerOpen} isAr={isAr} />
         <DriverImportDialog open={importOpen} onOpenChange={setImportOpen} isAr={isAr} onImported={() => { reload(); void loadCounts() }} />
       </EnterpriseModulePage>
     </div>
