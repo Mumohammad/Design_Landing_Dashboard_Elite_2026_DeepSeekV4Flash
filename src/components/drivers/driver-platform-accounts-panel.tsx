@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { BadgeCheck, Copy, CreditCard, Loader2, Pencil, Plus, Printer, Star, Trash2 } from "lucide-react"
+import { BadgeCheck, Copy, CreditCard, Loader2, Palette, Pencil, Plus, Printer, Star, Trash2 } from "lucide-react"
 import { toast } from "@/lib/toast"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -16,10 +16,12 @@ import { useDriverPhoto } from "@/components/drivers/photo-provider"
 import { PlatformDot } from "@/components/drivers/platform-ids-editor"
 import { RiderCardPreview } from "@/components/drivers/driver-card-preview"
 import { DriverCardPanel } from "@/components/drivers/driver-card-panel"
+import { RiderCardEditor, type RiderCardEditorSeed } from "@/components/drivers/rider-card-editor"
 import { buildRiderCardsPrintHtml, type DriverCardOutputFormat } from "@/lib/drivers/card-print"
 import { DEFAULT_CARD_PLATFORM, DEFAULT_CARD_THEME, DELIVERY_PLATFORMS, RIDER_ID_PATTERN, platformByCode, platformLabel, platformTheme } from "@/lib/drivers/platforms"
 import { fetchDriverPlatformAccounts, sortAccounts, type DriverPlatformAccount } from "@/lib/drivers/platform-accounts"
-import { recordPlatformCardPrints, removeDriverPlatformAccount, saveDriverPlatformAccount } from "@/app/actions/drivers/platform-accounts"
+import { removeDriverPlatformAccount, saveDriverPlatformAccount } from "@/app/actions/drivers/platform-accounts"
+import { logPlatformCardPrint, printRiderCards } from "@/components/drivers/card-output"
 import { createClient } from "@/lib/supabase/client"
 import { emitDriverChanged } from "@/lib/drivers/driver-events"
 import type { DriverCardPerson } from "@/lib/drivers/cards"
@@ -42,32 +44,7 @@ export function cardPersonFromDriver(driver: Driver, photoUrl: string | null): D
   }
 }
 
-/** Opens a print window for rider cards and waits for fonts/photos. */
-export async function printRiderCards(html: string): Promise<boolean> {
-  const popup = window.open("", "_blank", "width=760,height=620")
-  if (!popup) return false
-  popup.document.write(html)
-  popup.document.close()
-  let timeout: number | undefined
-  try {
-    await Promise.race([
-      Promise.all([popup.document.fonts.ready, ...Array.from(popup.document.images, (image) => image.decode().catch(() => undefined))]),
-      new Promise((resolve) => { timeout = window.setTimeout(resolve, 6000) }),
-    ])
-  } finally {
-    if (timeout !== undefined) window.clearTimeout(timeout)
-  }
-  popup.focus()
-  popup.print()
-  return true
-}
-
-/** Records a successful platform card print, then notifies print-log listeners. */
-export function logPlatformCardPrint(driverId: string, cards: { platform_code: string; rider_id: string | null }[], format: "pvc" | "a4") {
-  void recordPlatformCardPrints({ driverId, cards, format }).then((r) => {
-    if (r.ok && typeof window !== "undefined") window.dispatchEvent(new CustomEvent("platform-card-printed", { detail: { driverId } }))
-  })
-}
+export { logPlatformCardPrint, printRiderCards }
 
 export function DriverPlatformAccountsPanel({ driver, isAr }: { driver: Driver; isAr: boolean }) {
   const [accounts, setAccounts] = useState<DriverPlatformAccount[] | null>(null)
@@ -76,6 +53,7 @@ export function DriverPlatformAccountsPanel({ driver, isAr }: { driver: Driver; 
   const [busy, setBusy] = useState(false)
   const [removing, setRemoving] = useState<DriverPlatformAccount | null>(null)
   const [format, setFormat] = useState<DriverCardOutputFormat>("pvc")
+  const [editorSeed, setEditorSeed] = useState<RiderCardEditorSeed | null>(null)
   const { photoUrl } = useDriverPhoto()
   const person = useMemo(() => cardPersonFromDriver(driver, photoUrl), [driver, photoUrl])
 
@@ -150,6 +128,11 @@ export function DriverPlatformAccountsPanel({ driver, isAr }: { driver: Driver; 
     if (!(await printRiderCards(html))) return void toast.error(isAr ? "اسمح بالنوافذ المنبثقة ثم أعد المحاولة." : "Allow popups and try again.")
     logPlatformCardPrint(driver.id, [{ platform_code: DEFAULT_CARD_PLATFORM, rider_id: driver.rider_id ?? driver.driver_code ?? null }], format)
   }
+
+  const editCard = (platformCode?: string) => setEditorSeed({ driver, photoUrl, platformCode })
+  const editBtn = (platformCode?: string) => (
+    <Button size="sm" variant="outline" className="h-7 gap-1 px-2 text-xs" onClick={() => editCard(platformCode)} data-testid="edit-rider-card"><Palette className="size-3" />{isAr ? "تعديل وطباعة / PDF" : "Edit, print / PDF"}</Button>
+  )
 
   const copy = async (value: string) => {
     try { await navigator.clipboard.writeText(value); toast.success(isAr ? "تم النسخ" : "Copied") } catch { /* clipboard unavailable */ }
@@ -233,6 +216,9 @@ export function DriverPlatformAccountsPanel({ driver, isAr }: { driver: Driver; 
               <SelectTrigger className="h-8 w-24 text-xs" aria-label={isAr ? "صيغة الطباعة" : "Print format"}><SelectValue /></SelectTrigger>
               <SelectContent><SelectItem value="pvc">PVC</SelectItem><SelectItem value="a4">A4</SelectItem></SelectContent>
             </Select>
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => editCard()}>
+              <Palette className="size-3.5" />{isAr ? "تصميم البطاقة" : "Card designer"}
+            </Button>
             <Button size="sm" variant="outline" className="gap-1.5" disabled={activeAccounts.length === 0} onClick={() => void print(activeAccounts)}>
               <Printer className="size-3.5" />{isAr ? "طباعة الكل" : "Print all"}
             </Button>
@@ -245,6 +231,7 @@ export function DriverPlatformAccountsPanel({ driver, isAr }: { driver: Driver; 
               <span className="flex items-center gap-2 font-normal text-muted-foreground">
                 {isAr ? "أضف رقم مندوب نشط لإصدار بطاقة المنصة." : "Add an active rider ID for the platform-branded card."}
                 <Button size="sm" variant="outline" className="h-7 gap-1 px-2 text-xs" onClick={() => void printCompany()}><Printer className="size-3" />{isAr ? "طباعة" : "Print"}</Button>
+                {editBtn(DEFAULT_CARD_PLATFORM)}
               </span>
             </figcaption>
             <RiderCardPreview theme={DEFAULT_CARD_THEME} riderId={driver.rider_id ?? driver.driver_code ?? "—"} footerRef={driver.driver_code ?? null} person={person} scale={0.62} />
@@ -255,7 +242,7 @@ export function DriverPlatformAccountsPanel({ driver, isAr }: { driver: Driver; 
               <figure key={a.id} className="rounded-xl border border-border/50 bg-muted/20 p-4">
                 <figcaption className="mb-3 flex items-center justify-between gap-2 text-xs font-semibold">
                   <span className="flex items-center gap-2"><PlatformDot code={a.platform_code} />{platformLabel(a.platform_code, isAr)}</span>
-                  <span className="inline-flex items-center gap-1 text-muted-foreground"><BadgeCheck className="size-3.5 text-emerald-500" /><span dir="ltr" className="font-mono">{a.platform_driver_id}</span></span>
+                  <span className="flex items-center gap-2"><span className="inline-flex items-center gap-1 text-muted-foreground"><BadgeCheck className="size-3.5 text-emerald-500" /><span dir="ltr" className="font-mono">{a.platform_driver_id}</span></span>{editBtn(a.platform_code)}</span>
                 </figcaption>
                 <RiderCardPreview theme={platformTheme(a.platform_code)} riderId={a.platform_driver_id} footerRef={driver.driver_code ?? null} person={person} scale={0.62} />
               </figure>
@@ -263,6 +250,8 @@ export function DriverPlatformAccountsPanel({ driver, isAr }: { driver: Driver; 
           </div>
         )}
       </section>
+
+      <RiderCardEditor open={!!editorSeed} onOpenChange={(o) => { if (!o) setEditorSeed(null) }} isAr={isAr} seed={editorSeed} />
 
       <PlatformCardPrintLog driverId={driver.id} isAr={isAr} />
 
