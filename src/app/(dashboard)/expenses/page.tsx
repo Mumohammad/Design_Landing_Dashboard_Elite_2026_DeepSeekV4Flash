@@ -21,10 +21,11 @@ import {
   type ExpenseVatRecoverability,
 } from "@/lib/expenses/constants"
 import {
-  Wallet, Clock, DollarSign, CheckCircle2, BadgeCheck, Loader2, AlertTriangle, ReceiptText, Plus, Save, X, Pencil, Ban,
+  Wallet, Clock, DollarSign, CheckCircle2, BadgeCheck, Loader2, AlertTriangle, ReceiptText, Plus, Save, X, Pencil, Ban, Receipt, Send,
 } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import Link from "next/link"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
@@ -281,6 +282,20 @@ export default function ExpensesPage() {
           {ui(feedback.text)}
         </div>
       )}
+
+      <div className="mb-4 flex flex-col gap-3 rounded-xl border border-sky-500/30 bg-sky-500/5 p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-start gap-2">
+          <Send className="mt-0.5 h-4 w-4 shrink-0 text-sky-600" />
+          <div>
+            <div className="font-medium">{locale === "ar" ? "إيصالات الموظفين وبوت تيليجرام" : "Employee receipts & Telegram bot"}</div>
+            <div className="text-muted-foreground">{locale === "ar" ? "صوّر الإيصال أو أرسله إلى بوت تيليجرام @EliteExpensesBot، ثم راجعه واعتمده وصدّره إلى Excel وفق متطلبات الهيئة." : "Snap a receipt or send it to the Telegram bot @EliteExpensesBot, then review, approve and export it to Excel in the ZATCA format."}</div>
+          </div>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <Button asChild size="sm" variant="outline"><Link href="/expenses/claims?telegram=1"><Send className="h-4 w-4" />{locale === "ar" ? "ربط تيليجرام" : "Link Telegram"}</Link></Button>
+          <Button asChild size="sm"><Link href="/expenses/claims"><Receipt className="h-4 w-4" />{locale === "ar" ? "مطالبات المصروفات" : "Expense claims"}</Link></Button>
+        </div>
+      </div>
 
       <EnterpriseModulePage
         title={t.nav.expenses}

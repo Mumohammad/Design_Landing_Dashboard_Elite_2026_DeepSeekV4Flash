@@ -32,6 +32,11 @@ export function ClaimsDashboard() {
   const [alert, setAlert] = useState<AlertKey | null>(null)
   const [group, setGroup] = useState<GroupKey>("month")
   const [tgOpen, setTgOpen] = useState(false)
+  useEffect(() => {
+    if (!access?.create || new URLSearchParams(window.location.search).get("telegram") !== "1") return
+    const id = window.setTimeout(() => setTgOpen(true), 0)
+    return () => window.clearTimeout(id)
+  }, [access?.create])
   const [exportOpen, setExportOpen] = useState(false)
   const [markExported, setMarkExported] = useState(false)
   const [exporting, setExporting] = useState(false)
