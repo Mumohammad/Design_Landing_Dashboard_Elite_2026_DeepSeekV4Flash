@@ -227,29 +227,21 @@ GRANT SELECT ON public.expense_claim_settings, public.expense_claims, public.exp
 GRANT ALL ON public.expense_claim_settings, public.expense_claims, public.expense_claim_attachments, public.expense_claim_events,
   public.expense_telegram_links, public.expense_telegram_link_codes TO service_role;
 
-CREATE OR REPLACE FUNCTION expense_claims_private.can_see_claim(p_tenant uuid, p_submitter uuid)
-RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
-  SELECT p_tenant = public.get_my_tenant_id() AND (
-    (p_submitter = auth.uid() AND public.user_has_permission('expense_claims', 'create'))
-    OR public.user_has_permission('expense_claims', 'read')
-    OR public.user_has_permission('expense_claims', 'approve'));
-$$;
-GRANT USAGE ON SCHEMA expense_claims_private TO authenticated;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA expense_claims_private FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION expense_claims_private.can_see_claim(uuid, uuid) TO authenticated;
 
 DROP POLICY IF EXISTS expense_claim_settings_sel ON public.expense_claim_settings;
 CREATE POLICY expense_claim_settings_sel ON public.expense_claim_settings FOR SELECT TO authenticated
-  USING (tenant_id = public.get_my_tenant_id());
+  USING (tenant_id = public.get_my_tenant_id() AND (public.user_has_permission('expense_claims', 'create')
+    OR public.user_has_permission('expense_claims', 'read') OR public.user_has_permission('expense_claims', 'manage')));
 DROP POLICY IF EXISTS expense_claims_sel ON public.expense_claims;
 CREATE POLICY expense_claims_sel ON public.expense_claims FOR SELECT TO authenticated
-  USING (deleted_at IS NULL AND expense_claims_private.can_see_claim(tenant_id, submitter_id));
+  USING (deleted_at IS NULL AND (tenant_id = public.get_my_tenant_id() AND ((submitter_id = auth.uid() AND public.user_has_permission('expense_claims', 'create')) OR public.user_has_permission('expense_claims', 'read') OR public.user_has_permission('expense_claims', 'approve'))));
 DROP POLICY IF EXISTS expense_claim_attachments_sel ON public.expense_claim_attachments;
 CREATE POLICY expense_claim_attachments_sel ON public.expense_claim_attachments FOR SELECT TO authenticated
-  USING (EXISTS (SELECT 1 FROM public.expense_claims c WHERE c.id = claim_id AND c.deleted_at IS NULL AND expense_claims_private.can_see_claim(c.tenant_id, c.submitter_id)));
+  USING (EXISTS (SELECT 1 FROM public.expense_claims c WHERE c.id = claim_id AND c.deleted_at IS NULL AND (c.tenant_id = public.get_my_tenant_id() AND ((c.submitter_id = auth.uid() AND public.user_has_permission('expense_claims', 'create')) OR public.user_has_permission('expense_claims', 'read') OR public.user_has_permission('expense_claims', 'approve')))));
 DROP POLICY IF EXISTS expense_claim_events_sel ON public.expense_claim_events;
 CREATE POLICY expense_claim_events_sel ON public.expense_claim_events FOR SELECT TO authenticated
-  USING (EXISTS (SELECT 1 FROM public.expense_claims c WHERE c.id = claim_id AND expense_claims_private.can_see_claim(c.tenant_id, c.submitter_id)));
+  USING (EXISTS (SELECT 1 FROM public.expense_claims c WHERE c.id = claim_id AND (c.tenant_id = public.get_my_tenant_id() AND ((c.submitter_id = auth.uid() AND public.user_has_permission('expense_claims', 'create')) OR public.user_has_permission('expense_claims', 'read') OR public.user_has_permission('expense_claims', 'approve')))));
 DROP POLICY IF EXISTS expense_telegram_links_sel ON public.expense_telegram_links;
 CREATE POLICY expense_telegram_links_sel ON public.expense_telegram_links FOR SELECT TO authenticated
   USING (tenant_id = public.get_my_tenant_id() AND (user_id = auth.uid() OR public.user_has_permission('expense_claims', 'manage')));

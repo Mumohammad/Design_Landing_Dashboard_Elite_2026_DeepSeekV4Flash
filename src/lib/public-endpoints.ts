@@ -37,4 +37,11 @@ export const PUBLIC_ENDPOINTS: readonly string[] = [
   // 503 without MOYASAR_SECRET_KEY; per-IP rate limited; takes only an id from
   // the body and settles solely from the provider's own API response.
   "/api/billing/moyasar/callback",
+
+  // Telegram Bot API webhook for expense receipt intake (Telegram cannot send
+  // a user session). FAIL-CLOSED: 401 unless TELEGRAM_WEBHOOK_SECRET (24+
+  // chars) is set and the X-Telegram-Bot-Api-Secret-Token header matches
+  // (timing-safe); no work is done without TELEGRAM_BOT_TOKEN. Only linked,
+  // active, permitted users can create claims; private chats only.
+  "/api/telegram/expenses",
 ] as const;
