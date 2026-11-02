@@ -12,7 +12,7 @@ import { createAdminClient } from "@/lib/supabase/admin"
 import { uploadAndRegister } from "@/lib/expense-claims/attachments"
 import { MAX_ATTACHMENT_BYTES } from "@/lib/expense-claims/constants"
 import { sniffFile } from "@/lib/expense-claims/file-check"
-import { parseCaption } from "@/lib/expense-claims/receipt-parse"
+import { bareLinkCode, parseCaption } from "@/lib/expense-claims/receipt-parse"
 import { zatcaPurchaseCheck } from "@/lib/expense-claims/zatca-check"
 import { downloadTelegramFile, sendMessage } from "@/lib/expense-claims/telegram"
 
@@ -43,7 +43,7 @@ function secretMatches(header: string | null): boolean {
 
 const T = {
   help: "Send a photo or PDF of a receipt (CamScanner PDFs are fine). Add a caption like:\ntotal 115 vat 15 supplier Shell vatno 300000000000003 invoice INV-123 date 2026-11-02 category fuel purpose delivery run\n\nأرسل صورة أو ملف PDF للإيصال، ويمكنك إضافة وصف مثل:\nالمبلغ 115 ضريبة 15 المورد شل ضريبي 300000000000003 الفاتورة INV-123 الفئة وقود الغرض توصيل\n\nZATCA: for VAT to be claimable the receipt needs the supplier VAT number, invoice number and date. / لخصم الضريبة يلزم الرقم الضريبي للمورد ورقم الفاتورة وتاريخها.\n\nReceipts are supporting documents for internal review only — they are not e-invoices and are not sent to ZATCA.",
-  notLinked: "This Telegram account is not linked to a company user, so the file was not accepted. Open Expense claims → Link Telegram in the dashboard to get a one-time code.\n\nحساب تيليجرام هذا غير مربوط بمستخدم في الشركة، لذلك لم يُقبل الملف. افتح مطالبات المصروفات ← ربط تيليجرام في لوحة التحكم للحصول على رمز لمرة واحدة.",
+  notLinked: "This Telegram account is not linked to a company user, so the file was not accepted. Open Expenses → Link Telegram in the dashboard, generate a one-time code and send it here.\n\nحساب تيليجرام هذا غير مربوط بمستخدم في الشركة، لذلك لم يُقبل الملف. افتح المصروفات ← ربط تيليجرام في لوحة التحكم، وأنشئ رمزاً لمرة واحدة وأرسله هنا.",
   linked: "✅ Linked. You can now send receipt photos or PDFs here.\n✅ تم الربط. يمكنك الآن إرسال صور الإيصالات أو ملفات PDF هنا.",
   badCode: "That code is invalid or expired. Create a new one in the dashboard (codes last 10 minutes and work once).\nالرمز غير صالح أو منتهي. أنشئ رمزاً جديداً من لوحة التحكم (صالح 10 دقائق ولمرة واحدة).",
   unlinked: "This Telegram account has been unlinked.\nتم إلغاء ربط حساب تيليجرام هذا.",
@@ -71,10 +71,11 @@ async function handle(msg: TgMessage, from: TgUser) {
   const admin = createAdminClient()
   const text = msg.text?.trim() ?? ""
 
-  const cmd = /^\/(start|link)(?:@\w+)?(?:\s+([A-Za-z0-9]{6,20}))?$/i.exec(text)
-  if (cmd) {
-    if (!cmd[2]) { await sendMessage(chat, `${T.help}\n\n${T.notLinked}`); return }
-    const { data } = await admin.rpc("expense_telegram_consume_link", { p_code: cmd[2], p_tg_user: from.id, p_chat: chat, p_username: from.username ?? null })
+  const cmd = /^\/(start|link)(?:@\w+)?(?:\s+([A-Za-z0-9 -]{6,30}))?$/i.exec(text)
+  const code = cmd ? (cmd[2] ?? "").replace(/[\s-]/g, "") : bareLinkCode(text)
+  if (cmd || code) {
+    if (!code) { await sendMessage(chat, `${T.help}\n\n${T.notLinked}`); return }
+    const { data } = await admin.rpc("expense_telegram_consume_link", { p_code: code, p_tg_user: from.id, p_chat: chat, p_username: from.username ?? null })
     await sendMessage(chat, (data as { ok?: boolean } | null)?.ok ? `${T.linked}\n\n${T.help}` : T.badCode)
     return
   }

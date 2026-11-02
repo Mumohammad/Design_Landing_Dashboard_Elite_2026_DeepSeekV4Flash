@@ -56,7 +56,7 @@ export function TelegramLinkDialog({ open, onOpenChange }: { open: boolean; onOp
               <div className="rounded-lg border bg-muted/40 p-3 text-center font-mono text-2xl tracking-[0.3em]" dir="ltr">{code.code}</div>
               <p className="text-xs text-muted-foreground">{t("Valid for 10 minutes, single use. Never share it.", "صالح لمدة 10 دقائق ولمرة واحدة. لا تشاركه مع أحد.")}</p>
               {code.deepLink ? <Button asChild className="w-full"><a href={code.deepLink} target="_blank" rel="noreferrer"><Send className="size-4" />{t("Open the bot in Telegram", "فتح البوت في تيليجرام")}</a></Button> : null}
-              <p className="text-xs">{t("Or send this message to the bot:", "أو أرسل هذه الرسالة إلى البوت:")} <code dir="ltr">/start {code.code}</code>{code.botUsername ? ` → @${code.botUsername}` : ""}</p>
+              <p className="text-xs">{t("Or send this code to the bot as a message:", "أو أرسل هذا الرمز إلى البوت كرسالة:")} <code dir="ltr">{code.code}</code>{code.botUsername ? ` → @${code.botUsername}` : ""}</p>
             </div>
           ) : (
             <Button disabled={busy} onClick={generate}>{busy && <Loader2 className="size-4 animate-spin" />}{t("Generate one-time code", "إنشاء رمز لمرة واحدة")}</Button>
