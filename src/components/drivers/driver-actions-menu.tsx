@@ -41,12 +41,14 @@ import {
 } from "@/lib/drivers/actions"
 import type { Driver, DriverStatus, DriverUpdateInput } from "@/types/drivers"
 import { NationalityPicker, SaudiCityPicker } from "@/components/drivers/reference-pickers"
+import { DriverDocumentQuickUpload } from "@/components/drivers/driver-document-quick-upload"
 import {
   Archive,
   Ban,
   CalendarClock,
   CheckCircle2,
   ExternalLink,
+  FileUp,
   Loader2,
   MoreHorizontal,
   Pause,
@@ -278,6 +280,7 @@ export default function DriverActionsMenu({
   const [terminationDate,setTerminationDate]=useState("")
   const [acting, setActing] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [docUploadOpen, setDocUploadOpen] = useState(false)
 
   const ensureRecord = async (): Promise<Driver | null> => {
     setBusy(true)
@@ -478,6 +481,10 @@ export default function DriverActionsMenu({
             <Pencil className="h-4 w-4" />
             {isAr ? "تعديل البيانات" : "Edit driver"}
           </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setDocUploadOpen(true)} className="gap-2" data-testid="driver-menu-upload-document">
+            <FileUp className="h-4 w-4" />
+            {isAr ? "رفع مستند" : "Upload document"}
+          </DropdownMenuItem>
           {visibleStatusActions.length > 0 && <DropdownMenuSeparator />}
           {visibleStatusActions.map((action) => (
             <DropdownMenuItem
@@ -509,6 +516,8 @@ export default function DriverActionsMenu({
           )}
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <DriverDocumentQuickUpload open={docUploadOpen} onOpenChange={setDocUploadOpen} isAr={isAr} driverId={driverId} onUploaded={onUpdated} />
 
       {/* Edit drawer */}
       <Sheet open={editOpen} onOpenChange={setEditOpen}>

@@ -4,6 +4,7 @@ import { friendlyError, currentIsArabic } from "@/lib/errors/friendly"
 import Link from "next/link"
 import { LocalizedText } from "@/components/localized-text"
 import { printReportFromGesture } from "@/lib/accounting/report-print"
+import { ZatcaDryRunCard } from "./components/zatca-dry-run-card"
 import { integrationAvailable } from "@/lib/release/integrations"
 import { Fragment, Suspense, useCallback, useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
@@ -2007,6 +2008,7 @@ function AccountingPageContent() {
                   <p>{ar ? "الإرسال الإنتاجي يتطلب تسجيل المكلّف الفعلي في بوابة فاتورة واجتياز بيئة المحاكاة ثم تفعيل الربط الإنتاجي." : "Production submission requires real taxpayer onboarding in the Fatoora portal, a passing simulation run, then switching production ON."}</p>
                 )}
               </div>
+              <ZatcaDryRunCard ar={ar} />
               {zatcaStatus?.productionAvailable && (
                 <Card className={`rounded-2xl border bg-card shadow-sm overflow-hidden ${zatcaStatus.productionEnabled ? "border-emerald-500/40" : "border-border/50"}`}>
                   <CardHeader className="pb-3 flex-row items-start justify-between gap-4">
