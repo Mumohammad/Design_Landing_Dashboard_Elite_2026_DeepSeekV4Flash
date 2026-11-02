@@ -39,7 +39,8 @@ async function prepare(file: Blob): Promise<Blob | HTMLCanvasElement> {
   } catch { return file }
 }
 
-export async function scanDocument(file: Blob, kind: OcrDocKind): Promise<OcrSuggestion & { text: string }> {
+/** Raw local text recognition (receipts etc.). Images only; nothing is uploaded. */
+export async function recognizeText(file: Blob): Promise<{ text: string; confidence: number }> {
   if (!ocrSupported()) throw new Error("OCR is not supported on this browser")
   if (!file.type.startsWith("image/")) throw new Error("OCR works with photos or scans (JPG/PNG), not PDF")
   const T = await loadTesseract()
@@ -51,6 +52,11 @@ export async function scanDocument(file: Blob, kind: OcrDocKind): Promise<OcrSug
   })
   try {
     const { data } = await worker.recognize(await prepare(file))
-    return { ...extractDocumentFields(data.text, kind), text: data.text }
+    return { text: data.text, confidence: data.confidence }
   } finally { void worker.terminate() }
+}
+
+export async function scanDocument(file: Blob, kind: OcrDocKind): Promise<OcrSuggestion & { text: string }> {
+  const { text } = await recognizeText(file)
+  return { ...extractDocumentFields(text, kind), text }
 }
