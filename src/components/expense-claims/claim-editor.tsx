@@ -18,7 +18,8 @@ import {
   type ClaimSettings, type EditableField, type ExpenseClaim,
 } from "@/lib/expense-claims/constants"
 import { registerClaimAttachment, saveExpenseClaim, transitionExpenseClaim } from "@/lib/expense-claims/actions"
-import { Notice, UnverifiedTag, selectClass, useBi } from "./shared"
+import { Notice, UnverifiedTag, ZatcaCheckPanel, selectClass, useBi } from "./shared"
+import { zatcaPurchaseCheck } from "@/lib/expense-claims/zatca-check"
 
 type Form = Record<EditableField, string>
 const EMPTY: Form = {
@@ -101,6 +102,7 @@ export function ClaimEditor({ claim, settings, tenantId, existingAttachments = 0
     finally { setBusy(null) }
   }
 
+  const zatca = useMemo(() => zatcaPurchaseCheck({ currency: form.currency || settings.default_currency || "SAR", supplier_name: form.supplier_name || null, supplier_vat_number: form.supplier_vat_number || null, receipt_number: form.receipt_number || null, expense_date: form.expense_date || null, amount_before_vat: form.amount_before_vat || null, vat_rate: form.vat_rate || null, vat_amount: form.vat_amount || null, total_amount: form.total_amount || null }), [form, settings])
   const mismatch = useMemo(() => amountsMismatch({ amount_before_vat: form.amount_before_vat || null, vat_amount: form.vat_amount || null, total_amount: form.total_amount || null }), [form])
   const canEditFields = !claim || ["draft", "needs_info", "submitted"].includes(claim.status)
   const isOwnDraft = !claim || claim.status === "draft" || claim.status === "needs_info"
@@ -217,6 +219,7 @@ export function ClaimEditor({ claim, settings, tenantId, existingAttachments = 0
         {field("vat_amount", money("vat_amount"))}
         {field("total_amount", money("total_amount"))}
         {mismatch && <div className="flex items-center gap-2 text-xs text-amber-700 sm:col-span-3 dark:text-amber-300"><AlertTriangle className="size-4" />{t("Amount before VAT + VAT does not equal the total. Check the receipt.", "المبلغ قبل الضريبة + الضريبة لا يساوي الإجمالي. راجع الإيصال.")}</div>}
+        {(form.total_amount || form.vat_amount) && <div className="sm:col-span-3"><ZatcaCheckPanel check={zatca} /></div>}
         <p className="text-[11px] text-muted-foreground sm:col-span-3">{t("VAT is recorded as printed on the receipt and stays unverified until a reviewer checks it. It is not a determination of recoverable VAT.", "تُسجل الضريبة كما هي مطبوعة في الإيصال وتبقى غير متحقق منها حتى يراجعها المراجع، وليست تحديداً للضريبة القابلة للاسترداد.")}</p>
       </section>
 

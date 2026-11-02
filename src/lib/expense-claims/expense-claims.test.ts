@@ -141,9 +141,9 @@ describe("Excel export", () => {
   const attachments: ClaimAttachment[] = [{ id: "x", claim_id: "a", original_filename: "receipt.pdf", mime_type: "application/pdf", size_bytes: 2048, sha256: "f".repeat(64), doc_kind: "scanned_pdf", source: "web", uploaded_at: "2026-11-01T10:00:00Z" }]
   const base = { claims, attachments, names: { u1: "Sara", u2: "Omar" }, amountLocale: "en-US" as const, filters: [[{ en: "Status", ar: "الحالة" }, "approved"]] as Array<[{ en: string; ar: string }, string]>, exportedAt: new Date("2026-11-02T08:15:00Z"), exportedBy: "Omar" }
 
-  it("builds four sheets with a filterable expenses table and no links", () => {
+  it("builds six sheets with a filterable expenses table and no links", () => {
     const wb = buildExpenseWorkbook({ ...base, language: "en" })
-    expect(wb.SheetNames).toEqual(["Expenses", "Summary", "Attachments", "Export info"])
+    expect(wb.SheetNames).toEqual(["Expenses", "Summary", "ZATCA purchases", "VAT return", "Attachments", "Export info"])
     const ws = wb.Sheets.Expenses
     expect(ws["!autofilter"]?.ref).toBe("A1:AF3")
     const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws)
@@ -173,7 +173,7 @@ describe("Excel export", () => {
     expect(label({ en: "Status", ar: "الحالة" }, "both")).toBe("Status / الحالة")
     const bin = writeExpenseWorkbook({ ...base, language: "both" })
     expect(bin[0]).toBe(0x50) // PK zip
-    expect(XLSX.read(bin, { type: "array" }).SheetNames).toHaveLength(4)
+    expect(XLSX.read(bin, { type: "array" }).SheetNames).toHaveLength(6)
   })
   it("formats timestamps and filenames in Riyadh time", () => {
     expect(riyadhTimestamp("2026-11-01T22:30:00Z")).toBe("2026-11-02 01:30")

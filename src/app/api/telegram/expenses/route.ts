@@ -13,6 +13,7 @@ import { uploadAndRegister } from "@/lib/expense-claims/attachments"
 import { MAX_ATTACHMENT_BYTES } from "@/lib/expense-claims/constants"
 import { sniffFile } from "@/lib/expense-claims/file-check"
 import { parseCaption } from "@/lib/expense-claims/receipt-parse"
+import { zatcaPurchaseCheck } from "@/lib/expense-claims/zatca-check"
 import { downloadTelegramFile, sendMessage } from "@/lib/expense-claims/telegram"
 
 export const runtime = "nodejs"
@@ -41,7 +42,7 @@ function secretMatches(header: string | null): boolean {
 }
 
 const T = {
-  help: "Send a photo or PDF of a receipt (CamScanner PDFs are fine). Add a caption like:\ntotal 115 vat 15 supplier Shell category fuel purpose delivery run\n\nأرسل صورة أو ملف PDF للإيصال، ويمكنك إضافة وصف مثل:\nالمبلغ 115 ضريبة 15 المورد شل الفئة وقود الغرض توصيل\n\nReceipts are supporting documents for internal review only — they are not e-invoices and are not sent to ZATCA.",
+  help: "Send a photo or PDF of a receipt (CamScanner PDFs are fine). Add a caption like:\ntotal 115 vat 15 supplier Shell vatno 300000000000003 invoice INV-123 date 2026-11-02 category fuel purpose delivery run\n\nأرسل صورة أو ملف PDF للإيصال، ويمكنك إضافة وصف مثل:\nالمبلغ 115 ضريبة 15 المورد شل ضريبي 300000000000003 الفاتورة INV-123 الفئة وقود الغرض توصيل\n\nZATCA: for VAT to be claimable the receipt needs the supplier VAT number, invoice number and date. / لخصم الضريبة يلزم الرقم الضريبي للمورد ورقم الفاتورة وتاريخها.\n\nReceipts are supporting documents for internal review only — they are not e-invoices and are not sent to ZATCA.",
   notLinked: "This Telegram account is not linked to a company user, so the file was not accepted. Open Expense claims → Link Telegram in the dashboard to get a one-time code.\n\nحساب تيليجرام هذا غير مربوط بمستخدم في الشركة، لذلك لم يُقبل الملف. افتح مطالبات المصروفات ← ربط تيليجرام في لوحة التحكم للحصول على رمز لمرة واحدة.",
   linked: "✅ Linked. You can now send receipt photos or PDFs here.\n✅ تم الربط. يمكنك الآن إرسال صور الإيصالات أو ملفات PDF هنا.",
   badCode: "That code is invalid or expired. Create a new one in the dashboard (codes last 10 minutes and work once).\nالرمز غير صالح أو منتهي. أنشئ رمزاً جديداً من لوحة التحكم (صالح 10 دقائق ولمرة واحدة).",
@@ -115,5 +116,9 @@ async function handle(msg: TgMessage, from: TgUser) {
   if (claim.existing) return // album: one confirmation per claim
   const base = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "")
   const dup = res.duplicateStatus === "possible" ? "\n⚠️ Possible duplicate — a reviewer will check it. / تكرار محتمل — سيتحقق منه المراجع." : ""
-  await sendMessage(chat, `🧾 Receipt received — claim ${claim.claim_no} is pending review. Details from your caption are unverified until reviewed.\nتم استلام الإيصال — المطالبة ${claim.claim_no} بانتظار المراجعة. البيانات من الوصف غير متحقق منها حتى تتم المراجعة.${dup}${base ? `\n${base}/expenses/claims/${claim.id}` : ""}`)
+  const f = fields as Record<string, string | undefined>
+  const z = zatcaPurchaseCheck({ currency: f.currency ?? "SAR", supplier_name: f.supplier_name ?? null, supplier_vat_number: f.supplier_vat_number ?? null, receipt_number: f.receipt_number ?? null, expense_date: f.expense_date ?? null, amount_before_vat: f.amount_before_vat ?? null, vat_rate: f.vat_rate ?? null, vat_amount: f.vat_amount ?? null, total_amount: f.total_amount ?? null })
+  const zErr = z.issues.filter((i) => i.severity === "error").slice(0, 4)
+  const zatca = zErr.length ? `\n\nZATCA invoice check — please add in the dashboard / التحقق حسب متطلبات الهيئة — أكمل في لوحة التحكم:\n${zErr.map((i) => `• ${i.text.en}\n  ${i.text.ar}`).join("\n")}` : ""
+  await sendMessage(chat, `🧾 Receipt received — claim ${claim.claim_no} is pending review. Details from your caption are unverified until reviewed.\nتم استلام الإيصال — المطالبة ${claim.claim_no} بانتظار المراجعة. البيانات من الوصف غير متحقق منها حتى تتم المراجعة.${dup}${zatca}${base ? `\n${base}/expenses/claims/${claim.id}` : ""}`)
 }

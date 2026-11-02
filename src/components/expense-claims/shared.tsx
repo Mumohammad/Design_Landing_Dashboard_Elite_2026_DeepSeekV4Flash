@@ -2,6 +2,7 @@
 import { useTranslation } from "@/hooks/use-translation"
 import { cn } from "@/lib/utils"
 import { STATUS_LABELS, type Bi, type ClaimStatus } from "@/lib/expense-claims/constants"
+import { BOX_LABELS, INVOICE_TYPE_LABELS, RESULT_LABELS, type ZatcaCheck } from "@/lib/expense-claims/zatca-check"
 
 export function useBi() {
   const { locale } = useTranslation()
@@ -43,4 +44,22 @@ export function downloadBase64(base64: string, filename: string, mime = "applica
   const a = document.createElement("a")
   a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 5000)
+}
+
+export function ZatcaCheckPanel({ check }: { check: ZatcaCheck }) {
+  const { L, t } = useBi()
+  const tone = check.result === "ready" ? "border-emerald-500/40 bg-emerald-500/10" : check.result === "attention" ? "border-amber-500/40 bg-amber-500/10" : "border-red-500/40 bg-red-500/10"
+  return (
+    <div className={cn("space-y-1.5 rounded-lg border p-3 text-xs leading-relaxed", tone)}>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-medium">
+        <span>{t("ZATCA invoice check", "التحقق حسب متطلبات الهيئة")}: {L(RESULT_LABELS[check.result])}</span>
+        <span className="text-muted-foreground">{L(INVOICE_TYPE_LABELS[check.invoiceType])} · {L(BOX_LABELS[check.box])}</span>
+      </div>
+      {check.issues.length > 0 && (
+        <ul className="list-inside space-y-0.5">
+          {check.issues.map((i) => <li key={i.code}>{i.severity === "error" ? "✖" : "⚠"} {L(i.text)}</li>)}
+        </ul>
+      )}
+    </div>
+  )
 }

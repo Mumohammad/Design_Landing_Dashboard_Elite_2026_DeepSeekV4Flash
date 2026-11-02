@@ -97,6 +97,7 @@ export function parseReceiptText(raw: string, today = new Date().toISOString().s
 // ── Telegram caption: "total 115 vat 15 supplier Shell category fuel purpose delivery" ──
 const CAPTION_KEYS: Array<[keyof ReceiptSuggestion, RegExp]> = [
   ["amount_before_vat", /^(subtotal|before|net|قبل)$/i],
+  ["supplier_vat_number", /^(vatno|trn|taxno|الرقم_الضريبي|ضريبي)$/i],
   ["vat_amount", /^(vat|tax|ضريبة|الضريبة)$/i],
   ["total_amount", /^(total|amount|المبلغ|الاجمالي|الإجمالي|اجمالي|إجمالي)$/i],
   ["supplier_name", /^(supplier|merchant|vendor|shop|المورد|مورد|المتجر)$/i],

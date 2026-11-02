@@ -14,6 +14,7 @@ import {
   type Bi, type ClaimAttachment, type ClaimSettings, type ExpenseClaim,
 } from "./constants"
 import { filterClaims, type ClaimFilters } from "./dashboard"
+import { normalizeVatNumber } from "./zatca-check"
 import { exportFilename, writeExpenseWorkbook } from "./export-xlsx"
 import { getBotUsername, telegramConfigured, tg, webhookUrl } from "./telegram"
 
@@ -83,6 +84,7 @@ function cleanFields(input: Record<string, unknown>): Record<string, unknown> {
   }
   if (typeof out.expense_date === "string" && out.expense_date !== "" && !/^\d{4}-\d{2}-\d{2}$/.test(out.expense_date)) throw new Error("EXC001: invalid date")
   if (typeof out.currency === "string" && out.currency !== "" && !/^[A-Za-z]{3}$/.test(out.currency)) throw new Error("EXC001: invalid currency")
+  if (typeof out.supplier_vat_number === "string") out.supplier_vat_number = normalizeVatNumber(out.supplier_vat_number)
   return out
 }
 

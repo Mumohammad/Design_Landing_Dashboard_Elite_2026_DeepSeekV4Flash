@@ -1,14 +1,15 @@
 // "Export Expenses" workbook. Pure (no server imports) so it is unit-tested.
 // Amounts are grouped per currency and never totalled across currencies.
-// Receipt VAT is labelled "as shown on receipts"; nothing here is a VAT
-// recoverability determination, a ZATCA filing or an e-invoice.
+// Receipt VAT is labelled "as shown on receipts". The ZATCA sheets apply the
+// KSA tax-invoice data rules as a self-check; nothing here is filed with ZATCA.
 import * as XLSX from "xlsx"
 import {
-  DOC_KIND_LABELS, DUPLICATE_REASON_LABELS, FIELD_LABELS, PAYMENT_LABELS, STATUS_LABELS, SUPPORTING_DOC_NOTICE,
+  COUNTED_STATUSES, DOC_KIND_LABELS, DUPLICATE_REASON_LABELS, FIELD_LABELS, PAYMENT_LABELS, STATUS_LABELS, SUPPORTING_DOC_NOTICE,
   categoryLabel, num, type Bi, type ClaimAttachment, type ClaimSettings, type ExpenseClaim,
 } from "./constants"
 import { breakdown, type GroupKey } from "./dashboard"
 import { riyadhTimestamp } from "./format"
+import { BOX_LABELS, INVOICE_TYPE_LABELS, RESULT_LABELS, hijriDate, isValidSaudiVatNumber, normalizeVatNumber, zatcaPurchaseCheck, type ZatcaBox } from "./zatca-check"
 
 export { riyadhTimestamp }
 
@@ -186,6 +187,67 @@ export function buildExpenseWorkbook(input: ExportInput): XLSX.WorkBook {
   ws3["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(0, att.length - 1), c: 6 } }) }
   ws3["!cols"] = widths(att, 66)
 
+  // ── ZATCA purchase register (SAR tax-invoice fields per VAT Implementing Regulations Art. 53) ──
+  const today = input.exportedAt
+  const zHead: Bi[] = [
+    FIELD_LABELS.claim_no, { en: "Claim status", ar: "حالة المطالبة" }, { en: "Invoice type", ar: "نوع الفاتورة" },
+    { en: "Supplier name", ar: "اسم المورد" }, { en: "Supplier VAT registration no.", ar: "الرقم الضريبي للمورد" }, { en: "VAT no. format valid", ar: "صحة صيغة الرقم الضريبي" },
+    { en: "Invoice serial no.", ar: "الرقم التسلسلي للفاتورة" }, { en: "Invoice date (Gregorian)", ar: "تاريخ الفاتورة (ميلادي)" }, { en: "Invoice date (Hijri)", ar: "تاريخ الفاتورة (هجري)" },
+    { en: "Description", ar: "الوصف" }, { en: "Currency", ar: "العملة" }, { en: "Taxable amount (excl. VAT)", ar: "المبلغ الخاضع للضريبة (غير شامل الضريبة)" },
+    { en: "VAT rate %", ar: "نسبة الضريبة %" }, { en: "VAT amount", ar: "مبلغ الضريبة" }, { en: "Total incl. VAT", ar: "الإجمالي شاملاً الضريبة" },
+    { en: "VAT return box (purchases)", ar: "بند الإقرار الضريبي (المشتريات)" }, { en: "ZATCA check", ar: "نتيجة التحقق" },
+    { en: "Input VAT claimable (after reviewer confirms original)", ar: "ضريبة مدخلات قابلة للخصم (بعد تأكيد المراجع للأصل)" }, { en: "Issues to fix", ar: "ملاحظات يجب معالجتها" },
+  ]
+  const zRows: unknown[][] = [zHead.map(L)]
+  const yes = L({ en: "Yes", ar: "نعم" }), no = L({ en: "No", ar: "لا" })
+  type Tot = { n: number; net: number; vat: number }
+  const ret = new Map<ZatcaBox | "attention", Tot>()
+  const add = (k: ZatcaBox | "attention", net: number, vat: number) => { const t = ret.get(k) ?? { n: 0, net: 0, vat: 0 }; t.n++; t.net += net; t.vat += vat; ret.set(k, t) }
+  for (const c of claims) {
+    const z = zatcaPurchaseCheck(c, today)
+    const vatNo = normalizeVatNumber(c.supplier_vat_number)
+    zRows.push([
+      c.claim_no, L(STATUS_LABELS[c.status]), L(INVOICE_TYPE_LABELS[z.invoiceType]), c.supplier_name ?? "", vatNo,
+      vatNo ? (isValidSaudiVatNumber(vatNo) ? yes : no) : "", c.receipt_number ?? "", c.expense_date ?? "", hijriDate(c.expense_date),
+      [c.category ? L(categoryLabel(c.category)) : "", c.business_purpose ?? ""].filter(Boolean).join(" — "), c.currency,
+      num(c.amount_before_vat) ?? "", num(c.vat_rate) ?? "", num(c.vat_amount) ?? "", num(c.total_amount) ?? "",
+      L(BOX_LABELS[z.box]), L(RESULT_LABELS[z.result]), z.claimableVat, z.issues.map((i) => `${i.severity === "error" ? "✖" : "⚠"} ${L(i.text)}`).join("\n"),
+    ])
+    if (COUNTED_STATUSES.includes(c.status) && c.currency.toUpperCase() === "SAR") {
+      const net = num(c.amount_before_vat) ?? num(c.total_amount) ?? 0, vat = num(c.vat_amount) ?? 0
+      if (z.result === "attention") add("attention", net, vat)
+      else add(z.box, net, z.box === "excluded" ? 0 : vat)
+    }
+  }
+  const wsZ = XLSX.utils.aoa_to_sheet(zRows)
+  wsZ["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(0, zRows.length - 1), c: zHead.length - 1 } }) }
+  wsZ["!cols"] = widths(zRows, 60)
+  wsZ["!freeze"] = { xSplit: 1, ySplit: 1 }
+  setNumberFormat(wsZ, [11, 13, 14, 17], 1, fmt)
+
+  const r2 = (n: number) => Math.round(n * 100) / 100
+  const t = (k: ZatcaBox | "attention") => ret.get(k) ?? { n: 0, net: 0, vat: 0 }
+  const vr: unknown[][] = [
+    [L({ en: "VAT return – purchases (input VAT) from approved SAR expense claims", ar: "الإقرار الضريبي – المشتريات (ضريبة المدخلات) من مطالبات المصروفات المعتمدة بالريال" })],
+    [L({ en: "Prepared from receipt data for the accountant. Confirm against original invoices before filing; this file is not submitted to ZATCA.", ar: "مُعد من بيانات الإيصالات للمحاسب. طابقه مع الفواتير الأصلية قبل التقديم؛ هذا الملف لا يُرسل إلى الهيئة." })],
+    [],
+    [L({ en: "VAT return line", ar: "بند الإقرار" }), L({ en: "Invoices", ar: "عدد الفواتير" }), L({ en: "Amount (SAR, excl. VAT)", ar: "المبلغ (ريال، غير شامل الضريبة)" }), L({ en: "VAT (SAR)", ar: "الضريبة (ريال)" })],
+    [L(BOX_LABELS.box7), t("box7").n, r2(t("box7").net), r2(t("box7").vat)],
+    [L({ en: "Box 8 – Imports subject to VAT paid at customs", ar: "البند 8 – الواردات الخاضعة للضريبة المدفوعة في الجمارك" }), 0, 0, 0],
+    [L({ en: "Box 9 – Imports subject to VAT under reverse charge", ar: "البند 9 – الواردات الخاضعة للضريبة بآلية الاحتساب العكسي" }), 0, 0, 0],
+    [L(BOX_LABELS.box10_11), t("box10_11").n, r2(t("box10_11").net), 0],
+    [],
+    [L({ en: "Not included above", ar: "غير مدرج أعلاه" })],
+    [L({ en: "Needs attention (fix data before including)", ar: "تحتاج مراجعة (صحح البيانات قبل الإدراج)" }), t("attention").n, r2(t("attention").net), r2(t("attention").vat)],
+    [L(BOX_LABELS.excluded), t("excluded").n, r2(t("excluded").net), 0],
+    [],
+    [L({ en: "Boxes 8 and 9 (imports) are not captured from expense receipts and are shown as zero.", ar: "البندان 8 و9 (الواردات) لا يُلتقطان من إيصالات المصروفات ويظهران صفراً." })],
+    [L({ en: "Only claims with status Approved, Exported or Reimbursed in SAR are counted.", ar: "تُحتسب فقط المطالبات المعتمدة أو المُصدَّرة أو المسددة بالريال السعودي." })],
+  ]
+  const wsV = XLSX.utils.aoa_to_sheet(vr)
+  for (let r = 4; r < vr.length; r++) for (const c of [2, 3]) { const cell = wsV[XLSX.utils.encode_cell({ r, c })]; if (cell?.t === "n") cell.z = fmt }
+  wsV["!cols"] = [{ wch: 70 }, { wch: 14 }, { wch: 26 }, { wch: 18 }]
+
   // ── Export info ──
   const currencies = [...new Set(claims.map((c) => c.currency))].sort()
   const info: unknown[][] = [
@@ -202,7 +264,7 @@ export function buildExpenseWorkbook(input: ExportInput): XLSX.WorkBook {
     [],
     [L({ en: "Important", ar: "تنبيه مهم" })],
     [L(SUPPORTING_DOC_NOTICE)],
-    [L({ en: "VAT amounts are as shown on receipts and are unverified unless the claim was approved by a reviewer. This file is not a determination of recoverable or deductible VAT and is not a VAT return or ZATCA filing.", ar: "مبالغ الضريبة كما تظهر في الإيصالات وهي غير متحقق منها ما لم يعتمد المراجع المطالبة. هذا الملف ليس تحديداً للضريبة القابلة للاسترداد أو الخصم، وليس إقراراً ضريبياً أو تقديماً لهيئة الزكاة والضريبة والجمارك." })],
+    [L({ en: "VAT amounts are as shown on receipts and are unverified unless the claim was approved by a reviewer. The ZATCA sheets apply the tax-invoice data rules (VAT Implementing Regulations Art. 49 and 53) to the captured data; confirm against the original invoices before filing. Nothing in this file is submitted to ZATCA.", ar: "مبالغ الضريبة كما تظهر في الإيصالات وهي غير متحقق منها ما لم يعتمد المراجع المطالبة. تطبق أوراق الهيئة قواعد بيانات الفاتورة الضريبية (المادتان 49 و53 من اللائحة التنفيذية لنظام ضريبة القيمة المضافة) على البيانات المدخلة؛ طابقها مع الفواتير الأصلية قبل التقديم. لا يُرسل أي شيء من هذا الملف إلى الهيئة." })],
     [L({ en: "Totals are per currency; amounts in different currencies are never added together.", ar: "الإجماليات حسب العملة، ولا تُجمع المبالغ بعملات مختلفة." })],
     [L({ en: "Attachments are listed by file name only; originals stay in the secure system.", ar: "المرفقات مدرجة بأسماء الملفات فقط، وتبقى الأصول في النظام الآمن." })],
     [],
@@ -213,12 +275,15 @@ export function buildExpenseWorkbook(input: ExportInput): XLSX.WorkBook {
   ws4["!cols"] = [{ wch: 44 }, { wch: 60 }]
 
   const wb = XLSX.utils.book_new()
-  const names: Record<"exp" | "sum" | "att" | "info", Bi> = {
+  const names: Record<"exp" | "sum" | "att" | "info" | "z" | "vr", Bi> = {
+    z: { en: "ZATCA purchases", ar: "مشتريات الهيئة" }, vr: { en: "VAT return", ar: "الإقرار الضريبي" },
     exp: { en: "Expenses", ar: "المصروفات" }, sum: { en: "Summary", ar: "الملخص" }, att: { en: "Attachments", ar: "المرفقات" }, info: { en: "Export info", ar: "معلومات التصدير" },
   }
   const sheetName = (b: Bi) => (input.language === "both" ? `${b.en} - ${b.ar}` : L(b)).slice(0, 31)
   XLSX.utils.book_append_sheet(wb, ws, sheetName(names.exp))
   XLSX.utils.book_append_sheet(wb, ws2, sheetName(names.sum))
+  XLSX.utils.book_append_sheet(wb, wsZ, sheetName(names.z))
+  XLSX.utils.book_append_sheet(wb, wsV, sheetName(names.vr))
   XLSX.utils.book_append_sheet(wb, ws3, sheetName(names.att))
   XLSX.utils.book_append_sheet(wb, ws4, sheetName(names.info))
   if (input.language === "ar") wb.Workbook = { Views: [{ RTL: true }] }

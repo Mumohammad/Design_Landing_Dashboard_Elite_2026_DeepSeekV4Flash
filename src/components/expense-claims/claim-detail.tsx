@@ -19,7 +19,8 @@ import {
   transitionExpenseClaim, type ExpenseAccess, type TransitionAction,
 } from "@/lib/expense-claims/actions"
 import { ClaimEditor } from "./claim-editor"
-import { Notice, StatusBadge, UnverifiedTag, useBi } from "./shared"
+import { Notice, StatusBadge, UnverifiedTag, ZatcaCheckPanel, useBi } from "./shared"
+import { zatcaPurchaseCheck } from "@/lib/expense-claims/zatca-check"
 
 interface ClaimEvent { id: number; actor_id: string | null; action: string; from_status: string | null; to_status: string | null; changes: Record<string, unknown>; comment: string | null; source: string; created_at: string }
 
@@ -85,6 +86,10 @@ export function ClaimDetail({ id }: { id: string }) {
 
   async function act(action: TransitionAction) {
     if ((action === "reject" || action === "request_info") && !comment.trim()) { toast.error(t("Add a comment for the submitter.", "أضف تعليقاً لمقدم الطلب.")); return }
+    if (action === "approve") {
+      const z = zatcaPurchaseCheck(claim!)
+      if (z.result !== "ready" && !window.confirm(t("This receipt does not meet the ZATCA tax-invoice data rules (see the ZATCA check). Its VAT will not be counted as claimable input VAT. Approve anyway?", "هذا الإيصال لا يستوفي قواعد بيانات الفاتورة الضريبية (انظر نتيجة التحقق). لن تُحتسب ضريبته كضريبة مدخلات قابلة للخصم. هل تريد الاعتماد على أي حال؟"))) return
+    }
     setBusy(action)
     const r = await transitionExpenseClaim(claim!.id, action, { comment: comment.trim() || undefined, expectedVersion: claim!.version, reference: reference.trim() || undefined })
     setBusy(null)
@@ -191,6 +196,7 @@ export function ClaimDetail({ id }: { id: string }) {
             ))}
           </div>
           {amountsMismatch(claim) && <p className="text-xs text-amber-700 dark:text-amber-300">{t("Amount before VAT + VAT does not equal the total.", "المبلغ قبل الضريبة + الضريبة لا يساوي الإجمالي.")}</p>}
+          <ZatcaCheckPanel check={zatcaPurchaseCheck(claim)} />
           <div className="grid gap-3 border-t pt-3 text-sm sm:grid-cols-3">
             <div><div className="text-xs text-muted-foreground">{L(FIELD_LABELS.verification)}</div><div>{claim.verified_at ? `${t("Reviewed by", "راجعه")} ${name(claim.verified_by)} · ${riyadhTimestamp(claim.verified_at)}` : t("Unverified", "غير متحقق منه")}</div></div>
             <div><div className="text-xs text-muted-foreground">{L(FIELD_LABELS.reviewer)}</div><div>{claim.reviewer_id ? `${name(claim.reviewer_id)} · ${riyadhTimestamp(claim.reviewed_at)}` : "—"}</div></div>
