@@ -11,6 +11,7 @@ import { chromium as playwright, type Browser } from "playwright-core"
 export async function loadInvoiceReferenceFonts(): Promise<Pick<InvoiceDocData, "referenceFontDataUrl" | "referenceBoldFontDataUrl">> {
   const configured = process.env.INVOICE_REFERENCE_FONT_DIR
   if (!configured) return {}
+  if (configured === "database") return loadDatabaseFonts()
   try {
     if (configured !== "bundled" && !path.isAbsolute(configured)) throw Error()
     const root = await realpath(configured === "bundled" ? path.join(process.cwd(), "private", "invoice-fonts") : configured)
@@ -35,6 +36,35 @@ export async function loadInvoiceReferenceFonts(): Promise<Pick<InvoiceDocData, 
     // Do not expose operator paths or raw filesystem errors to invoice users.
     throw new Error("Invoice reference fonts are unavailable or invalid")
   }
+}
+
+const isTrueType = (b: Buffer) => b.length >= 12 && b.length <= 2 * 1024 * 1024 && b.readUInt32BE(0) === 0x00010000
+let dbFonts: Promise<Pick<InvoiceDocData, "referenceFontDataUrl" | "referenceBoldFontDataUrl">> | null = null
+
+/** "database" mode: licensed files live in a service-role-only table (see
+ * 20261103064018_invoice_reference_fonts.sql), so Git deployments never carry them.
+ * Regular is required; bold is optional (the renderer synthesizes bold from regular). */
+function loadDatabaseFonts() {
+  dbFonts ??= (async () => {
+    const { createAdminClient } = await import("@/lib/supabase/admin")
+    const { data, error } = await createAdminClient().rpc("invoice_reference_fonts")
+    if (error || !Array.isArray(data)) throw Error()
+    const url = (n: string) => {
+      const row = (data as Array<{ name: string; data_base64: string }>).find((r) => r.name === n)
+      if (!row) return undefined
+      const bytes = Buffer.from(row.data_base64.replace(/\s/g, ""), "base64")
+      if (!isTrueType(bytes)) throw Error()
+      return `data:font/ttf;base64,${bytes.toString("base64")}`
+    }
+    const referenceFontDataUrl = url("regular.ttf")
+    if (!referenceFontDataUrl) throw Error()
+    const referenceBoldFontDataUrl = url("bold.ttf")
+    return referenceBoldFontDataUrl ? { referenceFontDataUrl, referenceBoldFontDataUrl } : { referenceFontDataUrl }
+  })().catch(() => {
+    dbFonts = null
+    throw new Error("Invoice reference fonts are unavailable or invalid")
+  })
+  return dbFonts
 }
 
 const MAX_BYTES = 4 * 1024 * 1024
