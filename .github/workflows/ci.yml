@@ -351,7 +351,7 @@ jobs:
 
     - name: Upload browser verification failure evidence
       if: failure()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: browser-verification-${{ github.sha }}-${{ github.run_attempt }}
         path: |
@@ -539,7 +539,7 @@ jobs:
 
     - name: Upload projected acceptance evidence
       if: always() && steps.acceptance_cleanup.outputs.artifact_dir != ''
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: staging-acceptance-${{ github.event.pull_request.head.sha }}-${{ github.run_attempt }}
         path: ${{ steps.acceptance_cleanup.outputs.artifact_dir }}
