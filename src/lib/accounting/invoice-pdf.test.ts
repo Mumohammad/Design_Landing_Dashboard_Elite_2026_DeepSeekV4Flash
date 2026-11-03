@@ -6,6 +6,8 @@ vi.mock("server-only", () => ({}))
 vi.mock("node:fs/promises", () => ({ readFile: mocks.read, realpath: mocks.realpath, stat: mocks.stat }))
 vi.mock("@sparticuz/chromium", () => ({ default: { args: ["--fixture"], executablePath: mocks.executable } }))
 vi.mock("playwright-core", () => ({ chromium: { launch: mocks.launch } }))
+const dbRpc = vi.hoisted(() => vi.fn())
+vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => ({ rpc: dbRpc }) }))
 import { InvoicePdfBusyError, loadInvoiceReferenceFonts, renderInvoicePdf } from "./invoice-pdf"
 const html = "<!DOCTYPE html><html><body>Invoice</body></html>"
 const pdf = Buffer.from("%PDF-1.7\nfixture")
@@ -90,6 +92,17 @@ describe("protected invoice reference fonts", () => {
       referenceBoldFontDataUrl:"data:font/ttf;base64,AAEAAAAAAAAAAAAA",
     })
     expect(mocks.read.mock.calls.map(call=>call[0]).sort()).toEqual([path.join(root,"bold.ttf"),path.join(root,"regular.ttf")].sort())
+  })
+  it("database mode: rejects invalid bytes, then loads regular-only fonts once and caches", async () => {
+    vi.stubEnv("INVOICE_REFERENCE_FONT_DIR", "database")
+    dbRpc.mockResolvedValueOnce({ data: [{ name: "regular.ttf", data_base64: Buffer.from("not a font!!").toString("base64") }], error: null })
+    await expect(loadInvoiceReferenceFonts()).rejects.toThrow("Invoice reference fonts are unavailable or invalid")
+    const ttf = Buffer.from([0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]).toString("base64")
+    dbRpc.mockResolvedValueOnce({ data: [{ name: "regular.ttf", data_base64: ttf }], error: null })
+    expect(await loadInvoiceReferenceFonts()).toEqual({ referenceFontDataUrl: `data:font/ttf;base64,${ttf}` })
+    expect(await loadInvoiceReferenceFonts()).toEqual({ referenceFontDataUrl: `data:font/ttf;base64,${ttf}` })
+    expect(dbRpc).toHaveBeenCalledTimes(2)
+    expect(mocks.read).not.toHaveBeenCalled()
   })
   it("resolves the bundled operator mode to fixed private project files", async () => {
     vi.stubEnv("INVOICE_REFERENCE_FONT_DIR", "bundled")
