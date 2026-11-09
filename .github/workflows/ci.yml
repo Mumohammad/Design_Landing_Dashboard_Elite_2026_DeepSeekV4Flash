@@ -375,11 +375,10 @@ jobs:
       contents: read
       id-token: write
     timeout-minutes: 20
-    # Hosted staging E2E needs a per-commit staging preview (deploy.yml
-    # `preview`, currently on release hold). Until that is switched on, the
-    # same browser flows run against the disposable local stack in the pgtap
-    # job; set repository variable STAGING_E2E_ENABLED=true to re-enable.
-    if: github.event_name == 'pull_request' && vars.STAGING_E2E_ENABLED == 'true'
+    # The release branch must run this gate even if optional E2E is disabled
+    # for other PRs. Missing/stale staging or Preview access must fail visibly.
+    # Forks never receive this credential-bearing hosted job.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (vars.STAGING_E2E_ENABLED == 'true' || github.event.pull_request.head.ref == 'codex/production-modules-completion')
     env:
       BASE_URL: ${{ secrets.STAGING_URL }}
       TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
