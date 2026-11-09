@@ -146,3 +146,15 @@ A real in-memory browser reproduction identifies a fault in the response-loss in
 The retained production expense-history SQL was also compared read-only with canonical source. Differences are transaction wrappers and an older private-helper/policy implementation. Current policy catalog entries are already inline and permission-scoped; the obsolete helper is absent, private-schema usage is denied to authenticated/anonymous roles and allowed to service role. This explains that particular stored-text hash discrepancy without replaying bootstrap SQL or rewriting history. It is not a full schema/history/recovery reconciliation. No database data, ACL or migration history was changed.
 
 The diagnostic CI run 42650546023 independently confirms the receivable fault: at `lost successful action response`, `transportFaultInjected` is false and the dialog count is zero. The unchanged successful save bypassed the old interceptor. After the matcher repair, all **394/394** release guards pass; all 1,062 application build inputs still match the verified landmark build. Full same-head browser CI is required to accept the retry flow.
+
+
+## Preview packaging follow-up
+
+The source contains tracked development logs, an old dashboard backup patch and local lint/deployment reports. The deployment ignore list now excludes those non-runtime artifacts; required `patches/` dependency fixes and the two licensed private font files remain included. An isolated checkout containing tracked source plus those two fonts is used to verify the actual CLI upload inventory before creating any staging Preview. This is packaging hardening, not a replacement for full historical secret scanning.
+
+
+### Invoice PDF text wrapping verification follow-up
+
+CI run 42652929720 passed the repaired receivable flow and invoice lifecycle, then failed the reference PDF item-name check. A synthetic browser/PDF reproduction with both fallback and licensed reference fonts proved the complete item is present, visible and unclipped, but PDF.js extracts a soft wrap inside “Reference” as whitespace. Only item/description text checks now ignore whitespace introduced by wrapping; missing, changed or reordered characters still fail. Six regression cases cover those boundaries. Financial totals, unit-price precision, due-date omission/inclusion, page size, page count and URL/disclosure checks retain their exact assertions. This fixes a verifier mismatch, not invoice layout; exact sample acceptance and the remaining full CI gates are still pending. No hosted database or Production deployment changed.
+
+Verifier follow-up validation: 40/40 invoice reference guard cases and 400/400 complete release guards passed. Both changed verifier files pass Node syntax checks. Browser/PDF reproduction shows complete, unclipped item/description content with fallback and reference fonts. The application runtime source remains unchanged from the frozen production-build validation; full fresh CI is required on publication.

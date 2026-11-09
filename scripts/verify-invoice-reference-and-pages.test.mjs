@@ -1,7 +1,7 @@
 import test from'node:test'
 import assert from'node:assert/strict'
 import{expect as browserExpect}from'@playwright/test'
-import{assertInvoiceReferenceTestTarget,createInvoiceResponseLoss,verifyInvoiceReferenceAndPages}from'./verify-invoice-reference-and-pages.mjs'
+import{assertInvoiceReferenceTestTarget,createInvoiceResponseLoss,verifyInvoiceReferenceAndPages,invoicePdfContainsText}from'./verify-invoice-reference-and-pages.mjs'
 const stage='https://viowrovartosrkqukjxy.supabase.co',app='https://elite-dashboard-fixture-elitesaasc-5643.vercel.app',sha='a'.repeat(40)
 for(const[name,backend,url,commit]of[
  ['production backend','https://wwfnsbilmyxeawgzicmv.supabase.co',app,sha],['production alias',stage,'https://elite-dashboard-blush.vercel.app',sha],['unknown backend','https://unknown.supabase.co',app,sha],['unknown app',stage,'https://example.test',sha],['backend path',stage+'/rest/v1',app,sha],['query pin',stage,app+'?dpl=old',sha],['nonexact commit',stage,app,'master'],
@@ -73,3 +73,14 @@ test('invoice response loss completion wait remains bounded',async()=>{
  await assert.rejects(()=>loss.wait(5),/Owned invoice response loss did not complete/)
  assert.equal(loss.lost,false);assert.equal(loss.ready,false)
 })
+
+// PDF.js inserts spaces at soft line breaks, including within a word in the
+// sample's narrow item column. Every non-whitespace character must survive.
+for(const[name,actual,expected,result]of[
+ ['within-word wrap','Refer ence item ABCD','Reference item ABCD',true],
+ ['description lines','Separate\nreference\ndescription ABCD','Separate reference description ABCD',true],
+ ['missing character','Refer ence ite ABCD','Reference item ABCD',false],
+ ['changed character','Refer ence item ABCE','Reference item ABCD',false],
+ ['reordered characters','Refer ence item ACBD','Reference item ABCD',false],
+ ['absent item','Separate reference description ABCD','Reference item ABCD',false],
+])test('invoice PDF text check: '+name,()=>assert.equal(invoicePdfContainsText(actual,expected),result))
