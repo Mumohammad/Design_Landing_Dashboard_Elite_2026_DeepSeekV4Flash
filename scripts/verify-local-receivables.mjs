@@ -3,6 +3,12 @@ import { expect as baseExpect } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 const expect = baseExpect.configure({ timeout: 30_000 })
 
+// Tab/language query strings are part of the real action URL; keep the origin/path exact.
+export function accountingActionRoute(appUrl) {
+  const origin = new URL(appUrl).origin
+  return url => url.origin === origin && url.pathname === '/accounting'
+}
+
 // Called only after MFA sign-in to a freshly provisioned synthetic tenant.
 export async function verifyReceivableCrud(page, admin, tenantId, appUrl) {
   const app = new URL(appUrl), db = new URL(admin.supabaseUrl)
@@ -18,7 +24,7 @@ export async function verifyReceivableCrud(page, admin, tenantId, appUrl) {
   const locale = await page.locator('html').getAttribute('lang')
   const viewport = page.viewportSize()
   let id, intercepted = false, stage = 'open form'
-  const pattern = '**/accounting'
+  const pattern = accountingActionRoute(appUrl)
   const loseResponse = async route => {
     if (!intercepted && route.request().method() === 'POST' && route.request().headers()['next-action'] && route.request().postData()?.includes(reference)) {
       intercepted = true

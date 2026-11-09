@@ -1,6 +1,6 @@
-# Preview CI Trusted Source proposal
+# Preview CI Trusted Source — approved and verified
 
-This is a review proposal for one GitHub Actions External Service entry on the Vercel project owning the verified Preview URL. No Vercel setting has been changed by this task. The companion [JSON](./vercel-trusted-sources-preview.json) is a review model, not a verified REST API payload.
+The owner approved this Preview-only GitHub Actions External Service entry on 9 November 2026. It was applied to elite-dashboard only after an authenticated read confirmed no existing Trusted Sources configuration, then checked by a second authenticated read. The companion [JSON record](./vercel-trusted-sources-preview.json) includes the exact submitted `apiPayload`, verified against the public Vercel OpenAPI schema. No Production access, project trust override or secret was added.
 
 | Setting or required claim | Exact value |
 | --- | --- |
@@ -12,11 +12,11 @@ This is a review proposal for one GitHub Actions External Service entry on the V
 | `event_name` | `pull_request` |
 | Applies to environments | **Preview only** |
 
-Configure all five claims in the raw-claims form. Each must be present and match its exact listed value; no wildcard or extra accepted value is proposed. Vercel verifies the issuer signature, every configured claim, and the target deployment environment. This rule grants no Production access. [Vercel Trusted Sources](https://vercel.com/docs/deployment-protection/methods-to-bypass-deployment-protection/trusted-sources#how-claim-matching-works)
+All five configured claims must be present and match their exact listed value; there is no wildcard or extra accepted value. Vercel verifies the issuer signature, every configured claim, and the target deployment environment. This rule grants no Production access. [Vercel Trusted Sources](https://vercel.com/docs/deployment-protection/methods-to-bypass-deployment-protection/trusted-sources#how-claim-matching-works)
 
 GitHub defines `head_ref` as the PR source branch and `base_ref` as its target branch. CI must still preserve its same-repository PR-head guard and verify the immutable Preview commit before fixture work. The requested audience is exactly `https://github.com/Mumohammad`; hosted jobs need job-scoped `id-token: write`. [GitHub OIDC reference](https://docs.github.com/en/actions/reference/security/oidc)
 
-The intended caller requests a short-lived token on demand and sends it in `x-vercel-trusted-oidc-idp-token` only to the exact verified Preview origin. Tokens stay in memory, with GitHub masking only; the proposal contains no token or static bypass secret. [Vercel token attachment](https://vercel.com/docs/deployment-protection/methods-to-bypass-deployment-protection/trusted-sources#attach-the-oidc-token-from-your-code)
+The intended caller requests a short-lived token on demand and sends it in `x-vercel-trusted-oidc-idp-token` only to the exact verified Preview origin. Tokens stay in memory, with GitHub masking only; the record contains no token or static bypass secret. [Vercel token attachment](https://vercel.com/docs/deployment-protection/methods-to-bypass-deployment-protection/trusted-sources#attach-the-oidc-token-from-your-code)
 
 A local development token supplied by `vc env run` for the same linked project already has default `development` → `preview` self-access. It needs no additional GitHub External Service rule unless those self-access defaults were customized. [Vercel default access](https://vercel.com/docs/deployment-protection/methods-to-bypass-deployment-protection/trusted-sources#default-access)
 
@@ -26,6 +26,6 @@ The [access-protected-vercel-deployment skill](C:/Users/Zbook/.codex/plugins/cac
 
 > Treat this as an access-control change: explain the exact rule required and obtain authorization before changing it. Do not broaden unrelated environment pairs.
 
-That requirement applies to adding the proposed External Service entry. Root will request authorization for this concrete Preview-only rule after the code and tests are reviewable. Preparing these files does not authorize or apply the setting.
+That requirement was satisfied before the change: the owner approved the concrete Preview-only request in this chat. The approval did not broaden the rule to Production or authorize unrelated secret/permission changes.
 
-The current official documentation describes the dashboard raw-claims form. Its REST API payload schema was not verified in this task; use the reviewed values above rather than submitting the JSON file as an API request.
+After the rule was applied, the hosted E2E retry passed the previous protection-denial boundary and failed at the exact-commit readiness check. The existing staging Preview is still an older commit. This rule does not create a deployment, repair database drift or certify hosted acceptance.
