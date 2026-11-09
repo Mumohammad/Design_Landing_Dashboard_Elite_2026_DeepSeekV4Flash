@@ -1,9 +1,10 @@
+import {continueVerificationRoute,verificationFetch} from './lib/verification-access.mjs'
 import { expect as baseExpect } from '@playwright/test'
 const expect=baseExpect.configure({timeout:30_000})
 // Invoke after invoice lifecycle acceptance has created actual synthetic postings.
 export async function verifyFinancialStatements(page,admin,tenantId,appUrl){
  const backend=new URL(admin.supabaseUrl),app=new URL(appUrl)
- const csp=(await fetch(appUrl+'/landing')).headers.get('content-security-policy')??''
+ const csp=(await verificationFetch(appUrl+'/landing',{},appUrl)).headers.get('content-security-policy')??''
  const local=['localhost','127.0.0.1'].includes(backend.hostname)&&['localhost','127.0.0.1'].includes(app.hostname)
  const stage=backend.origin==='https://viowrovartosrkqukjxy.supabase.co'&&/^elite-dashboard-[a-z0-9-]+-elitesaasc-5643\.vercel\.app$/.test(app.hostname)&&csp.includes(backend.origin)
  if((!local&&!stage)||app.hostname==='elite-dashboard-blush.vercel.app'||csp.includes('wwfnsbilmyxeawgzicmv.supabase.co')||csp.includes('connect-src')&&/connect-src[^;]*\*\.supabase\.co/.test(csp)||!tenantId)throw Error('Isolated financial report verification required')
@@ -22,7 +23,7 @@ export async function verifyFinancialStatements(page,admin,tenantId,appUrl){
   const unavailable=async route=>{
    const request=route.request()
    if(!blocked&&request.method()==='POST'&&request.headers()['next-action']){blocked=true;await route.fulfill({status:503,contentType:'text/plain',body:'Synthetic report service unavailable'})}
-   else await route.continue()
+   else await continueVerificationRoute(route)
   }
   const reportUrl=url=>url.pathname==='/accounting'
   await page.route(reportUrl,unavailable)

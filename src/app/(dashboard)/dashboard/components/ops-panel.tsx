@@ -130,7 +130,6 @@ export function OpsPanel({
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       {tiles.map((tile) => {
-        const Icon = tile.icon
         const body = !tile.available ? (
           <OfflineState />
         ) : (
@@ -150,8 +149,8 @@ export function OpsPanel({
                   <span
                     className={cn(
                       "font-semibold tabular-nums",
-                      r.tone === "good" && "text-emerald-600 dark:text-emerald-400",
-                      r.tone === "bad" && "text-red-600 dark:text-red-400",
+                      r.tone === "good" && "text-foreground",
+                      r.tone === "bad" && "text-red-700 dark:text-red-400",
                     )}
                   >
                     {r.value}
@@ -166,15 +165,10 @@ export function OpsPanel({
           <Link
             key={tile.key}
             href={tile.href}
-            className="block rounded-2xl focus-visible:outline-none"
+            className="block rounded-lg focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
             aria-label={t.dashboard[tile.titleKey]}
           >
-            <ChartCard title={t.dashboard[tile.titleKey]} description={t.dashboard[tile.descKey]}>
-              <div className="mb-2 flex items-center gap-2">
-                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-elite-blue-500/10 text-elite-blue-600 dark:text-elite-blue-400">
-                  <Icon className="h-4 w-4" />
-                </span>
-              </div>
+            <ChartCard title={t.dashboard[tile.titleKey]} icon={tile.icon} description={t.dashboard[tile.descKey]}>
               {body}
             </ChartCard>
           </Link>

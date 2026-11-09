@@ -8,7 +8,7 @@ import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
 import { EnterpriseModulePage, type KpiCardData, type TableColumn } from "@/components/dashboard/enterprise-module-page"
 import { CreditCard, FileCheck, AlertTriangle, DollarSign, Calculator, Download, Ban, Loader2, ArrowRightCircle, PackageCheck } from "lucide-react"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 import {
   calculatePayrollForPeriod,
   generateWpsFile,
@@ -242,7 +242,7 @@ export default function PayrollPage() {
     { label: t.nav.payroll, value: totalRecords, icon: CreditCard, color: "#1E5A99" },
     { label: t.common.approved, value: approvedCount, icon: FileCheck, color: "#10B981" },
     { label: ar ? "طلبات مسلّمة (محتسبة، السنة المصفاة)" : "Delivered orders (calculated, filtered year)", value: totalDelivered.toLocaleString("en-US"), icon: PackageCheck, color: "#F59E0B" },
-    { label: ar ? "صافي الإجمالي (ر.س)" : "Net Total (SAR)", value: totalNet.toFixed(0), icon: DollarSign, color: "#8B5CF6" },
+    { label: ar ? "صافي الإجمالي (ر.س)" : "Net Total (SAR)", value: totalNet.toFixed(0), icon: DollarSign, color: "#0F766E" },
   ]
 
   const columns: TableColumn<PayrollRow>[] = [
@@ -303,14 +303,14 @@ export default function PayrollPage() {
         <div className="flex items-center gap-2">
           <span dir="ltr" className="tabular-nums font-bold">{fmtMoney(r.net_payroll)}</span>
           {r.below_minimum_wage && (
-            <span className="inline-flex items-center rounded-full bg-red-500/15 text-red-600 border border-red-500/20 px-1.5 py-0.5 text-[10px] font-medium" title={ar ? "أقل من الحد المرجعي المضبوط للرواتب" : "Below configured payroll advisory"}>
+            <span className="inline-flex items-center rounded-full bg-red-500/15 text-red-600 border border-red-500/20 px-1.5 py-0.5 text-xs font-medium" title={ar ? "أقل من الحد المرجعي المضبوط للرواتب" : "Below configured payroll advisory"}>
               <AlertTriangle className="h-3 w-3 ml-0.5" /><LocalizedText text="MW" /></span>
           )}
           {r.minimum_floor_applied && (
-            <span className="inline-flex items-center rounded-full bg-amber-500/15 text-amber-600 border border-amber-500/20 px-1.5 py-0.5 text-[10px] font-medium" title={ui("Minimum floor applied")}><LocalizedText text="Floor" /></span>
+            <span className="inline-flex items-center rounded-full bg-amber-500/15 text-amber-600 border border-amber-500/20 px-1.5 py-0.5 text-xs font-medium" title={ui("Minimum floor applied")}><LocalizedText text="Floor" /></span>
           )}
           {r.manual_override && (
-            <span className="inline-flex items-center rounded-full bg-purple-500/15 text-purple-600 border border-purple-500/20 px-1.5 py-0.5 text-[10px] font-medium" title={ui("Manual override applied")}><LocalizedText text="Override" /></span>
+            <span className="inline-flex items-center rounded-full bg-purple-500/15 text-purple-600 border border-purple-500/20 px-1.5 py-0.5 text-xs font-medium" title={ui("Manual override applied")}><LocalizedText text="Override" /></span>
           )}
         </div>
       ),
@@ -359,7 +359,7 @@ export default function PayrollPage() {
   ]
 
   return (
-    <div className="px-4 lg:px-6 py-4">
+    <div className="py-4">
       <EnterpriseModulePage
         title={t.nav.payroll}
         subtitle={ar ? "إدارة فترات الرواتب والمدفوعات" : "Manage payroll periods and payments"}
@@ -370,6 +370,7 @@ export default function PayrollPage() {
         toolbarActions={
           <div className="flex flex-wrap items-center gap-2">
             <Link href="/payroll/preparation" className="inline-flex h-9 items-center rounded-xl border border-border px-3.5 text-sm font-medium hover:bg-muted">{ar ? "تحضير البيانات والسلف" : "Prepare inputs and advances"}</Link>
+            <Link href="/payroll/platform" className="inline-flex h-9 items-center rounded-xl border border-border px-3.5 text-sm font-medium hover:bg-muted">{ar ? "رواتب المنصات (استيراد Excel)" : "Platform payroll (Excel import)"}</Link>
             <select
               aria-label={ar ? "شهر الراتب" : "Payroll month"}
               value={selectedMonth}
@@ -389,7 +390,7 @@ export default function PayrollPage() {
             <button
               onClick={handleCalculate}
               disabled={isCalculating}
-              className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 px-3.5 text-sm font-medium text-white shadow-sm transition-all hover:from-elite-blue-700 hover:to-elite-blue-800 disabled:opacity-50"
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl px-3.5 text-sm font-medium shadow-sm transition-all hover:from-elite-blue-700 hover:to-elite-blue-800 disabled:opacity-50 bg-foreground text-background"
             >
               {isCalculating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Calculator className="h-4 w-4" />}
               {ar ? "احتساب الفترة" : "Calculate period"}

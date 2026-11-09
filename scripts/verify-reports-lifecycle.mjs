@@ -1,3 +1,4 @@
+import {continueVerificationRoute} from './lib/verification-access.mjs'
 import { expect as baseExpect } from '@playwright/test'
 import { randomUUID, createHash } from 'node:crypto'
 import { assertModuleTestTarget } from './assert-module-test-target.mjs'
@@ -110,7 +111,7 @@ export async function verifyReportsLifecycle(page, admin, tenantId, appUrl) {
     await expect(page.locator('html')).toHaveAttribute('lang','ar')
     await page.getByRole('combobox',{name:'نوع التقرير',exact:true}).selectOption('driver_performance')
     const initialCount=(await reports()).length
-    const actionPattern='**/reports**', actionFault=async route=>{if(route.request().method()==='POST'&&route.request().headers()['next-action'])return route.abort('failed');return route.continue()}
+    const actionPattern='**/reports**', actionFault=async route=>{if(route.request().method()==='POST'&&route.request().headers()['next-action'])return route.abort('failed');return continueVerificationRoute(route)}
     routes.push([actionPattern,actionFault]);await page.route(actionPattern,actionFault)
     await page.getByRole('button',{name:'إنشاء تقرير',exact:true}).click()
     await expect(page.getByRole('alert')).toContainText('تعذر إنشاء التقرير. أعد المحاولة.')

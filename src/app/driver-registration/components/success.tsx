@@ -79,24 +79,23 @@ export function SuccessScreen({
   })
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-dvh bg-background">
       {/* Screen content */}
       <div className="mx-auto flex max-w-xl flex-col items-center px-4 py-16 text-center">
         {/* Animated checkmark */}
         <div className="relative">
-          <div className="absolute inset-0 -m-4 rounded-full bg-emerald-500/20 blur-2xl" aria-hidden />
           <MotionCheck />
         </div>
 
-        <h1 className="mt-8 text-3xl font-extrabold tracking-tight text-foreground">{dict.success.heading}</h1>
+        <h1 className="mt-8 text-3xl font-semibold tracking-tight text-foreground">{dict.success.heading}</h1>
         <p className="mt-2 text-muted-foreground">{dict.success.message}</p>
 
-        <div className="mt-8 w-full rounded-2xl border border-border bg-card/70 p-6 shadow-sm">
-          <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+        <div className="mt-8 w-full rounded-lg border border-border bg-card p-6">
+          <p className="text-xs font-medium text-muted-foreground">
             {dict.success.applicationNumber}
           </p>
           <div className="mt-2 flex items-center justify-center gap-2">
-            <p className="font-mono text-2xl font-extrabold tracking-wide text-foreground">{applicationNumber}</p>
+            <p className="font-mono text-2xl font-semibold tracking-wide text-foreground">{applicationNumber}</p>
             <button
               type="button"
               onClick={() => void copyNumber()}
@@ -109,7 +108,7 @@ export function SuccessScreen({
           <p className="mt-1 text-xs text-muted-foreground">{copied ? dict.success.copied : dict.success.note}</p>
 
           <div className="mt-4 flex items-center justify-center gap-2 border-t border-border/60 pt-4">
-            <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-600 dark:text-emerald-400">
+            <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-800 dark:text-emerald-300">
               {dict.success.status}: {dict.success.statusValue}
             </span>
           </div>
@@ -118,11 +117,11 @@ export function SuccessScreen({
           <div className="mt-5 flex flex-col items-center">
             {qrDataUrl ? (
               // eslint-disable-next-line @next/next/no-img-element -- QR data URL
-              <img src={qrDataUrl} alt="Application status QR" className="h-28 w-28 rounded-xl border border-border bg-white" />
+              <img src={qrDataUrl} alt="Application status QR" className="h-28 w-28 rounded-md border border-border bg-white" />
             ) : (
-              <div className="h-28 w-28 animate-pulse rounded-xl border border-border bg-muted" />
+              <div className="h-28 w-28 animate-pulse rounded-md border border-border bg-muted" />
             )}
-            <p className="mt-2 max-w-60 text-[11px] leading-relaxed text-muted-foreground">
+            <p className="mt-2 max-w-60 text-xs leading-relaxed text-muted-foreground">
               {dict.print.status} · /driver-application-status/{encodeURIComponent(statusToken)}
             </p>
           </div>
@@ -132,19 +131,19 @@ export function SuccessScreen({
           <Button
             onClick={() => void copyNumber()}
             variant="outline"
-            className="h-11 rounded-xl px-6"
+            className="h-11 rounded-md px-6"
           >
             <Copy className="h-4 w-4" /> {copied ? dict.success.copied : dict.success.copy}
           </Button>
-          <Button onClick={handlePrint} variant="outline" className="h-11 rounded-xl px-6">
+          <Button onClick={handlePrint} variant="outline" className="h-11 rounded-md px-6">
             <Printer className="h-4 w-4" /> {dict.success.print}
           </Button>
-          <Button onClick={handlePrint} variant="outline" className="h-11 rounded-xl px-6">
+          <Button onClick={handlePrint} variant="outline" className="h-11 rounded-md px-6">
             <Download className="h-4 w-4" /> {dict.success.downloadPdf}
           </Button>
           <Button
             asChild
-            className="h-11 rounded-xl bg-gradient-to-r from-elite-blue-500 to-elite-blue-600 px-6 text-white shadow-lg shadow-elite-blue-500/25"
+            className="h-11 rounded-md bg-foreground px-6 text-background hover:bg-foreground/90"
           >
             <Link href="/landing">
               <RotateCcw className="h-4 w-4 rtl:-scale-x-100" /> {dict.success.returnHome}
@@ -219,11 +218,11 @@ function MotionCheck() {
   }, [])
   return (
     <div
-      className={`flex h-20 w-20 items-center justify-center rounded-full bg-emerald-500 shadow-xl shadow-emerald-500/30 transition-all duration-500 ${
+      className={`flex h-20 w-20 items-center justify-center text-emerald-700 dark:text-emerald-300 transition-all duration-300 ${
         show ? "scale-100 opacity-100" : "scale-50 opacity-0"
       }`}
     >
-      <Check className="h-10 w-10 text-white" strokeWidth={3} />
+      <Check className="h-10 w-10" strokeWidth={2} />
     </div>
   )
 }

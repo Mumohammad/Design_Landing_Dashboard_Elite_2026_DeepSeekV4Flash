@@ -7,7 +7,7 @@
 
 import { useState, useTransition } from "react"
 import { Loader2, Mail } from "lucide-react"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -122,7 +122,7 @@ export function InviteUserDialog({
           <Button
             onClick={submit}
             disabled={busy}
-            className="bg-gradient-to-r from-elite-blue-500 to-elite-blue-600 text-white hover:from-elite-blue-600 hover:to-elite-blue-700"
+            className="hover:from-elite-blue-600 hover:to-elite-blue-700 bg-foreground text-background"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
             {isAr ? "إرسال الدعوة" : "Send invite"}

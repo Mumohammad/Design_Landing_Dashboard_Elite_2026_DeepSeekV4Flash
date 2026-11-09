@@ -102,7 +102,7 @@ export default function PayrollDefaultsSettingsPage() {
 
 
   return (
-    <div className="page-enter px-4 lg:px-6 py-4 space-y-6">
+    <div className="page-enter py-4 space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-foreground">{t.settings.payrollDefaults}</h1>
         <p className="text-sm text-muted-foreground mt-1">
@@ -111,7 +111,7 @@ export default function PayrollDefaultsSettingsPage() {
       </div>
 
       <form action={formAction}><fieldset disabled={isPending || loadError || !canManage} className="min-w-0">
-        <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm">
+        <Card className="rounded-2xl border border-border/50 bg-card shadow-sm">
           <CardHeader className="pb-4">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-elite-blue-600/10">
@@ -148,7 +148,7 @@ export default function PayrollDefaultsSettingsPage() {
                     <p className="text-sm font-medium">{meta.label}</p>
                     <p className="mt-0.5 text-xs text-muted-foreground">{meta.desc}</p>
                     {!isPublic && (
-                      <span className="mt-1 inline-block rounded-full bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 text-[10px] text-amber-600">
+                      <span className="mt-1 inline-block rounded-full bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 text-xs text-amber-600">
                         {ar ? "خاص — مسؤولو الإعدادات" : "Private — settings managers"}
                       </span>
                     )}
@@ -177,7 +177,7 @@ export default function PayrollDefaultsSettingsPage() {
           <Button
             type="submit"
             disabled={isPending}
-            className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800"
+            className="hover:from-elite-blue-700 hover:to-elite-blue-800 bg-foreground text-background"
           >
             {isPending ? <LoadingSpinner className="h-4 w-4" /> : <Save className="h-4 w-4" />}
             {t.common.saveChanges}

@@ -27,6 +27,7 @@ export async function verifyInvoiceCrud(page, admin, tenantId, appUrl) {
     await dialog.getByLabel(/Unit price|سعر الوحدة/).fill("4.10")
     stage = "verify decimal preview"
     await expect(dialog.getByText("4.72", { exact: true })).toBeVisible()
+    await page.screenshot({ path: "supabase/.temp/invoice-editor.png" })
     await dialog.getByRole("button", { name: /Save draft|حفظ المسودة/ }).click()
     await expect(dialog).toBeHidden()
     await page.screenshot({ path: "supabase/.temp/invoice-desktop.png", fullPage: true })

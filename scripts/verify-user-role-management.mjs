@@ -1,3 +1,4 @@
+import {continueVerificationRoute} from './lib/verification-access.mjs'
 import { assertModuleTestTarget } from "./assert-module-test-target.mjs"
 import { expect as baseExpect } from "@playwright/test"
 const expect=baseExpect.configure({timeout:20_000})
@@ -81,7 +82,7 @@ export async function verifyUserRoleManagement(page,admin,tenantId,appUrl){
   step="roster and security read errors recover visibly"
   for(const path of ["/users","/security"]){
    const target=url=>new URL(url).origin===app.origin&&new URL(url).pathname===path
-   const handler=route=>route.request().method()==="POST"&&route.request().headers()["next-action"]?route.fulfill({status:503,contentType:"text/plain",body:"Synthetic read unavailable"}):route.continue()
+   const handler=route=>route.request().method()==="POST"&&route.request().headers()["next-action"]?route.fulfill({status:503,contentType:"text/plain",body:"Synthetic read unavailable"}):continueVerificationRoute(route)
    await page.route(target,handler)
    await page.goto(appUrl+path+"?lang=en")
    await expect(page.locator("main").getByRole("alert").filter({hasText:path==="/users"?"Could not load users":"Could not load security overview"})).toContainText(path==="/users"?"Could not load users":"Could not load security overview")

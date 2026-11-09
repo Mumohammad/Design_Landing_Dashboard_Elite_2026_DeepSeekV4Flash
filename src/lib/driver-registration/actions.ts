@@ -5,6 +5,7 @@ import { rateLimit, getClientIp } from "@/lib/auth/rate-limit"
 import { fullApplicationSchema, type FullApplication } from "./schema"
 import { createHash, createHmac, randomBytes } from "crypto"
 import { getUploadDraft, ownsUploadPath } from "./draft"
+import { SAVED_APPLICATION_COOKIE } from "./saved-application-constants"
 import { notifyApplicantByEmail } from "@/lib/notifications/applicant-email"
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -237,6 +238,14 @@ export async function submitDriverApplication(
     ])
     for (const r of notifyResults) {
       if (r.status === "rejected") console.error("[driver-registration] notification channel failed:", r.reason)
+    }
+
+    // 7. The application is filed: forget the saved progress in this browser.
+    try {
+      const { cookies } = await import("next/headers")
+      ;(await cookies()).set(SAVED_APPLICATION_COOKIE, "", { httpOnly: true, sameSite: "lax", path: "/", maxAge: 0 })
+    } catch {
+      /* outside a request scope (tests) — nothing to clear */
     }
 
     return {

@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
-import { REDIRECTS, safeReturnPath, DASHBOARD_PATH, toAbsoluteUrl } from "@/lib/redirects"
+import { safeReturnPath, DASHBOARD_PATH, toAbsoluteUrl } from "@/lib/redirects"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /auth/callback — completes OAuth (PKCE) sign-in.

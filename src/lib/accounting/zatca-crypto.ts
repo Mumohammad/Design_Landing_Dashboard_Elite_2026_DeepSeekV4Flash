@@ -153,49 +153,51 @@ export function buildZatcaCsr(input: ZatcaCsrInput, keyPair: ZatcaKeyPair): stri
   // extname/array form we use for ZATCA. Cast through a minimal structural
   // type so the extension request (basicConstraints/keyUsage/subjectAltName
   // with the dirName SAN) is passed through exactly.
+  // Structure mirrors the official ZATCA SDK 3.4.8 `-csr` output, which the
+  // developer-portal sandbox accepts (verified live 2026-10-28): subject
+  // C (PrintableString), OU, O, CN (UTF8String); extension request with only
+  // the certificate-template extension (UTF8String) and a dirName SAN holding
+  // SN (2.5.4.4), UID (0.9.2342.19200300.100.1.1), title (2.5.4.12),
+  // registeredAddress (2.5.4.26) and businessCategory (2.5.4.15), all UTF8.
+  // basicConstraints/keyUsage and a SAN country made the sandbox answer
+  // "Invalid Request".
+  const utf8 = (type: string, value: string) => [{ type, value, ds: "utf8" }]
   const csrParam = {
     subject: {
-      C: input.country,
-      OU: input.organizationUnit,
-      O: input.organization,
-      CN: input.commonName,
+      array: [
+        [{ type: "C", value: input.country, ds: "prn" }],
+        utf8("OU", input.organizationUnit),
+        utf8("O", input.organization),
+        utf8("CN", input.commonName),
+      ],
     },
     sbjprvkey: keyPair.privateKeyPem,
     sbjpubkey: keyPair.publicKeyPem,
     sigalg: "SHA256withECDSA",
     extreq: [
-      { extname: "basicConstraints", cA: false },
-      { extname: "keyUsage", critical: true, names: ["digitalSignature", "nonRepudiation", "keyEncipherment"] },
+      { extname: "1.3.6.1.4.1.311.20.2", extn: { utf8str: input.certificateTemplate ?? ZATCA_CERT_TEMPLATES.simulation } },
       {
         extname: "subjectAltName",
         array: [
           {
             dn: {
-              C: input.country,
-              SN: input.serialNumber,
-              UID: input.uid,
-              title: input.title,
-              "2.5.4.26": input.registeredAddress,
-              "2.5.4.15": input.businessCategory,
+              array: [
+                utf8("2.5.4.4", input.serialNumber),
+                utf8("0.9.2342.19200300.100.1.1", input.uid),
+                utf8("2.5.4.12", input.title),
+                utf8("2.5.4.26", input.registeredAddress),
+                utf8("2.5.4.15", input.businessCategory),
+              ],
             },
           },
         ],
       },
-      // ZATCA's mandatory code-signing certificate template — the sandbox and
-      // simulation reject CSRs without it (Microsoft onboarding guide's
-      // `certificateTemplateName: ASN1:PRINTABLESTRING:PREZATCA-Code-Signing`;
-      // confirmed live: the sandbox returned "Invalid Request" before this
-      // extension was added). Emitted as a private extension with the
-      // Microsoft certificate-template OID 1.3.6.1.4.1.311.20.2. The template
-      // VALUE is environment-specific (TSTZATCA/PREZATCA/ZATCA) — see
-      // ZATCA_CERT_TEMPLATES.
-      { extname: "1.3.6.1.4.1.311.20.2", extn: { prnstr: input.certificateTemplate ?? ZATCA_CERT_TEMPLATES.simulation } },
     ],
   }
-  const csrPem = KJUR.asn1.csr.CSRUtil.newCSRPEM(csrParam as Parameters<typeof KJUR.asn1.csr.CSRUtil.newCSRPEM>[0])
+  const csrPem = KJUR.asn1.csr.CSRUtil.newCSRPEM(csrParam as unknown as Parameters<typeof KJUR.asn1.csr.CSRUtil.newCSRPEM>[0])
 
-  // Return the Base64 DER body (the request payload ZATCA expects) — the PEM
-  // armor + headers stripped.
+  // Return the Base64 DER body (PEM armor stripped). The HTTP request payload
+  // is built from it by `zatcaCsrRequestPayload` (base64 of the PEM text).
   return pemToBase64Body(csrPem)
 }
 
@@ -204,9 +206,19 @@ export function buildZatcaCsr(input: ZatcaCsrInput, keyPair: ZatcaKeyPair): stri
  * jsrsasign's CSR PEM is `-----BEGIN CERTIFICATE REQUEST-----` … — we only
  * want the Base64 payload for the API body.
  */
+/**
+ * The compliance API's `csr` field is Base64 of the PEM text (as produced by
+ * the official SDK), not the bare DER Base64 body.
+ */
+export function zatcaCsrRequestPayload(derBase64: string): string {
+  const pem = `-----BEGIN CERTIFICATE REQUEST-----\n${derBase64.match(/.{1,64}/g)?.join("\n") ?? ""}\n-----END CERTIFICATE REQUEST-----\n`
+  return Buffer.from(pem, "utf8").toString("base64")
+}
+
 export function pemToBase64Body(pem: string): string {
   return pem
-    .split("\n")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
     .filter((l) => l && !l.startsWith("-----"))
     .join("")
     .trim()

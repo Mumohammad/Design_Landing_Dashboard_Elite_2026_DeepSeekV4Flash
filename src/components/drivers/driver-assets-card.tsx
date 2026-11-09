@@ -51,7 +51,7 @@ export function DriverAssetsCard({ driverId, isAr }: { driverId: string; isAr: b
   }
 
   return (
-    <div className="rounded-2xl border border-border/50 bg-card/60 p-4 shadow-sm backdrop-blur-sm lg:col-span-2">
+    <div className="rounded-2xl border border-border/50 bg-card/60 p-4 shadow-sm lg:col-span-2">
       <div className="mb-3 flex items-center gap-2 border-b border-border/30 pb-3">
         <PackageOpen className="h-4 w-4 text-elite-blue-500" />
         <h3 className="text-sm font-semibold text-foreground">
@@ -72,11 +72,11 @@ export function DriverAssetsCard({ driverId, isAr }: { driverId: string; isAr: b
               <div className="flex items-center justify-between gap-2">
                 <span className="text-sm font-semibold text-foreground">{r.asset_type}</span>
                 {r.returned_at ? (
-                  <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                     {isAr ? "مُسترَد" : "Returned"}
                   </span>
                 ) : (
-                  <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-400">
+                  <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
                     {isAr ? "بحوزة السائق" : "Held"}
                   </span>
                 )}

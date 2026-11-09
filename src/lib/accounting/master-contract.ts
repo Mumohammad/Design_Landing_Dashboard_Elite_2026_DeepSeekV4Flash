@@ -13,7 +13,8 @@ export const MASTER_IMPORT_MAX_ROW_CHARS = 4_096
 export type PartyMasterRow = {
   id: string; code: string; name_ar: string; name_en: string | null
   phone: string | null; email: string | null; tax_number: string | null
-  address: string | null; credit_limit: string | null; is_active: boolean; updated_at: string
+  address: string | null; city: string | null; district: string | null; building_number: string | null
+  additional_number: string | null; postal_code: string | null; country_code: string; credit_limit: string | null; is_active: boolean; updated_at: string
 }
 export type ChartMasterRow = {
   id: string; account_code: string; name_ar: string; name_en: string
@@ -138,11 +139,18 @@ function parseRow(value: unknown, kind: MasterKind): MasterRow {
     || typeof value.is_active !== "boolean" || !isMasterTimestamp(value.updated_at)) throw new MasterContractError()
   if (kind !== "accounts") {
     if (!text(value.code) || !/^[A-Za-z0-9][A-Za-z0-9-]{2,11}$/.test(value.code)
-      || ![value.name_en, value.phone, value.email, value.tax_number, value.address].every(nullableText)
+      || ![value.name_en, value.phone, value.email, value.tax_number, value.address, value.city, value.district, value.building_number, value.additional_number, value.postal_code].every(nullableText)
+      || !(value.city === null || (text(value.city) && value.city.length <= 100))
+      || !(value.district === null || (text(value.district) && value.district.trim().length >= 1 && value.district.length <= 127))
+      || ![value.building_number, value.additional_number].every(number => number === null || (text(number) && /^[0-9]{4}$/.test(number)))
+      || !(value.postal_code === null || (text(value.postal_code) && /^[0-9]{5}$/.test(value.postal_code)))
+      || !text(value.country_code) || !/^[A-Z]{2}$/.test(value.country_code)
       || !(value.credit_limit === null || money(value.credit_limit))) throw new MasterContractError()
     return { id: value.id, code: value.code, name_ar: value.name_ar, name_en: value.name_en as string | null,
       phone: value.phone as string | null, email: value.email as string | null, tax_number: value.tax_number as string | null,
-      address: value.address as string | null, credit_limit: value.credit_limit as string | null, is_active: value.is_active, updated_at: value.updated_at }
+      address: value.address as string | null, city: value.city as string | null, district: value.district as string | null,
+      building_number: value.building_number as string | null, additional_number: value.additional_number as string | null,
+      postal_code: value.postal_code as string | null, country_code: value.country_code, credit_limit: value.credit_limit as string | null, is_active: value.is_active, updated_at: value.updated_at }
   }
   if (!text(value.account_code) || !/^\d{3,6}$/.test(value.account_code) || !text(value.name_en) || !value.name_en.trim()
     || !accountType(value.account_type) || !["debit", "credit"].includes(String(value.normal_balance))

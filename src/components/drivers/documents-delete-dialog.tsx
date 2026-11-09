@@ -4,7 +4,7 @@ import { LocalizedText } from "@/components/localized-text"
 import { useState } from "react";
 
 import { Loader2, Trash2 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 import { emitDriverChanged } from "@/lib/drivers/driver-events";
 import { removeDriverDocument } from "@/app/actions/drivers/documents";

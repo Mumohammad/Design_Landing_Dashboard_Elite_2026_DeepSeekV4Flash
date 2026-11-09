@@ -106,7 +106,7 @@ export function PricingPlans({
         <Card
           key={tier.id}
           className={cn('flex flex-col pt-0', { 
-            'border-primary relative shadow-lg': tier.popular,
+            'border-primary relative': tier.popular,
             'border-primary': currentPlanId === tier.id && mode === 'billing'
           })}
           aria-labelledby={`${tier.id}-title`}

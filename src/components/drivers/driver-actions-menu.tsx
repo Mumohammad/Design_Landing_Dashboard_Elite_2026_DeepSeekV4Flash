@@ -1,8 +1,9 @@
 "use client"
+import { driverErrorMessage } from "@/lib/drivers/error-messages"
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 import { createClient } from "@/lib/supabase/client"
 import { emitDriverChanged } from "@/lib/drivers/driver-events"
 import { Button } from "@/components/ui/button"
@@ -39,12 +40,15 @@ import {
   updateDriver,
 } from "@/lib/drivers/actions"
 import type { Driver, DriverStatus, DriverUpdateInput } from "@/types/drivers"
+import { NationalityPicker, SaudiCityPicker } from "@/components/drivers/reference-pickers"
+import { DriverDocumentQuickUpload } from "@/components/drivers/driver-document-quick-upload"
 import {
   Archive,
   Ban,
   CalendarClock,
   CheckCircle2,
   ExternalLink,
+  FileUp,
   Loader2,
   MoreHorizontal,
   Pause,
@@ -54,7 +58,7 @@ import {
 
 const SAUDI_MOBILE_REGEX = /^(05\d{8}|\+9665\d{8})$/
 
-type FieldType = "text" | "date" | "number" | "textarea" | "select"
+type FieldType = "text" | "date" | "number" | "textarea" | "select" | "nationality" | "city" | "hidden"
 
 interface FieldDef {
   key: string
@@ -80,7 +84,8 @@ const EDIT_SECTIONS: SectionDef[] = [
       { key: "full_name_ar", en: "Full name (Arabic)", ar: "الاسم الكامل (عربي)" },
       { key: "full_name_en", en: "Full name (English)", ar: "الاسم الكامل (إنجليزي)", dirLtr: true },
       { key: "preferred_name", en: "Preferred name", ar: "الاسم المفضل" },
-      { key: "nationality", en: "Nationality", ar: "الجنسية" },
+      { key: "nationality", en: "Nationality", ar: "الجنسية", type: "nationality" },
+      { key: "nationality_code", en: "Nationality code", ar: "رمز الجنسية", type: "hidden" },
       { key: "date_of_birth", en: "Date of birth", ar: "تاريخ الميلاد", type: "date" },
       { key: "gender", en: "Gender", ar: "الجنس" },
       { key: "marital_status", en: "Marital status", ar: "الحالة الاجتماعية" },
@@ -94,7 +99,8 @@ const EDIT_SECTIONS: SectionDef[] = [
       { key: "secondary_mobile", en: "Secondary mobile", ar: "الجوال الثانوي", dirLtr: true },
       { key: "personal_email", en: "Personal email", ar: "البريد الشخصي", dirLtr: true },
       { key: "work_email", en: "Work email", ar: "البريد الوظيفي", dirLtr: true },
-      { key: "current_city", en: "City", ar: "المدينة" },
+      { key: "current_city", en: "City", ar: "المدينة", type: "city" },
+      { key: "current_region", en: "Region", ar: "المنطقة", type: "hidden" },
       { key: "national_address", en: "National address", ar: "العنوان الوطني", type: "textarea", span: true },
     ],
   },
@@ -274,6 +280,7 @@ export default function DriverActionsMenu({
   const [terminationDate,setTerminationDate]=useState("")
   const [acting, setActing] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [docUploadOpen, setDocUploadOpen] = useState(false)
 
   const ensureRecord = async (): Promise<Driver | null> => {
     setBusy(true)
@@ -352,7 +359,7 @@ export default function DriverActionsMenu({
       }
       const res = await updateDriver(driverId, payload as DriverUpdateInput, record?.profile_version ?? 0)
       if (!res.success) {
-        toast.error(res.error ?? (isAr ? "فشل الحفظ" : "Save failed"))
+        toast.error(driverErrorMessage(res.error, isAr, isAr ? "فشل الحفظ" : "Save failed"))
         return
       }
       toast.success(isAr ? "تم حفظ التغييرات" : "Changes saved")
@@ -370,7 +377,7 @@ export default function DriverActionsMenu({
       if (pending.kind === "archive") {
         const res = await archiveDriver({ driverId, reason: reason.trim(), expectedVersion:record?.profile_version??0 })
         if (!res.success) {
-          toast.error(res.error ?? (isAr ? "فشل الأرشفة" : "Archive failed"))
+          toast.error(driverErrorMessage(res.error, isAr, isAr ? "فشل الأرشفة" : "Archive failed"))
           return
         }
         toast.success(isAr ? "تمت أرشفة السائق" : "Driver archived")
@@ -388,7 +395,7 @@ export default function DriverActionsMenu({
         terminationDate:terminationDate||undefined,
       })
       if (!res.success) {
-        toast.error(res.error ?? (isAr ? "فشل تغيير الحالة" : "Status change failed"))
+        toast.error(driverErrorMessage(res.error, isAr, isAr ? "فشل تغيير الحالة" : "Status change failed"))
         return
       }
       toast.success(isAr ? "تم تحديث الحالة" : "Status updated")
@@ -474,6 +481,10 @@ export default function DriverActionsMenu({
             <Pencil className="h-4 w-4" />
             {isAr ? "تعديل البيانات" : "Edit driver"}
           </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setDocUploadOpen(true)} className="gap-2" data-testid="driver-menu-upload-document">
+            <FileUp className="h-4 w-4" />
+            {isAr ? "رفع مستند" : "Upload document"}
+          </DropdownMenuItem>
           {visibleStatusActions.length > 0 && <DropdownMenuSeparator />}
           {visibleStatusActions.map((action) => (
             <DropdownMenuItem
@@ -506,6 +517,8 @@ export default function DriverActionsMenu({
         </DropdownMenuContent>
       </DropdownMenu>
 
+      <DriverDocumentQuickUpload open={docUploadOpen} onOpenChange={setDocUploadOpen} isAr={isAr} driverId={driverId} onUploaded={onUpdated} />
+
       {/* Edit drawer */}
       <Sheet open={editOpen} onOpenChange={setEditOpen}>
         <SheetContent
@@ -526,14 +539,29 @@ export default function DriverActionsMenu({
                 </h3>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   {section.fields.map((field) => (
-                    <div
+                    field.type === "hidden" ? null : <div
                       key={field.key}
                       className={field.span ? "space-y-1.5 sm:col-span-2" : "space-y-1.5"}
                     >
                       <Label htmlFor={`edit-${driverId}-${field.key}`} className="text-xs">
                         {isAr ? field.ar : field.en}
                       </Label>
-                      {field.type === "select" && field.options ? (
+                      {field.type === "nationality" ? (
+                        <NationalityPicker
+                          id={`edit-${driverId}-${field.key}`}
+                          isAr={isAr}
+                          value={form.nationality}
+                          code={form.nationality_code}
+                          onChange={(name, code) => setForm((prev) => ({ ...prev, nationality: name, nationality_code: code }))}
+                        />
+                      ) : field.type === "city" ? (
+                        <SaudiCityPicker
+                          id={`edit-${driverId}-${field.key}`}
+                          isAr={isAr}
+                          value={form.current_city}
+                          onChange={(city, region) => setForm((prev) => ({ ...prev, current_city: city, ...(region ? { current_region: region } : {}) }))}
+                        />
+                      ) : field.type === "select" && field.options ? (
                         <Select
                           value={form[field.key] || "none"}
                           onValueChange={(v) =>
@@ -543,7 +571,7 @@ export default function DriverActionsMenu({
                             }))
                           }
                         >
-                          <SelectTrigger id={`edit-${driverId}-${field.key}`}>
+                          <SelectTrigger id={`edit-${driverId}-${field.key}`} className="w-full">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>

@@ -35,7 +35,7 @@ import {
   User,
   XCircle,
 } from "lucide-react"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 
 const STATUS_META: Record<
   ApplicationStatus,
@@ -121,7 +121,7 @@ function InfoGroup({
   children: ReactNode
 }) {
   return (
-    <div className="rounded-2xl border border-border/50 bg-card/60 p-4 shadow-sm backdrop-blur-sm">
+    <div className="rounded-2xl border border-border/50 bg-card p-4 shadow-sm">
       <div className="mb-3 flex items-center gap-2 border-b border-border/30 pb-3">
         <Icon className="h-4 w-4 text-elite-blue-500" />
         <h3 className="text-sm font-semibold text-foreground">{title}</h3>
@@ -268,7 +268,7 @@ export default function ApplicationDetailPage() {
           <ArrowLeft className="h-4 w-4 rtl:rotate-180" />
           {t.common.back}
         </Button>
-        <div className="rounded-2xl border border-border/50 bg-card/60 p-8 text-center backdrop-blur-sm">
+        <div className="rounded-2xl border border-border/50 bg-card p-8 text-center">
           <p className="text-sm text-muted-foreground">
             {error ? (isAr ? "تعذر تحميل الطلب أو مستنداته. أعد المحاولة." : "Could not load the application or its documents. Try again.") : (isAr ? "تعذّر العثور على الطلب" : "Application not found")}
           </p>
@@ -295,7 +295,7 @@ export default function ApplicationDetailPage() {
   const identityType = IDENTITY_META[app.identity_type]
 
   return (
-    <div className="page-enter space-y-6 px-4 py-4 lg:px-6">
+    <div className="page-enter space-y-6 py-4">
       <Button
         variant="ghost"
         size="sm"
@@ -307,14 +307,14 @@ export default function ApplicationDetailPage() {
       </Button>
 
       {/* ── Profile header ── */}
-      <div className="relative overflow-hidden rounded-2xl border border-border/50 bg-card/80 p-6 shadow-sm backdrop-blur-sm">
+      <div className="relative overflow-hidden rounded-2xl border border-border/50 bg-card p-6 shadow-sm">
         <div
           className="absolute top-0 right-0 h-32 w-32 rounded-full opacity-[0.06]"
           style={{ backgroundColor: "#8B5CF6", transform: "translate(30%, -30%)" }}
         />
         <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-4">
-            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-fuchsia-500 text-2xl font-bold text-white shadow-lg shadow-violet-500/20">
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl text-2xl font-bold text-background shadow-lg shadow-violet-500/20 bg-foreground">
               {app.full_name?.slice(0, 1) || "?"}
             </div>
             <div className="min-w-0">
@@ -581,7 +581,7 @@ export default function ApplicationDetailPage() {
       </div>
 
       {/* ── Consent ── */}
-      <div className="rounded-2xl border border-border/50 bg-card/60 p-4 shadow-sm backdrop-blur-sm">
+      <div className="rounded-2xl border border-border/50 bg-card p-4 shadow-sm">
         <div className="mb-3 flex items-center gap-2 border-b border-border/30 pb-3">
           <ShieldCheck className="h-4 w-4 text-emerald-500" />
           <h3 className="text-sm font-semibold text-foreground">
@@ -620,7 +620,7 @@ export default function ApplicationDetailPage() {
       </div>
 
       {/* ── Documents ── */}
-      <div className="rounded-2xl border border-border/50 bg-card/60 p-4 shadow-sm backdrop-blur-sm">
+      <div className="rounded-2xl border border-border/50 bg-card p-4 shadow-sm">
         <div className="mb-3 flex items-center gap-2 border-b border-border/30 pb-3">
           <FileText className="h-4 w-4 text-elite-blue-500" />
           <h3 className="text-sm font-semibold text-foreground">
@@ -684,7 +684,7 @@ export default function ApplicationDetailPage() {
       {/* ── Review note (visible even after terminal review) ── */}
       {app.archived_at && <p className="rounded-xl border px-4 py-3 text-sm text-muted-foreground">{isAr ? "طلب مؤرشف — " : "Archived application — "}{app.archive_reason}</p>}
       {app.review_note && (
-        <div className="rounded-2xl border border-border/50 bg-card/60 p-4 shadow-sm backdrop-blur-sm">
+        <div className="rounded-2xl border border-border/50 bg-card p-4 shadow-sm">
           <p className="text-sm text-foreground/80">
             <span className="font-medium">
               {isAr ? "ملاحظة المراجعة:" : "Review note:"}
@@ -697,7 +697,7 @@ export default function ApplicationDetailPage() {
       {/* ── Review action bar ── */}
       {(
 
-        <div className="sticky bottom-[calc(6rem+env(safe-area-inset-bottom))] z-10 rounded-2xl border border-border/60 bg-card/90 p-4 shadow-lg backdrop-blur-md">
+        <div className="sticky bottom-[calc(6rem+env(safe-area-inset-bottom))] z-10 rounded-2xl border border-border/60 bg-card p-4 shadow-lg">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
             <div className="flex-1">
               <label htmlFor="application-review-reason" className="mb-1.5 block text-xs font-medium text-muted-foreground">
@@ -749,7 +749,7 @@ export default function ApplicationDetailPage() {
               <Button
                 onClick={() => handleReview("approved")}
                 disabled={!!busy || note.trim().length<5}
-                className="gap-1.5 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white shadow-lg shadow-emerald-500/20 hover:from-emerald-600 hover:to-emerald-700"
+                className="gap-1.5 bg-foreground text-background hover:bg-foreground/90"
               >
                 {busy === "approved" ? (
                   <Loader2 className="h-4 w-4 animate-spin" />

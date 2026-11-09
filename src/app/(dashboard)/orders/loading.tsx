@@ -4,7 +4,7 @@ import { useUiText } from "@/components/localized-text"
 export default function Loading() {
   const ui = useUiText()
   return (
-    <div className="space-y-6 p-6" aria-busy="true" aria-label={ui("جارٍ التحميل")}>
+    <div className="space-y-6 py-6" aria-busy="true" aria-label={ui("جارٍ التحميل")}>
       <div className="flex items-center justify-between gap-4">
         <div className="space-y-2">
           <div className="h-7 w-44 animate-pulse rounded-xl bg-muted" />
@@ -14,10 +14,10 @@ export default function Loading() {
       </div>
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="h-24 animate-pulse rounded-2xl border border-border/50 bg-card/60" />
+          <div key={i} className="h-24 animate-pulse rounded-2xl border border-border/50 bg-card" />
         ))}
       </div>
-      <div className="overflow-hidden rounded-2xl border border-border/50 bg-card/60">
+      <div className="overflow-hidden rounded-2xl border border-border/50 bg-card">
         <div className="h-12 border-b border-border/40 bg-muted/40" />
         {Array.from({ length: 6 }).map((_, i) => (
           <div key={i} className="flex items-center gap-4 border-b border-border/30 px-4 py-3.5 last:border-0">

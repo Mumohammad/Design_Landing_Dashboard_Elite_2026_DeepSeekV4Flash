@@ -22,6 +22,8 @@ import { readFile } from "node:fs/promises"
 import path from "node:path"
 import { sumMoney } from "./decimal"
 import { loadInvoiceReferenceFonts, renderInvoicePdf } from "./invoice-pdf"
+import { loadAuthorityQr } from "./zatca-document-qr"
+import { loadTenantLogoDataUrl } from "@/lib/branding/logo"
 
 type ActionResult = {
   success: boolean
@@ -31,6 +33,8 @@ type ActionResult = {
   docNumber?: string
   verifyUrl?: string
 }
+
+const FINAL_SALES_STATUSES = new Set(["finalized", "paid", "partially_paid", "overdue", "credited"])
 
 const STATUS_LABELS: Record<string, { ar: string; en: string }> = {
   draft: { ar: "مسودة", en: "Draft" },
@@ -55,6 +59,7 @@ function fmtDate(s: string | null | undefined): string {
 
 type InvoiceRow = {
   id: string
+  bank_account_id?: string | null
   invoice_number: string
   invoice_type: "sales" | "purchase"
   status: string
@@ -70,6 +75,7 @@ type InvoiceRow = {
   total: number
   vat_rate: number
   notes: string | null
+  finalized_at?: string | null
 }
 
 type LineRow = {
@@ -100,6 +106,14 @@ type TenantRow = {
   phone: string | null
   address: string | null
   city: string | null
+  region: string | null
+  district: string | null
+  building_number: string | null
+  additional_number: string | null
+  postal_code: string | null
+  country: string | null
+  logo_url: string | null
+  logo_storage_path: string | null
 }
 
 /**
@@ -116,7 +130,7 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
 
     const { data: inv, error: invErr } = await admin
       .from("invoices")
-      .select("id,invoice_number,invoice_type,status,customer_id,supplier_id,issue_date,due_date,show_due_date,currency,subtotal,discount,vat_amount,total,vat_rate,notes")
+      .select("id,invoice_number,invoice_type,status,customer_id,supplier_id,issue_date,due_date,show_due_date,currency,subtotal,discount,vat_amount,total,vat_rate,notes,finalized_at,bank_account_id")
       .eq("id", invoiceId)
       .eq("tenant_id", currentUser.tenantId)
       .is("deleted_at", null)
@@ -141,7 +155,7 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
 
     const { data: tenant, error: tenantError } = await admin
       .from("tenants")
-      .select("name_ar,name_en,vat_number,cr_number,phone,address,city")
+      .select("name_ar,name_en,vat_number,cr_number,phone,address,city,region,district,building_number,additional_number,postal_code,country,logo_url,logo_storage_path")
       .eq("id", currentUser.tenantId)
       .maybeSingle<TenantRow>()
 
@@ -160,19 +174,24 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
       .eq("source_entity_id", inv.id).is("deleted_at", null)
     if (balanceError || !Array.isArray(balances)) return { success: false, error: "Unable to load the invoice payment balance." }
     let bank: { bank_name: string; account_name: string; iban: string } | null = null
-    if (bankAccountId) {
+    // An explicit print choice wins; otherwise the bank account saved on the
+    // invoice prints. A saved account that was later deactivated is omitted
+    // rather than blocking the print.
+    const printBankId = bankAccountId ?? inv.bank_account_id ?? undefined
+    if (printBankId) {
       const result = await admin.from("bank_accounts").select("bank_name,account_name,iban")
-        .eq("id", bankAccountId).eq("tenant_id", currentUser.tenantId)
+        .eq("id", printBankId).eq("tenant_id", currentUser.tenantId)
         .eq("currency", inv.currency).eq("is_active", true).is("deleted_at", null).maybeSingle()
-      if (result.error || !result.data) return { success: false, error: "Select an active bank account in the invoice currency." }
-      bank = result.data
+      if (bankAccountId && (result.error || !result.data)) return { success: false, error: "Select an active bank account in the invoice currency." }
+      bank = result.data ?? null
     }
-    const [logoBytes, fontBytes, referenceFonts] = await Promise.all([
-      readFile(path.join(process.cwd(), "public", "logo.png")),
+    // The stored tenant logo is optional; an absent logo leaves the reference
+    // slot blank instead of substituting the platform's company identity.
+    const [logoDataUrl, fontBytes, referenceFonts] = await Promise.all([
+      loadTenantLogoDataUrl(admin, currentUser.tenantId, tenant.logo_url, tenant.logo_storage_path),
       readFile(path.join(process.cwd(), "src", "assets", "fonts", "cairo.woff2")),
       loadInvoiceReferenceFonts(),
     ])
-    const logoDataUrl = `data:image/png;base64,${logoBytes.toString("base64")}`
 
     const docNumber = `INVDOC-${inv.invoice_number}`
 
@@ -187,15 +206,38 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
       ? { ar: "فاتورة بيع", en: "Sales Invoice" }
       : { ar: "فاتورة شراء", en: "Purchase Invoice" }
 
-    // Verification QR — standard 5-field TLV payload (invoice-qr.ts).
+    // Printed QR: the cleared (standard) or EGS-stamped reported (simplified)
+    // QR from accepted ZATCA submission evidence when it exists; otherwise the
+    // internal 5-field TLV verification QR, explicitly disclosed as such.
+    const authorityQr = isSales ? await loadAuthorityQr(admin, currentUser.tenantId, inv.id) : null
+    if (authorityQr?.environment === "production") {
+      return { success: false, error: "Production ZATCA evidence has not been validated for invoice printing." }
+    }
+    // Phase 1 (generation): a finalized sales invoice is an issued e-invoice
+    // carrying the 5-field TLV QR stamped with its issue (finalization) time.
+    // Nothing is submitted to ZATCA in this mode; drafts/issued copies keep
+    // the explicit "internal · unvalidated" disclosure.
+    const phase1 = isSales && FINAL_SALES_STATUSES.has(inv.status) && !!inv.finalized_at
+    const simplified = isSales && !/^3\d{13}3$/.test(party?.tax_number ?? "")
+    // Retain the same timestamp representation that is encoded in the QR.
+    const qrTimestamp = phase1 ? new Date(inv.finalized_at!).toISOString().replace(/\.\d{3}Z$/, "Z") : timestamp
     const payload = buildTaxQrPayload({
-      sellerName: tenant?.name_ar ?? tenant?.name_en ?? "نخبة التطوير",
+      sellerName: tenant.name_ar || tenant.name_en || "",
       sellerVatNumber: sellerVat,
-      timestamp,
+      // Second precision (2026-10-12T19:14:52Z), matching the owner's Daftra reference QR.
+      timestamp: qrTimestamp,
       total: Number(inv.total),
       vatAmount: Number(inv.vat_amount),
     })
-    const qrDataUrl = await qrPngDataUrl(payload)
+    const qrDataUrl = await qrPngDataUrl(authorityQr?.qrBase64 ?? payload)
+    const envLabel = authorityQr?.environment === "simulation" ? { ar: "بيئة المحاكاة", en: "simulation" } : { ar: "البيئة التجريبية", en: "sandbox" }
+    const qrNote = authorityQr
+      ? authorityQr.kind === "cleared"
+        ? { ar: `رمز من الفاتورة المُخلَّصة لدى ZATCA (${envLabel.ar}) · ليست فاتورة إنتاج`, en: `ZATCA-cleared QR (${envLabel.en}) · not a production invoice` }
+        : { ar: `رمز مختوم ومُبلّغ لـ ZATCA (${envLabel.ar}) · ليست فاتورة إنتاج`, en: `EGS-stamped reported QR (${envLabel.en}) · not a production invoice` }
+      : phase1
+        ? { ar: "رمز الفاتورة الإلكترونية (المرحلة الأولى) · لم تُرسل إلى ZATCA", en: "E-invoice QR (Phase 1) · not submitted to ZATCA" }
+        : null
 
     const doc: InvoiceDocData = {
       kind: "invoice",
@@ -203,14 +245,18 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
       docTypeAr: docType.ar,
       docTypeEn: docType.en,
       invoiceNumber: inv.invoice_number,
-      companyNameAr: tenant?.name_ar ?? "نخبة التطوير",
-      companyNameEn: tenant?.name_en ?? "Elite Development",
+      companyNameAr: tenant.name_ar ?? "",
+      companyNameEn: tenant.name_en ?? "",
       companyVatNumber: sellerVat,
       companyCrNumber: tenant?.cr_number ?? null,
       companyPhone: tenant?.phone ?? null,
-      companyAddress: tenant?.address ?? "",
-      companyCity: tenant?.city ?? "",
-      logoDataUrl,
+      companyAddress: [
+        [tenant.building_number, tenant.address].filter(Boolean).join(" "),
+        tenant.district,
+        [tenant.postal_code, tenant.additional_number].filter(Boolean).join(" - "),
+      ].filter(Boolean).join("\n"),
+      companyCity: [...new Set([tenant.city, tenant.region, tenant.country].filter(Boolean))].join("، "),
+      logoDataUrl: logoDataUrl ?? undefined,
       fontDataUrl: `data:font/woff2;base64,${fontBytes.toString("base64")}`,
       partyNameAr: party?.name_ar ?? "—",
       partyNameEn: party?.name_en ?? "",
@@ -233,7 +279,9 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
       statusLabelAr: status.ar,
       statusLabelEn: status.en,
       qrDataUrl,
-      internalQr: true,
+      internalQr: !authorityQr && !phase1,
+      qrNote,
+      simplified,
       verifyUrl,
       generatedAt: timestamp,
     }
@@ -276,8 +324,12 @@ export async function generateInvoiceDocument(invoiceId: string, bankAccountId?:
       total: Number(inv.total),
       currency: inv.currency,
       issue_date: inv.issue_date,
-      qr_kind: "internal_unvalidated",
+      qr_kind: authorityQr ? `zatca_${authorityQr.environment}_${authorityQr.kind}` : phase1 ? "phase1_unsubmitted" : "internal_unvalidated",
       qr_generated_at: timestamp,
+      qr_timestamp: qrTimestamp,
+      qr_note: qrNote,
+      simplified,
+      show_due_date: inv.show_due_date,
       due_date: inv.due_date,
       party: party ?? null,
       company: {

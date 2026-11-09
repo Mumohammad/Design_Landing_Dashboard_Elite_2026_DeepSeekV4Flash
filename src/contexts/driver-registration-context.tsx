@@ -98,6 +98,8 @@ interface DriverRegistrationContextValue {
   dict: RegistrationDictionary
   data: ApplicationData
   patch: (partial: Partial<ApplicationData>) => void
+  /** Replaces the whole application, e.g. when resuming saved progress. */
+  hydrate: (next: Partial<ApplicationData>) => void
   reset: () => void
 }
 
@@ -119,6 +121,11 @@ export function DriverRegistrationProvider({ children }: { children: React.React
     setData((prev) => ({ ...prev, ...partial }))
   }, [])
 
+  const hydrate = React.useCallback((next: Partial<ApplicationData>) => {
+    // Consent is never restored: the applicant confirms again before submit.
+    setData({ ...emptyData, ...next, consentTerms: false, consentPrivacy: false })
+  }, [])
+
   const reset = React.useCallback(() => setData(emptyData), [])
 
   const value = React.useMemo<DriverRegistrationContextValue>(
@@ -129,9 +136,10 @@ export function DriverRegistrationProvider({ children }: { children: React.React
       dict: registrationDictionaries[locale],
       data,
       patch,
+      hydrate,
       reset,
     }),
-    [locale, data, patch, reset]
+    [locale, data, patch, hydrate, reset]
   )
 
   return (

@@ -60,30 +60,30 @@ function ResultCard({ result }: { result: VerifyResult }) {
   const valid = result.found && result.verified
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-slate-50 to-slate-100 px-4 py-10 dark:from-slate-950 dark:to-slate-900">
+    <div className="flex min-h-dvh flex-col items-center justify-center bg-background px-5 py-10">
       <div className="w-full max-w-md">
         <div className="mb-6 flex justify-center">
           <LogoMark />
         </div>
 
-        <div className="overflow-hidden rounded-2xl border border-border/60 bg-card shadow-xl shadow-slate-900/5 dark:shadow-black/30">
+        <div className="overflow-hidden rounded-lg border border-border bg-card">
           {/* Status banner */}
           <div
             className={
               valid
-                ? "bg-emerald-600 px-6 py-5 text-center"
-                : "bg-red-600 px-6 py-5 text-center"
+                ? "border-b border-border px-6 py-6 text-center text-emerald-700 dark:text-emerald-300"
+                : "border-b border-border px-6 py-6 text-center text-destructive"
             }
           >
             {valid ? (
-              <BadgeCheck className="mx-auto h-10 w-10 text-white" />
+              <BadgeCheck className="mx-auto h-8 w-8" />
             ) : (
-              <FileQuestion className="mx-auto h-10 w-10 text-white" />
+              <FileQuestion className="mx-auto h-8 w-8" />
             )}
-            <h1 className="mt-2 text-lg font-extrabold text-white">
+            <h1 className="mt-3 text-xl font-semibold text-foreground">
               {valid ? "Document Verified" : "Document Not Found"}
             </h1>
-            <p className="mt-0.5 text-xs text-white/85">
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
               {valid
                 ? "This document is genuine and was issued by the company"
                 : result.message ?? "No matching document record exists — treat this copy with caution"}
@@ -92,26 +92,26 @@ function ResultCard({ result }: { result: VerifyResult }) {
 
           <div className="space-y-4 px-6 py-6">
             {/* Document number */}
-            <div className="rounded-xl border border-border/50 bg-muted/30 px-4 py-3 text-center">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <div className="rounded-md bg-muted px-4 py-3 text-center">
+              <p className="text-xs font-medium text-muted-foreground">
                 Document number
               </p>
-              <p className="mt-0.5 font-mono text-base font-bold text-foreground" dir="ltr">
+              <p className="mt-1 break-all font-mono text-base font-medium text-foreground" dir="ltr">
                 {valid ? result.doc_number : "—"}
               </p>
             </div>
 
             {valid && (
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-xl border border-border/50 bg-muted/30 px-4 py-3">
-                  <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="rounded-md bg-muted px-4 py-3">
+                  <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                     <FileQuestion className="h-3 w-3" /><LocalizedText text="Type" /></p>
-                  <p className="mt-0.5 truncate text-sm font-semibold text-foreground">
+                  <p className="mt-1 break-words text-sm font-medium text-foreground">
                     {result.template_name ?? "—"}
                   </p>
                 </div>
-                <div className="rounded-xl border border-border/50 bg-muted/30 px-4 py-3">
-                  <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <div className="rounded-md bg-muted px-4 py-3">
+                  <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                     <Timer className="h-3 w-3" />
                     Issued
                   </p>
@@ -126,7 +126,7 @@ function ResultCard({ result }: { result: VerifyResult }) {
 
         {/* Footer strip */}
         <div className="mt-5 flex items-center justify-center gap-2 text-center text-xs text-muted-foreground">
-          <ShieldCheck className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+          <ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" />
           <span>
             Verified against the official document registry — نخبة التطوير
           </span>

@@ -1,3 +1,4 @@
+import {continueVerificationRoute} from './lib/verification-access.mjs'
 import { expect as baseExpect } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 import { assertModuleTestTarget } from './assert-module-test-target.mjs'
@@ -69,7 +70,7 @@ export async function verifyVatReviewPosting(page,admin,tenantId,appUrl){
   await goVat(page);let dialog=await openReview(page,cases[0].expense.expense_code)
   stale=await page.context().newPage();await goVat(stale);const staleDialog=await openReview(stale,cases[0].expense.expense_code)
   let blocked=false
-  const fault=async route=>{const req=route.request();if(!blocked&&req.method()==='POST'&&req.headers()['next-action']&&new URL(req.url()).pathname==='/accounting'&&req.postData()?.includes(cases[0].inputId)){blocked=true;await route.abort('failed')}else await route.continue()}
+  const fault=async route=>{const req=route.request();if(!blocked&&req.method()==='POST'&&req.headers()['next-action']&&new URL(req.url()).pathname==='/accounting'&&req.postData()?.includes(cases[0].inputId)){blocked=true;await route.abort('failed')}else await continueVerificationRoute(route)}
   await page.route('**/accounting*',fault);await write(dialog.getByRole('button',{name:'Confirm',exact:true}))
   await expect(dialog.getByRole('alert')).toBeVisible();await expect(dialog.getByRole('button',{name:'Confirm',exact:true})).toBeEnabled()
   await page.unroute('**/accounting*',fault);if(!blocked)throw Error('VAT transport failure was not exercised')

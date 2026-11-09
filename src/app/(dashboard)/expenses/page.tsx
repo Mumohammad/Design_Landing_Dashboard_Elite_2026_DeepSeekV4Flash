@@ -21,10 +21,12 @@ import {
   type ExpenseVatRecoverability,
 } from "@/lib/expenses/constants"
 import {
-  Wallet, Clock, DollarSign, CheckCircle2, BadgeCheck, Loader2, AlertTriangle, ReceiptText, Plus, Save, X, Pencil, Ban,
+  Wallet, Clock, DollarSign, CheckCircle2, BadgeCheck, Loader2, AlertTriangle, ReceiptText, Plus, Save, X, Pencil, Ban, Receipt, Send,
+  Camera,
 } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import Link from "next/link"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
@@ -270,7 +272,7 @@ export default function ExpensesPage() {
   const approvalTotal = approveTarget && approvalVat !== null ? sumMoney(Number(approveTarget.amount), approvalVat) : null
 
   return (
-    <div className="px-4 lg:px-6 py-4">
+    <div className="py-4">
       {feedback && (
         <div className={`mb-4 flex items-center gap-2 rounded-xl border px-3 py-2 text-sm ${
           feedback.type === "ok"
@@ -281,6 +283,21 @@ export default function ExpensesPage() {
           {ui(feedback.text)}
         </div>
       )}
+
+      <div className="mb-4 flex flex-col gap-3 rounded-xl border border-sky-500/30 bg-sky-500/5 p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-start gap-2">
+          <Send className="mt-0.5 h-4 w-4 shrink-0 text-sky-600" />
+          <div>
+            <div className="font-medium">{locale === "ar" ? "إيصالات الموظفين وبوت تيليجرام" : "Employee receipts & Telegram bot"}</div>
+            <div className="text-muted-foreground">{locale === "ar" ? "صوّر الإيصال أو أرسله إلى بوت تيليجرام @EliteExpensesBot، ثم راجعه واعتمده وصدّره إلى Excel وفق متطلبات الهيئة." : "Snap a receipt or send it to the Telegram bot @EliteExpensesBot, then review, approve and export it to Excel in the ZATCA format."}</div>
+          </div>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <Button asChild size="sm" variant="outline"><Link href="/expenses/claims/quick"><Camera className="h-4 w-4" />{locale === "ar" ? "رفع إيصال سريع" : "Quick upload"}</Link></Button>
+          <Button asChild size="sm" variant="outline"><Link href="/expenses/claims?telegram=1"><Send className="h-4 w-4" />{locale === "ar" ? "ربط تيليجرام" : "Link Telegram"}</Link></Button>
+          <Button asChild size="sm"><Link href="/expenses/claims"><Receipt className="h-4 w-4" />{locale === "ar" ? "مطالبات المصروفات" : "Expense claims"}</Link></Button>
+        </div>
+      </div>
 
       <EnterpriseModulePage
         title={t.nav.expenses}
@@ -317,7 +334,7 @@ export default function ExpensesPage() {
 
       {/* ── New expense dialog ────────────────────────────────────────── */}
       <Dialog open={createOpen} onOpenChange={(o) => { if (!isSaving && !o) setCreateOpen(false) }}>
-        <DialogContent className="max-w-lg rounded-2xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-h-[88dvh] overflow-y-auto rounded-2xl sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{editTarget ? (locale === "ar" ? "تعديل المصروف المعلق" : "Edit pending expense") : <LocalizedText text="New expense" />}</DialogTitle>
             <DialogDescription>
@@ -332,7 +349,7 @@ export default function ExpensesPage() {
                   id="exp-type"
                   value={formType}
                   onChange={(e) => setFormType(e.target.value as ExpenseType)}
-                  className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="h-10 w-full rounded-xl border border-input bg-background shadow-xs px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   {EXPENSE_TYPES.map((tp) => (
                     <option key={tp} value={tp}>{locale === "ar" ? (TYPE_META[tp] ?? TYPE_META.other).ar : (TYPE_META[tp] ?? TYPE_META.other).en}</option>
@@ -341,33 +358,33 @@ export default function ExpensesPage() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="exp-category"><LocalizedText text="Category" /></Label>
-                <Input id="exp-category" maxLength={200} value={formCategory} onChange={(e) => setFormCategory(e.target.value)} className="h-9" />
+                <Input id="exp-category" maxLength={200} value={formCategory} onChange={(e) => setFormCategory(e.target.value)} className="h-10" />
               </div>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="space-y-1.5">
                 <Label htmlFor="exp-amount"><LocalizedText text="Net amount" /></Label>
-                <Input id="exp-amount" type="number" dir="ltr" min="0.01" max="99999999.99" step="0.01" value={formAmount} onChange={(e) => setFormAmount(e.target.value)} className="h-9 text-end tabular-nums" />
+                <Input id="exp-amount" type="number" dir="ltr" min="0.01" max="99999999.99" step="0.01" value={formAmount} onChange={(e) => setFormAmount(e.target.value)} className="h-10 text-end tabular-nums" />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="exp-date"><LocalizedText text="Date" /></Label>
-                <Input id="exp-date" type="date" dir="ltr" value={formDate} onChange={(e) => setFormDate(e.target.value)} className="h-9" />
+                <Input id="exp-date" type="date" dir="ltr" value={formDate} onChange={(e) => setFormDate(e.target.value)} className="h-10" />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="exp-vat"><LocalizedText text="VAT %" /></Label>
-                <Input id="exp-vat" type="number" dir="ltr" min="0" max="100" step="0.01" value={formVatRate} onChange={(e) => setFormVatRate(e.target.value)} className="h-9 text-end tabular-nums" />
+                <Input id="exp-vat" type="number" dir="ltr" min="0" max="100" step="0.01" value={formVatRate} onChange={(e) => setFormVatRate(e.target.value)} className="h-10 text-end tabular-nums" />
               </div>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="exp-vendor"><LocalizedText text="Vendor" /></Label>
-                <Input id="exp-vendor" maxLength={200} value={formVendor} onChange={(e) => setFormVendor(e.target.value)} className="h-9" />
+                <Input id="exp-vendor" maxLength={200} value={formVendor} onChange={(e) => setFormVendor(e.target.value)} className="h-10" />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="exp-desc"><LocalizedText text="Description" /></Label>
-                <Input id="exp-desc" maxLength={2000} value={formDescription} onChange={(e) => setFormDescription(e.target.value)} className="h-9" />
+                <Input id="exp-desc" maxLength={2000} value={formDescription} onChange={(e) => setFormDescription(e.target.value)} className="h-10" />
               </div>
             </div>
 
@@ -386,7 +403,7 @@ export default function ExpensesPage() {
               <Button
                 onClick={() => void handleCreate()}
                 disabled={isSaving || Number(formAmount || 0) <= 0 || !formDate || (!!editTarget && changeReason.trim().length < 5)}
-                className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800"
+                className="bg-foreground text-background hover:bg-foreground/90"
               >
                 {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}<LocalizedText text="Save expense" /></Button>
               <Button variant="ghost" onClick={() => setCreateOpen(false)}>
@@ -421,7 +438,7 @@ export default function ExpensesPage() {
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="exp-vat-rate"><LocalizedText text="VAT %" /></Label>
-                <Input id="exp-vat-rate" type="number" dir="ltr" min="0" max="100" step="0.01" value={approveVatRate} onChange={(e) => setApproveVatRate(e.target.value)} className="h-9 text-end tabular-nums" />
+                <Input id="exp-vat-rate" type="number" dir="ltr" min="0" max="100" step="0.01" value={approveVatRate} onChange={(e) => setApproveVatRate(e.target.value)} className="h-10 text-end tabular-nums" />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="exp-recover"><LocalizedText text="Recoverability" /></Label>
@@ -429,7 +446,7 @@ export default function ExpensesPage() {
                   id="exp-recover"
                   value={approveRecoverability}
                   onChange={(e) => setApproveRecoverability(e.target.value as ExpenseVatRecoverability)}
-                  className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="h-10 w-full rounded-xl border border-input bg-background shadow-xs px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <option value="recoverable"><LocalizedText text="Recoverable" /></option>
                   <option value="non_recoverable"><LocalizedText text="Non-recoverable" /></option>
@@ -448,7 +465,7 @@ export default function ExpensesPage() {
               <Button
                 onClick={() => void handleApprove()}
                 disabled={isApproving || !validApprovalRate}
-                className="bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800"
+                className="hover:from-emerald-700 hover:to-emerald-800 bg-emerald-600"
               >
                 {isApproving ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />}<LocalizedText text="Approve" /></Button>
               <Button variant="ghost" onClick={() => setApproveTarget(null)}><LocalizedText text="Cancel" /></Button>

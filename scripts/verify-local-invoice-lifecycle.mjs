@@ -46,7 +46,7 @@ export async function verifyInvoiceLifecycle(page, admin, tenantId, appUrl) {
     await dialog.locator("#inv-party").selectOption(customer.data.id)
     await dialog.getByLabel(/Line description|وصف البند/).fill("Lifecycle verified service")
     await dialog.getByLabel(/Unit price|سعر الوحدة/).fill("100.25")
-    await dialog.getByLabel(/Line VAT rate|ضريبة البند/).fill("0")
+    await dialog.getByLabel(/Line VAT rate|ضريبة البند/).selectOption("0")
     await dialog.getByRole("button",{name:/Save draft|حفظ المسودة/}).click()
     await expect(dialog).toBeHidden()
     const rows = await admin.from("invoices").select("id,invoice_number").eq("tenant_id",tenantId).eq("customer_id",customer.data.id).eq("status","draft").is("deleted_at",null)

@@ -17,6 +17,6 @@ test("leave helper rejects staging CSP connected to production before fixtures",
  let writes=0
  const page={request:{async get(){return{status:()=>200,headers:()=>({"content-security-policy":"connect-src 'self' https://viowrovartosrkqukjxy.supabase.co https://wwfnsbilmyxeawgzicmv.supabase.co"})}}}}
  const admin={supabaseUrl:"https://viowrovartosrkqukjxy.supabase.co",from(){writes++;throw Error("Unexpected fixture access")}}
- await assert.rejects(()=>verifyDriverLeaveLifecycle(page,admin,"14100000-0000-4000-8000-000000000001",stage),/Staging CSP/)
+ await assert.rejects(()=>verifyDriverLeaveLifecycle(page,admin,"14100000-0000-4000-8000-000000000001",stage,{targetRequest:(context,url,options)=>context.get(url,options)}),/Staging CSP/)
  assert.equal(writes,0)
 })

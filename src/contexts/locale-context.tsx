@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { DirectionProvider } from "@radix-ui/react-direction"
 import type { Locale } from "@/lib/i18n/types"
 
 interface LocaleContextValue {
@@ -24,10 +25,6 @@ function getLocaleSnapshot(): Locale {
     if (saved === "ar" || saved === "en") return saved
   } catch { /* optional persistence */ }
   return fallbackLocale
-}
-
-function getServerLocaleSnapshot() {
-  return defaultLocale
 }
 
 function setLocale(next: Locale) {
@@ -66,8 +63,8 @@ function subscribeToLocale(onChange: () => void) {
 
 export const LocaleContext = React.createContext<LocaleContextValue | null>(null)
 
-export function LocaleProvider({ children }: { children: React.ReactNode }) {
-  const locale = React.useSyncExternalStore(subscribeToLocale, getLocaleSnapshot, getServerLocaleSnapshot)
+export function LocaleProvider({ children, initialLocale = defaultLocale }: { children: React.ReactNode; initialLocale?: Locale }) {
+  const locale = React.useSyncExternalStore(subscribeToLocale, getLocaleSnapshot, () => initialLocale)
 
   React.useEffect(() => {
     document.documentElement.lang = locale
@@ -76,7 +73,9 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <LocaleContext.Provider value={{ locale, setLocale }}>
-      {children}
+      <DirectionProvider dir={locale === "ar" ? "rtl" : "ltr"}>
+        {children}
+      </DirectionProvider>
     </LocaleContext.Provider>
   )
 }

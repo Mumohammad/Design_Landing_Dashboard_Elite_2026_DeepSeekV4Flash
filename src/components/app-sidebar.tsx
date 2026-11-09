@@ -10,6 +10,7 @@ import {
   LayoutTemplate,
   HandCoins,
   WalletCards,
+  Receipt,
   FileBadge,
   Calculator,
   CreditCard,
@@ -20,9 +21,10 @@ import {
   ShieldCheck,
   ClipboardCheck,
   FileSearch,
+  FileCheck2,
   Fingerprint,
   Settings,
-  ChevronRight,
+  ReceiptText,
 } from "lucide-react"
 import Link from "next/link"
 import { Logo } from "@/components/logo"
@@ -30,6 +32,7 @@ import { SidebarNotification } from "@/components/sidebar-notification"
 
 import { NavMain } from "@/components/nav-main"
 import { NavUser } from "@/components/nav-user"
+import type { WorkspaceBranding } from "@/lib/branding/workspace"
 import { useTranslation } from "@/hooks/use-translation"
 import {
   Sidebar,
@@ -40,9 +43,8 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
-import { cn } from "@/lib/utils"
 
-export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+export function AppSidebar({ branding, ...props }: React.ComponentProps<typeof Sidebar> & { branding?: WorkspaceBranding | null }) {
   const { t, locale } = useTranslation()
 
   const navGroups = [
@@ -64,9 +66,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       items: [
         { title: t.nav.payroll, url: "/payroll", icon: HandCoins },
         { title: t.nav.expenses, url: "/expenses", icon: WalletCards },
+        { title: locale === "ar" ? "مطالبات المصروفات" : "Expense claims", url: "/expenses/claims", icon: Receipt },
         { title: t.nav.invoices, url: "/invoices", icon: FileBadge },
         { title: t.nav.payments, url: "/payments", icon: CreditCard },
         { title: t.nav.accounting, url: "/accounting", icon: Calculator },
+        { title: t.nav.einvoicing, url: "/accounting?tab=zatca", icon: FileCheck2 },
       ],
     },
     {
@@ -75,11 +79,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       items: [
         { title: t.nav.maintenance, url: "/maintenance", icon: Wrench },
         { title: t.nav.violations, url: "/violations", icon: Siren },
+        { title: locale === "ar" ? "المخالفات المرورية" : "Traffic fines", url: "/violations/fines", icon: ReceiptText },
       ],
     },
     {
       label: t.nav.hr,
-      accentColor: "#8B5CF6",
+      accentColor: "#0F766E",
       items: [
         { title: t.nav.hrManagement, url: "/hr", icon: Users },
         { title: t.nav.applications, url: "/applications", icon: FileBadge },
@@ -106,25 +111,40 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     },
   ]
 
+  // The signed-in company's own name/logo and the real user — never the
+  // platform's brand or a placeholder address.
+  const companyPrimary = (locale === "ar" ? branding?.companyNameAr : branding?.companyNameEn) || t.app.companyNameArabic
+  const companySecondary = branding
+    ? (locale === "ar" ? branding.companyNameEn : branding.companyNameAr)
+    : t.app.companyName
   const user = {
-    name: t.app.companyNameArabic,
-    email: "operations@elite-dev.com",
-    avatar: "",
+    name: branding?.userName || companyPrimary,
+    email: branding?.userEmail ?? "",
+    avatar: branding?.userAvatar ?? "",
   }
 
   return (
-    <Sidebar side={locale === "ar" ? "right" : "left"} {...props} className="sidebar-gradient text-white border-none shadow-xl">
+    <Sidebar side={locale === "ar" ? "right" : "left"} {...props} className="sidebar-gradient text-sidebar-foreground">
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
               <Link href="/dashboard">
-                <div className="flex aspect-square size-8 items-center justify-center rounded-2xl bg-gradient-to-br from-elite-blue-500 to-elite-blue-700 text-white shadow-lg shadow-elite-blue-500/30">
-                  <Logo size={24} className="text-current" />
-                </div>
-                <div className="grid flex-1 text-right text-sm leading-tight">
-                  <span className="truncate font-semibold">{t.app.companyNameArabic}</span>
-                  <span className="truncate text-xs text-white/50">{t.app.companyName}</span>
+                {branding?.logoUrl ? (
+                  <div className="flex aspect-square size-8 items-center justify-center overflow-hidden rounded-md bg-white">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={branding.logoUrl} alt="" className="h-full w-full object-contain" data-testid="workspace-logo" />
+                  </div>
+                ) : (
+                  <div className="flex aspect-square size-8 items-center justify-center rounded-md bg-elite-blue-600 text-white">
+                    <Logo size={24} className="text-current" />
+                  </div>
+                )}
+                <div className="grid flex-1 text-start text-sm leading-tight">
+                  <span className="truncate font-semibold" data-testid="workspace-name">{companyPrimary}</span>
+                  {companySecondary && companySecondary !== companyPrimary && (
+                    <span className="truncate text-xs text-muted-foreground">{companySecondary}</span>
+                  )}
                 </div>
               </Link>
             </SidebarMenuButton>

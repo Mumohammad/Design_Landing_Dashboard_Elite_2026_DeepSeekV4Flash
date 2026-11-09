@@ -1,5 +1,9 @@
 "use client"
 
+import { DriverPortalPanel } from "@/components/drivers/driver-portal-panel"
+import { DriverGovernmentChecks } from "@/components/drivers/driver-government-checks"
+import { DriverOffboardingPanel } from "@/components/drivers/driver-offboarding-panel"
+import { DriverHandoverTab } from "@/components/drivers/driver-handover-tab"
 import { useTablePage } from "@/hooks/use-table-page"
 import { DriverHistoryToolbar } from "@/components/drivers/driver-history-toolbar"
 
@@ -8,7 +12,7 @@ import { useCallback, useEffect, useState } from "react"
 import type { ReactNode } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
@@ -19,6 +23,10 @@ import { DriverLeaveTab } from "@/components/drivers/driver-leave-tab"
 import { ViolationsTab } from "@/components/drivers/violations-tab"
 import { PerformanceTab } from "@/components/drivers/performance-tab"
 import { TrainingTab } from "@/components/drivers/training-tab"
+import { DriverPlatformAccountsPanel } from "@/components/drivers/driver-platform-accounts-panel"
+import { DriverPayslipsTab } from "@/components/payroll-engine/driver-payslips-tab"
+import { docTypeLabel } from "@/lib/drivers/documents"
+import { DriverDocumentVault } from "@/components/drivers/driver-document-vault"
 import { DocumentUploadDialog } from "@/components/drivers/document-upload-dialog"
 import { DocumentsDeleteDialog } from "@/components/drivers/documents-delete-dialog"
 import { subscribeDriverChanged } from "@/lib/drivers/driver-events"
@@ -26,6 +34,7 @@ import type { Driver } from "@/types/drivers"
 import {
   AlertTriangle,
   Banknote,
+  Bike,
   Briefcase,
   CalendarClock,
   CalendarOff,
@@ -44,6 +53,7 @@ import {
   Wallet,
   Wrench,
   XCircle,
+  LogOut,
 } from "lucide-react"
 
 /* ──────────────────────── shared bits ──────────────────────── */
@@ -92,20 +102,7 @@ function StatusBadge({ value, ok, warn }: { value: string; ok: string; warn: str
 }
 
 function DocTypeLabel({ type, isAr }: { type: string; isAr: boolean }) {
-  const map: Record<string, [string, string]> = {
-    iqama: ["إقامة", "Iqama"],
-    passport: ["جواز سفر", "Passport"],
-    driving_license: ["رخصة قيادة", "Driving License"],
-    vehicle_license: ["رخصة مركبة", "Vehicle License"],
-    medical_certificate: ["شهادة طبية", "Medical Certificate"],
-    police_clearance: ["صحيفة جنائية", "Police Clearance"],
-    employment_contract: ["عقد عمل", "Employment Contract"],
-    bank_letter: ["خطاب بنكي", "Bank Letter"],
-    photo: ["صورة", "Photo"],
-    other: ["أخرى", "Other"],
-  }
-  const v = map[type]
-  return <span>{v ? (isAr ? v[0] : v[1]) : type}</span>
+  return <span>{docTypeLabel(type, isAr)}</span>
 }
 
 function CodStatusLabel({ status, isAr }: { status: string; isAr: boolean }) {
@@ -153,31 +150,7 @@ function MaintenanceStatusLabel({ status, isAr }: { status: string; isAr: boolea
   return <Badge className={v[2]}>{isAr ? v[0] : v[1]}</Badge>
 }
 
-function FormTypeLabel({ type, isAr }: { type: string; isAr: boolean }) {
-  return (
-    <Badge
-      className={
-        type === "handover"
-          ? "bg-elite-blue-500/15 text-elite-blue-700 dark:text-elite-blue-300"
-          : "bg-purple-500/15 text-purple-700 dark:text-purple-400"
-      }
-    >
-      {isAr ? (type === "handover" ? "تسليم" : "استلام") : type === "handover" ? "Handover" : "Return"}
-    </Badge>
-  )
-}
 
-function OverallConditionLabel({ condition, isAr }: { condition: string; isAr: boolean }) {
-  const map: Record<string, [string, string, string]> = {
-    excellent: ["ممتازة", "Excellent", "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"],
-    good: ["جيدة", "Good", "bg-elite-blue-500/15 text-elite-blue-700 dark:text-elite-blue-300"],
-    fair: ["متوسطة", "Fair", "bg-amber-500/15 text-amber-700 dark:text-amber-400"],
-    poor: ["ضعيفة", "Poor", "bg-orange-500/15 text-orange-700 dark:text-orange-400"],
-    damaged: ["متضررة", "Damaged", "bg-red-500/15 text-red-700 dark:text-red-400"],
-  }
-  const v = map[condition] ?? [condition, condition, "bg-muted text-muted-foreground"]
-  return <Badge className={v[2]}>{isAr ? v[0] : v[1]}</Badge>
-}
 
 function OdometerSourceLabel({ source, isAr }: { source: string; isAr: boolean }) {
   const map: Record<string, [string, string]> = {
@@ -240,7 +213,10 @@ function DocumentsTab({ driverId,driverVersion, isAr }: DocumentsTabProps) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
+      <DriverDocumentVault driverId={driverId} isAr={isAr} canUpload={!!driverVersion} onUpload={(type) => { setReplaceTarget(type || null); setDialogOpen(true) }} onView={(path) => void openFile(path)} />
+      <div className="space-y-4 rounded-2xl border border-border/50 bg-card/40 p-4">
+      <h3 className="text-sm font-semibold">{isAr ? "كل السجلات وسجل الاستبدال" : "All records & replacement history"}</h3>
       {toolbar}
       <div className="flex items-center justify-between gap-3">
         <span className="text-xs text-muted-foreground">
@@ -257,10 +233,10 @@ function DocumentsTab({ driverId,driverVersion, isAr }: DocumentsTabProps) {
       {rows.length === 0 ? (
         <EmptyState message={isAr ? "لا توجد مستندات لهذا السائق" : "No documents for this driver"} />
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm">
+        <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card">
           <table className="w-full min-w-[640px] text-start text-sm">
             <thead>
-              <tr className="border-b border-border/50 text-[10px] uppercase tracking-wide text-muted-foreground">
+              <tr className="border-b border-border/50 text-xs uppercase tracking-wide text-muted-foreground">
                 <th className="px-4 py-3 text-start font-semibold">{isAr ? "النوع" : "Type"}</th>
                 <th className="px-4 py-3 text-start font-semibold">{isAr ? "الرقم" : "Number"}</th>
                 <th className="px-4 py-3 text-start font-semibold">{isAr ? "الإصدار" : "Issued"}</th>
@@ -334,6 +310,7 @@ function DocumentsTab({ driverId,driverVersion, isAr }: DocumentsTabProps) {
         </div>
       )}
 
+      </div>
       <DocumentUploadDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
@@ -416,10 +393,10 @@ function CodTab({ driverId, isAr }: CodTabProps) {
   }
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm">
+    <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card">
       <table className="w-full min-w-[680px] text-start text-sm">
         <thead>
-          <tr className="border-b border-border/50 text-[10px] uppercase tracking-wide text-muted-foreground">
+          <tr className="border-b border-border/50 text-xs uppercase tracking-wide text-muted-foreground">
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "التاريخ" : "Date"}</th>
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "المنصة" : "Platform"}</th>
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "طلبات COD" : "COD Orders"}</th>
@@ -506,10 +483,10 @@ function SalaryTab({ driverId, isAr }: SalaryTabProps) {
   }
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm">
+    <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card">
       <table className="w-full min-w-[640px] text-start text-sm">
         <thead>
-          <tr className="border-b border-border/50 text-[10px] uppercase tracking-wide text-muted-foreground">
+          <tr className="border-b border-border/50 text-xs uppercase tracking-wide text-muted-foreground">
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "التاريخ الفعّال" : "Effective"}</th>
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "الراتب الأساسي" : "Basic"}</th>
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "السكن" : "Housing"}</th>
@@ -622,7 +599,7 @@ function ComplianceTab({ driver, isAr }: ComplianceTabProps) {
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      <div className="rounded-2xl border border-border/50 bg-card/60 p-5 backdrop-blur-sm">
+      <div className="rounded-2xl border border-border/50 bg-card p-5">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-foreground">
             {isAr ? "اكتمال الملف" : "Profile completeness"}
@@ -656,14 +633,14 @@ function ComplianceTab({ driver, isAr }: ComplianceTabProps) {
                 </span>
                 {c.label}
               </span>
-              {c.hint && <span className="font-mono text-[11px] text-muted-foreground">{c.hint}</span>}
+              {c.hint && <span className="font-mono text-xs text-muted-foreground">{c.hint}</span>}
             </li>
           ))}
         </ul>
       </div>
 
       <div className="space-y-4">
-        <div className="rounded-2xl border border-border/50 bg-card/60 p-5 backdrop-blur-sm">
+        <div className="rounded-2xl border border-border/50 bg-card p-5">
           <h3 className="text-sm font-semibold text-foreground">
             {isAr ? "مؤشرات المخاطر" : "Risk indicators"}
           </h3>
@@ -704,7 +681,7 @@ function ComplianceTab({ driver, isAr }: ComplianceTabProps) {
           </dl>
         </div>
 
-        <div className="rounded-2xl border border-border/50 bg-card/60 p-5 backdrop-blur-sm">
+        <div className="rounded-2xl border border-border/50 bg-card p-5">
           <h3 className="text-sm font-semibold text-foreground">
             {isAr ? "وثائق تنتهي قريباً (30 يوم)" : "Expiring soon (30 days)"}
           </h3>
@@ -764,10 +741,10 @@ function AssignmentsTab({ driverId, isAr }: AssignmentsTabProps) {
   }
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm">
+    <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card">
       <table className="w-full min-w-[620px] text-start text-sm">
         <thead>
-          <tr className="border-b border-border/50 text-[10px] uppercase tracking-wide text-muted-foreground">
+          <tr className="border-b border-border/50 text-xs uppercase tracking-wide text-muted-foreground">
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "المركبة" : "Vehicle"}</th>
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "تاريخ التسليم" : "Assigned"}</th>
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "تاريخ الاستلام" : "Returned"}</th>
@@ -819,88 +796,6 @@ function AssignmentsTab({ driverId, isAr }: AssignmentsTabProps) {
   )
 }
 
-type HandoverTabProps = { driverId: string; isAr: boolean }
-
-function HandoverTab({ driverId, isAr }: HandoverTabProps) {
-  const [rows, setRows] = useState<Record<string, unknown>[] | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      const supabase = createClient()
-      const { data, error } = await supabase
-        .from("vehicle_handover_forms")
-        .select("id, form_type, form_date, odometer_reading, fuel_level, overall_condition, defects_noted, vehicle_assignments(driver_id, vehicles(plate_number, make, model))")
-        .eq("vehicle_assignments.driver_id", driverId)
-        .is("vehicle_assignments.deleted_at", null)
-        .order("form_date", { ascending: false })
-        .limit(20)
-      if (!cancelled) setRows(error ? [] : (data as Record<string, unknown>[]))
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [driverId])
-
-  if (rows === null) {
-    return (
-      <div className="space-y-3">
-        <Skeleton className="h-10 w-full rounded-xl" />
-        <Skeleton className="h-10 w-full rounded-xl" />
-      </div>
-    )
-  }
-  if (rows.length === 0) {
-    return <EmptyState message={isAr ? "لا توجد نماذج تسليم/استلام" : "No handover forms yet"} />
-  }
-
-  return (
-    <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm">
-      <table className="w-full min-w-[680px] text-start text-sm">
-        <thead>
-          <tr className="border-b border-border/50 text-[10px] uppercase tracking-wide text-muted-foreground">
-            <th className="px-4 py-3 text-start font-semibold">{isAr ? "النوع" : "Type"}</th>
-            <th className="px-4 py-3 text-start font-semibold">{isAr ? "التاريخ" : "Date"}</th>
-            <th className="px-4 py-3 text-start font-semibold">{isAr ? "المركبة" : "Vehicle"}</th>
-            <th className="px-4 py-3 text-start font-semibold">{isAr ? "العداد" : "Odometer"}</th>
-            <th className="px-4 py-3 text-start font-semibold">{isAr ? "الوقود" : "Fuel"}</th>
-            <th className="px-4 py-3 text-start font-semibold">{isAr ? "الحالة العامة" : "Condition"}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => {
-            const a = r.vehicle_assignments as Record<string, unknown> | null
-            const v = (a?.vehicles as Record<string, unknown> | null) ?? null
-            return (
-              <tr key={String(r.id)} className="border-b border-border/40 last:border-0 hover:bg-muted/30">
-                <td className="px-4 py-3">
-                  <FormTypeLabel type={String(r.form_type ?? "handover")} isAr={isAr} />
-                </td>
-                <td className="px-4 py-3 text-muted-foreground">{String(r.form_date)}</td>
-                <td className="px-4 py-3 font-medium text-foreground">
-                  {v ? `${String(v.make ?? "")} ${String(v.model ?? "")}` : "—"}
-                  {v?.plate_number ? (
-                    <span className="ms-2 font-mono text-xs text-muted-foreground" dir="ltr">
-                      {String(v.plate_number)}
-                    </span>
-                  ) : null}
-                </td>
-                <td className="px-4 py-3 tabular-nums text-foreground/80" dir="ltr">
-                  {r.odometer_reading != null ? `${Number(r.odometer_reading).toLocaleString("en-US")} km` : "—"}
-                </td>
-                <td className="px-4 py-3 text-muted-foreground">{String(r.fuel_level ?? "—")}</td>
-                <td className="px-4 py-3">
-                  <OverallConditionLabel condition={String(r.overall_condition ?? "good")} isAr={isAr} />
-                </td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
 type MaintenanceTabProps = { driverId: string; isAr: boolean }
 
 function MaintenanceTab({ driverId, isAr }: MaintenanceTabProps) {
@@ -937,10 +832,10 @@ function MaintenanceTab({ driverId, isAr }: MaintenanceTabProps) {
   }
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm">
+    <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card">
       <table className="w-full min-w-[680px] text-start text-sm">
         <thead>
-          <tr className="border-b border-border/50 text-[10px] uppercase tracking-wide text-muted-foreground">
+          <tr className="border-b border-border/50 text-xs uppercase tracking-wide text-muted-foreground">
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "المركبة" : "Vehicle"}</th>
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "النوع" : "Type"}</th>
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "الوصف" : "Description"}</th>
@@ -1022,10 +917,10 @@ function OdometerTab({ driverId, isAr }: OdometerTabProps) {
   }
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm">
+    <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card">
       <table className="w-full min-w-[620px] text-start text-sm">
         <thead>
-          <tr className="border-b border-border/50 text-[10px] uppercase tracking-wide text-muted-foreground">
+          <tr className="border-b border-border/50 text-xs uppercase tracking-wide text-muted-foreground">
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "المركبة" : "Vehicle"}</th>
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "القراءة" : "Reading"}</th>
             <th className="px-4 py-3 text-start font-semibold">{isAr ? "التاريخ" : "Recorded"}</th>
@@ -1091,6 +986,10 @@ export function DriverTabs({
           <Briefcase className="h-3.5 w-3.5" />
           {isAr ? "نظرة عامة" : "Overview"}
         </TabsTrigger>
+        <TabsTrigger value="platforms">
+          <Bike className="h-3.5 w-3.5" />
+          {isAr ? "المنصات وبطاقات الهوية" : "Platforms & ID cards"}
+        </TabsTrigger>
         <TabsTrigger value="documents">
           <FileText className="h-3.5 w-3.5" />
           {isAr ? "المستندات" : "Documents"}
@@ -1106,6 +1005,10 @@ export function DriverTabs({
         <TabsTrigger value="cod">
           <Banknote className="h-3.5 w-3.5" />
           {isAr ? "تسوية COD" : "COD"}
+        </TabsTrigger>
+        <TabsTrigger value="payslips">
+          <FileText className="h-3.5 w-3.5" />
+          {isAr ? "قسائم الرواتب" : "Payslips"}
         </TabsTrigger>
         <TabsTrigger value="salary">
           <Wallet className="h-3.5 w-3.5" />
@@ -1143,13 +1046,23 @@ export function DriverTabs({
           <ShieldAlert className="h-3.5 w-3.5" />
           {isAr ? "الامتثال" : "Compliance"}
         </TabsTrigger>
+        <TabsTrigger value="offboarding">
+          <LogOut className="h-3.5 w-3.5" />
+          {isAr ? "إنهاء الخدمة" : "Exit & clearance"}
+        </TabsTrigger>
       </TabsList>
 
       <TabsContent value="overview" className="mt-4">
         {overview}
       </TabsContent>
+      <TabsContent value="platforms" className="mt-4">
+        <DriverPlatformAccountsPanel driver={driver} isAr={isAr} />
+      </TabsContent>
       <TabsContent value="documents" className="mt-4">
-        <DocumentsTab driverId={driver.id} driverVersion={driver.profile_version??0} isAr={isAr} />
+        <div className="space-y-4">
+          <DriverPortalPanel driver={driver} isAr={isAr} />
+          <DocumentsTab driverId={driver.id} driverVersion={driver.profile_version??0} isAr={isAr} />
+        </div>
       </TabsContent>
       <TabsContent value="attendance" className="mt-4">
         <AttendanceTab driverId={driver.id} isAr={isAr} />
@@ -1191,6 +1104,9 @@ export function DriverTabs({
       <TabsContent value="cod" className="mt-4">
         <CodTab driverId={driver.id} isAr={isAr} />
       </TabsContent>
+      <TabsContent value="payslips" className="mt-4">
+        <DriverPayslipsTab driverId={driver.id} isAr={isAr} />
+      </TabsContent>
       <TabsContent value="salary" className="mt-4">
         <SalaryTab driverId={driver.id} isAr={isAr} />
       </TabsContent>
@@ -1201,7 +1117,7 @@ export function DriverTabs({
         <AssignmentsTab driverId={driver.id} isAr={isAr} />
       </TabsContent>
       <TabsContent value="handover" className="mt-4">
-        <HandoverTab driverId={driver.id} isAr={isAr} />
+        <DriverHandoverTab driver={driver} isAr={isAr} />
       </TabsContent>
       <TabsContent value="maintenance" className="mt-4">
         <MaintenanceTab driverId={driver.id} isAr={isAr} />
@@ -1217,7 +1133,11 @@ export function DriverTabs({
       </TabsContent>
       <TabsContent value="compliance" className="mt-4 space-y-4">
         <DriverComplianceEngine driver={driver} isAr={isAr} />
+        <DriverGovernmentChecks driverId={driver.id} isAr={isAr} />
         <ComplianceTab driver={driver} isAr={isAr} />
+      </TabsContent>
+      <TabsContent value="offboarding" className="mt-4">
+        <DriverOffboardingPanel driver={driver} isAr={isAr} />
       </TabsContent>
     </Tabs>
   )

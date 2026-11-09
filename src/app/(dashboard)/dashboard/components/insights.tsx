@@ -1,6 +1,6 @@
 "use client"
 
-import { Lightbulb, TrendingDown, TrendingUp, type LucideIcon } from "lucide-react"
+import { Lightbulb, Minus, TrendingDown, TrendingUp, type LucideIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useTranslation } from "@/hooks/use-translation"
 import type { Insight } from "@/lib/analytics/types"
@@ -12,15 +12,24 @@ export function Insights({ insights }: { insights: Insight[] }) {
 
   if (insights.length === 0) return null
 
-  const kindMeta: Record<Insight["kind"], { icon: LucideIcon; chip: string }> = {
-    positive: { icon: TrendingUp, chip: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" },
-    negative: { icon: TrendingDown, chip: "bg-red-500/10 text-red-600 dark:text-red-400" },
-    neutral: { icon: Lightbulb, chip: "bg-elite-blue-500/10 text-elite-blue-600 dark:text-elite-blue-300" },
+  const kindMeta: Record<Insight["kind"], { icon: LucideIcon; tone: string }> = {
+    positive: { icon: TrendingUp, tone: "text-emerald-700 dark:text-emerald-400" },
+    negative: { icon: TrendingDown, tone: "text-red-700 dark:text-red-400" },
+    neutral: { icon: Lightbulb, tone: "text-muted-foreground" },
   }
 
   const textFor = (i: Insight): string => {
     const n = formatNumber(locale, i.value)
     const platform = i.secondary ?? ""
+    if (i.value === 0) {
+      const unchanged = {
+        orders: locale === "ar" ? "الطلبات لم تتغير مقارنة بالفترة السابقة." : "Orders are unchanged from the previous period.",
+        completion: locale === "ar" ? "معدل الإنجاز لم يتغير مقارنة بالفترة السابقة." : "Completion rate is unchanged from the previous period.",
+        revenue: locale === "ar" ? "الإيرادات لم تتغير مقارنة بالفترة السابقة." : "Revenue is unchanged from the previous period.",
+        maintenance: locale === "ar" ? "طلبات الصيانة لم تتغير مقارنة بالفترة السابقة." : "Maintenance jobs are unchanged from the previous period.",
+      }
+      if (i.key in unchanged) return unchanged[i.key as keyof typeof unchanged]
+    }
     switch (i.key) {
       case "orders":
         return i.kind === "positive"
@@ -49,17 +58,16 @@ export function Insights({ insights }: { insights: Insight[] }) {
     <ChartCard title={t.dashboard.operationsInsights}>
       <ul className="space-y-2">
         {insights.map((i) => {
-          const meta = kindMeta[i.kind]
-          const Icon = meta.icon
+          const unchanged = i.value === 0 && ["orders", "completion", "revenue", "maintenance"].includes(i.key)
+          const meta = kindMeta[unchanged ? "neutral" : i.kind]
+          const Icon = unchanged ? Minus : meta.icon
           return (
             <li
               key={i.id}
-              className="flex items-start gap-3 rounded-xl border border-border/60 p-3"
+              className="flex items-start gap-3 py-3"
             >
-              <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg", meta.chip)}>
-                <Icon className="h-4 w-4" />
-              </span>
-              <p className="text-[13px] leading-relaxed text-foreground/90">{textFor(i)}</p>
+              <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", meta.tone)} aria-hidden="true" />
+              <p className="text-sm leading-relaxed text-foreground">{textFor(i)}</p>
             </li>
           )
         })}

@@ -17,6 +17,13 @@ describe('reference invoice print template',()=>{
   expect(html).not.toContain(BASE.verifyUrl)
   expect(html).not.toContain('ZATCA electronic invoicing has not been validated.')
  })
+ it('titles B2C sales as a Simplified Tax Invoice and prints the Phase 1 QR note',()=>{
+  const html=buildInvoiceHtml({...BASE,internalQr:false,simplified:true,qrNote:{ar:'رمز الفاتورة الإلكترونية (المرحلة الأولى) · لم تُرسل إلى ZATCA',en:'E-invoice QR (Phase 1) · not submitted to ZATCA'}})
+  expect(html).toContain('Simplified Tax Invoice')
+  expect(html).toContain('فاتورة ضريبية مبسطة')
+  expect(html).toContain('E-invoice QR (Phase 1) · not submitted to ZATCA')
+  expect(html).not.toContain('Internal QR · unvalidated')
+ })
  it('uses the supplied Letter page, reference typography and eight separate bilingual columns',()=>{
   const html=buildInvoiceHtml(BASE)
   expect(html).toContain('<html lang="ar" dir="rtl">')
@@ -37,7 +44,9 @@ describe('reference invoice print template',()=>{
  })
  it('does not subtract an already included line discount twice',()=>{
   const html=buildInvoiceHtml(BASE)
-  expect(html).toContain('Line discount included')
+  expect(html).toContain('Line discount (included)')
+  expect(html).toContain('aria-label="SAR -10.00"')
+  expect(html).toContain('<tr class="included-discount">')
   expect(html).not.toContain('خصم من إجمالي الفاتورة')
   expect(html).toContain('aria-label="SAR 103.50"')
  })
@@ -56,6 +65,34 @@ describe('reference invoice print template',()=>{
   expect(html).toContain('72.2082')
   expect(html).toContain('USD 103.50')
   expect(html).not.toContain('<svg class="riyal"')
+ })
+ it('keeps the item name independent of multiline descriptions and leaves unnamed items blank',()=>{
+  const description='First description line\nSecond description line'
+  const named=buildInvoiceHtml({...BASE,lines:[{...BASE.lines[0],itemName:'Separate item',description}]})
+  expect(named).toContain('<td class="item" dir="auto">Separate item</td>')
+  expect(named).toContain(`<td class="description" dir="auto">${description}</td>`)
+  const unnamed=buildInvoiceHtml({...BASE,lines:[{...BASE.lines[0],discount:0,description}]})
+  expect(unnamed).toContain('<td class="item" dir="auto"></td>')
+  expect(unnamed).toContain(`<td class="description" dir="auto">${description}</td>`)
+ })
+ it('keeps narrow item cells free of discount annotations and places an included discount in the summary',()=>{
+  const html=buildInvoiceHtml({...BASE,lines:[{...BASE.lines[0],itemName:'1',unit_price:45000,discount:4000,amount:41000,vat_amount:6150}],subtotal:41000,discount:4000,vatAmount:6150,total:47150,paidAmount:0})
+  expect(html).toContain('<td class="item" dir="auto">1</td>')
+  expect(html).not.toContain('خصم / Discount:')
+  const summary=html.slice(html.indexOf('<section class="summary">'),html.indexOf('</section>',html.indexOf('<section class="summary">')))
+  expect(summary).toContain('Line discount (included)')
+  expect(summary).toContain('aria-label="SAR -4,000.00"')
+  expect(summary).toContain('aria-label="SAR 41,000.00"')
+  expect(summary).toContain('aria-label="SAR 6,150.00"')
+  expect(summary.match(/aria-label="SAR 47,150.00"/g)).toHaveLength(2)
+ })
+ it('embeds safe inline business logos and omits absent or remote logo sources',()=>{
+  expect(buildInvoiceHtml({...BASE,logoDataUrl:'data:image/png;base64,BBBB'})).toContain('<img class="logo" src="data:image/png;base64,BBBB"')
+  for(const logoDataUrl of [undefined,'https://untrusted.test/logo.png','javascript:alert(1)','data:image/png;base64,AAAA" onerror="alert(1)']) {
+   const html=buildInvoiceHtml({...BASE,logoDataUrl})
+   expect(html).not.toContain('<img class="logo"')
+   expect(html).not.toContain('untrusted.test')
+  }
  })
  it('escapes all customer-controlled markup and rejects executable image URLs',()=>{
   const html=buildInvoiceHtml({...BASE,companyNameAr:'A&B',notes:'<img src=x onerror=alert(1)>',
@@ -99,5 +136,17 @@ describe('reference invoice print template',()=>{
   expect(html).toContain('aria-label="SAR 103.50"')
   expect(html).not.toContain('<section class="bank">')
   expect(html).not.toContain('<section class="notes">')
+ })
+})
+
+describe('rich invoice notes', () => {
+ it('prints editor formatting and drops unsafe markup', () => {
+  const html = buildInvoiceHtml({ ...BASE, notes: '<b>Terms</b><ul><li>Pay in 30 days</li></ul><a href="javascript:alert(1)">x</a><span style="color: #dc2626" onclick="x()">red</span>' })
+  expect(html).toContain('<div class="rich" dir="auto"><b>Terms</b><ul><li>Pay in 30 days</li></ul><span>x</span><span style="color: #dc2626">red</span></div>')
+  expect(html).not.toContain('javascript:')
+  expect(html).not.toContain('onclick')
+ })
+ it('keeps legacy plain-text notes escaped with line breaks', () => {
+  expect(buildInvoiceHtml({ ...BASE, notes: 'Line 1\nA < B' })).toContain('Line 1<br>A &lt; B')
  })
 })

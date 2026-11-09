@@ -9,7 +9,7 @@ import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
 import { fetchFleetRows } from "@/lib/vehicles/query-pages"
 import { createClient } from "@/lib/supabase/client"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Input } from "@/components/ui/input"
@@ -147,6 +147,7 @@ export function AssignDriverCard({
     if (res.success) {
       toast.success(isAr ? "تم إلغاء تعيين السائق" : "Driver unassigned")
       await load()
+      onChanged?.()
     } else {
       toast.error(res.error ?? "Failed to unassign driver")
     }
@@ -162,7 +163,7 @@ export function AssignDriverCard({
   const driverName = d?.full_name_ar ?? d?.full_name_en ?? d?.driver_code ?? "—"
 
   return (
-    <div className="rounded-2xl border border-border/50 bg-card/60 p-4 shadow-sm backdrop-blur-sm lg:col-span-2">
+    <div className="rounded-2xl border border-border/50 bg-card/60 p-4 shadow-sm lg:col-span-2">
       <div className="mb-3 flex items-center gap-2 border-b border-border/30 pb-3">
         <UserCheck className="h-4 w-4 text-elite-blue-500" />
         <h3 className="text-sm font-semibold text-foreground">

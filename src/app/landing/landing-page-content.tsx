@@ -21,16 +21,24 @@ import { FaqSection } from '@/components/landing/faq-section';
 import { FinalCta } from '@/components/landing/final-cta';
 import { LandingFooter } from '@/components/landing/landing-footer';
 import { REDIRECTS } from '@/lib/redirects';
+import { useTranslation } from '@/hooks/use-translation';
 
 export default function LandingPageContent() {
+  const { locale } = useTranslation()
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div lang={locale} dir={locale === 'ar' ? 'rtl' : 'ltr'} className="min-h-svh bg-background text-foreground">
       {/* Platform entry banner — links the B2B platform to the landing page */}
-      <div className="relative z-[60] bg-gradient-to-r from-elite-blue-600 via-elite-blue-500 to-elite-orange-500 px-4 py-2.5 text-center text-white">
-        <p className="mx-auto flex max-w-7xl flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs font-semibold sm:text-sm">
-          <span className="inline-flex items-center gap-1.5"><Building2 className="h-4 w-4" /> <LocalizedText text="للشركات: مساحة عمل خاصة بشعارك وبياناتك" /></span>
-          <Link href="/platform" className="inline-flex items-center gap-1 rounded-full bg-white/15 px-3 py-1 backdrop-blur-sm transition hover:bg-white/25"><LocalizedText text="استكشف المنصة" /></Link>
-          <Link href={REDIRECTS.registerUrl} className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1 text-elite-blue-700 transition hover:bg-white/90"><LocalizedText text="سجّل شركتك" /><ArrowLeft className="h-3 w-3 rtl:-scale-x-100" />
+      <div className="relative z-[60] bg-elite-blue-950 px-4 py-2.5 text-center text-white">
+        <p className="mx-auto flex max-w-7xl flex-wrap items-center justify-center gap-x-3 gap-y-1 text-sm font-medium">
+          <span className="inline-flex items-center gap-1.5">
+            <Building2 className="h-4 w-4" /> <LocalizedText text="للشركات: مساحة عمل خاصة بشعارك وبياناتك" />
+          </span>
+          <Link href="/platform" className="inline-flex items-center gap-1 px-2 py-1 underline underline-offset-4 transition-opacity hover:opacity-75">
+            <LocalizedText text="استكشف المنصة" />
+          </Link>
+          <Link href={REDIRECTS.registerUrl} className="inline-flex items-center gap-1 bg-white px-3 py-1 text-elite-blue-950 transition-opacity hover:opacity-90">
+            <LocalizedText text="سجّل شركتك" />
+            <ArrowLeft className="h-3 w-3 rtl:-scale-x-100" />
           </Link>
         </p>
       </div>

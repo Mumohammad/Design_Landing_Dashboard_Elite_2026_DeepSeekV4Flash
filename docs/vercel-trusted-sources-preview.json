@@ -1,0 +1,29 @@
+{
+  "artifactType": "review-proposal-not-vercel-api-payload",
+  "status": "proposal-only",
+  "appliedByThisTask": false,
+  "provider": "GitHub Actions",
+  "issuerUrl": "https://token.actions.githubusercontent.com",
+  "requiredClaims": {
+    "aud": "https://github.com/Mumohammad",
+    "repository": "Mumohammad/Design_Landing_Dashboard_Elite_2026_DeepSeekV4Flash",
+    "head_ref": "codex/production-modules-completion",
+    "base_ref": "master",
+    "event_name": "pull_request"
+  },
+  "claimMatching": "Every listed claim must be present and match its exact accepted value. No wildcard or additional accepted value is proposed.",
+  "allowedTargetEnvironments": ["preview"],
+  "productionAccess": false,
+  "targetProjectSelection": "The Vercel project owning the exact verified Preview deployment URL; no project setting is changed by this proposal.",
+  "requestHeader": "x-vercel-trusted-oidc-idp-token",
+  "localDevelopment": {
+    "source": "Process VERCEL_OIDC_TOKEN supplied by vc env run for the same linked project",
+    "defaultAccess": "development to preview",
+    "additionalExternalServiceRuleRequired": false
+  },
+  "documentation": [
+    "https://vercel.com/docs/deployment-protection/methods-to-bypass-deployment-protection/trusted-sources",
+    "https://docs.github.com/en/actions/reference/security/oidc"
+  ],
+  "apiSchemaNote": "This file is a human-review model for the documented Trusted Sources raw-claims form. It is not a verified Vercel REST API request schema."
+}

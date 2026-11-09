@@ -26,4 +26,22 @@ export const PUBLIC_ENDPOINTS: readonly string[] = [
   // Load-test entrypoint. FAIL-CLOSED: gated on process.env.LOAD_TEST_SECRET;
   // without the secret configured the route rejects all execution.
   "/api/load-test",
+
+  // Moyasar payment webhook. FAIL-CLOSED: 503 unless MOYASAR_WEBHOOK_SECRET
+  // and MOYASAR_SECRET_KEY are set; 401 unless secret_token matches
+  // (timing-safe). The body is only a hint — settlement re-reads the invoice
+  // from Moyasar's API with the secret key and checks amount/metadata.
+  "/api/billing/moyasar/webhook",
+
+  // Moyasar invoice callback_url (provider cannot authenticate). FAIL-CLOSED:
+  // 503 without MOYASAR_SECRET_KEY; per-IP rate limited; takes only an id from
+  // the body and settles solely from the provider's own API response.
+  "/api/billing/moyasar/callback",
+
+  // Telegram Bot API webhook for expense receipt intake (Telegram cannot send
+  // a user session). FAIL-CLOSED: 401 unless TELEGRAM_WEBHOOK_SECRET (24+
+  // chars) is set and the X-Telegram-Bot-Api-Secret-Token header matches
+  // (timing-safe); no work is done without TELEGRAM_BOT_TOKEN. Only linked,
+  // active, permitted users can create claims; private chats only.
+  "/api/telegram/expenses",
 ] as const;

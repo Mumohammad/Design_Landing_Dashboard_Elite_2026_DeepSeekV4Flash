@@ -10,7 +10,7 @@ import Link from "next/link"
 import { LayoutTemplate, CheckCircle2, DollarSign, Plus, Download, Pencil, PowerOff, ChevronRight, AlertCircle } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 import { EnterpriseModulePage, type KpiCardData, type TableColumn } from "@/components/dashboard/enterprise-module-page"
 import { Button } from "@/components/ui/button"
 import { deactivatePlatform, exportPlatformsCsv } from "@/lib/platforms-module/actions"
@@ -66,7 +66,7 @@ export default function PlatformsPage() {
   const kpiCards: KpiCardData[] = [
     { label: pm.kpiActive, value: activeCount, icon: CheckCircle2, color: "#10B981" },
     { label: pm.kpiTodayOrders, value: todayOrders, icon: LayoutTemplate, color: "#1E5A99" },
-    { label: pm.kpiMonthRevenue, value: monthRevenue.toFixed(0), icon: DollarSign, color: "#8B5CF6" },
+    { label: pm.kpiMonthRevenue, value: monthRevenue.toFixed(0), icon: DollarSign, color: "#0F766E" },
     { label: pm.kpiOutstanding, value: outstanding.toFixed(0), icon: AlertCircle, color: "#EF4444" },
   ]
 
@@ -160,7 +160,7 @@ export default function PlatformsPage() {
   }
 
   return (
-    <div className="px-4 lg:px-6 py-4">
+    <div className="py-4">
       <EnterpriseModulePage
         title={t.nav.platforms}
         subtitle={pm.subtitle}

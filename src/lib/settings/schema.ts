@@ -1,10 +1,12 @@
 import { z } from "zod"
 const optionalText = (max: number) => z.string().trim().max(max).refine(value => !/[\u0000-\u001f\u007f]/.test(value)).nullable().optional()
+const optionalAddressNumber = (digits: number) => z.string().trim().transform(value => value || null).refine(value => value === null || new RegExp(`^[0-9]{${digits}}$`).test(value)).nullable().optional()
 export const companySettingsSchema = z.object({
  name_ar:z.string().trim().min(1).max(200),name_en:z.string().trim().min(1).max(200),
  legal_name:optionalText(250),cr_number:z.string().regex(/^[0-9]{10}$/).nullable().optional(),
- vat_number:z.string().regex(/^3[0-9]{13}3$/).nullable().optional(),address:optionalText(1000),city:optionalText(100),region:optionalText(100),country:z.string().trim().min(1).max(100).optional(),phone:optionalText(32),
- email:z.string().email().max(320).nullable().optional(),logo_url:z.string().url().max(1024).nullable().optional(),
+ vat_number:z.string().regex(/^3[0-9]{13}3$/).nullable().optional(),address:optionalText(1000),city:optionalText(100),region:optionalText(100),
+ building_number:optionalAddressNumber(4),additional_number:optionalAddressNumber(4),district:optionalText(127),postal_code:optionalAddressNumber(5),country:z.string().trim().min(1).max(100).optional(),phone:optionalText(32),
+ email:z.string().email().max(320).nullable().optional(),
  timezone:z.string().trim().min(1).max(100).optional(),default_locale:z.enum(["ar","en"]).optional(),
 }).strict()
 export const PAYROLL_SETTING_KEYS = ["payroll.default_working_days","payroll.saudi_minimum_wage","payroll.min_net_floor"] as const
@@ -29,3 +31,33 @@ const messages:Record<SettingsCode,{ar:string;en:string}>={
  SETTINGS_UNAVAILABLE:{ar:"تعذر تأكيد نتيجة الحفظ. أعد تحميل الصفحة وراجع القيم قبل المحاولة.",en:"The save result could not be confirmed. Reload and review the values before retrying."},
 }
 export function settingsMessage(code:SettingsCode,locale:"ar"|"en"):string{return messages[code]?.[locale]??messages.SETTINGS_UNAVAILABLE[locale]}
+const companyFieldLabels:Record<string,{ar:string;en:string;hint:{ar:string;en:string}}>={
+ name_ar:{ar:"الاسم بالعربية",en:"Arabic name",hint:{ar:"مطلوب",en:"required"}},
+ name_en:{ar:"الاسم بالإنجليزية",en:"English name",hint:{ar:"مطلوب",en:"required"}},
+ cr_number:{ar:"السجل التجاري",en:"CR number",hint:{ar:"10 أرقام",en:"10 digits"}},
+ vat_number:{ar:"الرقم الضريبي",en:"VAT number",hint:{ar:"15 رقماً يبدأ وينتهي بالرقم 3",en:"15 digits starting and ending with 3"}},
+ building_number:{ar:"رقم المبنى",en:"Building number",hint:{ar:"4 أرقام",en:"4 digits"}},
+ additional_number:{ar:"الرقم الإضافي",en:"Additional number",hint:{ar:"4 أرقام",en:"4 digits"}},
+ postal_code:{ar:"الرمز البريدي",en:"Postal code",hint:{ar:"5 أرقام",en:"5 digits"}},
+ email:{ar:"البريد الإلكتروني",en:"Email",hint:{ar:"بريد إلكتروني صالح",en:"a valid email address"}},
+ country:{ar:"الدولة",en:"Country",hint:{ar:"مطلوب",en:"required"}},
+ timezone:{ar:"المنطقة الزمنية",en:"Timezone",hint:{ar:"مطلوب",en:"required"}},
+}
+/** Returns a localized message naming the first invalid company field, or null when valid. */
+export function companyFieldIssue(input:unknown,locale:"ar"|"en"):string|null{
+ const parsed=companySettingsSchema.safeParse(input)
+ if(parsed.success)return null
+ const key=String(parsed.error.issues[0]?.path?.[0]??"")
+ const label=companyFieldLabels[key]
+ if(!label)return settingsMessage("SETTINGS_INVALID",locale)
+ return locale==="ar"?`${label.ar}: القيمة غير صالحة (${label.hint.ar}).`:`${label.en} is invalid (${label.hint.en}).`
+}
+/** Returns a localized message naming the invalid WPS field, or null when valid. */
+export function wpsFieldIssue(input:{molReference:string;wpsIban:string},locale:"ar"|"en"):string|null{
+ const parsed=wpsSettingsSchema.safeParse(input)
+ if(parsed.success)return null
+ const key=String(parsed.error.issues[0]?.path?.[0]??"")
+ if(key==="wpsIban")return locale==="ar"?"رقم الآيبان غير صالح (SA متبوعاً بـ 22 رقماً مع رقم تحقق صحيح).":"IBAN is invalid (SA followed by 22 digits with a valid check digit)."
+ if(key==="molReference")return locale==="ar"?"مرجع وزارة الموارد البشرية غير صالح (أحرف وأرقام فقط، حتى 50).":"MOL reference is invalid (letters and digits only, up to 50)."
+ return settingsMessage("SETTINGS_INVALID",locale)
+}

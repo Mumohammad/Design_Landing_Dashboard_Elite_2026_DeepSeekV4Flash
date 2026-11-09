@@ -63,7 +63,7 @@ export default function AttendancePage() {
   ]
 
   return (
-    <div className="px-4 lg:px-6 py-4">
+    <div className="py-4">
       <EnterpriseModulePage
         title={t.nav.attendance}
         subtitle={`${fmtDate(selectedDate)} · ${locale === "ar" ? "إدارة الحضور من ملف السائق. الملخص لجميع سجلات التاريخ المحدد." : "Manage attendance from the driver profile. Summary covers the selected date."}`}

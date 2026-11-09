@@ -9,7 +9,7 @@ import { useTablePage } from "@/hooks/use-table-page"
 import { useReadSummary } from "@/hooks/use-read-summary"
 import { useTranslation } from "@/hooks/use-translation"
 import { EnterpriseModulePage, type KpiCardData, type TableColumn } from "@/components/dashboard/enterprise-module-page"
-import { ShieldAlert, AlertCircle, MessageSquareWarning, DollarSign } from "lucide-react"
+import { ShieldAlert, AlertCircle, MessageSquareWarning, DollarSign, Gavel } from "lucide-react"
 
 const SEVERITY_META: Record<string, { ar: string; en: string; className: string }> = {
   minor: { ar: "بسيطة", en: "Minor", className: "bg-blue-500/15 text-blue-600 border-blue-500/20" },
@@ -23,7 +23,7 @@ const STATUS_META: Record<string, { ar: string; en: string; className: string }>
   under_review: { ar: "مراجعة", en: "Review", className: "bg-blue-500/15 text-blue-600 border-blue-500/20" },
   disputed: { ar: "معترض", en: "Disputed", className: "bg-orange-500/15 text-orange-600 border-orange-500/20" },
   resolved: { ar: "محلولة", en: "Resolved", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/20" },
-  deduction_applied: { ar: "خصم مطبق", en: "Deducted", className: "bg-purple-500/15 text-purple-600 border-purple-500/20" },
+  deduction_applied: { ar: "خصم مطبق", en: "Deducted", className: "bg-teal-500/15 text-teal-600 border-teal-500/20" },
   waived: { ar: "إعفاء", en: "Waived", className: "bg-gray-500/15 text-gray-600 border-gray-500/20" },
   closed: { ar: "مغلقة", en: "Closed", className: "bg-gray-500/15 text-gray-600 border-gray-500/20" },
   acknowledged: { ar: "معتمدة", en: "Acknowledged", className: "bg-blue-500/15 text-blue-600 border-blue-500/20" },
@@ -58,7 +58,7 @@ export default function ViolationsPage() {
     { label: t.nav.violations, value: counts?.[0] ?? "—", icon: ShieldAlert, color: "#1E5A99" },
     { label: locale === "ar" ? "مفتوحة" : "Open", value: counts?.[1] ?? "—", icon: AlertCircle, color: "#F59E0B" },
     { label: locale === "ar" ? "معترض عليها" : "Disputed", value: counts?.[2] ?? "—", icon: MessageSquareWarning, color: "#EF4444" },
-    { label: "Deductions (SAR)", value: summary.value?.deductions.toFixed(2) ?? "—", icon: DollarSign, color: "#8B5CF6" },
+    { label: "Deductions (SAR)", value: summary.value?.deductions.toFixed(2) ?? "—", icon: DollarSign, color: "#0F766E" },
   ]
 
   const columns: TableColumn<ViolationRow>[] = [
@@ -94,7 +94,11 @@ export default function ViolationsPage() {
   ]
 
   return (
-    <div className="px-4 lg:px-6 py-4">
+    <div className="py-4">
+      <Link href="/violations/fines" className="mx-4 mb-4 flex items-center justify-between gap-3 rounded-lg border border-border bg-card p-4 transition-colors hover:bg-muted/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring lg:mx-6">
+        <span className="flex items-center gap-3"><Gavel className="size-5 shrink-0 text-muted-foreground" /><span><span className="block font-semibold">{locale === "ar" ? "المخالفات المرورية والمطابقة التلقائية" : "Traffic fines & auto-matching"}</span><span className="block text-xs text-muted-foreground">{locale === "ar" ? "استورد كشف المرور وطابقه تلقائياً مع السائق المسؤول" : "Import the Muroor statement and match each fine to the responsible driver"}</span></span></span>
+        <span className="text-sm font-medium text-primary">{locale === "ar" ? "فتح" : "Open"} →</span>
+      </Link>
       <EnterpriseModulePage
         title={t.nav.violations}
         subtitle={locale === "ar" ? "إدارة المخالفات من ملف السائق. الملخص لجميع المخالفات." : "Manage violations from the driver profile. Summary covers all violations."}

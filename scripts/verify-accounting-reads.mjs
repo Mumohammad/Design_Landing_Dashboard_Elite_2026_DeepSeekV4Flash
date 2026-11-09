@@ -18,7 +18,7 @@ export async function verifyAccountingReads(page, appUrl) {
       ['Receivables', 'receivables', 'top'], ['Payables', 'payables', 'top'],
       ...['vat_output', 'vat_input', 'vat_adjustments', 'vat_periods', 'vat_recon', 'vat_review'].map(kind => ['VAT', kind, 'card']),
       ['Payments', 'payments', 'card'], ['Periods', 'periods', 'card'],
-      ['Events', 'events', 'card'], ['ZATCA', 'zatca', 'card'],
+      ['Events', 'events', 'card'], ['E-invoicing (ZATCA)', 'zatca', 'card'],
       ['Payments', 'bank_accounts', 'top'], ['VAT', 'read_my_vat_position', 'top'],
     ]) {
       stage = `${tab}: ${read} failed read and retry`

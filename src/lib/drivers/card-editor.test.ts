@@ -1,0 +1,83 @@
+import { describe, expect, it } from "vitest"
+import { CUSTOM_PLATFORM, draftFromProfile, draftIssues, draftToCard, emptyDraft, loadProfileCardDraft, type CardAccountSource } from "./card-editor"
+
+const driver = { id: "d1", driver_code: "DRV-7", full_name_en: " Ali Khan ", full_name_ar: "علي", primary_mobile: "0500000000", secondary_mobile: null, iqama_number: "2412345678", rider_id: "HS-1" }
+const accounts = [
+  { platform_code: "keeta", platform_driver_id: "K-9", status: "active", is_primary: false },
+  { platform_code: "hungerstation", platform_driver_id: "HS-1", status: "active", is_primary: true },
+  { platform_code: "jahez", platform_driver_id: "J-2", status: "suspended", is_primary: false },
+]
+
+describe("card editor drafts", () => {
+  it("auto-fills from the profile and the primary platform account", () => {
+    const d = draftFromProfile(driver, "https://x/p.jpg", accounts)
+    expect(d).toMatchObject({ platform: "hungerstation", name: "Ali Khan", phone: "0500000000", idNumber: "2412345678", riderId: "HS-1", photoUrl: "https://x/p.jpg", driverId: "d1", footerRef: "DRV-7" })
+  })
+
+  it("uses the chosen platform's rider ID", () => {
+    expect(draftFromProfile(driver, null, accounts, "keeta").riderId).toBe("K-9")
+    expect(draftFromProfile(driver, null, accounts, "jahez").riderId).toBe("")
+    expect(draftFromProfile(driver, null, accounts, "noon").riderId).toBe("")
+    expect(draftIssues(draftFromProfile(driver, null, accounts, "jahez"))).toContain("riderId")
+  })
+
+  it("keeps the Arabic name and profile reference without inventing a platform ID", () => {
+    const d = draftFromProfile({ ...driver, full_name_en: null, rider_id: null }, null, [])
+    expect(d.name).toBe("علي")
+    expect(d.riderId).toBe("")
+    expect(d.footerRef).toBe("DRV-7")
+    expect(d.platform).toBe("hungerstation")
+  })
+
+  it("validates required fields", () => {
+    expect(draftIssues(emptyDraft())).toEqual(["name", "riderId"])
+    expect(draftIssues({ ...emptyDraft(), name: "A", riderId: "bad id!" })).toEqual(["riderIdFormat"])
+    expect(draftIssues({ ...emptyDraft(), name: "A", riderId: "1", platform: CUSTOM_PLATFORM })).toEqual(["customName"])
+  })
+
+  it("maps drafts to card data, including custom platforms", () => {
+    const { face, person } = draftToCard({ ...emptyDraft(), platform: CUSTOM_PLATFORM, customName: "FastGo", name: "Sara", riderId: "FG-1", phone: "" })
+    expect(face.theme.wordmark).toEqual(["FASTGO"])
+    expect(face.title).toBe("FastGo rider card FG-1")
+    expect(person).toEqual({ name: "Sara", phone: null, idNumber: null, photoUrl: null })
+    expect(draftToCard({ ...emptyDraft(), platform: "keeta", name: "x", riderId: "1" }).face.theme.wordmark).toEqual(["KEETA"])
+  })
+})
+
+describe("profile card binding", () => {
+  it("does not replace the newer driver when an earlier selection finishes late", async () => {
+    let current = "first"
+    let resolveFirst!: (value: CardAccountSource[]) => void
+    const first = loadProfileCardDraft(driver,
+      () => new Promise(resolve => { resolveFirst = resolve }), async () => null,
+      () => current === "first")
+    current = "second"
+    const second = await loadProfileCardDraft({ ...driver, id: "d2", full_name_en: "Second driver" },
+      async () => accounts, async () => null, () => current === "second")
+    resolveFirst(accounts)
+    expect(await first).toBeNull()
+    expect(second?.draft).toMatchObject({ driverId: "d2", name: "Second driver", riderId: "HS-1" })
+  })
+
+  it("discards a load invalidated by closing, clearing or resetting the editor", async () => {
+    let current = true
+    let resolvePhoto!: (value: string | null) => void
+    const loading = loadProfileCardDraft(driver, async () => accounts,
+      () => new Promise(resolve => { resolvePhoto = resolve }), () => current)
+    current = false
+    resolvePhoto("https://fixture.test/photo.png")
+    expect(await loading).toBeNull()
+  })
+
+  it("rejects platform read failures instead of substituting a primary ID", async () => {
+    await expect(loadProfileCardDraft(driver, async () => { throw new Error("Accounts unavailable") },
+      async () => null, () => true)).rejects.toThrow("Accounts unavailable")
+  })
+
+  it("rejects a missing configured photo and leaves a genuinely absent photo optional", async () => {
+    await expect(loadProfileCardDraft({ ...driver, photo_url: "tenant/driver/photo.png" },
+      async () => accounts, async () => null, () => true)).rejects.toThrow("photo")
+    expect((await loadProfileCardDraft(driver, async () => [], async () => null, () => true))?.draft)
+      .toMatchObject({ photoUrl: null, riderId: "", driverId: "d1" })
+  })
+})

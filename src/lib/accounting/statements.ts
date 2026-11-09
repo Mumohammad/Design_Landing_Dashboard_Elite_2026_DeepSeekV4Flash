@@ -316,7 +316,7 @@ export async function generateStatementReport(input: {
     return {
       success: true,
       html: buildStatementHtml({
-        companyNameAr: tenant.name_ar ?? "",
+        companyNameAr: tenant.name_ar || tenant.name_en || "",
         companyNameEn: tenant.name_en ?? "",
         companyVatNumber: tenant?.vat_number ?? "—",
         generatedAt: new Date().toISOString(),

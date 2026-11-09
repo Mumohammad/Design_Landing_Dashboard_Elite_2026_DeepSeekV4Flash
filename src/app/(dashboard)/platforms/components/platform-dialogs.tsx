@@ -116,7 +116,7 @@ export function PlatformDialog({
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
               <Label>{pm.fieldRateType}</Label>
-              <select aria-label={pm.fieldRateType} value={rateType} onChange={(e) => setRateType(e.target.value as (typeof RATE_TYPES)[number])} className="h-9 rounded-xl border border-border/50 bg-muted/30 px-3 text-sm">
+              <select aria-label={pm.fieldRateType} value={rateType} onChange={(e) => setRateType(e.target.value as (typeof RATE_TYPES)[number])} className="h-10 rounded-xl border border-border/50 bg-muted/30 px-3 text-sm">
                 {RATE_TYPES.map((rt) => (
                   <option key={rt} value={rt}>{rt}</option>
                 ))}
@@ -218,12 +218,12 @@ export function PaymentDialog({
             <div className="grid gap-1.5">
               <Label>{pm.fieldPeriod}</Label>
               <div className="flex gap-1.5">
-                <select disabled={!!payment} value={month} onChange={(e) => setMonth(Number(e.target.value))} className="h-9 w-full rounded-xl border border-border/50 bg-muted/30 px-2 text-sm" aria-label={ui("month")}>
+                <select disabled={!!payment} value={month} onChange={(e) => setMonth(Number(e.target.value))} className="h-10 w-full rounded-xl border border-border/50 bg-muted/30 px-2 text-sm" aria-label={ui("month")}>
                   {Array.from({ length: 12 }, (_, i) => i + 1).map((mo) => (
                     <option key={mo} value={mo}>{mo}</option>
                   ))}
                 </select>
-                <select disabled={!!payment} value={year} onChange={(e) => setYear(Number(e.target.value))} className="h-9 w-full rounded-xl border border-border/50 bg-muted/30 px-2 text-sm" aria-label={ui("year")}>
+                <select disabled={!!payment} value={year} onChange={(e) => setYear(Number(e.target.value))} className="h-10 w-full rounded-xl border border-border/50 bg-muted/30 px-2 text-sm" aria-label={ui("year")}>
                   {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map((yr) => (
                     <option key={yr} value={yr}>{yr}</option>
                   ))}
@@ -250,7 +250,7 @@ export function PaymentDialog({
             <Input aria-label={pm.fieldPaymentRef} dir="ltr" value={paymentRef} onChange={(e) => setPaymentRef(e.target.value)} />
           </div>
         </div>
-        <div className="grid gap-2"><Label htmlFor="platform-payment-notes">{locale==="ar"?"ملاحظات التسوية":"Reconciliation notes"}</Label><Input id="platform-payment-notes" value={notes} onChange={event=>setNotes(event.target.value)} maxLength={1000}/><Label htmlFor="platform-payment-state">{t.common.status}</Label><select id="platform-payment-state" value={paymentState} onChange={event=>setPaymentState(event.target.value as typeof paymentState)} className="h-9 rounded-md border border-input bg-background px-3 text-sm"><option value="automatic">{locale==="ar"?"تلقائي حسب المبالغ":"Automatic from amounts"}</option><option value="overdue">{locale==="ar"?"متأخر":"Overdue"}</option><option value="disputed">{locale==="ar"?"متنازع عليه":"Disputed"}</option></select></div>
+        <div className="grid gap-2"><Label htmlFor="platform-payment-notes">{locale==="ar"?"ملاحظات التسوية":"Reconciliation notes"}</Label><Input id="platform-payment-notes" value={notes} onChange={event=>setNotes(event.target.value)} maxLength={1000}/><Label htmlFor="platform-payment-state">{t.common.status}</Label><select id="platform-payment-state" value={paymentState} onChange={event=>setPaymentState(event.target.value as typeof paymentState)} className="h-10 rounded-md border border-input bg-background px-3 text-sm"><option value="automatic">{locale==="ar"?"تلقائي حسب المبالغ":"Automatic from amounts"}</option><option value="overdue">{locale==="ar"?"متأخر":"Overdue"}</option><option value="disputed">{locale==="ar"?"متنازع عليه":"Disputed"}</option></select></div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={busy}>{t.common.cancel}</Button>
           <Button onClick={submit} disabled={busy}>

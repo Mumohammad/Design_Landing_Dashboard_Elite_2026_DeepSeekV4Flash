@@ -19,7 +19,7 @@ import {
   type ComplianceOverride,
   type ComplianceResult,
 } from "@/lib/drivers/compliance"
-import { DOC_UPLOAD_TYPES, type DriverDocument } from "@/lib/drivers/documents"
+import { DOC_UPLOAD_TYPES, docTypeLabel, type DriverDocument } from "@/lib/drivers/documents"
 import type { Driver } from "@/types/drivers"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -29,7 +29,6 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { DriverCardPanel } from "@/components/drivers/driver-card-panel"
 import { Check, Eye, FileText, RefreshCw, ShieldAlert, Trash2, Upload } from "lucide-react"
 
 const levelStyles: Record<ComplianceLevel, { en: string; ar: string; cls: string }> = {
@@ -343,7 +342,7 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
   const showDocTypePicker = uploadFor === "identity" || uploadFor === "general"
 
   return (
-    <div data-testid="driver-compliance-engine" className="rounded-2xl border border-border/50 bg-card/60 p-5 backdrop-blur-sm">
+    <div data-testid="driver-compliance-engine" className="rounded-2xl border border-border/50 bg-card p-5">
       <div className="flex items-center justify-between gap-3">
         <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
           <ShieldAlert className="h-4 w-4 text-elite-blue-500" />
@@ -413,7 +412,7 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
                         <button
                           type="button"
                           onClick={() => openUpload(r.key)}
-                          className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 hover:underline dark:text-emerald-400"
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 hover:underline dark:text-emerald-400"
                         >
                           <Upload className="h-3 w-3" />
                           {isAr ? "رفع" : "Upload"}
@@ -560,7 +559,6 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
         </div>
       )}
 
-      {!readFailed&&<DriverCardPanel driverId={driver.id} isAr={isAr} />}
 
       {error && <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">{error}</p>}
 
@@ -590,7 +588,7 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
               <div className="space-y-1.5">
                 <Label>{isAr ? "المدة" : "Duration"}</Label>
                 <Select value={days} onValueChange={(v) => setDays(v as "7" | "30" | "90")}>
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -646,7 +644,7 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
                 <div className="space-y-1.5">
                   <Label>{isAr ? "نوع المستند" : "Document type"}</Label>
                   <Select value={docType} onValueChange={setDocType}>
-                    <SelectTrigger>
+                    <SelectTrigger className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -658,7 +656,7 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
                       ) : (
                         DOC_UPLOAD_TYPES.map((t) => (
                           <SelectItem key={t} value={t}>
-                            {isAr ? docTypeLabels[t].ar : docTypeLabels[t].en}
+                            {docTypeLabel(t, isAr)}
                           </SelectItem>
                         ))
                       )}

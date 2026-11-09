@@ -42,7 +42,7 @@ export function LogoMark({ size = 40, showIndicator = false, className }: LogoMa
   const ui = useUiText()
   return (
     <div
-      className={`relative flex items-center justify-center rounded-2xl bg-gradient-to-br from-elite-blue-500 via-elite-blue-400 to-elite-orange-500 shadow-lg shadow-elite-blue-500/20 ${className ?? ""}`}
+      className={`relative flex items-center justify-center rounded-2xl bg-elite-blue-500 ${className ?? ""}`}
       style={{ width: size, height: size }}
     >
       <Image

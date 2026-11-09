@@ -20,6 +20,7 @@ import {
   UserCheck,
   AlertCircle,
   Loader2,
+  KeyRound,
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
@@ -31,7 +32,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs"
-import type { VehicleStatus, VehicleCondition, FuelType } from "@/types/vehicles"
+import { VEHICLE_OWNERSHIP, type VehicleStatus, type VehicleCondition, type FuelType, type VehicleOwnership } from "@/types/vehicles"
 import { VehicleRecordControls } from "@/components/vehicles/vehicle-record-controls"
 import { FleetDocumentsPanel, FleetHandoverPanel } from "@/components/vehicles/fleet-history-panels"
 import { AssignDriverCard } from "@/components/vehicles/assign-driver-card"
@@ -57,6 +58,12 @@ interface VehicleDetail {
   insurance_expiry: string | null
   registration_expiry: string | null
   inspection_expiry: string | null
+  operating_card_expiry?: string | null
+  ownership_type?: VehicleOwnership | null
+  sequence_number?: string | null
+  rental_company?: string | null
+  rental_contract_end?: string | null
+  rental_monthly_cost?: number | null
   photo_url: string | null
 }
 
@@ -76,7 +83,7 @@ function Field({
   notSet: string
 }) {
   return (
-    <div className="rounded-xl border border-border/50 bg-card/60 backdrop-blur-sm p-3">
+    <div className="rounded-xl border border-border/50 bg-card p-3">
       <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
       <dd className="mt-1 text-sm font-medium text-foreground break-words">
         {isEmpty(value) ? (
@@ -99,7 +106,7 @@ function SectionCard({
   children: ReactNode
 }) {
   return (
-    <div className="rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm shadow-sm p-5">
+    <div className="rounded-2xl border border-border/50 bg-card shadow-sm p-5">
       <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold text-foreground">
         <Icon className="h-4 w-4 text-elite-blue-500" />
         {title}
@@ -287,7 +294,7 @@ export default function VehicleDetailPage() {
           <ArrowLeft className="mr-1.5 h-4 w-4 rtl:rotate-180" />
           {t.vehicles.backToList}
         </Button>
-        <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm py-16 text-center">
+        <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-border/50 bg-card py-16 text-center">
           <AlertCircle className="h-8 w-8 text-muted-foreground/60" />
           <p className="text-base font-semibold text-foreground">
             {t.vehicles.notFoundTitle}
@@ -313,7 +320,7 @@ export default function VehicleDetailPage() {
   const notSet = t.vehicles.notSet
 
   return (
-    <div className="page-enter px-4 lg:px-6 space-y-6">
+    <div className="page-enter space-y-6">
       {/* Back */}
       <Button
         variant="ghost"
@@ -326,13 +333,13 @@ export default function VehicleDetailPage() {
       </Button>
 
       {/* Profile header */}
-      <div className="relative overflow-hidden rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm shadow-sm p-6">
+      <div className="relative overflow-hidden rounded-2xl border border-border/50 bg-card shadow-sm p-6">
         <div
           className="absolute top-0 right-0 h-32 w-32 rounded-full opacity-[0.06]"
           style={{ backgroundColor: "#1E5A99", transform: "translate(30%, -30%)" }}
         />
         <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center">
-          <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-elite-blue-500 to-elite-blue-700 text-white shadow-lg shadow-elite-blue-500/20">
+          <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl text-background shadow-lg shadow-elite-blue-500/20 bg-foreground">
             {vehicle.photo_url ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -450,6 +457,31 @@ export default function VehicleDetailPage() {
                 value={renderExpiry(vehicle.inspection_expiry)}
                 notSet={notSet}
               />
+              <Field
+                label={locale === "ar" ? "بطاقة التشغيل" : "Operating card"}
+                value={renderExpiry(vehicle.operating_card_expiry ?? null)}
+                notSet={notSet}
+              />
+            </SectionCard>
+
+            <SectionCard icon={KeyRound} title={locale === "ar" ? "الملكية" : "Ownership"}>
+              <Field
+                label={locale === "ar" ? "نوع الملكية" : "Ownership type"}
+                value={(() => { const o = VEHICLE_OWNERSHIP.find((x) => x.value === vehicle.ownership_type); return o ? (locale === "ar" ? o.ar : o.en) : null })()}
+                notSet={notSet}
+              />
+              <Field label={locale === "ar" ? "الرقم التسلسلي" : "Sequence number"} value={vehicle.sequence_number ? <bdi dir="ltr" className="font-mono">{vehicle.sequence_number}</bdi> : null} notSet={notSet} />
+              {vehicle.ownership_type === "rented" && (
+                <>
+                  <Field label={locale === "ar" ? "شركة التأجير" : "Rental company"} value={vehicle.rental_company ?? null} notSet={notSet} />
+                  <Field label={locale === "ar" ? "انتهاء عقد الإيجار" : "Rental contract end"} value={renderExpiry(vehicle.rental_contract_end ?? null)} notSet={notSet} />
+                  <Field
+                    label={locale === "ar" ? "الإيجار الشهري" : "Monthly rent"}
+                    value={vehicle.rental_monthly_cost != null ? <span className="tabular-nums" dir="ltr">{Number(vehicle.rental_monthly_cost).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {locale === "ar" ? "ر.س" : "SAR"}</span> : null}
+                    notSet={notSet}
+                  />
+                </>
+              )}
             </SectionCard>
 
             <SectionCard icon={Settings2} title={t.vehicles.sectionSpecs}>
@@ -608,7 +640,7 @@ function AssignmentCard({
 }) {
   const driverName = assignment.driver?.full_name_ar ?? assignment.driver?.driver_code ?? "—"
   return (
-    <div className="rounded-xl border border-border/50 bg-card/60 backdrop-blur-sm p-4">
+    <div className="rounded-xl border border-border/50 bg-card p-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted/50">
@@ -750,7 +782,7 @@ function MaintenanceTab({
       {events.map((ev) => (
         <div
           key={ev.id}
-          className="rounded-xl border border-border/50 bg-card/60 backdrop-blur-sm p-4"
+          className="rounded-xl border border-border/50 bg-card p-4"
         >
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex items-start gap-3">
@@ -871,7 +903,7 @@ function OdometerTab({
               {i < logs.length - 1 && <div className="w-px flex-1 bg-border/50 my-1" />}
             </div>
             <div className="flex-1 pb-4">
-              <div className="rounded-xl border border-border/50 bg-card/60 backdrop-blur-sm p-3">
+              <div className="rounded-xl border border-border/50 bg-card p-3">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <span className="text-sm font-semibold tabular-nums text-foreground">

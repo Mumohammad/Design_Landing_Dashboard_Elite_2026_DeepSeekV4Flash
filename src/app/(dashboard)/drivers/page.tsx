@@ -28,6 +28,9 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { CreateDriverDialog } from "./components/create-driver-dialog"
+import { DriverImportDialog } from "@/components/drivers/driver-import-dialog"
+import { RiderCardEditor } from "@/components/drivers/rider-card-editor"
+import { DriverDocumentQuickUpload } from "@/components/drivers/driver-document-quick-upload"
 import DriverActionsMenu from "@/components/drivers/driver-actions-menu"
 import type { Driver, DriverCategory, DriverStatus } from "@/types/drivers"
 import {
@@ -35,8 +38,11 @@ import {
   CalendarClock,
   CheckCircle2,
   Download,
+  Upload,
   UserX,
   Users,
+  Palette,
+  FileUp,
 } from "lucide-react"
 
 type DriverListItem = Pick<
@@ -54,6 +60,7 @@ type DriverListItem = Pick<
   | "license_expiry_date"
   | "hire_date"
   | "profile_completeness_score"
+  | "rider_id"
 >
 
 const DRIVER_FIELDS = [
@@ -70,6 +77,7 @@ const DRIVER_FIELDS = [
   "license_expiry_date",
   "hire_date",
   "profile_completeness_score",
+  "rider_id",
 ].join(", ")
 
 const STATUS_META: Record<DriverStatus, { ar: string; en: string; className: string }> = {
@@ -189,7 +197,7 @@ function DriverAvatarImage({ name, initial }: { name: string | null; initial: st
         />
       ) : null}
       {!photoUrl || imgFailed ? (
-        <span className="flex h-full w-full items-center justify-center bg-gradient-to-br from-elite-blue-500 to-elite-orange-500 text-xs font-semibold text-white">
+        <span className="flex h-full w-full items-center justify-center text-xs font-semibold text-background bg-foreground">
           {initial}
         </span>
       ) : null}
@@ -209,7 +217,7 @@ export default function DriversPage() {
 
   const buildQuery = useCallback((term: string) => {
     let query = createClient().from("drivers").select(DRIVER_FIELDS, { count: "exact" }).is("deleted_at", null)
-    if (term.trim()) query = query.or(substringFilter(["full_name_ar", "full_name_en", "driver_code", "primary_mobile"], term))
+    if (term.trim()) query = query.or(substringFilter(["full_name_ar", "full_name_en", "driver_code", "primary_mobile", "rider_id"], term))
     if (statusFilter !== "all") query = query.eq("status", statusFilter)
     if (categoryFilter !== "all") query = query.eq("category", categoryFilter)
     if (expiringOnly) query = query.or(expiringFilter())
@@ -219,6 +227,9 @@ export default function DriversPage() {
   const [counts, setCounts] = useState<number[] | null>(null)
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const [cardDesignerOpen, setCardDesignerOpen] = useState(false)
+  const [docUploadOpen, setDocUploadOpen] = useState(false)
   const loadCounts = useCallback(async () => {
     const base = () => createClient().from("drivers").select("id", { count: "exact", head: true }).is("deleted_at", null)
     const results = await Promise.all([
@@ -337,9 +348,10 @@ export default function DriversPage() {
             <div className="truncate font-medium text-foreground">
               {row.full_name_ar ?? "—"}
             </div>
-            {row.driver_code && (
+            {(row.driver_code || row.rider_id) && (
               <div className="truncate text-xs text-muted-foreground">
                 {row.driver_code}
+                {row.rider_id && <span dir="ltr" className="ms-1.5 font-mono text-violet-600 dark:text-violet-400">#{row.rider_id}</span>}
               </div>
             )}
           </div>
@@ -457,7 +469,7 @@ export default function DriversPage() {
 
   return (
     <div
-      className="px-4 py-4 lg:px-6"
+      className="py-4"
       onDoubleClick={(e) => {
         const target = e.target as HTMLElement
         if (target.closest("[data-row-actions]")) return
@@ -469,12 +481,12 @@ export default function DriversPage() {
       }}
     >
       {/* Filter + export toolbar */}
-      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-border/50 bg-card/60 px-4 py-3 backdrop-blur-sm">
+      <div className="mb-4 flex min-w-0 flex-wrap items-center gap-3 rounded-2xl border border-border/50 bg-card px-4 py-3">
         <Select
           value={statusFilter}
           onValueChange={(v) => { setStatusFilter(v as "all" | DriverStatus); pagination.onPageChange(1) }}
         >
-          <SelectTrigger className="h-9 w-36 rounded-xl bg-muted/30 text-xs">
+          <SelectTrigger className="min-h-11 w-36 rounded-xl bg-muted/30 text-xs">
             <SelectValue placeholder={isAr ? "الحالة" : "Status"} />
           </SelectTrigger>
           <SelectContent>
@@ -490,7 +502,7 @@ export default function DriversPage() {
           value={categoryFilter}
           onValueChange={(v) => { setCategoryFilter(v as "all" | DriverCategory); pagination.onPageChange(1) }}
         >
-          <SelectTrigger className="h-9 w-40 rounded-xl bg-muted/30 text-xs">
+          <SelectTrigger className="min-h-11 w-40 rounded-xl bg-muted/30 text-xs">
             <SelectValue placeholder={isAr ? "الفئة" : "Category"} />
           </SelectTrigger>
           <SelectContent>
@@ -502,26 +514,38 @@ export default function DriversPage() {
             ))}
           </SelectContent>
         </Select>
-        <div className="flex items-center gap-2">
+        <div className="flex min-h-11 items-center gap-2">
           <Switch
             id="expiring-only"
             checked={expiringOnly}
             onCheckedChange={(value) => { setExpiringOnly(value); pagination.onPageChange(1) }}
           />
-          <Label htmlFor="expiring-only" className="text-xs text-muted-foreground">
+          <Label htmlFor="expiring-only" className="flex min-h-11 items-center text-xs text-muted-foreground">
             {isAr ? `تنتهي خلال ${EXPIRY_WINDOW_DAYS} يوم` : `Expiring ≤ ${EXPIRY_WINDOW_DAYS}d`}
           </Label>
         </div>
-        <div className="ms-auto flex items-center gap-3">
-          <span className="text-xs tabular-nums text-muted-foreground">
+        <div className="flex w-full min-w-0 flex-wrap items-center justify-end gap-2 sm:ms-auto sm:w-auto">
+          <span className="me-auto shrink-0 whitespace-nowrap text-xs tabular-nums text-muted-foreground">
             {isAr
               ? `${filtered.length} من ${pagination.totalRecords}`
               : `${filtered.length} of ${pagination.totalRecords}`}
           </span>
+          <Button variant="outline" size="sm" className="h-11 shrink-0 gap-1.5 rounded-xl" onClick={() => setImportOpen(true)}>
+            <Upload className="h-3.5 w-3.5" />
+            {isAr ? "استيراد Excel" : "Import Excel"}
+          </Button>
+          <Button variant="outline" size="sm" className="h-11 shrink-0 gap-1.5 rounded-xl" onClick={() => setDocUploadOpen(true)} data-testid="open-document-upload">
+            <FileUp className="h-3.5 w-3.5" />
+            {isAr ? "رفع مستند" : "Upload document"}
+          </Button>
+          <Button variant="outline" size="sm" className="h-11 shrink-0 gap-1.5 rounded-xl" onClick={() => setCardDesignerOpen(true)} data-testid="open-card-designer">
+            <Palette className="h-3.5 w-3.5" />
+            {isAr ? "بطاقة المندوب" : "Rider card"}
+          </Button>
           <Button
             variant="outline"
             size="sm"
-            className="h-9 gap-1.5 rounded-xl"
+            className="h-11 shrink-0 gap-1.5 rounded-xl"
             onClick={exportCsv}
             disabled={isLoading || exporting || !!error || pagination.totalRecords === 0}
           >
@@ -589,6 +613,9 @@ export default function DriversPage() {
           setDialogOpen(open)
           if (!open) { reload(); void loadCounts() }
         }} />
+        <DriverDocumentQuickUpload open={docUploadOpen} onOpenChange={setDocUploadOpen} isAr={isAr} onUploaded={() => { reload(); void loadCounts() }} />
+        <RiderCardEditor open={cardDesignerOpen} onOpenChange={setCardDesignerOpen} isAr={isAr} />
+        <DriverImportDialog open={importOpen} onOpenChange={setImportOpen} isAr={isAr} onImported={() => { reload(); void loadCounts() }} />
       </EnterpriseModulePage>
     </div>
   )

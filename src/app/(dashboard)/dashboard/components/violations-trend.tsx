@@ -69,7 +69,7 @@ export function ViolationsTrend({
             }
           />
           <Bar dataKey="violations" fill="var(--color-violations)" radius={[4, 4, 0, 0]} barSize={22} isAnimationActive={false} />
-          <Line dataKey="penalties" type="monotone" stroke="var(--color-penalties)" strokeWidth={2} dot={false} />
+          <Line dataKey="penalties" type="linear" stroke="var(--color-penalties)" strokeWidth={2} dot={false} />
         </ComposedChart>
       </ChartContainer>
     </ChartCard>

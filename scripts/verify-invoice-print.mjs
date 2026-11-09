@@ -7,7 +7,7 @@ import QRCode from 'qrcode'
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs'
 const folder = 'supabase/.temp/invoice-print'
 mkdirSync(folder, { recursive: true })
-const source = readFileSync('src/lib/accounting/riyal-symbol.ts','utf8') + '\n' + readFileSync('src/lib/accounting/invoice-html.ts','utf8').replace(/^import .*\r?\n/, '')
+const source = ['src/lib/accounting/riyal-symbol.ts', 'src/lib/rich-text/sanitize.ts', 'src/lib/accounting/invoice-html.ts'].map(file => readFileSync(file, 'utf8').replace(/^import .*\r?\n/gm, '')).join('\n')
 const exports = {}
 new Function('exports', ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText)(exports)
 const data = {
@@ -39,7 +39,7 @@ const html = exports.buildInvoiceHtml(data)
 const renderedHtml = process.env.INVOICE_FORCE_FALLBACK === '1'
  ? html.replace('font-family: "Invoice Reference", Tahoma, "Invoice Arabic",', 'font-family: "Invoice Arabic",') : html
 writeFileSync(`${folder}/invoice.html`,renderedHtml)
-const browser = await chromium.launch({headless:true})
+const browser = await chromium.launch({headless:true,...(process.env.INVOICE_CHROMIUM_EXECUTABLE_PATH?{executablePath:process.env.INVOICE_CHROMIUM_EXECUTABLE_PATH}:{})})
 try {
  const page=await browser.newPage({viewport:{width:816,height:1056}})
  await page.setContent(renderedHtml)

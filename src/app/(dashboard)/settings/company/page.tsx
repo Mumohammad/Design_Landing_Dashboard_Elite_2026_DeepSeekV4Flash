@@ -1,11 +1,13 @@
 "use client"
 
+import { friendlyError } from "@/lib/errors/friendly"
 import { LocalizedText } from "@/components/localized-text"
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useActionState } from "react"
-import { settingsMessage } from "@/lib/settings/schema"
+import { settingsMessage, companyFieldIssue, wpsFieldIssue } from "@/lib/settings/schema"
 import { useTranslation } from "@/hooks/use-translation"
-import { updateCompanyProfile, updateCompanyWpsSettings, fetchCompanyProfile, type CompanyProfileInput, type CompanyProfile, type SettingsActionResult } from "@/lib/settings/actions"
+import { updateCompanyProfile, updateCompanyWpsSettings, fetchCompanyProfile, uploadCompanyLogo, removeCompanyLogo, type CompanyProfileInput, type CompanyProfile, type SettingsActionResult } from "@/lib/settings/actions"
+import { LOGO_ACCEPT, prepareLogoFile, logoPrepMessage } from "@/lib/branding/logo-client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -53,6 +55,11 @@ export default function CompanySettingsPage() {
   const [tenant, setTenant] = useState<CompanyProfile | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
+  const [needsReload, setNeedsReload] = useState(false)
+  const [logoBusy, setLogoBusy] = useState(false)
+  const [logoMessage, setLogoMessage] = useState("")
+  const operationBusy = useRef(false)
+  const logoInput = useRef<HTMLInputElement>(null)
 
   const [nameAr, setNameAr] = useState("")
   const [nameEn, setNameEn] = useState("")
@@ -62,6 +69,10 @@ export default function CompanySettingsPage() {
   const [address, setAddress] = useState("")
   const [city, setCity] = useState("")
   const [region, setRegion] = useState("")
+  const [buildingNumber, setBuildingNumber] = useState("")
+  const [additionalNumber, setAdditionalNumber] = useState("")
+  const [district, setDistrict] = useState("")
+  const [postalCode, setPostalCode] = useState("")
   const [country, setCountry] = useState("")
   const [phone, setPhone] = useState("")
   const [email, setEmail] = useState("")
@@ -69,6 +80,29 @@ export default function CompanySettingsPage() {
   const [defaultLocale, setDefaultLocale] = useState("ar")
   const [molReference, setMolReference] = useState("")
   const [wpsIban, setWpsIban] = useState("")
+
+  const applyProfile = useCallback((data: CompanyProfile) => {
+        setTenant(data)
+        setNameAr(data.name_ar ?? "")
+        setNameEn(data.name_en ?? "")
+        setLegalName(data.legal_name ?? "")
+        setCrNumber(data.cr_number ?? "")
+        setVatNumber(data.vat_number ?? "")
+        setAddress(data.address ?? "")
+        setCity(data.city ?? "")
+        setRegion(data.region ?? "")
+        setBuildingNumber(data.building_number ?? "")
+        setAdditionalNumber(data.additional_number ?? "")
+        setDistrict(data.district ?? "")
+        setPostalCode(data.postal_code ?? "")
+        setCountry(data.country ?? "")
+        setPhone(data.phone ?? "")
+        setEmail(data.email ?? "")
+        setTimezone(data.timezone ?? "Asia/Riyadh")
+        setDefaultLocale(data.default_locale ?? "ar")
+        setMolReference(data.mol_reference ?? "")
+        setWpsIban(data.wps_iban ?? "")
+  }, [])
 
   useEffect(() => {
     async function load() {
@@ -79,31 +113,39 @@ export default function CompanySettingsPage() {
           setIsLoading(false)
           return
         }
-        setTenant(data)
-        setNameAr(data.name_ar ?? "")
-        setNameEn(data.name_en ?? "")
-        setLegalName(data.legal_name ?? "")
-        setCrNumber(data.cr_number ?? "")
-        setVatNumber(data.vat_number ?? "")
-        setAddress(data.address ?? "")
-        setCity(data.city ?? "")
-        setRegion(data.region ?? "")
-        setCountry(data.country ?? "")
-        setPhone(data.phone ?? "")
-        setEmail(data.email ?? "")
-        setTimezone(data.timezone ?? "Asia/Riyadh")
-        setDefaultLocale(data.default_locale ?? "ar")
-        setMolReference(data.mol_reference ?? "")
-        setWpsIban(data.wps_iban ?? "")
+        applyProfile(data)
       } catch {
         setLoadError(true)
       }
       setIsLoading(false)
     }
     load()
-  }, [])
+  }, [applyProfile])
 
-  const [state, formAction, isPending] = useActionState<SettingsActionResult | null, FormData>(
+  async function runOperation(action: () => Promise<SettingsActionResult>): Promise<SettingsActionResult> {
+    if (operationBusy.current || needsReload || !tenant?.can_manage) return { success: false, code: "SETTINGS_FORBIDDEN", error: settingsMessage("SETTINGS_FORBIDDEN",locale) }
+    operationBusy.current = true
+    try {
+      const result = await action()
+      if (result.success && result.configuration_version) {
+        if (result.replayed) {
+          // A receipt can describe a historical version. Refresh every form.
+          const current = await fetchCompanyProfile()
+          if (!current) throw new Error("refresh failed")
+          applyProfile(current)
+        } else {
+          setTenant(previous => previous ? { ...previous, configuration_version: result.configuration_version!,
+            ...(result.request_id ? {logo_url: result.logo_url ?? null,logo_storage_path: result.logo_storage_path ?? null} : {}) } : previous)
+        }
+      } else if (result.code === "SETTINGS_STALE" || result.code === "SETTINGS_UNAVAILABLE") setNeedsReload(true)
+      return result
+    } catch {
+      setNeedsReload(true)
+      return {success:false,code:"SETTINGS_UNAVAILABLE",error:settingsMessage("SETTINGS_UNAVAILABLE",locale)}
+    } finally { operationBusy.current = false }
+  }
+
+  const [state, formAction, isPending] = useActionState<(SettingsActionResult & { localMessage?: string }) | null, FormData>(
     async () => {
       const input: CompanyProfileInput = {
         name_ar: nameAr.trim(),
@@ -114,27 +156,51 @@ export default function CompanySettingsPage() {
         address: address.trim() || null,
         city: city.trim() || null,
         region: region.trim() || null,
+        building_number: buildingNumber.trim() || null,
+        additional_number: additionalNumber.trim() || null,
+        district: district.trim() || null,
+        postal_code: postalCode.trim() || null,
         country: country.trim(),
         phone: phone.trim() || null,
         email: email.trim() || null,
         timezone: timezone.trim(),
         default_locale: defaultLocale,
       }
-      const result = await updateCompanyProfile(input, tenant?.configuration_version ?? 0)
-      if (result.success && result.configuration_version) setTenant(previous => previous ? { ...previous, configuration_version: result.configuration_version! } : previous)
-      return result
+      const issue = companyFieldIssue(input, locale)
+      if (issue) return { success: false, error: issue, localMessage: issue }
+      return runOperation(() => updateCompanyProfile(input, tenant?.configuration_version ?? 0))
     },
     null
   )
 
-  const [wpsState, wpsAction, isSavingWps] = useActionState<SettingsActionResult | null, FormData>(
+  const [wpsState, wpsAction, isSavingWps] = useActionState<(SettingsActionResult & { localMessage?: string }) | null, FormData>(
     async () => {
-      const result = await updateCompanyWpsSettings({ molReference, wpsIban }, tenant?.configuration_version ?? 0)
-      if (result.success && result.configuration_version) setTenant(previous => previous ? { ...previous, configuration_version: result.configuration_version! } : previous)
-      return result
+      const issue = wpsFieldIssue({ molReference, wpsIban }, locale)
+      if (issue) return { success: false, error: issue, localMessage: issue }
+      return runOperation(() => updateCompanyWpsSettings({ molReference, wpsIban }, tenant?.configuration_version ?? 0))
     },
     null
   )
+
+  async function changeLogo(file?: File) {
+    if (logoBusy || isPending || isSavingWps || !tenant?.can_manage || needsReload) return
+    setLogoBusy(true)
+    setLogoMessage("")
+    let preparationFailed = false
+    try {
+      const result = await runOperation(async () => {
+        if (!file) return removeCompanyLogo(tenant.configuration_version,crypto.randomUUID())
+        const prepared = await prepareLogoFile(file)
+        if (!prepared.ok) { preparationFailed = true; setLogoMessage(logoPrepMessage(prepared.error,ar)); return {success:false,code:"SETTINGS_INVALID"} }
+        return uploadCompanyLogo(prepared.dataUrl,tenant.configuration_version,crypto.randomUUID())
+      })
+      if (result.success) setLogoMessage(ar ? "تم حفظ الشعار." : "Company logo saved.")
+      else if (result.code && !preparationFailed) setLogoMessage(settingsMessage(result.code,locale))
+    } finally {
+      setLogoBusy(false)
+      if (logoInput.current) logoInput.current.value = ""
+    }
+  }
 
   const hasPlaceholders = crNumber.includes("PLACEHOLDER") || vatNumber.includes("PLACEHOLDER")
 
@@ -164,7 +230,7 @@ export default function CompanySettingsPage() {
   }
 
   return (
-    <div className="page-enter px-4 lg:px-6 py-4 space-y-6">
+    <div className="page-enter py-4 space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-foreground">{t.settings.companyProfile}</h1>
         <p className="text-sm text-muted-foreground mt-1">
@@ -183,11 +249,30 @@ export default function CompanySettingsPage() {
         </div>
       )}
 
-      <form action={formAction}><fieldset disabled={!tenant?.can_manage || isPending || loadError} className="min-w-0">
-        <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm">
+      {needsReload && <div role="alert" className="flex flex-wrap items-center gap-3 rounded-xl border border-border p-4 text-sm">
+        <span>{settingsMessage("SETTINGS_UNAVAILABLE",locale)}</span>
+        <Button type="button" variant="outline" onClick={() => window.location.reload()}>{ar ? "إعادة تحميل الإعدادات" : "Reload settings"}</Button>
+      </div>}
+      <Card className="rounded-2xl border border-border/50 bg-card shadow-sm">
+        <CardHeader><CardTitle className="text-base">{ar ? "شعار الشركة" : "Company logo"}</CardTitle>
+          <CardDescription>{ar ? "يظهر في مساحة العمل والفواتير. PNG أو JPEG أو WebP حتى 5 ميجابايت." : "Shown in your workspace and invoices. PNG, JPEG or WebP up to 5 MB."}</CardDescription></CardHeader>
+        <CardContent><fieldset disabled={!tenant.can_manage || isPending || isSavingWps || logoBusy || needsReload} className="flex flex-wrap items-center gap-4">
+          <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-xl border border-border bg-background">
+            {tenant.logo_url ? <img src={tenant.logo_url} alt={ar ? "شعار الشركة" : "Company logo"} className="h-full w-full object-contain" /> : <Building2 className="h-7 w-7 text-muted-foreground" />}
+          </div>
+          <div className="min-w-0 flex-1 space-y-2"><Label htmlFor="company-logo">{ar ? "اختيار شعار" : "Choose a logo"}</Label>
+            <Input ref={logoInput} id="company-logo" type="file" accept={LOGO_ACCEPT} onChange={event => { const file = event.target.files?.[0]; if (file) void changeLogo(file) }} />
+            <p className="text-sm text-muted-foreground" role="status">{logoBusy ? (ar ? "جارٍ تجهيز الشعار وحفظه…" : "Preparing and saving logo…") : logoMessage}</p>
+          </div>
+          <Button type="button" variant="outline" disabled={!tenant.logo_url} onClick={() => void changeLogo()}>{ar ? "إزالة الشعار" : "Remove logo"}</Button>
+        </fieldset></CardContent>
+      </Card>
+
+      <form action={formAction}><fieldset disabled={!tenant?.can_manage || isPending || isSavingWps || logoBusy || needsReload || loadError} className="min-w-0">
+        <Card className="rounded-2xl border border-border/50 bg-card shadow-sm">
           <CardHeader className="pb-4">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-elite-blue-600/10">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl text-elite-blue-600 dark:text-elite-blue-300">
                 <Building2 className="h-5 w-5 text-elite-blue-600" />
               </div>
               <div>
@@ -227,8 +312,12 @@ export default function CompanySettingsPage() {
               placeholder="300000000000003"
             />
             <div className="sm:col-span-2">
-              <FormField id="address" label={ar ? "العنوان" : "Address"} value={address} onChange={setAddress} dir="auto" />
+              <FormField id="address" label={ar ? "الشارع (العنوان الوطني)" : "Street (National Address)"} value={address} onChange={setAddress} dir="auto" />
             </div>
+            <FormField id="district" label={ar ? "الحي" : "District"} value={district} onChange={setDistrict} dir="auto" />
+            <FormField id="buildingNumber" label={ar ? "رقم المبنى" : "Building number"} value={buildingNumber} onChange={(v) => setBuildingNumber(v.replace(/\D/g, "").slice(0, 4))} dir="ltr" placeholder="1234" />
+            <FormField id="additionalNumber" label={ar ? "الرقم الإضافي" : "Additional number"} value={additionalNumber} onChange={(v) => setAdditionalNumber(v.replace(/\D/g, "").slice(0, 4))} dir="ltr" placeholder="5678" />
+            <FormField id="postalCode" label={ar ? "الرمز البريدي" : "Postal code"} value={postalCode} onChange={(v) => setPostalCode(v.replace(/\D/g, "").slice(0, 5))} dir="ltr" placeholder="12345" />
             <FormField id="city" label={ar ? "المدينة" : "City"} value={city} onChange={setCity} dir="auto" />
             <FormField id="region" label={ar ? "المنطقة" : "Region"} value={region} onChange={setRegion} dir="auto" />
             <FormField id="country" label={ar ? "الدولة" : "Country"} value={country} onChange={setCountry} dir="ltr" />
@@ -246,7 +335,7 @@ export default function CompanySettingsPage() {
         </Card>
 
         <div className="mt-5 flex items-center gap-3">
-          <Button type="submit" disabled={isPending || !nameAr.trim() || !nameEn.trim()} className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800">
+          <Button type="submit" disabled={isPending || !nameAr.trim() || !nameEn.trim()} className="hover:from-elite-blue-700 hover:to-elite-blue-800 bg-foreground text-background">
             {isPending ? (
               <LoadingSpinner className="h-4 w-4" />
             ) : (
@@ -260,16 +349,16 @@ export default function CompanySettingsPage() {
             </span>
           )}
           {state?.error && (
-            <span className="text-sm text-red-500">{state.code ? settingsMessage(state.code, locale) : state.error}</span>
+            <span className="text-sm text-red-500" role="alert" data-testid="company-settings-error">{state.localMessage ?? (state.code ? settingsMessage(state.code, locale) : friendlyError(state.error, ar))}</span>
           )}
         </div>
       </fieldset></form>
 
-      <form action={wpsAction}><fieldset disabled={!tenant?.can_manage || isSavingWps || loadError} className="min-w-0">
-        <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm">
+      <form action={wpsAction}><fieldset disabled={!tenant?.can_manage || isPending || isSavingWps || logoBusy || needsReload || loadError} className="min-w-0">
+        <Card className="rounded-2xl border border-border/50 bg-card shadow-sm">
           <CardHeader className="pb-4">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-elite-blue-600/10">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl text-elite-blue-600 dark:text-elite-blue-300">
                 <Landmark className="h-5 w-5 text-elite-blue-600" />
               </div>
               <div>
@@ -311,7 +400,7 @@ export default function CompanySettingsPage() {
               <Button
                 type="submit"
                 disabled={isSavingWps || !molReference.trim() || !wpsIban.trim()}
-                className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800"
+                className="hover:from-elite-blue-700 hover:to-elite-blue-800 bg-foreground text-background"
               >
                 {isSavingWps ? <LoadingSpinner className="h-4 w-4" /> : <Save className="h-4 w-4" />}
                 {t.common.saveChanges}
@@ -321,7 +410,7 @@ export default function CompanySettingsPage() {
                   <CheckCircle2 className="h-4 w-4" /> {t.common.saved}
                 </span>
               )}
-              {wpsState?.error && <span className="text-sm text-red-500">{wpsState.code ? settingsMessage(wpsState.code, locale) : wpsState.error}</span>}
+              {wpsState?.error && <span className="text-sm text-red-500" role="alert" data-testid="wps-settings-error">{wpsState.localMessage ?? (wpsState.code ? settingsMessage(wpsState.code, locale) : friendlyError(wpsState.error, ar))}</span>}
             </div>
             <p className="mt-3 text-xs text-muted-foreground">
               {ar

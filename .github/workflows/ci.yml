@@ -20,16 +20,16 @@ jobs:
 
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     # ── Toolchain (pnpm MUST be installed before setup-node cache) ──
     - name: Install pnpm
-      uses: pnpm/action-setup@v4
+      uses: pnpm/action-setup@v6
       with:
         version: 10.27.0
 
     - name: Setup Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v7
       with:
         node-version: 24
         cache: pnpm
@@ -50,8 +50,10 @@ jobs:
 
     - name: Preview isolation and historical archive checks
       run: |
-        node --test scripts/preview-safety.test.mjs scripts/verify-staging-history.test.mjs scripts/assert-module-test-target.test.mjs scripts/verify-driver-evidence.test.mjs scripts/verify-driver-leave-lifecycle.test.mjs scripts/verify-platform-admin-users.test.mjs scripts/coordinated-acceptance.test.mjs scripts/verify-accounting-master-crud.test.mjs scripts/verify-invoice-reference-and-pages.test.mjs scripts/retire-release-acceptance.test.mjs scripts/write-release-evidence.test.mjs scripts/acceptance-fixture-ledgers.test.mjs scripts/finance-verification-contracts.test.mjs
+        node --test scripts/preview-safety.test.mjs scripts/verification-access.test.mjs scripts/verify-staging-history.test.mjs scripts/assert-module-test-target.test.mjs scripts/verify-driver-evidence.test.mjs scripts/verify-driver-leave-lifecycle.test.mjs scripts/verify-platform-admin-users.test.mjs scripts/coordinated-acceptance.test.mjs scripts/verify-accounting-master-crud.test.mjs scripts/verify-invoice-reference-and-pages.test.mjs scripts/retire-release-acceptance.test.mjs scripts/write-release-evidence.test.mjs scripts/acceptance-fixture-ledgers.test.mjs scripts/finance-verification-contracts.test.mjs scripts/verify-local-expenses.test.mjs
         node scripts/verify-staging-history.mjs
+        node --test scripts/verify-migration-versions.test.mjs
+        node scripts/verify-migration-versions.mjs
 
     # ── FX-10: every API route must self-guard or be explicitly allowlisted ──
 
@@ -158,19 +160,19 @@ jobs:
   # ── pgTAP RLS tests (independent release gate, needs Docker) ─────────────
   pgtap:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
 
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Install pnpm
-      uses: pnpm/action-setup@v4
+      uses: pnpm/action-setup@v6
       with:
         version: 10.27.0
 
     - name: Setup Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v7
       with:
         node-version: 24
         cache: pnpm
@@ -346,8 +348,21 @@ jobs:
           sleep 2
         done
         test "$ready" = "1" || { echo "Local app dependencies are not ready"; exit 1; }
-        VERIFY_PASSWORD_FLOWS=1 VERIFY_APPROVALS=1 VERIFY_EXPENSES=1 VERIFY_RECEIVABLE_CRUD=1 VERIFY_INVOICE_CRUD=1 VERIFY_JOURNAL_CRUD=1 VERIFY_BANK_CRUD=1 VERIFY_OPERATIONS_CRUD=1 VERIFY_OVERVIEWS=1 node scripts/verify-local-mfa.mjs
+        # Approval fixtures retain immutable source/audit history. Keep the
+        # pristine expense assertions in a separately provisioned owner/company.
+        VERIFY_PASSWORD_FLOWS=1 VERIFY_APPROVALS=1 VERIFY_EXPENSES=0 VERIFY_RECEIVABLE_CRUD=1 VERIFY_INVOICE_CRUD=1 VERIFY_JOURNAL_CRUD=1 VERIFY_BANK_CRUD=1 VERIFY_OPERATIONS_CRUD=1 VERIFY_DRIVERS_CRUD=1 VERIFY_PLATFORM_PAYROLL=1 VERIFY_VEHICLES_CRUD=1 VERIFY_ORDERS_CRUD=1 VERIFY_USERS_INVITES=1 VERIFY_VIOLATIONS_CRUD=1 VERIFY_APPLICATIONS_REVIEW=1 VERIFY_LEAVE_FLOW=1 VERIFY_REPORTS=1 VERIFY_SETTINGS=1 VERIFY_OVERVIEWS=1 node scripts/verify-local-mfa.mjs
+        VERIFY_EXPENSES=1 node scripts/verify-local-mfa.mjs
         node scripts/verify-invoice-print.mjs
+
+    - name: Upload browser verification failure evidence
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: browser-verification-${{ github.sha }}-${{ github.run_attempt }}
+        path: |
+          supabase/.temp/**/*.png
+        if-no-files-found: ignore
+        retention-days: 3
 
     - name: Stop Supabase
       if: always()
@@ -356,8 +371,15 @@ jobs:
   # ── E2E tests (independent PR release gate, needs staging env) ────────────
   e2e:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     timeout-minutes: 20
-    if: github.event_name == 'pull_request'
+    # Hosted staging E2E needs a per-commit staging preview (deploy.yml
+    # `preview`, currently on release hold). Until that is switched on, the
+    # same browser flows run against the disposable local stack in the pgtap
+    # job; set repository variable STAGING_E2E_ENABLED=true to re-enable.
+    if: github.event_name == 'pull_request' && vars.STAGING_E2E_ENABLED == 'true'
     env:
       BASE_URL: ${{ secrets.STAGING_URL }}
       TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
@@ -367,15 +389,15 @@ jobs:
 
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Install pnpm
-      uses: pnpm/action-setup@v4
+      uses: pnpm/action-setup@v6
       with:
         version: 10.27.0
 
     - name: Setup Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v7
       with:
         node-version: 24
         cache: pnpm
@@ -406,12 +428,15 @@ jobs:
         STAGING_EXPECTED_COMMIT: ${{ github.event.pull_request.head.sha }}
       run: |
         node scripts/wait-for-staging.mjs
-        pnpm exec playwright test e2e/smoke.spec.ts e2e/locale-session.spec.ts --reporter=github
+        pnpm exec playwright test e2e/smoke.spec.ts e2e/locale-session.spec.ts e2e/public-surface.spec.ts e2e/driver-document-quick-upload.spec.ts --reporter=github
 
 
   # Full synthetic acceptance is a separate, serialized staging mutation gate.
   staging_acceptance:
     needs: [ci, pgtap]
+    permissions:
+      contents: read
+      id-token: write
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/production-modules-completion'
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -425,18 +450,18 @@ jobs:
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
     steps:
     - name: Checkout exact trusted PR head
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         ref: ${{ github.event.pull_request.head.sha }}
         persist-credentials: false
 
     - name: Install pnpm
-      uses: pnpm/action-setup@v4
+      uses: pnpm/action-setup@v6
       with:
         version: 10.27.0
 
     - name: Setup Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v7
       with:
         node-version: 24
         cache: pnpm

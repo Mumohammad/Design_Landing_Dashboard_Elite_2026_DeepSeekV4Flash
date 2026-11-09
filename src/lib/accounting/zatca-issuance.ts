@@ -10,7 +10,7 @@ export interface ZatcaPreparedDocument {
   id: string
   tenant_id: string
   stream_id: string
-  environment: "sandbox" | "simulation"
+  environment: "sandbox" | "simulation" | "production"
   source_type: ZatcaDocType
   source_id: string
   doc_ref: string
@@ -20,6 +20,9 @@ export interface ZatcaPreparedDocument {
   invoice_hash: string
   unsigned_xml: string
 }
+
+export { riyadhLocal } from "./zatca-issuance-time"
+import { riyadhLocal } from "./zatca-issuance-time"
 
 type PreparedInput = Omit<ZatcaInvoiceData, "uuid" | "invoiceCounter" | "previousInvoiceHash" | "issueDate" | "issueTime" | "qr">
 
@@ -45,14 +48,28 @@ function preparedResult(value: unknown, tenant: string, source: string, type: Za
  * submission. Future authorized adapters supply DB-loaded financial/profile
  * data. Store the returned artifact, not a newly built retry's proposed XML.
  * The DB validates source ownership/state/totals and atomically fences the
- * stream. Signing, onboarding, transmission and production remain unavailable.
+ * stream. Signing and submission use the retained artifact; production is
+ * excluded by the stream's environment constraint.
  */
+export type ZatcaActor = { tenantId: string; authUserId: string }
+
 export async function prepareZatcaDocument(
   streamId: string, sourceId: string, input: PreparedInput,
 ): Promise<ZatcaPreparedDocument> {
   await requirePermission("accounting", "approve")
   const user = await getCurrentUser()
   if (!user) throw new Error("Not authenticated.")
+  return prepareZatcaDocumentAs(user, streamId, sourceId, input)
+}
+
+/**
+ * Same as prepareZatcaDocument for an already-authorized actor (the signed-in
+ * user, or the tenant's ZATCA operator for the scheduled run). The database
+ * re-checks that the actor is an active user of the tenant.
+ */
+export async function prepareZatcaDocumentAs(
+  user: ZatcaActor, streamId: string, sourceId: string, input: PreparedInput,
+): Promise<ZatcaPreparedDocument> {
   const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i
   if (!uuidPattern.test(streamId) || !uuidPattern.test(sourceId) || !["invoice", "credit_note", "debit_note"].includes(input.docType)) {
     throw new Error("Invalid ZATCA preparation identity.")
@@ -62,13 +79,24 @@ export async function prepareZatcaDocument(
     .select("id,environment,last_counter,last_invoice_hash")
     .eq("id", streamId).eq("tenant_id", user.tenantId).maybeSingle()
   if (streamError || !stream) throw new Error("Unable to load the tenant's ZATCA preparation stream.")
-  if (!["sandbox", "simulation"].includes(stream.environment)) throw new Error("ZATCA production preparation is disabled.")
+  if (stream.environment === "production") throw new Error("ZATCA production preparation is disabled.")
+  if (!["sandbox", "simulation"].includes(stream.environment)) throw new Error("Unknown ZATCA environment.")
   const { data: existing, error: existingError } = await admin.from("zatca_document_issuances")
     .select("id,tenant_id,stream_id,environment,source_type,source_id,doc_ref,issued_at,invoice_counter,previous_invoice_hash,invoice_hash,unsigned_xml")
     .eq("tenant_id", user.tenantId).eq("environment", stream.environment)
     .eq("source_type", input.docType).eq("source_id", sourceId).maybeSingle()
   if (existingError) throw new Error("Unable to load the existing ZATCA preparation.")
-  if (existing) return preparedResult(existing,user.tenantId,sourceId,input.docType,stream.environment)
+  if (existing) {
+    const original = preparedResult(existing,user.tenantId,sourceId,input.docType,stream.environment)
+    const { data: replayed, error: replayError } = await admin.rpc("record_zatca_issuance", {
+      p_tenant: user.tenantId, p_stream: stream.id, p_source_type: input.docType,
+      p_source_id: sourceId, p_document_uuid: original.id, p_issued_at: original.issued_at,
+      p_expected_counter: null, p_previous_hash: null, p_xml: null,
+      p_canonical_xml: null, p_invoice_hash: null, p_actor: user.authUserId,
+    })
+    if (replayError) throw new Error("Unable to replay the ZATCA preparation.")
+    return preparedResult(replayed,user.tenantId,sourceId,input.docType,stream.environment)
+  }
   const counter = Number(stream.last_counter)
   if (!Number.isSafeInteger(counter) || counter < 0 || counter >= Number.MAX_SAFE_INTEGER) {
     throw new Error("Invalid ZATCA preparation counter.")
@@ -77,13 +105,17 @@ export async function prepareZatcaDocument(
     throw new Error("A valid seller VAT identity is required for ZATCA preparation.")
   }
   const issuedAt = new Date().toISOString().replace(/\.\d{3}Z$/, "Z")
+  // IssueDate/IssueTime are the seller's Riyadh-local date and time (UTC+3,
+  // no DST) so the VAT period follows the Saudi calendar day; the QR
+  // timestamp uses the same local wall-clock value (signer contract).
+  const local = riyadhLocal(issuedAt)
   const documentId = randomUUID()
   const data: ZatcaInvoiceData = {
     ...input, uuid: documentId, invoiceCounter: counter + 1,
     previousInvoiceHash: stream.last_invoice_hash,
-    issueDate: issuedAt.slice(0, 10), issueTime: issuedAt.slice(11, 19),
+    issueDate: local.slice(0, 10), issueTime: local.slice(11, 19),
     qr: { sellerName: input.seller.name, sellerVatNumber: input.seller.vatNumber,
-      timestamp: issuedAt, total: input.total, vatAmount: input.vatAmount },
+      timestamp: local, total: input.total, vatAmount: input.vatAmount },
   }
   const xml = buildZatcaUblInvoice(data)
   const { data: stored, error } = await admin.rpc("record_zatca_issuance", {

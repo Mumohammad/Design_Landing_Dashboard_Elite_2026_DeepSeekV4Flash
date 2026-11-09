@@ -18,7 +18,8 @@ export type DriverChangedDetail = {
     | "assignment"
     | "assets"
     | "onboarding"
-    | "orders";
+    | "orders"
+    | "platforms";
 };
 
 export function emitDriverChanged(detail: DriverChangedDetail | string = {}) {

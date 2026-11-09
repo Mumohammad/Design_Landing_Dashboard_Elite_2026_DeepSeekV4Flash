@@ -134,8 +134,14 @@ export async function verifyOverviews(page, admin, tenantId, actorId, appUrl) {
     await page.unrouteAll({ behavior: 'ignoreErrors' })
     for (const [table, created] of Object.entries(ids)) {
       if (created.length) {
+        // Some records are now immutable history (hard delete is refused); the
+        // disposable tenant is retired by the outer runner, so retire instead.
         const result = await admin.from(table).delete().eq('tenant_id', tenantId).in('id', created)
-        if (result.error) throw new Error(`Could not clean up synthetic ${table} fixtures`)
+        if (result.error) {
+          const retired = await admin.from(table).update({ deleted_at: new Date().toISOString() }).eq('tenant_id', tenantId).in('id', created)
+          if (retired.error) throw new Error(`Could not retire synthetic ${table} fixtures`)
+          console.log(JSON.stringify({ check: 'overview fixture cleanup', table, retired: true }))
+        }
       }
     }
     // This helper exercises Arabic mobile screens, then returns the caller's
@@ -188,7 +194,7 @@ async function verifyOperationalOverviews(page, admin, tenantId, appUrl, driverI
       const search = page.getByRole('textbox').first()
       await expect(rows).toHaveCount(25)
       await expect(page.getByText(`${total} records · Page 1 of 5`, { exact: true })).toBeVisible()
-      await expect(page.locator('main div.text-2xl.font-bold').first()).toHaveText(String(total))
+      await expect(page.getByTestId('module-kpi-value').first()).toHaveText(String(total))
       await page.getByRole('button', { name: 'Next page', exact: true }).click()
       await expect(page.getByText(/records · Page.*2/)).toBeVisible()
       await search.fill(needle)
@@ -196,7 +202,7 @@ async function verifyOperationalOverviews(page, admin, tenantId, appUrl, driverI
       await expect(rows.first()).toContainText(needle)
       await expect(rows.first().getByRole('link', { name: needle, exact: true })).toHaveAttribute('href', `/drivers/${driverIds[105]}`)
       // KPI cards describe the full module/date, never the current search page.
-      await expect(page.locator('main div.text-2xl.font-bold').first()).toHaveText(String(total))
+      await expect(page.getByTestId('module-kpi-value').first()).toHaveText(String(total))
 
       if (route === 'hr') {
         stage = 'review document-only search retains the displayed driver'
@@ -243,10 +249,10 @@ async function verifyOperationalOverviews(page, admin, tenantId, appUrl, driverI
       await page.route(pattern, failSummary)
       await page.reload()
       await expect(page.getByRole('alert').filter({ hasText: /Could not load/ })).toBeVisible()
-      await expect(page.locator('main div.text-2xl.font-bold').first()).toHaveText('—')
+      await expect(page.getByTestId('module-kpi-value').first()).toHaveText('—')
       await page.unroute(pattern, failSummary)
       await page.getByRole('button', { name: /Retry|Try again/, exact: true }).click()
-      await expect(page.locator('main div.text-2xl.font-bold').first()).toHaveText(String(total))
+      await expect(page.getByTestId('module-kpi-value').first()).toHaveText(String(total))
       await expect(rows).toHaveCount(25)
       await page.screenshot({ path: `supabase/.temp/${route}-overview-desktop.png`, fullPage: true })
 
@@ -256,11 +262,11 @@ async function verifyOperationalOverviews(page, admin, tenantId, appUrl, driverI
         await expect(page.getByText(/records · Page.*2/)).toBeVisible()
         await page.getByLabel('Attendance date', { exact: true }).fill('2020-02-29')
         await expect(page.getByTestId('module-empty-state')).toBeVisible()
-        await expect(page.locator('main div.text-2xl.font-bold').first()).toHaveText('0')
+        await expect(page.getByTestId('module-kpi-value').first()).toHaveText('0')
         await expect(page.getByText('0 records · Page 1 of 1', { exact: true })).toBeVisible()
         await page.getByLabel('Attendance date', { exact: true }).fill(today)
         await expect(rows).toHaveCount(25)
-        await expect(page.locator('main div.text-2xl.font-bold').first()).toHaveText('106')
+        await expect(page.getByTestId('module-kpi-value').first()).toHaveText('106')
       }
 
       stage = `${route}: Arabic mobile pagination, error/retry and viewport`
@@ -285,7 +291,8 @@ async function verifyOperationalOverviews(page, admin, tenantId, appUrl, driverI
       await page.setViewportSize({ width: 1440, height: 1000 })
     }
   } catch (error) {
-    console.error(JSON.stringify({ check: 'operational overviews', stage, errorType: error.name }))
+    console.error(JSON.stringify({ check: 'operational overviews', stage, errorType: error.name, callsite: /verify-local-overviews\.mjs:(\d+):(\d+)/.exec(error.stack ?? '')?.slice(1), detail: String(error.message ?? '').replace(/\u001b\[[0-9;]*m/g, '').split('\n').filter(line => /Expected|Received|Locator|waiting for/.test(line)).slice(0, 6) }))
+    console.error(JSON.stringify({ debugUrl: page.url(), debugMain: (await page.locator('main').innerText().catch(() => '')).slice(0, 1500), debugSearch: await page.getByRole('textbox').first().evaluate(el => el.outerHTML.slice(0, 300)).catch(() => '') }))
     throw Error(`Operational overview verification failed: ${stage}`)
   } finally {
     await page.unrouteAll({ behavior: 'ignoreErrors' })

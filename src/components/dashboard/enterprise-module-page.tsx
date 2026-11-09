@@ -1,18 +1,19 @@
+"use client"
+
 import { LocalizedText, useUiText } from "@/components/localized-text"
 import * as React from "react"
-import { Plus, Search, ChevronLeft, ChevronRight, Inbox, AlertCircle } from "lucide-react"
+import { Plus, Search, ChevronLeft, ChevronRight, Inbox, AlertCircle, Download, X } from "lucide-react"
+import { escapeCsvCell } from "@/lib/csv-cell"
+import { useTranslation } from "@/hooks/use-translation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
-import { ScrollReveal, StaggerContainer } from "@/components/ui/scroll-reveal"
-
-// ── Types ────────────────────────────────────────────────────────
 
 export interface KpiCardData {
   label: string
   value: string | number
   icon?: React.ComponentType<{ className?: string }>
-  color?: string // brand color for decorative circle, e.g. "#1E5A99"
+  color?: string
 }
 
 export interface TableColumn<T> {
@@ -20,6 +21,8 @@ export interface TableColumn<T> {
   header: string
   render?: (row: T) => React.ReactNode
   className?: string
+  /** Plain value for "Export selected"; defaults to row[key] when primitive. */
+  exportValue?: (row: T) => string | number | null | undefined
 }
 
 export interface PaginationData {
@@ -30,102 +33,62 @@ export interface PaginationData {
 }
 
 export interface EnterpriseModulePageProps<T> {
-  // Header
   title: string
+  headingLevel?: "h1" | "h2"
   subtitle?: string
   primaryCtaLabel?: string
   onPrimaryCta?: () => void
   primaryCtaIcon?: React.ComponentType<{ className?: string }>
-
-  // KPI cards (optional)
   kpiCards?: KpiCardData[]
-
-  // Toolbar
   searchPlaceholder?: string
   searchValue?: string
   onSearchChange?: (value: string) => void
-  toolbarActions?: React.ReactNode // export/import dropdowns, filter buttons
-
-  // Table
+  toolbarActions?: React.ReactNode
   columns: TableColumn<T>[]
   data: T[]
-  rowActions?: (row: T) => React.ReactNode // rendered on hover
+  rowActions?: (row: T) => React.ReactNode
   onRowClick?: (row: T) => void
   emptyStateMessage?: string
   emptyStateAction?: { label: string; onClick: () => void }
-
-  // Pagination (optional)
   pagination?: PaginationData
-
-  // Loading
   isLoading?: boolean
   loadError?: string
   onRetry?: () => void
   retryLabel?: string
 
+  // Bulk selection: checkbox column + action bar with "Export selected".
+  // On by default for rows with ids; pass selectable={false} to disable.
+  selectable?: boolean
+  bulkActions?: (rows: T[], clear: () => void) => React.ReactNode
+  exportFileName?: string
+
   // Children (for dialog/form content rendered by parent)
   children?: React.ReactNode
-
-  // className override
   className?: string
 }
 
-// ── KPI Card (Premium 2026) ──────────────────────────────────────
-
-function KpiCard({ label, value, icon: Icon, color = "#1E5A99" }: KpiCardData) {
+function KpiCard({ label, value }: KpiCardData) {
   return (
-    <div className="group relative overflow-hidden rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm p-5 shadow-sm transition-all duration-300 hover:shadow-lg hover:shadow-black/[0.04] hover:border-border/80 hover:-translate-y-0.5">
-      {/* Animated gradient accent top line */}
-      <div
-        className="absolute inset-x-0 top-0 h-[2px] opacity-60 group-hover:opacity-100 transition-opacity duration-300"
-        style={{ background: `linear-gradient(90deg, transparent, ${color}, transparent)` }}
-      />
-      {/* Soft glow behind icon */}
-      <div
-        className="absolute -top-4 -right-4 w-20 h-20 rounded-full opacity-[0.04] group-hover:opacity-[0.08] transition-opacity duration-500 blur-xl"
-        style={{ backgroundColor: color }}
-      />
-      <div className="relative">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-medium text-muted-foreground"><LocalizedText text={label} /></span>
-          {Icon && (
-            <div
-              className="flex h-9 w-9 items-center justify-center rounded-xl transition-transform duration-300 group-hover:scale-110"
-              style={{ backgroundColor: `${color}15` }}
-            >
-              <Icon className="h-4 w-4" />
-            </div>
-          )}
-        </div>
-        <div className="mt-3 text-2xl font-bold tabular-nums text-foreground">
-          {value}
-        </div>
+    <div className="min-w-0 bg-card px-5 py-4">
+      <span className="text-sm text-muted-foreground"><LocalizedText text={label} /></span>
+      <div data-testid="module-kpi-value" className="mt-2 text-2xl font-medium tabular-nums text-foreground">
+        {value}
       </div>
     </div>
   )
 }
 
-// ── Skeleton row (Premium) ──────────────────────────────────────
-
 function SkeletonRow({ columns }: { columns: number }) {
   return (
-    <tr className="border-b border-border/20 last:border-0">
+    <tr aria-hidden="true" className="border-b border-border/60 last:border-0">
       {Array.from({ length: columns }).map((_, i) => (
         <td key={i} className="px-4 py-3.5">
-          <div className="flex items-center gap-3">
-            {i === 0 && <div className="h-8 w-8 animate-pulse rounded-lg bg-muted/30" />}
-            <div className="space-y-1.5">
-              <div className="h-3.5 w-3/4 animate-pulse rounded-md bg-muted/30" style={{ animationDelay: `${i * 100}ms` }} />
-              {i === 0 && <div className="h-2.5 w-1/2 animate-pulse rounded-md bg-muted/20" style={{ animationDelay: `${i * 100 + 50}ms` }} />}
-            </div>
-          </div>
+          <div className="h-4 w-3/4 rounded bg-muted" />
         </td>
       ))}
     </tr>
   )
 }
-
-// ── Empty state (Premium) ───────────────────────────────────────
 
 function EmptyState({
   message,
@@ -135,21 +98,12 @@ function EmptyState({
   action?: { label: string; onClick: () => void }
 }) {
   return (
-    <div data-testid="module-empty-state" className="flex flex-col items-center justify-center px-4 py-16 text-center">
-      <div className="relative">
-        <div className="absolute inset-0 rounded-full bg-gradient-to-br from-elite-blue-500/20 to-elite-orange-500/20 blur-2xl scale-150" />
-        <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-muted/50 to-muted/30 border border-border/50 backdrop-blur-sm">
-          <Inbox className="h-7 w-7 text-muted-foreground/60" />
-        </div>
-      </div>
-      <p className="mt-5 text-sm font-medium text-muted-foreground"><LocalizedText text={message} /></p>
+    <div data-testid="module-empty-state" className="flex flex-col items-center justify-center px-4 py-12 text-center">
+      <Inbox aria-hidden="true" className="h-6 w-6 text-muted-foreground" />
+      <p className="mt-3 text-sm text-muted-foreground"><LocalizedText text={message} /></p>
       {action && (
-        <Button
-          size="sm"
-          className="mt-5 rounded-xl bg-gradient-to-r from-elite-blue-500 to-elite-blue-600 hover:from-elite-blue-600 hover:to-elite-blue-700 text-white shadow-lg shadow-elite-blue-500/20 h-9 px-5"
-          onClick={action.onClick}
-        >
-          <Plus className="mr-1.5 h-4 w-4" />
+        <Button size="sm" className="mt-4" onClick={action.onClick}>
+          <Plus aria-hidden="true" className="h-4 w-4" />
           <LocalizedText text={action.label} />
         </Button>
       )}
@@ -157,10 +111,24 @@ function EmptyState({
   )
 }
 
-// ── Main component ──────────────────────────────────────────────
+const interactiveRowTarget = "a, button, input, select, textarea, label, summary, [role='button'], [role='link'], [role='checkbox'], [role='radio'], [role='switch'], [role='menuitem'], [role='combobox'], [role='slider'], [role='textbox'], [tabindex], [contenteditable]:not([contenteditable='false'])"
+
+interface ModuleSelection {
+  pageKey: string
+  ids: ReadonlySet<string>
+}
+
+/** A record that leaves the visible page must not silently become selected again. */
+export function reconcileModuleSelection(pageIds: readonly string[], current: ModuleSelection): ModuleSelection {
+  const pageKey = JSON.stringify(pageIds)
+  if (current.pageKey === pageKey) return current
+  const visibleIds = new Set(pageIds)
+  return { pageKey, ids: new Set([...current.ids].filter(id => visibleIds.has(id))) }
+}
 
 export function EnterpriseModulePage<T extends { id?: string }>({
   title,
+  headingLevel = "h1",
   subtitle,
   primaryCtaLabel,
   onPrimaryCta,
@@ -183,187 +151,236 @@ export function EnterpriseModulePage<T extends { id?: string }>({
   retryLabel = "Try again",
   children,
   className,
+  selectable = true,
+  bulkActions,
+  exportFileName,
 }: EnterpriseModulePageProps<T>) {
   const ui = useUiText()
-  const actionColumnCount = rowActions ? 1 : 0
+  const kpiCount = kpiCards?.length ?? 0
+  const kpiColumns = kpiCount <= 4 ? Math.max(1, kpiCount) : Math.min(6, Math.ceil(kpiCount / 2))
+  const kpiLastSpan = kpiColumns - ((Math.max(1, kpiCount) - 1) % kpiColumns)
+  const Heading = headingLevel
+  const numericColumns = new Set(columns.filter((column) => data.some((row) =>
+    typeof (row as Record<string, unknown>)[column.key as string] === "number"
+  )).map((column) => String(column.key)))
+  const { locale } = useTranslation()
+  const ar = locale === "ar"
+  const pageIds = data.map(row => row.id).filter((id): id is string => typeof id === "string" && id.length > 0)
+  const pageKey = JSON.stringify(pageIds)
+  const canSelect = selectable && !isLoading && !loadError && pageIds.length > 0
+  const [selection, setSelection] = React.useState<ModuleSelection>(() => ({ pageKey, ids: new Set() }))
+  const currentSelection = reconcileModuleSelection(pageIds, selection)
+  // React restarts this render before committing children. Updating only when
+  // the page's IDs change avoids a stale selection frame and an effect loop.
+  if (currentSelection !== selection) setSelection(currentSelection)
+  const selectedIds = currentSelection.ids
+  const selectedRows = canSelect ? data.filter((r) => r.id && selectedIds.has(r.id)) : []
+  const allSelected = canSelect && selectedRows.length > 0 && selectedRows.length === pageIds.length
+  const clearSelection = () => setSelection({ pageKey, ids: new Set() })
+  const toggleRow = (id: string) =>
+    setSelection((prev) => {
+      const next = new Set(reconcileModuleSelection(pageIds, prev).ids)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return { pageKey, ids: next }
+    })
+  const toggleAll = () =>
+    setSelection({ pageKey, ids: allSelected ? new Set() : new Set(pageIds) })
+  const exportSelected = () => {
+    const header = columns.map((c) => ui(c.header))
+    const lines = selectedRows.map((row) =>
+      columns
+        .map((c) => {
+          if (c.exportValue) return c.exportValue(row)
+          const v = (row as Record<string, unknown>)[c.key as string]
+          return typeof v === "string" || typeof v === "number" || typeof v === "boolean" ? v : ""
+        })
+        .map(escapeCsvCell)
+        .join(","),
+    )
+    const csv = "\uFEFF" + [header.map(escapeCsvCell).join(","), ...lines].join("\n")
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }))
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `${exportFileName ?? "export"}-selected-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+  const actionColumnCount = (rowActions ? 1 : 0) + (canSelect ? 1 : 0)
 
   return (
-    <div className={cn("space-y-6 page-enter", className)}>
-      {/* 1. PAGE HEADER */}
-      <ScrollReveal direction="fade" duration={400}>
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-elite-blue-500 to-elite-blue-600 text-white shadow-lg shadow-elite-blue-500/25">
-              <CtaIcon className="h-5 w-5" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight text-foreground">
-                <LocalizedText text={title} />
-              </h1>
-              {subtitle && (
-                <p className="text-sm text-muted-foreground mt-0.5"><LocalizedText text={subtitle} /></p>
-              )}
-            </div>
-          </div>
-          {primaryCtaLabel && onPrimaryCta && (
-            <Button
-              onClick={onPrimaryCta}
-              className="bg-gradient-to-r from-elite-blue-500 to-elite-blue-600 hover:from-elite-blue-600 hover:to-elite-blue-700 text-white shadow-lg shadow-elite-blue-500/20 rounded-xl h-10 px-5 font-semibold text-sm transition-all duration-200 hover:shadow-xl hover:shadow-elite-blue-500/25 hover:-translate-y-0.5"
-            >
-              <CtaIcon className="mr-1.5 h-4 w-4" />
-              <LocalizedText text={primaryCtaLabel} />
-            </Button>
+    <div className={cn("min-w-0 space-y-6", className)}>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <Heading className={cn("font-semibold tracking-tight text-foreground", headingLevel === "h1" ? "text-2xl" : "text-xl")}>
+            <LocalizedText text={title} />
+          </Heading>
+          {subtitle && (
+            <p className="mt-1 text-sm text-muted-foreground"><LocalizedText text={subtitle} /></p>
           )}
         </div>
-      </ScrollReveal>
+        {primaryCtaLabel && onPrimaryCta && (
+          <Button onClick={onPrimaryCta} className="shrink-0 self-start">
+            <CtaIcon aria-hidden="true" className="h-4 w-4" />
+            <LocalizedText text={primaryCtaLabel} />
+          </Button>
+        )}
+      </div>
 
-      {/* 2. KPI CARDS */}
-      {kpiCards && kpiCards.length > 0 && (
-        <StaggerContainer staggerDelay={60} direction="up">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {kpiCards.map((card, i) => (
-              <KpiCard key={i} {...card} />
-            ))}
-          </div>
-        </StaggerContainer>
+      {kpiCards && kpiCount > 0 && (
+        // Equal columns plus their 1px rules fill the strip; count chooses the desktop grid.
+        <div
+          className={cn(
+            "grid gap-px overflow-hidden rounded-lg border border-border bg-border lg:grid-cols-[repeat(var(--kpi-columns),minmax(0,1fr))]",
+            kpiCount === 1 ? "grid-cols-1" : "grid-cols-2",
+            kpiCount > 1 && kpiCount % 2 !== 0 && "[&>:last-child]:col-span-2",
+            "lg:[&>:last-child]:col-span-[var(--kpi-last-span)]"
+          )}
+          style={{ "--kpi-columns": kpiColumns, "--kpi-last-span": kpiLastSpan } as React.CSSProperties}
+        >
+          {kpiCards.map((card, i) => <KpiCard key={i} {...card} />)}
+        </div>
       )}
 
-      {/* 3. TOOLBAR */}
-      <ScrollReveal direction="up" delay={80} duration={400}>
-        {(searchValue !== undefined || toolbarActions) && (
-          <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+      {(searchValue !== undefined || toolbarActions) && (
+        <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+          {searchValue !== undefined && (
             <div className="relative w-full sm:max-w-sm">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Search aria-hidden="true" className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 maxLength={200}
                 aria-label={ui(searchPlaceholder)}
                 placeholder={ui(searchPlaceholder)}
                 value={searchValue}
                 onChange={(e) => onSearchChange?.(e.target.value)}
-                className="pl-10 h-10 bg-muted/20 border-border/50 rounded-xl text-sm focus-visible:ring-1 focus-visible:ring-elite-blue-500/30 focus-visible:border-elite-blue-500/30 transition-all duration-200"
+                className="ps-10"
               />
             </div>
-            {toolbarActions && <div className="flex gap-2 flex-wrap">{toolbarActions}</div>}
+          )}
+          {toolbarActions && <div className="flex flex-wrap gap-2 sm:ms-auto">{toolbarActions}</div>}
+        </div>
+      )}
+
+      {canSelect && selectedRows.length > 0 && (
+        <div data-testid="bulk-action-bar" role="toolbar" aria-label={ar ? "إجراءات جماعية" : "Bulk actions"} className="sticky top-16 z-20 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 text-sm">
+          <span className="font-medium" role="status">{ar ? `تم تحديد ${selectedRows.length}` : `${selectedRows.length} selected`}</span>
+          <Button type="button" variant="outline" onClick={exportSelected}><Download aria-hidden="true" className="size-4" />{ar ? "تصدير المحدد (CSV)" : "Export selected (CSV)"}</Button>
+          {bulkActions?.(selectedRows, clearSelection)}
+          <Button type="button" variant="ghost" className="ms-auto" onClick={clearSelection}><X aria-hidden="true" className="size-4" />{ar ? "إلغاء التحديد" : "Clear"}</Button>
+        </div>
+      )}
+
+      <div className="overflow-hidden rounded-lg border border-border bg-card">
+        <div className="relative isolate max-h-[min(65vh,42rem)] overflow-auto scroll-pt-12 print:scroll-pt-0 print:max-h-none print:overflow-visible">
+          <table className="w-full text-start" aria-label={ui(title)} aria-busy={isLoading}>
+            <thead>
+              <tr>
+                {canSelect && <th scope="col" className="sticky top-0 z-10 w-11 bg-card print:static max-sm:start-0 max-sm:z-30">
+                  <label className="flex min-h-11 min-w-11 cursor-pointer items-center justify-center">
+                    <input type="checkbox" className="size-4 accent-primary" checked={allSelected} ref={el => { if (el) el.indeterminate = selectedRows.length > 0 && !allSelected }} onChange={toggleAll} aria-label={ar ? "تحديد الكل" : "Select all"} data-testid="bulk-select-all" />
+                  </label>
+                </th>}
+                {columns.map((col, columnIndex) => (
+                  <th
+                    key={String(col.key)}
+                    scope="col"
+                    className={cn(
+                      "sticky top-0 z-10 bg-card px-4 print:static py-3 text-start text-xs font-medium text-muted-foreground",
+                      columnIndex === 0 && (canSelect ? "max-sm:start-11 max-sm:z-20" : "max-sm:start-0 max-sm:z-20"),
+                      numericColumns.has(String(col.key)) && "text-end tabular-nums",
+                      col.className
+                    )}
+                  >
+                    <LocalizedText text={col.header} />
+                  </th>
+                ))}
+                {rowActions && <th scope="col" className="sticky top-0 z-10 w-10 bg-card print:static px-4 py-3"><span className="sr-only"><LocalizedText text="Actions" /></span></th>}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/60">
+              {isLoading ? (
+                Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} columns={columns.length + actionColumnCount} />)
+              ) : loadError || data.length === 0 ? null : (
+                data.map((row, i) => (
+                  <tr
+                    key={row.id ?? i}
+                    tabIndex={onRowClick ? 0 : undefined}
+                    onClick={(event) => {
+                      if (event.defaultPrevented) return
+                      const control = event.target instanceof Element ? event.target.closest(interactiveRowTarget) : null
+                      if (control && control !== event.currentTarget) return
+                      onRowClick?.(row)
+                    }}
+                    onKeyDown={(event) => {
+                      if (!onRowClick || event.target !== event.currentTarget || event.defaultPrevented) return
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault()
+                        onRowClick(row)
+                      }
+                    }}
+                    className={cn(
+                      "group/row outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
+                      onRowClick && "cursor-pointer hover:outline-1 hover:-outline-offset-1 hover:outline-border"
+                    )}
+                  >
+                    {canSelect && <td className="w-11 max-sm:sticky max-sm:start-0 max-sm:z-[2] max-sm:bg-card" onClick={event => event.stopPropagation()}>
+                      {row.id && <label className="flex min-h-11 min-w-11 cursor-pointer items-center justify-center">
+                        <input type="checkbox" className="size-4 accent-primary" checked={selectedIds.has(row.id)} onChange={() => toggleRow(row.id as string)} aria-label={ar ? "تحديد الصف" : "Select row"} />
+                      </label>}
+                    </td>}
+                    {columns.map((col, columnIndex) => (
+                      <td
+                        key={String(col.key)}
+                        className={cn(
+                          "px-4 py-3 text-start text-sm tabular-nums text-foreground",
+                          columnIndex === 0 && "max-sm:sticky max-sm:z-[1] max-sm:bg-card",
+                          columnIndex === 0 && (canSelect ? "max-sm:start-11" : "max-sm:start-0"),
+                          numericColumns.has(String(col.key)) && "text-end",
+                          col.className
+                        )}
+                      >
+                        {col.render ? col.render(row) : String((row as Record<string, unknown>)[col.key as string] ?? "")}
+                      </td>
+                    ))}
+                    {rowActions && (
+                      <td className="px-4 py-3" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+                        <div className="flex items-center justify-end gap-1 [&_button]:min-h-9 [&_button]:min-w-9 max-sm:[&_button]:min-h-11 max-sm:[&_button]:min-w-11">
+                          {rowActions(row)}
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+        {/* Keep state actions visible independently of the table's horizontal scroll. */}
+        {!isLoading && (loadError ? (
+          <div role="alert" className="flex flex-col items-center gap-3 px-4 py-12 text-center">
+            <AlertCircle aria-hidden="true" className="h-6 w-6 text-destructive" />
+            <p className="text-sm text-foreground">{loadError}</p>
+            {onRetry && <Button variant="outline" onClick={onRetry}>{retryLabel}</Button>}
+          </div>
+        ) : data.length === 0 ? <EmptyState message={emptyStateMessage} action={emptyStateAction} /> : null)}
+
+        {pagination && (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3">
+            <p className="text-xs tabular-nums text-muted-foreground">
+              {pagination.totalRecords} <LocalizedText text="records · Page" /> {pagination.currentPage} <LocalizedText text="of" />{" "}
+              {pagination.totalPages}
+            </p>
+            <div className="flex gap-1">
+              <Button variant="ghost" size="icon" aria-label={ui("Previous page")} disabled={isLoading || !!loadError || pagination.currentPage <= 1} onClick={() => pagination.onPageChange(pagination.currentPage - 1)}>
+                <ChevronLeft aria-hidden="true" className="h-4 w-4 rtl:rotate-180" />
+              </Button>
+              <Button variant="ghost" size="icon" aria-label={ui("Next page")} disabled={isLoading || !!loadError || pagination.currentPage >= pagination.totalPages} onClick={() => pagination.onPageChange(pagination.currentPage + 1)}>
+                <ChevronRight aria-hidden="true" className="h-4 w-4 rtl:rotate-180" />
+              </Button>
+            </div>
           </div>
         )}
-      </ScrollReveal>
-
-      {/* 4. DATA TABLE */}
-      <ScrollReveal direction="up" delay={120} duration={500}>
-        <div className="rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-muted/20">
-                <tr>
-                  {columns.map((col) => (
-                    <th
-                      key={String(col.key)}
-                      className={cn(
-                        "px-4 py-3.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider",
-                        col.className
-                      )}
-                    >
-                      <LocalizedText text={col.header} />
-                    </th>
-                  ))}
-                  {rowActions && <th className="px-4 py-3.5 w-10" />}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/20">
-                {isLoading ? (
-                  Array.from({ length: 5 }).map((_, i) => (
-                    <SkeletonRow
-                      key={i}
-                      columns={columns.length + actionColumnCount}
-                    />
-                  ))
-                ) : loadError || data.length === 0 ? null : (
-                  data.map((row, i) => (
-                    <tr
-                      key={row.id ?? i}
-                      onClick={() => onRowClick?.(row)}
-                      className={cn(
-                        "group/row transition-all duration-200 border-b border-border/10 last:border-0",
-                        onRowClick
-                          ? "cursor-pointer hover:bg-muted/20 hover:shadow-[inset_3px_0_0_0_var(--elite-blue-500)]"
-                          : "hover:bg-muted/15"
-                      )}
-                    >
-                      {columns.map((col) => (
-                        <td
-                          key={String(col.key)}
-                          className={cn(
-                            "px-4 py-3 text-sm text-foreground/80",
-                            col.className
-                          )}
-                        >
-                          {col.render
-                            ? col.render(row)
-                            : String(
-                                (row as Record<string, unknown>)[
-                                  col.key as string
-                                ] ?? ""
-                              )}
-                        </td>
-                      ))}
-                      {rowActions && (
-                        <td className="px-4 py-3">
-                          <div className="opacity-0 group-hover/row:opacity-100 transition-opacity duration-200">
-                            {rowActions(row)}
-                          </div>
-                        </td>
-                      )}
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-          {/* Empty/error actions stay inside the visible panel, independently
-              of a wide table's horizontal scroll position (including RTL). */}
-          {!isLoading && (loadError ? (
-            <div role="alert" className="flex flex-col items-center gap-3 px-4 py-12 text-center">
-              <AlertCircle aria-hidden="true" className="h-6 w-6 text-destructive" />
-              <p className="text-sm text-foreground">{loadError}</p>
-              {onRetry && <Button variant="outline" onClick={onRetry}>{retryLabel}</Button>}
-            </div>
-          ) : data.length === 0 ? <EmptyState message={emptyStateMessage} action={emptyStateAction} /> : null)}
-
-          {/* 5. PAGINATION */}
-          {pagination && (
-            <div className="border-t border-border/30 px-4 py-3.5 flex items-center justify-between bg-muted/10">
-              <p className="text-xs text-muted-foreground">
-                {pagination.totalRecords} <LocalizedText text="records · Page" /> {pagination.currentPage} <LocalizedText text="of" />{" "}
-                {pagination.totalPages}
-              </p>
-              <div className="flex gap-1">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 rounded-lg"
-                  aria-label={ui("Previous page")}
-                  disabled={isLoading || !!loadError || pagination.currentPage <= 1}
-                  onClick={() => pagination.onPageChange(pagination.currentPage - 1)}
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 rounded-lg"
-                  aria-label={ui("Next page")}
-                  disabled={isLoading || !!loadError || pagination.currentPage >= pagination.totalPages}
-                  onClick={() => pagination.onPageChange(pagination.currentPage + 1)}
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          )}
-        </div>
-      </ScrollReveal>
-
-      {/* 6. DIALOG / FORM (rendered by parent via children) */}
+      </div>
       {children}
     </div>
   )

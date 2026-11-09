@@ -1,3 +1,4 @@
+import {continueVerificationRoute,forwardVerificationRoute,verificationFetch} from './lib/verification-access.mjs'
 import { expect as baseExpect } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 const expect = baseExpect.configure({ timeout: 30_000 })
@@ -9,7 +10,7 @@ export async function verifyReceivableCrud(page, admin, tenantId, appUrl) {
     && ['localhost','127.0.0.1'].includes(db.hostname) && db.port === '58321'
   if (!local) {
     if (db.origin !== 'https://viowrovartosrkqukjxy.supabase.co' || app.hostname === 'elite-dashboard-blush.vercel.app') throw Error('Isolated staging required')
-    const policy = (await fetch(appUrl + '/landing')).headers.get('content-security-policy') ?? ''
+    const policy = (await verificationFetch(appUrl + '/landing',{},appUrl)).headers.get('content-security-policy') ?? ''
     if (!policy.includes(db.origin) || policy.includes('wwfnsbilmyxeawgzicmv')) throw Error('Staging app/database isolation required')
   }
   if (!tenantId) throw Error('Synthetic tenant required')
@@ -21,10 +22,10 @@ export async function verifyReceivableCrud(page, admin, tenantId, appUrl) {
   const loseResponse = async route => {
     if (!intercepted && route.request().method() === 'POST' && route.request().headers()['next-action'] && route.request().postData()?.includes(reference)) {
       intercepted = true
-      const response = await route.fetch()
+      const response = await forwardVerificationRoute(route)
       if (!response.ok()) throw Error('Synthetic receivable action failed before transport fault')
       await route.abort('failed')
-    } else await route.continue()
+    } else await continueVerificationRoute(route)
   }
   try {
     await page.goto(appUrl + '/accounting')

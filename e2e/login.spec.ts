@@ -9,7 +9,7 @@
 //   6. Locked account error
 //   7. RTL layout verification
 
-import { test, expect, waitForPageLoad, expectHeading } from "./helpers"
+import { test, expect, waitForPageLoad } from "./helpers"
 
 test.describe("Login Flow", () => {
   test.beforeEach(async ({ page }) => {

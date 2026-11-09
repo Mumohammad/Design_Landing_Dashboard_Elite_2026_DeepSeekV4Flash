@@ -138,6 +138,8 @@ export interface Driver {
   iban: string | null
   payment_method: string | null
   primary_platform_id: string | null
+  /** Mirrors the primary driver_platform_accounts rider ID (read-only). */
+  rider_id?: string | null
   current_vehicle_id: string | null
   driver_type: string | null
   city_zone: string | null

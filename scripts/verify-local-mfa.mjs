@@ -107,16 +107,21 @@ try {
     await verifyDashboardBusinessDate(page, appUrl)
   }
   if (process.env.VERIFY_APPROVALS === "1") {
-    stage = "approvals queue paging and privacy browser verification"
+    stage = "VAT position browser verification"
     const { verifyVatPosition } = await import("./verify-local-vat-position.mjs")
     await verifyVatPosition(page, admin, company.data.id, appUrl)
-    const { verifyApprovalsInbox } = await import("./verify-local-approvals.mjs")
-    await verifyApprovalsInbox(page, admin, company.data.id, appUrl)
   }
+  // Expenses asserts tenant-wide exact totals, so it runs before the approvals
+  // check, which now retains its synthetic expense evidence in the same tenant.
   if (process.env.VERIFY_EXPENSES === "1") {
     stage = "expense overview browser verification"
     const { verifyExpensesOverview } = await import("./verify-local-expenses.mjs")
     await verifyExpensesOverview(page, admin, company.data.id, appUrl)
+  }
+  if (process.env.VERIFY_APPROVALS === "1") {
+    stage = "approvals queue paging and privacy browser verification"
+    const { verifyApprovalsInbox } = await import("./verify-local-approvals.mjs")
+    await verifyApprovalsInbox(page, admin, company.data.id, appUrl)
   }
   if (process.env.VERIFY_RECEIVABLE_CRUD === "1") {
     stage = "manual receivable retry browser verification"
@@ -142,6 +147,56 @@ try {
     stage = "operations CRUD browser verification"
     const { verifyOperationsCrud } = await import("./verify-local-operations.mjs")
     await verifyOperationsCrud(page, admin, company.data.id, appUrl)
+  }
+  if (process.env.VERIFY_DRIVERS_CRUD === "1") {
+    stage = "drivers CRUD browser verification"
+    const { verifyDriversCrud } = await import("./verify-local-drivers.mjs")
+    await verifyDriversCrud(page, admin, company.data.id, appUrl)
+  }
+  if (process.env.VERIFY_PLATFORM_PAYROLL === "1") {
+    stage = "platform payroll import browser verification"
+    const { verifyPlatformPayroll } = await import("./verify-local-payroll-platform.mjs")
+    await verifyPlatformPayroll(page, admin, company.data.id, owner.data.user.id, appUrl)
+  }
+  if (process.env.VERIFY_VEHICLES_CRUD === "1") {
+    stage = "vehicles CRUD browser verification"
+    const { verifyVehiclesCrud } = await import("./verify-local-vehicles.mjs")
+    await verifyVehiclesCrud(page, admin, company.data.id, appUrl)
+  }
+  if (process.env.VERIFY_ORDERS_CRUD === "1") {
+    stage = "orders CRUD browser verification"
+    const { verifyOrdersCrud } = await import("./verify-local-orders.mjs")
+    await verifyOrdersCrud(page, admin, company.data.id, appUrl)
+  }
+  if (process.env.VERIFY_USERS_INVITES === "1") {
+    stage = "users invite browser verification"
+    const { verifyUsersInvites } = await import("./verify-local-users.mjs")
+    await verifyUsersInvites(page, admin, company.data.id, appUrl)
+  }
+  if (process.env.VERIFY_VIOLATIONS_CRUD === "1") {
+    stage = "violations CRUD browser verification"
+    const { verifyViolationsCrud } = await import("./verify-local-violations.mjs")
+    await verifyViolationsCrud(page, admin, company.data.id, appUrl)
+  }
+  if (process.env.VERIFY_APPLICATIONS_REVIEW === "1") {
+    stage = "applications review browser verification"
+    const { verifyApplicationsReview } = await import("./verify-local-applications.mjs")
+    await verifyApplicationsReview(page, admin, company.data.id, appUrl)
+  }
+  if (process.env.VERIFY_LEAVE_FLOW === "1") {
+    stage = "leave browser verification"
+    const { verifyLeaveFlow } = await import("./verify-local-leave.mjs")
+    await verifyLeaveFlow(page, admin, company.data.id, appUrl)
+  }
+  if (process.env.VERIFY_REPORTS === "1") {
+    stage = "reports browser verification"
+    const { verifyReports } = await import("./verify-local-reports.mjs")
+    await verifyReports(page, admin, company.data.id, appUrl)
+  }
+  if (process.env.VERIFY_SETTINGS === "1") {
+    stage = "settings browser verification"
+    const { verifySettings } = await import("./verify-local-settings.mjs")
+    await verifySettings(page, admin, company.data.id, appUrl)
   }
   if (process.env.VERIFY_OVERVIEWS === "1") {
     stage = "large overview search, export, pagination, and read recovery"
@@ -187,7 +242,10 @@ try {
     : /Execution context was destroyed|navigation|interrupted/i.test(error.message) ? "navigation"
     : /Target.*closed|page.*closed/i.test(error.message) ? "closed-page"
     : "assertion-or-service"
-  console.error(JSON.stringify({ result: "FAIL", stage, errorType: error.name, failureKind }))
+  const locator = failureKind === "ambiguous-locator"
+    ? (/strict mode violation: (.+?) resolved to (\d+) elements/.exec(error.message) ?? []).slice(1, 3).join(" x")
+    : undefined
+  console.error(JSON.stringify({ result: "FAIL", stage, errorType: error.name, failureKind, locator }))
   process.exitCode = 1
 } finally {
   await browser?.close()

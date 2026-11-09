@@ -1,6 +1,7 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import{assertModuleTestTarget}from"./assert-module-test-target.mjs"
+import{assertModuleTestTarget as guardedTarget}from"./assert-module-test-target.mjs"
+const assertModuleTestTarget=(page,backend,app)=>guardedTarget(page,backend,app,(context,url,options)=>context.get(url,options))
 const stage="https://viowrovartosrkqukjxy.supabase.co",app="https://elite-dashboard-abc123-elitesaasc-5643.vercel.app"
 const page=policy=>({request:{get:async()=>({status:()=>200,headers:()=>({"content-security-policy":policy})})}})
 test("loopback tests remain allowed",async()=>assert.deepEqual(await assertModuleTestTarget({},"http://127.0.0.1:54321","http://localhost:3000"),{kind:"loopback"}))

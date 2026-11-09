@@ -12,18 +12,16 @@
 // than fabricated values.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { endOfDay, format, startOfDay, subDays } from "date-fns"
+import { startOfDay, subDays } from "date-fns"
 import { z } from "zod"
 import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUser } from "@/lib/auth/authorization"
 import { rollupCodSessions } from "@/lib/payroll/payroll-utils"
+import { businessDateKey } from "@/lib/formatting/business-date"
 import { getFinancialKpis } from "@/lib/accounting/kpis"
-import {
-  aggregateApprovalsDepth,
-  buildMetric,
-  mergePayrollTrend,
-} from "./dashboard-utils"
+import { CACHE_TTL, cacheGet, cacheKey } from "@/lib/cache"
+import { buildMetric, mergePayrollTrend } from "./dashboard-utils"
 import type {
   ActivityEvent,
   ActionItem,
@@ -36,6 +34,9 @@ import type {
   PlatformMetric,
   TrendPoint,
 } from "./types"
+import { readDashboardAuthorizationScope } from "./cache-scope"
+import { readCompleteRows } from "./complete-read"
+import { fetchApprovalsPage } from "@/lib/approvals/queries"
 import { rateLimitDashboard, RateLimitError } from "@/lib/auth/rate-limit"
 
 const PERIOD_DAYS: Record<DashboardFilters["period"], number> = {
@@ -101,6 +102,7 @@ const dashboardFiltersSchema = z.object({
 
 export async function getDashboardSnapshot(
   rawFilters: DashboardFilters,
+  options?: { fresh?: boolean },
 ): Promise<DashboardSnapshot> {
   const filters = dashboardFiltersSchema.parse(rawFilters ?? {})
   const supabase = await createClient()
@@ -111,14 +113,31 @@ export async function getDashboardSnapshot(
       throw new RateLimitError(rl.resetAt, 30)
     }
   }
+  const currentUser = user ? await getCurrentUser() : null
+  if (!user || !currentUser) return buildDashboardSnapshot(filters, supabase)
+  // The snapshot is read through the caller's RLS client, so the cache entry
+  // belongs to this tenant AND this user; nobody else can be served it.
+  const authorization = await readDashboardAuthorizationScope(supabase, currentUser)
+  // Unavailable/ambiguous grants must use a fresh RLS read, never old cache.
+  if (!authorization) return buildDashboardSnapshot(filters, supabase)
+  const key = cacheKey("dashboard", currentUser.tenantId, user.id, { filters, authorization })
+  return cacheGet(key, () => buildDashboardSnapshot(filters, supabase), CACHE_TTL.dashboard, options)
+}
+
+async function buildDashboardSnapshot(
+  filters: z.infer<typeof dashboardFiltersSchema>,
+  supabase: Awaited<ReturnType<typeof createClient>>,
+): Promise<DashboardSnapshot> {
   const now = new Date()
   const days = PERIOD_DAYS[filters.period]
   const start = startOfDay(subDays(now, days - 1))
-  const end = endOfDay(now)
-  const prevStart = startOfDay(subDays(start, days))
-  const startIso = format(start, "yyyy-MM-dd")
-  const prevStartIso = format(prevStart, "yyyy-MM-dd")
-  const endIso = format(end, "yyyy-MM-dd")
+  // Ledger/date-keyed ranges follow the Saudi business day (Asia/Riyadh), not
+  // the server clock: between 00:00 and 03:00 Riyadh a UTC server would still
+  // be on "yesterday" and drop today's postings from the period.
+  const shiftDays = (iso: string, n: number) => new Date(Date.parse(`${iso}T00:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10)
+  const endIso = businessDateKey(now)
+  const startIso = shiftDays(endIso, days - 1)
+  const prevStartIso = shiftDays(startIso, days)
 
   const availability: Record<string, boolean> = {
     drivers: false,
@@ -135,11 +154,14 @@ export async function getDashboardSnapshot(
 
   // ── Platforms (needed for filter + breakdown labels) ──────────────────────
   let platformsById = new Map<string, { code: string; name: string }>()
-  const { data: platformRows } = await supabase
-    .from("delivery_platforms")
-    .select("id, code, name_ar, name_en, is_active")
-    .is("deleted_at", null)
-    .order("sort_order", { ascending: true })
+  const { data: platformRows } = await readCompleteRows(() =>
+    supabase
+      .from("delivery_platforms")
+      .select("id, code, name_ar, name_en, is_active", { count: "exact" })
+      .is("deleted_at", null)
+      .order("sort_order", { ascending: true })
+      .order("id", { ascending: true }),
+  )
   if (platformRows) {
     platformsById = new Map(
       platformRows.map((p) => [
@@ -169,14 +191,17 @@ export async function getDashboardSnapshot(
     license_expiry_date: string | null
   }[] = []
   try {
-    const q = supabase
-      .from("drivers")
-      .select(
-        "id, status, category, full_name_ar, full_name_en, hire_date, created_at, iqama_expiry_date, license_expiry_date",
-      )
-      .is("deleted_at", null)
-    if (filters.category !== "all") q.eq("category", filters.category)
-    const { data, error } = await q
+    const { data, error } = await readCompleteRows(() => {
+      const q = supabase
+        .from("drivers")
+        .select(
+          "id, status, category, full_name_ar, full_name_en, hire_date, created_at, iqama_expiry_date, license_expiry_date",
+          { count: "exact" },
+        )
+        .is("deleted_at", null)
+      if (filters.category !== "all") q.eq("category", filters.category)
+      return q.order("id", { ascending: true })
+    })
     if (!error && data) {
       drivers = data as typeof drivers
       availability.drivers = true
@@ -201,10 +226,13 @@ export async function getDashboardSnapshot(
     registration_expiry: string | null
   }[] = []
   try {
-    const { data, error } = await supabase
-      .from("vehicles")
-      .select("id, status, insurance_expiry, registration_expiry")
-      .is("deleted_at", null)
+    const { data, error } = await readCompleteRows(() =>
+      supabase
+        .from("vehicles")
+        .select("id, status, insurance_expiry, registration_expiry", { count: "exact" })
+        .is("deleted_at", null)
+        .order("id", { ascending: true }),
+    )
     if (!error && data) {
       vehicles = data as typeof vehicles
       availability.vehicles = true
@@ -239,19 +267,23 @@ export async function getDashboardSnapshot(
   // ── Orders (daily_order_entries) + platform breakdown + trends ────────────
   let orderRows: OrderRow[] = []
   try {
-    const q = supabase
-      .from("daily_order_entries")
-      .select(
-        "driver_id, platform_id, entry_date, orders_delivered, orders_cancelled, orders_failed, orders_returned, gross_revenue",
-      )
-      .gte("entry_date", prevStartIso)
-      .lte("entry_date", endIso)
-    if (filters.platform !== "all") {
-      const pid = platformIdByCode.get(filters.platform)
-      if (pid) q.eq("platform_id", pid)
-      else q.eq("platform_id", "00000000-0000-0000-0000-000000000000") // no-op: no data
-    }
-    const { data, error } = await q
+    const { data, error } = await readCompleteRows(() => {
+      if (filters.platform !== "all" && !platformRows) throw new Error("Platform catalog unavailable")
+      const q = supabase
+        .from("daily_order_entries")
+        .select(
+          "id, driver_id, platform_id, entry_date, orders_delivered, orders_cancelled, orders_failed, orders_returned, gross_revenue",
+          { count: "exact" },
+        )
+        .gte("entry_date", prevStartIso)
+        .lte("entry_date", endIso)
+      if (filters.platform !== "all") {
+        const pid = platformIdByCode.get(filters.platform)
+        if (pid) q.eq("platform_id", pid)
+        else q.eq("platform_id", "00000000-0000-0000-0000-000000000000") // no-op: no data
+      }
+      return q.order("id", { ascending: true })
+    })
     if (!error && data) {
       orderRows = data as OrderRow[]
       availability.orders = true
@@ -324,42 +356,67 @@ export async function getDashboardSnapshot(
     .sort((x, y) => y.orders - x.orders)
 
   // ── Payroll (module-owned calculated results) ─────────────────────────────
-  let payrollRows: {
-    driver_id: string
-    period_year: number
-    period_month: number
-    orders_achieved: number | null
-    target_orders_monthly: number | null
-    orders_prorated_target: number | null
-    orders_bonus: number | null
-    total_earnings: number | null
-    total_deductions: number | null
-    net_payroll: number | null
+  const payrollRows: {
+    driver_id: string; period_year: number; period_month: number
+    orders_achieved: number | null; target_orders_monthly: number | null
+    orders_prorated_target: number | null; orders_bonus: number | null
+    total_earnings: number | null; total_deductions: number | null; net_payroll: number | null
   }[] = []
   let latestPeriod: { year: number; month: number } | null = null
+  const payrollTrendRows: { period_year: number; period_month: number; net_payroll: number | null }[] = []
+  const payrollFromYear = new Date().getFullYear() - 2
   try {
-    const { data, error } = await supabase
-      .from("driver_payroll_periods")
-      .select(
-        "driver_id, period_year, period_month, orders_achieved, target_orders_monthly, orders_prorated_target, orders_bonus, total_earnings, total_deductions, net_payroll",
-      )
-      .in("status", APPROVED_PAYROLL_STATUS)
-      .is("deleted_at", null)
-    if (!error && data) {
-      payrollRows = data as typeof payrollRows
-      availability.payroll = true
-      for (const r of payrollRows) {
-        if (
-          !latestPeriod ||
-          r.period_year > latestPeriod.year ||
-          (r.period_year === latestPeriod.year && r.period_month > latestPeriod.month)
-        ) {
-          latestPeriod = { year: r.period_year, month: r.period_month }
+    const legacy = await readCompleteRows(() => supabase.from("driver_payroll_periods")
+      .select("id, driver_id, period_year, period_month, orders_achieved, target_orders_monthly, orders_prorated_target, orders_bonus, total_earnings, total_deductions, net_payroll", { count: "exact" })
+      .in("status", APPROVED_PAYROLL_STATUS).is("deleted_at", null)
+      .gte("period_year", payrollFromYear).order("id", { ascending: true }))
+    const engine = await readCompleteRows(() => supabase.from("payroll_engine_runs")
+      .select("id, month_key, total_net, total_drivers", { count: "exact" })
+      .eq("status", "approved").gte("month_key", String(payrollFromYear) + "-01").order("id", { ascending: true }))
+    if (legacy.error || engine.error || !legacy.data || !engine.data) throw Error("Payroll data unavailable")
+    payrollRows.push(...legacy.data as typeof payrollRows)
+    payrollTrendRows.push(...payrollRows)
+    for (const run of engine.data) {
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(run.month_key)) || !Number.isFinite(Number(run.total_net)) || !Number.isInteger(Number(run.total_drivers)) || Number(run.total_drivers) < 0) throw Error("Incomplete payroll summary")
+      const [year, month] = String(run.month_key).split("-").map(Number)
+      payrollTrendRows.push({ period_year: year, period_month: month, net_payroll: Number(run.total_net) })
+    }
+    for (const row of payrollTrendRows) {
+      if (!latestPeriod || row.period_year > latestPeriod.year || row.period_year === latestPeriod.year && row.period_month > latestPeriod.month) latestPeriod = { year: row.period_year, month: row.period_month }
+    }
+    if (latestPeriod) {
+      const previous = latestPeriod.month === 1 ? { year: latestPeriod.year - 1, month: 12 } : { year: latestPeriod.year, month: latestPeriod.month - 1 }
+      const keys = [latestPeriod, previous].map(period => String(period.year) + "-" + String(period.month).padStart(2, "0"))
+      const selectedRuns = engine.data.filter(run => keys.includes(String(run.month_key)))
+      const monthByRun = new Map(selectedRuns.map(run => [String(run.id), String(run.month_key)]))
+      if (selectedRuns.length) {
+        const results = await readCompleteRows(() => supabase.from("payroll_engine_results")
+          .select("id, run_id, driver_id, rider_id, driver_name, completed_orders, gross_salary, final_net_salary, result", { count: "exact" })
+          .in("run_id", [...monthByRun.keys()]).order("id", { ascending: true }))
+        if (results.error || !results.data) throw Error("Payroll results unavailable")
+        for (const run of selectedRuns) if (results.data.filter(row => row.run_id === run.id).length !== Number(run.total_drivers)) throw Error("Incomplete payroll results")
+        for (const row of results.data) {
+          const monthKey = monthByRun.get(String(row.run_id))
+          const gross = Number(row.gross_salary), net = Number(row.final_net_salary)
+          if (!monthKey || !Number.isFinite(gross) || !Number.isFinite(net)) throw Error("Invalid payroll results")
+          const [year, month] = monthKey.split("-").map(Number)
+          const result = (row.result ?? {}) as Record<string, unknown>
+          const target = Number(result.adjustedTargetOrders ?? result.appliedMonthlyTarget ?? 0) || null
+          const driverKey = row.driver_id as string | null ?? "rider:" + row.rider_id
+          if (!driverNames.has(driverKey)) driverNames.set(driverKey, String(row.driver_name || row.rider_id))
+          payrollRows.push({ driver_id: driverKey, period_year: year, period_month: month,
+            orders_achieved: Number(row.completed_orders ?? 0), target_orders_monthly: target, orders_prorated_target: target,
+            orders_bonus: Number(result.bonusAmount ?? 0), total_earnings: gross, total_deductions: Math.round((gross - net) * 100) / 100, net_payroll: net })
         }
       }
     }
+    availability.payroll = true
   } catch {
-    /* table missing */
+    // A combined payroll result is unavailable if either source is incomplete.
+    payrollRows.length = 0
+    payrollTrendRows.length = 0
+    latestPeriod = null
+    availability.payroll = false
   }
 
   const prevPeriod =
@@ -393,7 +450,7 @@ export async function getDashboardSnapshot(
   // keep payroll undefined. Neither side is zero-filled.
   const payrollTrend = mergePayrollTrend(
     [],
-    payrollRows.map((r) => ({
+    payrollTrendRows.map((r) => ({
       period_year: r.period_year,
       period_month: r.period_month,
       net_payroll: r.net_payroll,
@@ -448,12 +505,15 @@ export async function getDashboardSnapshot(
   // ── Violations ────────────────────────────────────────────────────────────
   let violations: { id: string; status: string | null; deduction_amount: number | null; incident_date: string | null }[] = []
   try {
-    const { data, error } = await supabase
-      .from("violations")
-      .select("id, status, deduction_amount, incident_date")
-      .gte("incident_date", prevStartIso)
-      .lte("incident_date", endIso)
-      .is("deleted_at", null)
+    const { data, error } = await readCompleteRows(() =>
+      supabase
+        .from("violations")
+        .select("id, status, deduction_amount, incident_date", { count: "exact" })
+        .gte("incident_date", prevStartIso)
+        .lte("incident_date", endIso)
+        .is("deleted_at", null)
+        .order("id", { ascending: true }),
+    )
     if (!error && data) {
       violations = data as typeof violations
       availability.violations = true
@@ -482,12 +542,15 @@ export async function getDashboardSnapshot(
   // ── Maintenance ───────────────────────────────────────────────────────────
   let maintenance: { id: string; status: string | null; cost: number | null; reported_at: string | null }[] = []
   try {
-    const { data, error } = await supabase
-      .from("vehicle_maintenance_events")
-      .select("id, status, cost, reported_at")
-      .gte("reported_at", `${prevStartIso}T00:00:00`)
-      .lte("reported_at", `${endIso}T23:59:59`)
-      .is("deleted_at", null)
+    const { data, error } = await readCompleteRows(() =>
+      supabase
+        .from("vehicle_maintenance_events")
+        .select("id, status, cost, reported_at", { count: "exact" })
+        .gte("reported_at", `${prevStartIso}T00:00:00`)
+        .lte("reported_at", `${endIso}T23:59:59`)
+        .is("deleted_at", null)
+        .order("id", { ascending: true }),
+    )
     if (!error && data) {
       maintenance = data as typeof maintenance
       availability.maintenance = true
@@ -512,8 +575,8 @@ export async function getDashboardSnapshot(
       .from("driver_applications")
       .select("id", { count: "exact", head: true })
       .in("status", ["submitted", "under_review"])
-    if (!error) {
-      pendingApplications = count ?? 0
+    if (!error && count !== null && Number.isSafeInteger(count) && count >= 0) {
+      pendingApplications = count
       availability.applications = true
     }
   } catch {
@@ -537,10 +600,13 @@ export async function getDashboardSnapshot(
     available: false,
   }
   try {
-    const { data, error } = await supabase
-      .from("driver_cod_sessions")
-      .select("cod_collected, cod_submitted, cod_variance, status")
-      .is("deleted_at", null)
+    const { data, error } = await readCompleteRows(() =>
+      supabase
+        .from("driver_cod_sessions")
+        .select("id, cod_collected, cod_submitted, cod_variance, status", { count: "exact" })
+        .is("deleted_at", null)
+        .order("id", { ascending: true }),
+    )
     if (!error && data) {
       const rollup = rollupCodSessions(data as CodRow[])
       cod = {
@@ -583,25 +649,9 @@ export async function getDashboardSnapshot(
   if (currentUser) {
     const admin = createAdminClient()
     try {
-      const { data, error } = await supabase.rpc("fetch_pending_approvals", {
-        p_tenant_id: currentUser.tenantId,
-        p_type: null,
-        p_from: null,
-        p_to: null,
-        p_limit: 200,
-      })
-      if (!error && data) {
-        approvals = {
-          ...aggregateApprovalsDepth(
-            (data as { item_type: string; requested_at: string }[]).map((r) => ({
-              item_type: r.item_type,
-              requested_at: r.requested_at,
-            })),
-          ),
-          available: true,
-        }
-        availability.approvals = true
-      }
+      const pending = await fetchApprovalsPage({}, 1, 1)
+      approvals = { ...pending.kpis, available: true }
+      availability.approvals = true
     } catch {
       /* RPC missing */
     }
@@ -611,8 +661,8 @@ export async function getDashboardSnapshot(
         .select("id", { count: "exact", head: true })
         .eq("tenant_id", currentUser.tenantId)
         .gte("created_at", start.toISOString())
-      if (!error) {
-        auditEvents = count ?? 0
+      if (!error && count !== null && Number.isSafeInteger(count) && count >= 0) {
+        auditEvents = count
         availability.audit = true
       }
     } catch {
@@ -722,8 +772,8 @@ export async function getDashboardSnapshot(
     netPayroll: buildMetric(payrollNet, payrollNetPrev, availability.payroll),
     openViolations: buildMetric(openViolations, openViolations, availability.violations),
     pendingApplications: buildMetric(pendingApplications, pendingApplications, availability.applications),
-    expiringDocuments: buildMetric(expiringDocs, expiringDocs, availability.drivers || availability.vehicles),
-    expiredDocuments: buildMetric(expiredDocs, expiredDocs, availability.drivers || availability.vehicles),
+    expiringDocuments: buildMetric(expiringDocs, expiringDocs, availability.drivers && availability.vehicles),
+    expiredDocuments: buildMetric(expiredDocs, expiredDocs, availability.drivers && availability.vehicles),
     availableVehicles: buildMetric(availableVehicles, availableVehicles, availability.vehicles),
     assignedVehicles: buildMetric(assignedVehicles, assignedVehicles, availability.vehicles),
     openApprovals: buildMetric(approvals.total, approvals.total, availability.approvals),
@@ -770,20 +820,20 @@ export async function getDashboardSnapshot(
   const insights: Insight[] = []
   insights.push({
     id: "orders",
-    kind: kpis.totalOrders.pct >= 0 ? "positive" : "negative",
+    kind: kpis.totalOrders.pct === 0 ? "neutral" : kpis.totalOrders.pct > 0 ? "positive" : "negative",
     key: "orders",
     value: Math.abs(kpis.totalOrders.pct),
   })
   const completionDelta = Math.round((completionRate - completionRatePrev) * 10) / 10
   insights.push({
     id: "completion",
-    kind: completionDelta >= 0 ? "positive" : "negative",
+    kind: completionDelta === 0 ? "neutral" : completionDelta > 0 ? "positive" : "negative",
     key: "completion",
     value: Math.abs(completionDelta),
   })
   insights.push({
     id: "revenue",
-    kind: kpis.revenue.pct >= 0 ? "positive" : "negative",
+    kind: kpis.revenue.pct === 0 ? "neutral" : kpis.revenue.pct > 0 ? "positive" : "negative",
     key: "revenue",
     value: Math.abs(kpis.revenue.pct),
   })
@@ -834,7 +884,12 @@ export async function getDashboardSnapshot(
     targetBuckets,
     compliance,
     actions,
-    insights,
+    insights: insights.filter(({ key }) => {
+      if (["orders", "completion", "revenue", "best_platform"].includes(key)) return availability.orders
+      if (key === "maintenance") return availability.maintenance
+      if (key === "below_target") return availability.payroll
+      return true
+    }),
     activity: activity.slice(0, 8),
   }
 }

@@ -64,25 +64,25 @@ const sections = [
 export default function TermsPage() {
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto max-w-3xl px-4 py-16 lg:px-8">
-        <Link href="/landing" className="inline-flex items-center gap-1.5 text-sm font-semibold text-muted-foreground transition-colors hover:text-elite-blue-600 dark:hover:text-elite-blue-300">
+      <div className="mx-auto max-w-3xl px-5 py-10 sm:py-16 lg:px-8">
+        <Link href="/landing" className="inline-flex items-center gap-1.5 text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground">
           <ArrowRight className="h-4 w-4" aria-hidden="true" />
           <LocalizedText text="Back to home" />
         </Link>
-        <div className="mt-8 flex items-center gap-3">
-          <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-elite-blue-500 to-elite-orange-500 text-white shadow-lg shadow-elite-blue-500/20">
+        <div className="mt-10 flex items-start gap-4 border-b border-border pb-8">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center text-muted-foreground">
             <Scale className="h-6 w-6" aria-hidden="true" />
           </span>
           <div>
-            <h1 className="text-3xl font-extrabold tracking-tight"><LocalizedText text="شروط الخدمة" /></h1>
+            <h1 className="text-3xl font-semibold tracking-tight leading-tight"><LocalizedText text="شروط الخدمة" /></h1>
             <p className="mt-1 text-sm text-muted-foreground"><LocalizedText text="Last updated: September 2026" /></p>
           </div>
         </div>
-        <div className="mt-10 space-y-8">
+        <div className="mt-10 space-y-10">
           {sections.map((section, index) => (
-            <section key={section.title} className="rounded-2xl border border-border/50 bg-card/60 p-6">
-              <h2 className="text-lg font-bold text-foreground"><BilingualText ar={section.title} en={termsEnglish[index].title} /></h2>
-              <p className="mt-3 text-sm leading-7 text-muted-foreground"><BilingualText ar={section.body} en={termsEnglish[index].body} /></p>
+            <section key={section.title} className="max-w-[68ch]">
+              <h2 className="text-lg font-semibold leading-7 text-foreground"><BilingualText ar={section.title} en={termsEnglish[index].title} /></h2>
+              <p className="mt-3 text-base leading-8 text-muted-foreground"><BilingualText ar={section.body} en={termsEnglish[index].body} /></p>
             </section>
           ))}
         </div>

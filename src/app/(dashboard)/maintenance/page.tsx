@@ -1,4 +1,5 @@
 "use client"
+import { readDeepLinkQuery } from "@/hooks/use-table-page"
 
 // /maintenance — fleet maintenance workspace (Prompt O Part 1).
 // Composes vehicle_maintenance_events + vehicle_odometer_logs over the
@@ -12,7 +13,7 @@ import { Wrench, Clock, CheckCircle2, Car, Plus, Download, Gauge, Pencil, Play, 
 import { fetchFleetRows } from "@/lib/vehicles/query-pages"
 import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 import { formatDualDate } from "@/lib/formatting/hijri"
 import { EnterpriseModulePage, type KpiCardData, type TableColumn } from "@/components/dashboard/enterprise-module-page"
 import { Button } from "@/components/ui/button"
@@ -47,6 +48,7 @@ export default function MaintenancePage() {
 
   // filters
   const [search, setSearch] = useState("")
+  useEffect(() => { const id = window.setTimeout(() => { const q = readDeepLinkQuery(); if (q) setSearch(q) }, 0); return () => window.clearTimeout(id) }, [])
   const [statusFilter, setStatusFilter] = useState("all")
   const [typeFilter, setTypeFilter] = useState("all")
   const [vehicleFilter, setVehicleFilter] = useState("all")
@@ -151,7 +153,7 @@ export default function MaintenancePage() {
     { label: m.kpiOpen, value: kpis.open, icon: Wrench, color: "#F59E0B" },
     { label: m.kpiInProgress, value: kpis.inProg, icon: Clock, color: "#1E5A99" },
     { label: m.kpiCompletedMonth, value: kpis.completedMonth, icon: CheckCircle2, color: "#10B981" },
-    { label: m.kpiAvgCost, value: kpis.avgCost != null ? kpis.avgCost.toFixed(0) + " " + (isAr ? "ر.س" : "SAR") : "—", icon: Car, color: "#8B5CF6" },
+    { label: m.kpiAvgCost, value: kpis.avgCost != null ? kpis.avgCost.toFixed(0) + " " + (isAr ? "ر.س" : "SAR") : "—", icon: Car, color: "#0F766E" },
     { label: m.kpiVehiclesInMaintenance, value: vehiclesInMaintenance, icon: Car, color: "#EF4444" },
   ]
 
@@ -298,7 +300,7 @@ export default function MaintenancePage() {
   const defaultOdometer = activeVehicle?.odometer_current ?? null
 
   return (
-    <div className="px-4 lg:px-6 py-4">
+    <div className="py-4">
       <EnterpriseModulePage
         title={t.nav.maintenance}
         subtitle={m.subtitle}

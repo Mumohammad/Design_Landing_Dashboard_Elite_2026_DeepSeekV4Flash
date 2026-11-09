@@ -216,7 +216,7 @@ export async function generateVatReconciliationReport(): Promise<{ success: bool
     }))
 
     const html = buildVatReconciliationHtml({
-      companyNameAr: tenant?.name_ar ?? "",
+      companyNameAr: tenant?.name_ar || tenant?.name_en || "",
       companyNameEn: tenant?.name_en ?? "",
       companyVatNumber: tenant?.vat_number ?? "—",
       generatedAt: new Date().toISOString(),
@@ -415,7 +415,7 @@ export async function generateVatReturnReport(
     ]
 
     const html = buildVatReturnHtml({
-      companyNameAr: tenant?.name_ar ?? "",
+      companyNameAr: tenant?.name_ar || tenant?.name_en || "",
       companyNameEn: tenant?.name_en ?? "",
       companyVatNumber: tenant?.vat_number ?? "—",
       generatedAt: document.generated_at,

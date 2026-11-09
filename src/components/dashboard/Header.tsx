@@ -26,13 +26,13 @@ export default function Header({ tenant }: HeaderProps) {
   };
 
   return (
-    <header className="bg-slate-800/50 backdrop-blur-sm border-b border-white/10 px-6 py-4">
+    <header className="bg-slate-800/50 border-b border-white/10 px-6 py-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           {tenant?.logo_url ? (
             <img src={tenant.logo_url} alt={tenant.name} className="w-8 h-8 rounded-lg object-cover" />
           ) : (
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm text-elite-blue-600 dark:text-elite-blue-300">
               {tenant?.name?.charAt(0) || 'C'}
             </div>
           )}
@@ -58,7 +58,7 @@ export default function Header({ tenant }: HeaderProps) {
           <button onClick={handleLogout} className="flex items-center gap-2 p-2 text-white/70 hover:text-white transition">
             <LogOut className="w-5 h-5" />
           </button>
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-semibold">
+          <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white font-semibold">
             <User className="w-5 h-5" />
           </div>
         </div>

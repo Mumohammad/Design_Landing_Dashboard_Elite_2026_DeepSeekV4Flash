@@ -12,6 +12,9 @@ import { NextRequest } from "next/server"
 const { authState, rlState } = vi.hoisted(() => ({
   authState: {
     createUserCalls: 0,
+    deleteUserCalls: 0,
+    provisionCalls: 0,
+    provisionResult: { id: "11111111-2222-3333-4444-555555555555", slug: "acme" } as unknown,
     generateLinkInputs: [] as unknown[],
     createUserError: null as { message: string; code?: string } | null,
     tenantsInsertError: null as { message: string; code?: string } | null,
@@ -32,14 +35,14 @@ vi.mock("@supabase/supabase-js", () => ({
             ? { data: { user: null }, error: authState.createUserError }
             : { data: { user: { id: "au1" } }, error: null }
         },
-        deleteUser: vi.fn(async () => ({ error: null })),
+        deleteUser: vi.fn(async () => { authState.deleteUserCalls++; return { error: null } }),
         generateLink: async (input: unknown) => {
           authState.generateLinkInputs.push(input)
           return { data: { properties: { action_link: "https://confirm.example.test" } }, error: null }
         },
       },
     },
-    rpc: async () => ({ data: { id: "t1", slug: "acme" }, error: authState.tenantsInsertError }),
+    rpc: async () => { authState.provisionCalls++; return { data: authState.provisionResult, error: authState.tenantsInsertError } },
     from: (table: string) => ({
       select: () => ({
         eq: () => ({
@@ -52,7 +55,7 @@ vi.mock("@supabase/supabase-js", () => ({
           single: async () =>
             table === "tenants" && authState.tenantsInsertError
               ? { data: null, error: authState.tenantsInsertError }
-              : { data: { id: "t1", slug: "acme" }, error: null },
+              : { data: { id: "11111111-2222-3333-4444-555555555555", slug: "acme" }, error: null },
         }),
       }),
       upsert: async () => ({ data: null, error: null }),
@@ -60,6 +63,7 @@ vi.mock("@supabase/supabase-js", () => ({
   }),
 }))
 
+vi.mock("server-only", () => ({}))
 vi.mock("@/lib/notifications/company-welcome-email", () => ({
   sendCompanyConfirmationEmail: vi.fn(async () => undefined),
 }))
@@ -133,6 +137,9 @@ function jsonPost(path: string, rawBody: string): NextRequest {
 beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://workspace.example.test")
   authState.createUserCalls = 0
+  authState.deleteUserCalls = 0
+  authState.provisionCalls = 0
+  authState.provisionResult = { id: "11111111-2222-3333-4444-555555555555", slug: "acme" }
   authState.generateLinkInputs = []
   vi.stubGlobal(
     "fetch",
@@ -234,6 +241,15 @@ describe("POST /api/platform/register (FX-08)", () => {
     expect(json.success).toBeUndefined()
   })
 
+  it("SVG logo upload → 400 before any user creation", async () => {
+    const svg = `data:image/png;base64,${Buffer.from("<svg xmlns='http://www.w3.org/2000/svg'/>").toString("base64")}`
+    const res = await registerPost(
+      jsonPost("/api/platform/register", JSON.stringify({ ...base, password: "Password123", logo_base64: svg }))
+    )
+    expect(res.status).toBe(400)
+    expect((await res.json()).success).toBeUndefined()
+  })
+
   it("10 letters but no digit ('abcdefghij') → 400", async () => {
     const res = await post("abcdefghij")
     expect(res.status).toBe(400)
@@ -290,4 +306,28 @@ describe("POST /api/platform/register (FX-08)", () => {
     const json = await res.json()
     expect(json.code).toBe("RATE_LIMIT_UNAVAILABLE")
   })
+})
+
+describe("registration image and atomic provisioning boundaries",()=>{
+ const base={company_name:"Image company",domain:"image.test",email:"image@example.test",password:"Password123"}
+ const post=(fields:Record<string,unknown>)=>registerPost(jsonPost("/api/platform/register",JSON.stringify({...base,...fields})))
+ it("valid PNG is prevalidated and optional logo remains deferred after successful company creation",async()=>{
+  const sharp=(await import("sharp")).default
+  const png=await sharp({create:{width:2,height:2,channels:3,background:"red"}}).png().toBuffer()
+  const fields={logo_base64:`data:image/png;base64,${png.toString("base64")}`}
+  const response=await post(fields);expect(response.status).toBe(200)
+  expect(await response.json()).toMatchObject({success:true,requires_confirmation:true,logo_status:"deferred",logo_message_en:expect.stringContaining("Settings")})
+  expect(authState.createUserCalls).toBe(1);expect(authState.provisionCalls).toBe(1);expect(authState.deleteUserCalls).toBe(0)
+  authState.createUserError={message:"Already registered",code:"email_exists"}
+  const existing=await post(fields);expect(existing.status).toBe(200);expect(await existing.json()).toMatchObject({success:true,logo_status:"deferred"})
+  expect(authState.provisionCalls).toBe(1)
+ })
+ for(const body of ["data:image/png;base64,%%%","A".repeat(700001),"data:image/png;base64,iVBORw0KGgo="])it("invalid, truncated or oversized image cannot create an account",async()=>{
+  const result=await post({logo_base64:body});expect(result.status).toBe(400);expect(authState.createUserCalls).toBe(0);expect(authState.provisionCalls).toBe(0)
+ })
+ it("definite SQL rejection may clean uncommitted auth owner, unknown outcome and malformed receipt never delete",async()=>{
+  authState.tenantsInsertError={code:"23505",message:"private"};expect((await post({})).status).toBe(503);expect(authState.deleteUserCalls).toBe(1)
+  authState.tenantsInsertError={code:"FETCH_ERROR",message:"unknown network outcome"};expect((await post({})).status).toBe(503);expect(authState.deleteUserCalls).toBe(1)
+  authState.tenantsInsertError=null;authState.provisionResult={id:"not-a-tenant"};expect((await post({})).status).toBe(503);expect(authState.deleteUserCalls).toBe(1)
+ })
 })

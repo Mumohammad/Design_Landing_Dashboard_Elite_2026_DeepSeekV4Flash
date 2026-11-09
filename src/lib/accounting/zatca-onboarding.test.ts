@@ -66,7 +66,9 @@ describe("requestComplianceCsid (sandbox HTTP path)", () => {
     expect(captured.init.method).toBe("POST")
     expect(captured.init.redirect).toBe("error")
     expect(captured.init.signal).toBeInstanceOf(AbortSignal)
-    expect(JSON.parse(String(captured.init.body))).toEqual({ csr: "YWJj" })
+    expect(JSON.parse(String(captured.init.body))).toEqual({
+      csr: Buffer.from("-----BEGIN CERTIFICATE REQUEST-----\nYWJj\n-----END CERTIFICATE REQUEST-----\n").toString("base64"),
+    })
     const h = captured.init.headers as Record<string, string>
     expect(h.OTP).toBe("654321")
     expect(h["Accept-Version"]).toBe("V2")

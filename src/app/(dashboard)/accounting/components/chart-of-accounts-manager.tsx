@@ -136,7 +136,7 @@ function ChartParentPicker({ type, excludeId, value, onChange, disabled, selecte
   return <fieldset disabled={disabled} data-testid="coa-parent-picker" className="min-w-0 space-y-2 rounded-lg border border-border/60 p-2">
     <Label htmlFor="coa-parent">{ar ? "الحساب الأب (اختياري)" : "Parent account (optional)"}</Label>
     <AccountingPageControls state={page} />
-    <select id="coa-parent" value={value} disabled={page.loading || page.error || disabled} className="h-9 w-full min-w-0 rounded-md border border-input bg-background px-2 text-sm focus-visible:ring-2 focus-visible:ring-ring" onChange={event => { onChange(event.target.value); setSelected(options.find(row => row.id === event.target.value) ?? null) }}>
+    <select id="coa-parent" value={value} disabled={page.loading || page.error || disabled} className="h-10 w-full min-w-0 rounded-xl border border-input bg-background px-2 text-sm focus-visible:ring-2 focus-visible:ring-ring" onChange={event => { onChange(event.target.value); setSelected(options.find(row => row.id === event.target.value) ?? null) }}>
       <option value="">{ar ? "بدون حساب أب" : "No parent account"}</option>
       {value && !options.some(row => row.id === value) && <option value={value}>{selectedLabel || value}</option>}
       {options.map(row => <option key={row.id} value={row.id}>{row.account_code} · {ar ? row.name_ar : row.name_en}</option>)}
@@ -465,6 +465,7 @@ export function ChartOfAccountsManager() {
       )}
 
       <EnterpriseModulePage
+        headingLevel="h2"
         title={ar ? "دليل الحسابات" : "Chart of Accounts"}
         subtitle={
           ar
@@ -507,7 +508,7 @@ export function ChartOfAccountsManager() {
             </button>
             <button
               onClick={openOpening}
-              className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 px-3.5 text-xs font-medium text-white shadow-sm transition-all hover:from-elite-blue-700 hover:to-elite-blue-800"
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl px-3.5 text-xs font-medium shadow-sm transition-all hover:from-elite-blue-700 hover:to-elite-blue-800 bg-foreground text-background"
             >
               <Scale className="h-3.5 w-3.5" />
               {ar ? "أرصدة افتتاحية" : "Opening balances"}
@@ -678,7 +679,7 @@ export function ChartOfAccountsManager() {
               <Button
                 onClick={() => void handleSubmitForm()}
                 disabled={isSavingForm || !form.account_code.trim() || !form.name_ar.trim() || !form.name_en.trim()}
-                className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800"
+                className="hover:from-elite-blue-700 hover:to-elite-blue-800 bg-foreground text-background"
               >
                 {isSavingForm ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 {t.common.save}
@@ -754,7 +755,7 @@ export function ChartOfAccountsManager() {
               <Button
                 onClick={() => void handleImport()}
                 disabled={isImporting || !csvText.trim()}
-                className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800"
+                className="hover:from-elite-blue-700 hover:to-elite-blue-800 bg-foreground text-background"
               >
                 {isImporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
                 {ar ? "استيراد" : "Import"}
@@ -786,7 +787,7 @@ export function ChartOfAccountsManager() {
             </div>
 
             <div className="rounded-xl border border-border/50">
-              <div className="hidden gap-2 border-b sm:grid sm:grid-cols-[minmax(0,1fr)_90px_90px_32px] border-border/50 bg-muted/30 px-3 py-2 text-[11px] font-medium text-muted-foreground">
+              <div className="hidden gap-2 border-b sm:grid sm:grid-cols-[minmax(0,1fr)_90px_90px_32px] border-border/50 bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground">
                 <span>{ar ? "الحساب" : "Account"}</span>
                 <span>{ar ? "مدين" : "Debit"}</span>
                 <span>{ar ? "دائن" : "Credit"}</span>
@@ -863,7 +864,7 @@ export function ChartOfAccountsManager() {
               <Button
                 onClick={() => void handlePostOpening()}
                 disabled={isPostingOb || !obBalanced || obLines.some((l) => !l.account_id)}
-                className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800"
+                className="hover:from-elite-blue-700 hover:to-elite-blue-800 bg-foreground text-background"
               >
                 {isPostingOb ? <Loader2 className="h-4 w-4 animate-spin" /> : <Scale className="h-4 w-4" />}
                 {ar ? "ترحيل الأرصدة" : "Post balances"}

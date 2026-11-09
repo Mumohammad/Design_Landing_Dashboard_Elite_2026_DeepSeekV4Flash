@@ -1,8 +1,9 @@
 "use client"
+import { readDeepLinkQuery } from "@/hooks/use-table-page"
 
 import { useEffect, useMemo, useState } from "react"
 import { PackageCheck, PackageX, DollarSign, TrendingUp, Plus, Trash2, Download, Pencil } from "lucide-react"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 import { useTranslation } from "@/hooks/use-translation"
 import {
   EnterpriseModulePage,
@@ -53,6 +54,7 @@ export default function OrdersPage() {
   const [rows, setRows] = useState<OrderRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [search, setSearch] = useState("")
+  useEffect(() => { const id = window.setTimeout(() => { const q = readDeepLinkQuery(); if (q) setSearch(q) }, 0); return () => window.clearTimeout(id) }, [])
   const [month, setMonth] = useState(currentMonth())
   const [addOpen, setAddOpen] = useState(false)
   const [editing, setEditing] = useState<OrderRow | null>(null)
@@ -97,7 +99,7 @@ export default function OrdersPage() {
       { label: t.orders.kpiDelivered, value: delivered, icon: PackageCheck, color: "#10B981" },
       { label: t.orders.kpiFailed, value: failed, icon: PackageX, color: "#EF4444" },
       { label: t.orders.kpiRevenue, value: `${revenue.toLocaleString("en-US", { maximumFractionDigits: 0 })}`, icon: DollarSign, color: "#1E5A99" },
-      { label: t.orders.kpiCompletion, value: `${completion}%`, icon: TrendingUp, color: "#8B5CF6" },
+      { label: t.orders.kpiCompletion, value: `${completion}%`, icon: TrendingUp, color: "#0F766E" },
     ]
   }, [summary, t])
 
@@ -113,7 +115,7 @@ export default function OrdersPage() {
       render: (r) => (
         <div className="flex flex-col">
           <span className="font-medium">{(isAr ? r.driver?.full_name_ar : r.driver?.full_name_en) ?? r.driver?.full_name_ar ?? "—"}</span>
-          {r.driver?.driver_code && <span dir="ltr" className="font-mono text-[11px] text-muted-foreground">{r.driver.driver_code}</span>}
+          {r.driver?.driver_code && <span dir="ltr" className="font-mono text-xs text-muted-foreground">{r.driver.driver_code}</span>}
         </div>
       ),
     },
@@ -217,7 +219,7 @@ export default function OrdersPage() {
   }
 
   return (
-    <div className="px-4 lg:px-6 py-4">
+    <div className="py-4">
       <EnterpriseModulePage
         title={t.orders.title}
         subtitle={t.orders.subtitle}

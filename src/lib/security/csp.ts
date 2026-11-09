@@ -56,9 +56,28 @@ export function buildCsp({ isDev, supabaseUrl }: CspOptions): string {
     // Only development adds the default local origin as a convenience.
     `connect-src 'self' ${supabaseOrigin} ${supabaseWebSocketOrigin}` +
       (isDev ? ` ${LOCAL_SUPABASE_ORIGIN} ws://127.0.0.1:54321` : "") +
-      " https://api.resend.com https://api.emailjs.com https://zatca.gov.sa https://*.ingest.sentry.io",
+      " https://api.resend.com https://api.emailjs.com https://zatca.gov.sa https://*.ingest.sentry.io https://*.ingest.de.sentry.io",
+    // Sentry Session Replay compresses in a blob: worker.
+    "worker-src 'self' blob:",
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",
+  ].join("; ")
+}
+
+/**
+ * CSP for the self-hosted OCR worker files under /ocr only. Tesseract runs as a
+ * dedicated worker whose policy comes from its own response, so WebAssembly
+ * compilation ('wasm-unsafe-eval', not JS eval) is allowed there and nowhere
+ * else. The worker may only load same-origin scripts and language data.
+ */
+export function buildOcrWorkerCsp(): string {
+  return [
+    "default-src 'none'",
+    "script-src 'self' 'wasm-unsafe-eval'",
+    "connect-src 'self'",
+    "frame-ancestors 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
   ].join("; ")
 }

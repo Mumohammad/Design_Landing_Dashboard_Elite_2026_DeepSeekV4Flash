@@ -5,7 +5,7 @@
 // No authentication required for public pages; auth fixture used for
 // dashboard pages.
 
-import { test as base, expect, type Page } from "@playwright/test"
+import { test as base, expect, type Page } from "./preview-test"
 import { assertStagingTarget } from "./staging-target"
 
 // ── Auth fixture ─────────────────────────────────────────────────────────────

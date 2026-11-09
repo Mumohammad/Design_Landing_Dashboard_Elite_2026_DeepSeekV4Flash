@@ -119,25 +119,25 @@ function MfaChallengeContent() {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <LoadingSpinner className="h-6 w-6 text-elite-blue-600" />
+      <div className="flex min-h-40 items-center justify-center">
+        <LoadingSpinner className="h-6 w-6 text-muted-foreground" />
       </div>
     )
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <Card className="w-full max-w-md rounded-2xl border border-border/50 bg-card/80 shadow-sm backdrop-blur-sm">
+    <div className="w-full">
+      <Card className="w-full rounded-lg border border-border bg-card shadow-none">
         <CardHeader className="pb-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-elite-blue-600/10">
-              <ShieldCheck className="h-5 w-5 text-elite-blue-600" />
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-muted">
+              <ShieldCheck className="h-5 w-5 text-muted-foreground" />
             </div>
             <div>
-              <CardTitle className="text-base">
-                {ar ? "التحقق الثنائي مطلوب" : "Two-factor verification required"}
+              <CardTitle className="text-xl leading-snug"><h1>
+                {ar ? "التحقق الثنائي مطلوب" : "Two-factor verification required"}</h1>
               </CardTitle>
-              <CardDescription className="text-xs">
+              <CardDescription className="mt-2 text-sm leading-6">
                 {ar
                   ? "أدخل الرمز المكوّن من 6 أرقام من تطبيق المصادقة لإكمال تسجيل الدخول"
                   : "Enter the 6-digit code from your authenticator app to finish signing in"}
@@ -147,11 +147,12 @@ function MfaChallengeContent() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">
+            <label htmlFor="mfa-code" className="text-sm font-medium text-foreground">
               {ar ? "رمز التحقق" : "Verification code"}
             </label>
             <div className="flex gap-2">
               <Input
+                id="mfa-code"
                 type="text"
                 inputMode="numeric"
                 pattern="[0-9]*"
@@ -162,13 +163,14 @@ function MfaChallengeContent() {
                 value={code}
                 onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
                 onKeyDown={(e) => { if (e.key === "Enter") void handleVerify() }}
-                className="flex-1 rounded-xl text-center font-mono text-lg tracking-[0.3em]"
+                className="h-11 flex-1 rounded-md text-center font-mono text-lg tracking-[0.3em]"
                 dir="ltr"
               />
               <Button
                 onClick={() => void handleVerify()}
                 disabled={verifying || code.length !== 6}
-                className="rounded-xl bg-gradient-to-r from-elite-blue-500 to-elite-blue-600 text-white"
+                aria-label={ar ? "تأكيد رمز التحقق" : "Verify code"}
+                className="h-11 rounded-md bg-foreground text-background hover:bg-foreground/90"
               >
                 {verifying ? <LoadingSpinner className="h-4 w-4" /> : <ShieldCheck className="h-4 w-4" />}
               </Button>
@@ -176,7 +178,7 @@ function MfaChallengeContent() {
           </div>
 
           {error && (
-            <div className="flex items-center gap-2 rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-600" role="alert">
+            <div className="flex items-center gap-2 rounded-md border border-destructive/25 bg-destructive/10 px-4 py-3 text-sm text-destructive" role="alert">
               <AlertTriangle className="h-4 w-4 shrink-0" />
               {error}
             </div>
@@ -186,7 +188,7 @@ function MfaChallengeContent() {
             onClick={() => void handleSignOut()}
             variant="ghost"
             size="sm"
-            className="w-full rounded-xl text-muted-foreground"
+            className="w-full rounded-md text-muted-foreground"
           >
             <LogOut className="mr-1.5 h-4 w-4 rtl:ml-1.5 rtl:mr-0" />
             {ar ? "تسجيل الخروج والعودة" : "Sign out and go back"}
@@ -201,8 +203,8 @@ export default function MfaChallengePage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-screen items-center justify-center bg-background">
-          <LoadingSpinner className="h-6 w-6 text-elite-blue-600" />
+        <div className="flex min-h-40 items-center justify-center">
+          <LoadingSpinner className="h-6 w-6 text-muted-foreground" />
         </div>
       }
     >

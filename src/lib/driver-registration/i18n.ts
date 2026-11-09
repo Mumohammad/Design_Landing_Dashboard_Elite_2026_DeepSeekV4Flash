@@ -29,6 +29,7 @@ export interface RegistrationDictionary {
     trustPoints: string[]
   }
   progress: { step: string; of: string; complete: string }
+  resume: { title: string; body: string; continue: string; startOver: string; saved: string; notSaved: string }
   steps: {
     personal: string
     contact: string
@@ -252,6 +253,7 @@ const en: RegistrationDictionary = {
     ],
   },
   progress: { step: "Step", of: "of", complete: "Complete" },
+  resume: { title: "Continue your application", body: "Your progress is saved in this browser for 2 hours. Pick up where you left off, or start again.", continue: "Continue application", startOver: "Start over", saved: "Progress saved on this device", notSaved: "Progress could not be saved — keep this page open" },
   steps: {
     personal: "Personal",
     contact: "Contact",
@@ -471,6 +473,7 @@ const ar: RegistrationDictionary = {
     trustPoints: ["لا يتطلب حسابًا", "مستنداتك تبقى خاصة", "قدّم من أي جهاز"],
   },
   progress: { step: "الخطوة", of: "من", complete: "مكتمل" },
+  resume: { title: "أكمل طلبك", body: "تقدّمك محفوظ في هذا المتصفح لمدة ساعتين. أكمل من حيث توقفت أو ابدأ من جديد.", continue: "إكمال الطلب", startOver: "البدء من جديد", saved: "تم حفظ التقدّم على هذا الجهاز", notSaved: "تعذّر حفظ التقدّم — أبقِ هذه الصفحة مفتوحة" },
   steps: {
     personal: "البيانات الشخصية",
     contact: "التواصل",
@@ -690,6 +693,7 @@ const ur: RegistrationDictionary = {
     trustPoints: ["اکاؤنٹ کی ضرورت نہیں", "آپ کی دستاویزات نجی رہتی ہیں", "کسی بھی ڈیوائس سے درخواست دیں"],
   },
   progress: { step: "مرحلہ", of: "از", complete: "مکمل" },
+  resume: { title: "اپنی درخواست جاری رکھیں", body: "آپ کی پیش رفت اس براؤزر میں 2 گھنٹے کے لیے محفوظ ہے۔ جہاں چھوڑا تھا وہیں سے جاری رکھیں یا دوبارہ شروع کریں۔", continue: "درخواست جاری رکھیں", startOver: "دوبارہ شروع کریں", saved: "پیش رفت اس آلے پر محفوظ ہو گئی", notSaved: "پیش رفت محفوظ نہیں ہو سکی — یہ صفحہ کھلا رکھیں" },
   steps: {
     personal: "ذاتی معلومات",
     contact: "رابطہ",
@@ -909,6 +913,7 @@ const bn: RegistrationDictionary = {
     trustPoints: ["কোনো অ্যাকাউন্ট লাগবে না", "আপনার নথি ব্যক্তিগত থাকে", "যেকোনো ডিভাইস থেকে আবেদন করুন"],
   },
   progress: { step: "ধাপ", of: "এর", complete: "সম্পূর্ণ" },
+  resume: { title: "আপনার আবেদন চালিয়ে যান", body: "আপনার অগ্রগতি এই ব্রাউজারে ২ ঘণ্টার জন্য সংরক্ষিত আছে। যেখানে থেমেছিলেন সেখান থেকে চালিয়ে যান, অথবা আবার শুরু করুন।", continue: "আবেদন চালিয়ে যান", startOver: "আবার শুরু করুন", saved: "অগ্রগতি এই ডিভাইসে সংরক্ষিত হয়েছে", notSaved: "অগ্রগতি সংরক্ষণ করা যায়নি — এই পৃষ্ঠাটি খোলা রাখুন" },
   steps: {
     personal: "ব্যক্তিগত তথ্য",
     contact: "যোগাযোগ",

@@ -239,7 +239,7 @@ export function StatementsManager() {
       </div>
 
       {/* P&L */}
-      <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+      <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
         <CardHeader className="pb-3 flex-row items-center justify-between flex-wrap gap-2">
           <div>
             <CardTitle className="text-base">{ar ? "قائمة الدخل (أرباح وخسائر)" : "Profit & Loss"}</CardTitle>
@@ -271,7 +271,7 @@ export function StatementsManager() {
               )}
               {pl.map((r) => (
                 <tr key={r.account_code} className="border-b border-border/40 last:border-0 hover:bg-muted/40">
-                  <Td>{ar ? r.name_ar : r.name_en} <span dir="ltr" className="font-mono text-[10px] text-muted-foreground">{r.account_code === "__UNCLOSED_RESULT__" ? (ar ? "محسوب" : "Calculated") : r.account_code}</span></Td>
+                  <Td>{ar ? r.name_ar : (r.name_en || r.name_ar)} <span dir="ltr" className="font-mono text-xs text-muted-foreground">{r.account_code === "__UNCLOSED_RESULT__" ? (ar ? "محسوب" : "Calculated") : r.account_code}</span></Td>
                   <Td>{ar ? (r.account_type === "income" ? "إيراد" : "مصروف") : r.account_type}</Td>
                   <Td dir="ltr" className={`text-end font-medium tabular-nums ${r.account_type === "income" ? "text-emerald-600" : "text-red-600"}`}>
                     {fmtMoney(r.net_balance)}
@@ -293,7 +293,7 @@ export function StatementsManager() {
                 </tr>
               )}
               {pl.length > 0 && (
-                <tr className="bg-gradient-to-r from-elite-blue-600/10 to-elite-blue-700/10">
+                <tr className="bg-card">
                   <Td className="font-extrabold">{ar ? "صافي الربح / الخسارة" : "Net Profit / Loss"}</Td>
                   <Td />
                   <Td dir="ltr" className={`text-end font-extrabold tabular-nums ${netProfit >= 0 ? "text-emerald-600" : "text-red-600"}`}>{fmtMoney(netProfit)}</Td>
@@ -305,7 +305,7 @@ export function StatementsManager() {
       </Card>
 
       {/* Balance Sheet */}
-      <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+      <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
         <CardHeader className="pb-3 flex-row items-center justify-between flex-wrap gap-2">
           <div>
             <CardTitle className="text-base">{ar ? "الميزانية العمومية" : "Balance Sheet"}</CardTitle>
@@ -339,7 +339,7 @@ export function StatementsManager() {
               )}
               {bs.map((r) => (
                 <tr key={r.account_code} className="border-b border-border/40 last:border-0 hover:bg-muted/40">
-                  <Td>{ar ? r.name_ar : r.name_en} <span dir="ltr" className="font-mono text-[10px] text-muted-foreground">{r.account_code === "__UNCLOSED_RESULT__" ? (ar ? "محسوب" : "Calculated") : r.account_code}</span></Td>
+                  <Td>{ar ? r.name_ar : (r.name_en || r.name_ar)} <span dir="ltr" className="font-mono text-xs text-muted-foreground">{r.account_code === "__UNCLOSED_RESULT__" ? (ar ? "محسوب" : "Calculated") : r.account_code}</span></Td>
                   <Td>{ar ? (r.account_type === "asset" ? "أصل" : r.account_type === "liability" ? "التزام" : "حقوق ملكية") : r.account_type}</Td>
                   <Td dir="ltr" className={`text-end font-medium tabular-nums ${r.account_type === "asset" ? "text-emerald-600" : "text-foreground"}`}>
                     {fmtMoney(r.balance)}
@@ -363,7 +363,7 @@ export function StatementsManager() {
                     <Td />
                     <Td dir="ltr" className="text-end font-bold tabular-nums">{fmtMoney(equity)}</Td>
                   </tr>
-                  <tr className="bg-gradient-to-r from-elite-blue-600/10 to-elite-blue-700/10">
+                  <tr className="bg-card">
                     <Td className="font-extrabold">{ar ? "فرق التوازن" : "Balance Check"}</Td>
                     <Td />
                     <Td dir="ltr" className={`text-end font-extrabold tabular-nums ${balanced ? "text-emerald-600" : "text-red-600"}`}>
@@ -378,7 +378,7 @@ export function StatementsManager() {
       </Card>
 
       {/* Cash Flow */}
-      <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+      <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
         <CardHeader className="pb-3 flex-row items-center justify-between flex-wrap gap-2">
           <div>
             <CardTitle className="text-base">{ar ? "التدفقات النقدية" : "Cash Flow"}</CardTitle>
@@ -420,7 +420,7 @@ export function StatementsManager() {
                 </tr>
               ))}
               {cf.length > 0 && (
-                <tr className="bg-gradient-to-r from-elite-blue-600/10 to-elite-blue-700/10">
+                <tr className="bg-card">
                   <Td className="font-extrabold">{ar ? "صافي التدفق" : "Net Cash Flow"}</Td>
                   <Td />
                   <Td />

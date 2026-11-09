@@ -8,7 +8,7 @@ import { useTablePage } from "@/hooks/use-table-page"
 import { DriverHistoryToolbar } from "./driver-history-toolbar"
 import { LeaveRequestDialog } from "./leave-request-dialog"
 import { CalendarClock, CheckCircle2, Loader2, XCircle } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 import { emitDriverChanged, subscribeDriverChanged } from "@/lib/drivers/driver-events";
 import { createClient } from "@/lib/supabase/client";

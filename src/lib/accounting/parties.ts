@@ -17,10 +17,14 @@ export type PartyKind = "customers" | "suppliers"
 export type PartyInput = {
   code?: string | null; name_ar: string; name_en?: string | null; phone?: string | null
   email?: string | null; tax_number?: string | null; address?: string | null
+  city?: string | null; district?: string | null; building_number?: string | null
+  additional_number?: string | null; postal_code?: string | null; country_code?: string | null
   credit_limit?: number | null; is_active?: boolean
 }
 type NormalizedParty = { code: string | null; name_ar: string; name_en: string | null; phone: string | null
-  email: string | null; tax_number: string | null; address: string | null; credit_limit: number | null; is_active?: boolean }
+  email: string | null; tax_number: string | null; address: string | null; credit_limit: number | null; is_active?: boolean
+  city?: string | null; district?: string | null; building_number?: string | null
+  additional_number?: string | null; postal_code?: string | null; country_code?: string }
 function normalizedText(value: unknown, maximum: number): string | null | false {
   if (value == null) return null
   if (typeof value !== "string") return false
@@ -42,10 +46,26 @@ function normalizeParty(input: PartyInput): NormalizedParty | MasterActionFailur
     try { if (round2(credit) !== credit) return masterFailure("MASTER_CREDIT_INVALID") }
     catch { return masterFailure("MASTER_CREDIT_INVALID") }
   }
+  // Omitted address keys stay omitted so retries from before the address release
+  // retain the same normalized receipt identity and edits preserve stored values.
+  const national: Pick<NormalizedParty, "city" | "district" | "building_number" | "additional_number" | "postal_code" | "country_code"> = {}
+  for (const [key, maximum] of [["city", 100], ["district", 127], ["building_number", 4], ["additional_number", 4], ["postal_code", 5], ["country_code", 2]] as const) {
+    if (!Object.prototype.hasOwnProperty.call(input, key)) continue
+    const value = normalizedText(input[key], maximum)
+    if (value === false || (value && /[\u0000-\u001f\u007f]/.test(value))) return masterFailure("MASTER_INVALID")
+    if (key === "country_code") {
+      const country = (value || "SA").toUpperCase()
+      if (!/^[A-Z]{2}$/.test(country)) return masterFailure("MASTER_INVALID")
+      national.country_code = country
+    } else {
+      if (value && ((key === "building_number" || key === "additional_number") ? !/^[0-9]{4}$/.test(value) : key === "postal_code" && !/^[0-9]{5}$/.test(value))) return masterFailure("MASTER_INVALID")
+      national[key] = value
+    }
+  }
   if (input.is_active !== undefined && typeof input.is_active !== "boolean") return masterFailure("MASTER_INVALID")
   return { code: code ? code.toUpperCase() : null, name_ar: nameAr, name_en: nameEn as string | null,
     phone: phone as string | null, email: email as string | null, tax_number: tax || null,
-    address: address as string | null, credit_limit: credit,
+    address: address as string | null, credit_limit: credit, ...national,
     ...(input.is_active === undefined ? {} : { is_active: input.is_active }) }
 }
 async function refreshParties(kind: PartyKind, tenantId: string): Promise<void> {
@@ -107,8 +127,8 @@ async function exportParties(kind: PartyKind, search = ""): Promise<PartyExportR
     const caller = await createClient()
     const result = await readMasterPage<PartyMasterRow>(caller, kind, { search, exporting: true })
     const csv = "\uFEFF" + toCsv(
-      ["code", "name_ar", "name_en", "phone", "email", "tax_number", "address", "credit_limit", "is_active"],
-      result.rows.map(row => [row.code, row.name_ar, row.name_en, row.phone, row.email, row.tax_number, row.address, row.credit_limit, row.is_active ? "true" : "false"]),
+      ["code", "name_ar", "name_en", "phone", "email", "tax_number", "address", "city", "district", "building_number", "additional_number", "postal_code", "country_code", "credit_limit", "is_active"],
+      result.rows.map(row => [row.code, row.name_ar, row.name_en, row.phone, row.email, row.tax_number, row.address, row.city, row.district, row.building_number, row.additional_number, row.postal_code, row.country_code, row.credit_limit, row.is_active ? "true" : "false"]),
     )
     if (utf8ByteLength(csv) > MASTER_EXPORT_MAX_BYTES) return masterFailure("MASTER_EXPORT_LIMIT")
     return { success: true, csv }

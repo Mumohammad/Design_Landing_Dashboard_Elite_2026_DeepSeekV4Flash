@@ -10,6 +10,8 @@ import {
 import { ERROR_CODES } from '@/lib/errors/error-codes';
 import { isValidNewPassword, newPasswordHint } from '@/lib/auth/password-policy';
 import { authCallbackUrlWithReturn } from '@/lib/redirects';
+import { LogoValidationError, normalizeLogo } from '@/lib/branding/logo';
+import { decodeLogoPayload, LOGO_MAX_PAYLOAD_CHARS, UUID_PATTERN } from '@/lib/branding/logo-core';
 
 // FX-08: public registration password policy — min 10 chars, at least one
 // letter and one digit (password "a" was previously accepted).
@@ -18,7 +20,7 @@ const registerSchema = z.object({
   domain: z.string().min(3).max(253),
   email: z.string().email().max(320),
   password: z.string().refine(isValidNewPassword, newPasswordHint('en')),
-  logo_url: z.string().url().max(512).optional(),
+  logo_base64: z.string().max(LOGO_MAX_PAYLOAD_CHARS).optional(),
   brand_colors: z.string().max(32).optional(),
 });
 
@@ -76,7 +78,7 @@ export async function POST(req: NextRequest) {
     const supabase = createClient(supabaseUrl, serviceKey);
 
     const body = await req.json();
-    const { company_name, domain, email, password, logo_url, brand_colors } = body;
+    const { company_name, domain, email, password, logo_base64, brand_colors } = body;
 
     if (!company_name || !domain || !email || !password) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -91,12 +93,28 @@ export async function POST(req: NextRequest) {
       domain,
       email,
       password,
-      logo_url: logo_url || undefined,
+      logo_base64: logo_base64 || undefined,
       brand_colors: brand_colors || undefined,
     });
     if (!parsed.success) {
       return NextResponse.json({ error: 'Invalid registration details' }, { status: 400 });
     }
+
+    // Validate optional images before creating an account. Attachment is deferred
+    // until the owner has a caller session and has completed the normal MFA flow.
+    if (parsed.data.logo_base64) {
+      const bytes = decodeLogoPayload(parsed.data.logo_base64);
+      if (!bytes) return NextResponse.json({ error: 'Invalid company logo' }, { status: 400 });
+      try { await normalizeLogo(bytes); } catch (error) {
+        if (error instanceof LogoValidationError) return NextResponse.json({ error: 'Invalid company logo' }, { status: 400 });
+        throw error;
+      }
+    }
+    const logoResult = parsed.data.logo_base64 ? {
+      logo_status: 'deferred',
+      logo_message_en: 'Your workspace is ready. Add the logo from Settings after signing in.',
+      logo_message_ar: 'مساحة العمل جاهزة. أضف الشعار من الإعدادات بعد تسجيل الدخول.',
+    } : {};
 
     let confirmationRedirect: string;
     try { confirmationRedirect = authCallbackUrlWithReturn(); } catch {
@@ -150,7 +168,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Registration temporarily unavailable' }, { status: 503 });
       }
       return NextResponse.json(
-        { success: true, requires_confirmation: emailConfirmationEnabled },
+        { success: true, requires_confirmation: emailConfirmationEnabled, ...logoResult },
         { status: 200 }
 );
     }
@@ -158,10 +176,10 @@ export async function POST(req: NextRequest) {
 
     // Provision the tenant + membership + role rows BEFORE returning, so the
     // workspace is fully ready the moment the user signs in.
-    const { error: provisionError } = await supabase.rpc('provision_company_atomic', {
+    const { data: provisioned, error: provisionError } = await supabase.rpc('provision_company_atomic', {
       p_auth_user_id: authData.user.id,
       p_company: {
-        name: company_name, slug, domain, logo_url: logo_url || null,
+        name: company_name, slug, domain,
         brand_colors: { primary: brand_colors || '#1E5A99', secondary: '#E87D3E' },
       },
     });
@@ -179,6 +197,11 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Confirmation step (only when the auth project requires it) ──
+    if (!provisioned || typeof provisioned.id !== 'string' || !UUID_PATTERN.test(provisioned.id)) {
+      // A malformed response cannot prove rollback. Retain the Auth owner.
+      return NextResponse.json({ error: 'Registration unavailable. Please contact support before retrying.' }, { status: 503 });
+    }
+
     if (emailConfirmationEnabled) {
       // Mint the same confirmation link Supabase would email, then send it
       // through Resend with the branded bilingual template.
@@ -201,11 +224,11 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      return NextResponse.json({ success: true, requires_confirmation: true });
+      return NextResponse.json({ success: true, requires_confirmation: true, ...logoResult });
     }
 
     // Email confirmation disabled → straight to sign-in with a success banner.
-    return NextResponse.json({ success: true, requires_confirmation: false });
+    return NextResponse.json({ success: true, requires_confirmation: false, ...logoResult });
   } catch (error) {
     // FX-07: never relay raw error text — this catch previously returned
     // `error.message`, leaking PostgREST diagnostics (table/column names,

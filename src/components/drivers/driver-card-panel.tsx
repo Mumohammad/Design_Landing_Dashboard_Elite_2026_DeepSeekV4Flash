@@ -13,7 +13,9 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { emitDriverChanged } from "@/lib/drivers/driver-events"
+import { emitDriverChanged, subscribeDriverChanged } from "@/lib/drivers/driver-events"
+import { fetchDriverPlatformAccounts } from "@/lib/drivers/platform-accounts"
+import { platformLabel } from "@/lib/drivers/platforms"
 import { useTablePage } from "@/hooks/use-table-page"
 import { DriverHistoryToolbar } from "./driver-history-toolbar"
 import { CreditCard, Eye, Printer } from "lucide-react"
@@ -51,6 +53,22 @@ function DriverCardPanelContent({ driverId, isAr }: { driverId: string; isAr: bo
   const [previewOpen, setPreviewOpen] = useState(false)
   const [format, setFormat] = useState<"pvc" | "a4">("pvc")
   const [now, setNow] = useState(() => Date.now())
+  // Rider ID on the card = the driver's primary platform rider ID.
+  const [platform, setPlatform] = useState<{ code: string; riderId: string } | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    const loadPlatform = () =>
+      fetchDriverPlatformAccounts(driverId)
+        .then((rows) => {
+          if (cancelled) return
+          const primary = rows.find((r) => r.is_primary && r.status === "active") ?? rows.find((r) => r.status === "active")
+          setPlatform(primary ? { code: primary.platform_code, riderId: primary.platform_driver_id } : null)
+        })
+        .catch(() => { if (!cancelled) setPlatform(null) })
+    void loadPlatform()
+    const unsubscribe = subscribeDriverChanged((d) => { if (d.driverId === driverId && d.action === "platforms") void loadPlatform() })
+    return () => { cancelled = true; unsubscribe() }
+  }, [driverId])
 
   useEffect(() => {
     if (card?.status !== "active" || !card.expires_at) return
@@ -172,7 +190,7 @@ function DriverCardPanelContent({ driverId, isAr }: { driverId: string; isAr: bo
       const res=await recordCardPrint({driverId,expectedDriverVersion:person.profileVersion,cardId:card.id,expectedVersion:card.workflow_version,format})
       if(!res.ok){popup.close();setError(isAr?res.errorAr:res.error);return}
       saved=true
-      popup.document.write(buildCardPrintHtml(card,{...person,photoUrl:sharedPhotoUrl},format));popup.document.close()
+      popup.document.write(buildCardPrintHtml(card,{...person,photoUrl:sharedPhotoUrl},format,platform));popup.document.close()
       let timeout:number|undefined
       try{await Promise.race([Promise.all([popup.document.fonts.ready,...Array.from(popup.document.images,image=>image.decode())]),new Promise<never>((_,reject)=>{timeout=window.setTimeout(()=>reject(Error("Print assets unavailable")),8000)})])}finally{if(timeout!==undefined)window.clearTimeout(timeout)}
       popup.focus();popup.print()
@@ -209,12 +227,15 @@ function DriverCardPanelContent({ driverId, isAr }: { driverId: string; isAr: bo
                   {card.card_serial}
                 </span>
                 {statusLbl && (
-                  <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold", cardStatusCls[effectiveStatus??card.status])}>
+                  <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold", cardStatusCls[effectiveStatus??card.status])}>
                     {isAr ? statusLbl.ar : statusLbl.en}
                   </span>
                 )}
                 <span className="text-[11px] text-muted-foreground tabular-nums">
                   {isAr ? "طلبات الطباعة" : "print requests"}: {card.reprint_count}
+                </span>
+                <span className="text-[11px] text-muted-foreground" dir="auto">
+                  {platform ? `${platformLabel(platform.code, isAr)} · ${platform.riderId}` : isAr ? "لا يوجد رقم مندوب رئيسي — يظهر الرقم التسلسلي" : "No primary rider ID — serial shown"}
                 </span>
               </div>
               <p className="text-[11px] text-muted-foreground tabular-nums">
@@ -265,6 +286,7 @@ function DriverCardPanelContent({ driverId, isAr }: { driverId: string; isAr: bo
           {card && (
             <DriverCardPreview
               card={card}
+              platform={platform}
               person={
                 person
                   ? { ...person, photoUrl: sharedPhotoUrl }

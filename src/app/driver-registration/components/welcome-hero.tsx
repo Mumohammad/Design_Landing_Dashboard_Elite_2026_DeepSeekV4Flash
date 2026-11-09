@@ -1,97 +1,74 @@
 "use client"
 
 import { ArrowRight } from "lucide-react"
-import { DotPattern } from "@/components/dot-pattern"
 import { Button } from "@/components/ui/button"
 import { useDriverRegistration } from "@/contexts/driver-registration-context"
 import { RegistrationHeader } from "./fields"
 
-export function WelcomeHero({ onStart }: { onStart: () => void }) {
-  const { dict } = useDriverRegistration()
-  const Arrow = ArrowRight
+export function WelcomeHero({
+  onStart,
+  saved = null,
+  onResume,
+  onStartOver,
+}: {
+  onStart: () => void
+  saved?: { savedAt: number } | null
+  onResume?: () => void
+  onStartOver?: () => void
+}) {
+  const { dict, locale } = useDriverRegistration()
+  const savedTime = saved
+    ? new Intl.DateTimeFormat(locale === "ar" ? "ar-SA" : locale, { hour: "numeric", minute: "2-digit" }).format(
+        new Date(saved.savedAt)
+      )
+    : null
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-background">
-      {/* Brand backdrop */}
-      <div className="absolute inset-0 bg-gradient-to-b from-elite-blue-50 via-background to-background dark:from-elite-blue-950/30 dark:via-background dark:to-background" />
-      <DotPattern size="md" opacity="low" fadeStyle="ellipse" />
-
-      {/* Animated logistics route lines */}
-      <svg
-        className="pointer-events-none absolute inset-0 h-full w-full opacity-60"
-        viewBox="0 0 1440 900"
-        preserveAspectRatio="xMidYMid slice"
-        aria-hidden
-      >
-        <defs>
-          <linearGradient id="route-grad" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="#1E5A99" stopOpacity="0" />
-            <stop offset="50%" stopColor="#1E5A99" stopOpacity="0.55" />
-            <stop offset="100%" stopColor="#E87D3E" stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        <g fill="none" stroke="url(#route-grad)" strokeWidth="1.5">
-          <path d="M-50 620 C 250 520, 420 700, 720 600 S 1180 480, 1500 560" />
-          <path d="M-50 320 C 300 420, 560 240, 860 360 S 1260 300, 1500 380" strokeOpacity="0.6" />
-          <path d="M100 900 C 400 700, 640 820, 940 700 S 1300 620, 1500 700" strokeOpacity="0.4" />
-        </g>
-        {[
-          [720, 600],
-          [860, 360],
-          [940, 700],
-        ].map(([cx, cy], i) => (
-          <g key={i}>
-            <circle cx={cx} cy={cy} r="4" fill="#E87D3E" className="animate-pulse" style={{ animationDelay: `${i * 400}ms` }} />
-            <circle cx={cx} cy={cy} r="10" fill="#E87D3E" opacity="0.2" className="animate-ping" style={{ animationDelay: `${i * 400}ms`, transformOrigin: `${cx}px ${cy}px` }} />
-          </g>
-        ))}
-      </svg>
-
+    <div className="min-h-dvh bg-background">
       <RegistrationHeader />
-
-      <main className="relative mx-auto flex max-w-4xl flex-col items-center px-4 pb-16 pt-14 text-center lg:px-8 lg:pt-20">
-        <div className="flex items-center gap-3 rounded-full border border-elite-blue-500/30 bg-elite-blue-500/5 px-4 py-1.5 text-xs font-bold text-elite-blue-600 dark:text-elite-blue-300">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
-          {dict.welcome.badge}
-        </div>
-
-        <h1 className="mt-6 max-w-2xl text-4xl font-extrabold leading-[1.15] tracking-tight text-foreground sm:text-5xl">
+      <main className="mx-auto flex max-w-4xl flex-col items-start px-5 pb-16 pt-14 lg:px-8 lg:pt-20">
+        <h1 id="registration-title" className="max-w-3xl text-4xl font-semibold leading-[1.2] tracking-tight text-foreground sm:text-5xl">
           {dict.welcome.title}
         </h1>
-        <p className="mt-4 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg">
+        <p className="mt-5 max-w-xl text-base leading-8 text-muted-foreground sm:text-lg">
           {dict.welcome.subtitle}
         </p>
-
-        <Button
-          onClick={onStart}
-          size="lg"
-          className="group mt-9 h-14 gap-2.5 rounded-2xl bg-gradient-to-r from-elite-blue-500 to-elite-blue-600 px-10 text-base font-bold text-white shadow-xl shadow-elite-blue-500/30 transition-all hover:from-elite-blue-600 hover:to-elite-blue-700 hover:shadow-elite-blue-500/50"
-        >
-          {dict.welcome.ctaStart}
-          <Arrow className="h-5 w-5 transition-transform group-hover:translate-x-0.5 rtl:-scale-x-100 rtl:group-hover:-translate-x-0.5" />
-        </Button>
-
-        <p className="mt-4 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
-          <span className="h-1 w-1 rounded-full bg-elite-orange-500" />
-          {dict.welcome.steps}
-        </p>
-
-        <div className="mt-12 grid w-full max-w-2xl gap-3 sm:grid-cols-3">
-          {dict.welcome.trustPoints.map((point, i) => (
-            <div
-              key={point}
-              className="flex items-center justify-center gap-2 rounded-2xl border border-border/60 bg-card/70 px-4 py-3.5 text-[13px] font-semibold text-foreground shadow-sm backdrop-blur-sm"
-              style={{ transitionDelay: `${i * 60}ms` }}
-            >
-              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-                <svg viewBox="0 0 12 12" className="h-3 w-3" fill="none" aria-hidden>
-                  <path d="M2 6.5L4.5 9L10 3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </span>
-              {point}
+        {saved ? (
+          <section aria-labelledby="resume-title" className="mt-8 w-full rounded-md border border-border bg-muted/40 p-5 sm:p-6" data-testid="registration-resume">
+            <h2 id="resume-title" className="text-xl font-semibold text-foreground">{dict.resume.title}</h2>
+            <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
+              {dict.resume.body}
+              {savedTime ? <span className="ms-1 tabular-nums">({savedTime})</span> : null}
+            </p>
+            <div className="mt-5 flex flex-wrap items-center gap-3">
+              <Button onClick={onResume} size="lg" className="h-12 gap-2.5 rounded-md bg-foreground px-6 text-sm font-medium text-background hover:bg-foreground/90">
+                {dict.resume.continue}
+                <ArrowRight className="h-4 w-4 rtl:-scale-x-100" aria-hidden />
+              </Button>
+              <Button onClick={onStartOver} size="lg" variant="ghost" className="h-12 rounded-md px-5 text-sm font-medium">
+                {dict.resume.startOver}
+              </Button>
             </div>
+          </section>
+        ) : (
+          <>
+            <Button onClick={onStart} size="lg" className="mt-8 h-12 gap-2.5 rounded-md bg-foreground px-6 text-sm font-medium text-background hover:bg-foreground/90">
+              {dict.welcome.ctaStart}
+              <ArrowRight className="h-4 w-4 rtl:-scale-x-100" aria-hidden />
+            </Button>
+            <p className="mt-4 text-sm text-muted-foreground">{dict.welcome.steps}</p>
+          </>
+        )}
+        <ul aria-label={dict.welcome.badge} className="mt-12 grid w-full gap-x-8 gap-y-5 border-t border-border pt-6 sm:grid-cols-3">
+          {dict.welcome.trustPoints.map((point) => (
+            <li key={point} className="flex items-start gap-2 text-sm leading-6 text-foreground">
+              <svg viewBox="0 0 12 12" className="mt-1 h-3 w-3 shrink-0 text-muted-foreground" fill="none" aria-hidden>
+                <path d="M2 6.5L4.5 9L10 3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              {point}
+            </li>
           ))}
-        </div>
+        </ul>
       </main>
     </div>
   )

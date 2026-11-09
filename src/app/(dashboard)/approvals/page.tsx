@@ -232,7 +232,7 @@ function ApprovalsInner() {
   return (
     <div className="px-4 py-4 lg:px-6">
       {/* Server filters apply to the complete permitted pending queue. */}
-      <div className="mb-4 space-y-3 rounded-2xl border border-border/50 bg-card/60 px-4 py-3 backdrop-blur-sm">
+      <div className="mb-4 space-y-3 rounded-2xl border border-border/50 bg-card px-4 py-3">
         <div className="grid grid-cols-2 items-end gap-3 sm:flex sm:flex-wrap">
           <div className="col-span-2 grid gap-1.5 sm:w-40">
             <span className="text-sm text-muted-foreground">{isAr ? "نوع القرار" : "Decision type"}</span>
@@ -312,6 +312,7 @@ function ApprovalsInner() {
       </div>
 
       <EnterpriseModulePage<ApprovalQueueRow>
+        selectable={false}
         primaryCtaIcon={ClipboardCheck}
         title={isAr ? "صندوق القرارات" : "Approvals Inbox"}
         subtitle={

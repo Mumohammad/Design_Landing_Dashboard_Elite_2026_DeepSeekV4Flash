@@ -1,0 +1,12 @@
+{
+  "observedAt": "2026-11-09",
+  "description": "Selected applied version bindings. This is a collision guard, not a complete migration ledger or permission to apply missing migrations. sha256 uses repository source with CRLF normalized to LF; it is not the hosted statement hash.",
+  "bindings": [
+    {
+      "version": "20261109090000",
+      "name": "expense_claims",
+      "project": "wwfnsbilmyxeawgzicmv",
+      "sourceSha256": "95bda4bb4e8abbd07673757766983bd66ebe31d399401b3e93a580b472f990cf"
+    }
+  ]
+}

@@ -10,8 +10,10 @@ type BankOption = { id: string; bank_name: string; account_name: string; currenc
 const pageSize = 25
 
 /** Loads active choices independently of the paginated bank-management list. */
-export function BankAccountPicker({ value, onChange, ar, disabled = false }: {
+export function BankAccountPicker({ value, onChange, ar, disabled = false, idPrefix = "pay", legend, testId = "payment-bank-picker" }: {
   value: string; onChange: (id: string) => void; ar: boolean; disabled?: boolean
+  /** Distinct control IDs when more than one picker can be mounted. */
+  idPrefix?: string; legend?: string; testId?: string
 }) {
   const [search, setSearch] = useState("")
   const [page, setPage] = useState(0)
@@ -47,14 +49,14 @@ export function BankAccountPicker({ value, onChange, ar, disabled = false }: {
   function resetResults() { setResult({ rows: [], count: 0, loading: true, error: false }) }
 
   return (
-    <fieldset disabled={disabled} className="min-w-0 space-y-2 rounded-lg border p-3" data-testid="payment-bank-picker">
-      <legend className="px-1 text-sm font-medium">{ar ? "الحساب البنكي" : "Bank account"}</legend>
-      <Label htmlFor="payBankSearch">{ar ? "البحث باسم البنك" : "Search bank name"}</Label>
-      <Input id="payBankSearch" value={search} maxLength={200} onChange={(event) => {
+    <fieldset disabled={disabled} className="min-w-0 space-y-2 rounded-lg border p-3" data-testid={testId}>
+      <legend className="px-1 text-sm font-medium">{legend ?? (ar ? "الحساب البنكي" : "Bank account")}</legend>
+      <Label htmlFor={`${idPrefix}BankSearch`}>{ar ? "البحث باسم البنك" : "Search bank name"}</Label>
+      <Input id={`${idPrefix}BankSearch`} value={search} maxLength={200} onChange={(event) => {
         setSearch(event.target.value); setPage(0); resetResults()
       }} />
-      <Label htmlFor="payBank" className="sr-only">{ar ? "اختيار الحساب البنكي" : "Select bank account"}</Label>
-      <select id="payBank" value={value} disabled={result.loading || result.error}
+      <Label htmlFor={`${idPrefix}Bank`} className="sr-only">{ar ? "اختيار الحساب البنكي" : "Select bank account"}</Label>
+      <select id={`${idPrefix}Bank`} value={value} disabled={result.loading || result.error}
         onChange={(event) => {
           onChange(event.target.value)
           setSelected(options.find((bank) => bank.id === event.target.value) ?? null)

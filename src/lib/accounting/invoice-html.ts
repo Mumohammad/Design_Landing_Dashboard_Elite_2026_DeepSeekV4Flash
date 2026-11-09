@@ -1,4 +1,5 @@
 import { RIYAL_SYMBOL } from "./riyal-symbol"
+import { richTextToSafeHtml } from "@/lib/rich-text/sanitize"
 
 export interface InvoiceDocLine {
   line_no: number; itemName?: string; description: string; quantity: number
@@ -16,7 +17,11 @@ export interface InvoiceDocData {
   qrDataUrl: string; verifyUrl: string; generatedAt: string
   /** Explicit disclosure for the current internal QR, preserved on saved PDFs. */
   internalQr: boolean
-  /** Licensed Arabic fallback for hosts without the reference's Tahoma font. */
+  /** Disclosure for a ZATCA-environment QR (sandbox/simulation evidence). */
+  qrNote?: { ar: string; en: string } | null
+  /** B2C sales (buyer without a VAT number) print as a Simplified Tax Invoice. */
+  simplified?: boolean
+  /** Licensed Arabic fallback for hosts without the reference Tahoma font. */
   fontDataUrl?: string
   /** Operator-licensed reference fonts, supplied only by the server renderer. */
   referenceFontDataUrl?: string; referenceBoldFontDataUrl?: string
@@ -40,10 +45,11 @@ function imageSource(value: string | undefined): string {
 export function buildInvoiceHtml(d: InvoiceDocData): string {
   const rates = [...new Set(d.lines.map((line) => line.vat_rate))]
   const vatLabel = rates.length === 1 ? `${rates[0]}%` : ""
+  const notesHtml = richTextToSafeHtml(d.notes)
   const money = (value: number) => `<span class="money" aria-label="${esc(d.currency)} ${number(value)}">${d.currency === "SAR" ? RIYAL_SYMBOL : esc(d.currency)} ${number(value)}</span>`
   const label = (ar: string, en: string) => `<span>${ar}</span><span lang="en" dir="ltr">${en}</span>`
   const rows = d.lines.map((line) => `<tr>
-    <td class="item" dir="auto">${esc(line.itemName)}${line.discount > 0 ? `<small>خصم / Discount: <bdi>${number(line.discount)}</bdi></small>` : ""}</td>
+    <td class="item" dir="auto">${esc(line.itemName)}</td>
     <td class="description" dir="auto">${esc(line.description)}</td>
     <td class="number">${line.unit_price.toLocaleString("en-US", { maximumFractionDigits: 4 })}</td>
     <td class="number">${line.quantity.toLocaleString("en-US", { maximumFractionDigits: 3 })}</td>
@@ -80,7 +86,7 @@ small { display: block; font-size: 7pt; line-height: 9pt; }
 .title { font-size: 16.5pt; line-height: 20.25pt; font-weight: 700; }
 .title span { display: block; }
 .qr-block { width: 94pt; margin: 7.5pt auto 0 0; direction: ltr; }
-.qr { display: block; width: 67.5pt; height: 67.5pt; }
+.qr { display: block; width: 67.5pt; height: 67.5pt; image-rendering: pixelated; }
 .qr-block small { text-align: left; margin-top: 3pt; font-size: 6pt; line-height: 8pt; }
 .brand { direction: rtl; text-align: right; overflow-wrap: anywhere; line-height: 12.75pt; }
 .brand h1 { font-size: 12pt; line-height: 18pt; font-weight: 700; }
@@ -123,16 +129,20 @@ small { display: block; font-size: 7pt; line-height: 9pt; }
 .totals tr:last-child th, .totals tr:last-child td { border-bottom: .75pt solid #000; }
 .money { white-space: nowrap; direction: ltr; display: inline-block; font-variant-numeric: tabular-nums; }
 .riyal { display: inline-block; width: .8em; height: .95em; vertical-align: -.05em; }
-.discount-note { margin-top: 5pt; font-size: 7pt; direction: rtl; text-align: left; }
 .bank { margin-top: 40.912pt; text-align: right; font-style: italic; line-height: 10.5pt; overflow-wrap: anywhere; break-inside: avoid; page-break-inside: avoid; }
 .bank h2 { font-size: 9pt; font-weight: 400; }
 .notes { margin-top: 15pt; white-space: pre-line; overflow-wrap: anywhere; }
 .notes h2 { font-size: 9pt; }
+.notes .rich p, .notes .rich div { margin: 0; }
+.notes .rich ul { list-style: disc; padding-inline-start: 16pt; margin: 2pt 0; }
+.notes .rich ol { list-style: decimal; padding-inline-start: 16pt; margin: 2pt 0; }
+.notes .rich hr { border: 0; border-top: .75pt solid #999; margin: 4pt 0; }
+.notes .rich a { color: inherit; text-decoration: underline; }
 @media screen { body { padding: 30pt 20pt; } }
 @media print { body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
 </style></head><body><main class="doc">
 <header class="header">
- <div class="identity"><h2 class="title">${d.kind === "invoice" ? label("فاتورة ضريبية", "TAX Invoice") : label(esc(d.docTypeAr), esc(d.docTypeEn))}</h2>${qr ? `<div class="qr-block"><img src="${qr}" class="qr" alt="${d.internalQr ? "Internal invoice QR" : "Invoice QR"}" />${d.internalQr ? '<small role="note">رمز داخلي · غير معتمد<br>Internal QR · unvalidated</small>' : ""}</div>` : ""}</div>
+ <div class="identity"><h2 class="title">${d.kind === "invoice" ? (d.simplified ? label("فاتورة ضريبية مبسطة", "Simplified Tax Invoice") : label("فاتورة ضريبية", "TAX Invoice")) : label(esc(d.docTypeAr), esc(d.docTypeEn))}</h2>${qr ? `<div class="qr-block"><img src="${qr}" class="qr" alt="${d.internalQr ? "Internal invoice QR" : "Invoice QR"}" />${d.internalQr ? '<small role="note">رمز داخلي · غير معتمد<br>Internal QR · unvalidated</small>' : d.qrNote ? `<small role="note">${esc(d.qrNote.ar)}<br>${esc(d.qrNote.en)}</small>` : ""}</div>` : ""}</div>
  <div class="brand"><h1>${esc(d.companyNameAr || d.companyNameEn)}</h1>${d.companyNameEn && d.companyNameAr ? `<div class="english" lang="en" dir="ltr">${esc(d.companyNameEn)}</div>` : ""}${d.companyVatNumber ? `<div>الرقم الضريبي : <bdi dir="ltr">${esc(d.companyVatNumber)}</bdi></div>` : ""}${d.companyPhone ? `<div>هاتف : <bdi dir="ltr">${esc(d.companyPhone)}</bdi></div>` : ""}<div class="company-address" dir="auto">${esc([d.companyAddress, d.companyCity].filter(Boolean).join("\n"))}</div>${d.companyCrNumber ? `<div>س.ت / CR: <bdi dir="ltr">${esc(d.companyCrNumber)}</bdi></div>` : ""}</div>
  ${imageSource(d.logoDataUrl) ? `<img class="logo" src="${imageSource(d.logoDataUrl)}" alt="${esc(d.companyNameAr)}" />` : ""}
 </header>
@@ -146,10 +156,11 @@ ${exceptionalStatus ? `<div class="status">${esc(d.statusLabelAr)} / ${esc(d.sta
 <tr><th>${label("الإجمالي قبل الضريبة", "Total Before VAT")}</th><td>${money(d.subtotal)}</td></tr>
 <tr><th>القيمة المضافة${vatLabel ? ` (${esc(vatLabel)})` : ""}</th><td>${money(d.vatAmount)}</td></tr>
 ${adjustment !== 0 ? `<tr><th>${adjustment > 0 ? "خصم من إجمالي الفاتورة" : "تعديل إجمالي الفاتورة"}</th><td>${money(-adjustment)}</td></tr>` : ""}
+${adjustment === 0 && d.discount > 0 ? `<tr class="included-discount"><th>${label("خصم البنود (مضمن)", "Line discount (included)")}</th><td>${money(-d.discount)}</td></tr>` : ""}
 <tr class="grand"><th>${label("الإجمالي بعد الضريبة", "Total After VAT")}</th><td>${money(d.total)}</td></tr>
 <tr><th>${label("مدفوع", "Paid")}</th><td>${money(paid)}</td></tr><tr><th>${label("الرصيد المستحق", "Due Amount")}</th><td>${money(Math.max(0, d.total - paid))}</td></tr>
-</tbody></table>${adjustment === 0 && d.discount > 0 ? `<p class="discount-note">خصم البنود مشمول / Line discount included: ${money(d.discount)}</p>` : ""}</section>
+</tbody></table></section>
 ${d.bankIban ? `<section class="bank"><h2>معلومات الحساب البنكي:</h2>${d.bankName ? `<div>اسم البنك : ${esc(d.bankName)}</div>` : ""}${d.bankBeneficiary ? `<div>اسم المستفيد : ${esc(d.bankBeneficiary)}</div>` : ""}<div>رقم الآيبان : <bdi dir="ltr">${esc(d.bankIban)}</bdi></div></section>` : ""}
-${d.notes ? `<section class="notes"><h2>${label("ملاحظات", "Notes")}</h2><div dir="auto">${esc(d.notes)}</div></section>` : ""}
+${notesHtml ? `<section class="notes"><h2>${label("ملاحظات", "Notes")}</h2><div class="rich" dir="auto">${notesHtml}</div></section>` : ""}
 </main></body></html>`
 }

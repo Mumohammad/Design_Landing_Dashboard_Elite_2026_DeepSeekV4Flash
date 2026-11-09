@@ -8,6 +8,7 @@ import { createClient } from "@supabase/supabase-js"
 import { createHmac, randomBytes, randomUUID } from "node:crypto"
 import { setTimeout } from "node:timers/promises"
 import {readAcceptanceFixturePlans} from "./lib/acceptance-fixture-ledgers.mjs"
+import {installVerificationAccess} from "./lib/verification-access.mjs"
 import {MODULE_GROUPS,runCoordinatedAcceptance,retireAcceptanceFixtures,preflightAcceptanceTarget,assertAcceptanceRunId} from "./lib/coordinated-acceptance.mjs"
 
 process.loadEnvFile("supabase/.temp/staging-verification.env")
@@ -74,6 +75,7 @@ try {
   browser = await chromium.launch({ headless: true })
   // Explicit context permits the stale-tab and shared-session acceptance checks.
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
+  await installVerificationAccess(context, appUrl)
   const capture = page => {const screenshot=page.screenshot.bind(page);page.screenshot=options=>screenshot({...options,path:options?.path?path.join(evidenceDir,path.basename(options.path)):undefined})}
   context.on("page",capture)
   const page = await context.newPage()

@@ -34,7 +34,16 @@ export async function mutateDriverLeave(input:unknown):Promise<LeaveActionResult
   if(!(await rateLimitDrivers("leave:"+me.authUserId)).success)return{success:false,error:"Too many leave actions. Wait and try again.",errorAr:"تجاوزت عدد إجراءات الإجازة المسموح. انتظر وحاول مجدداً."}
   const caller=await createClient()
   const {data,error}=await caller.rpc("mutate_driver_leave",{p_action:v.action,p_id:v.requestId??null,p_expected_version:v.expectedVersion??null,p_input:{reason:v.reason,surface:v.surface,...(v.driverId?{driver_id:v.driverId,client_request_id:v.clientRequestId}:{}),...(v.leaveTypeId?{leave_type_id:v.leaveTypeId,start_date:v.startDate,end_date:v.endDate}:{})}})
-  if(error)return failure(error.message??"")
+   if(error){
+   const code=error.message??""
+   if(/^(LEAVE_POLICY_REVIEW|LVE001)/.test(code)){
+    // The policy needs a hire date to compute the balance; say so plainly.
+    let driverId=v.driverId
+    if(!driverId&&v.requestId)driverId=(await caller.from("driver_leave_requests").select("driver_id").eq("id",v.requestId).maybeSingle()).data?.driver_id
+    if(driverId){const d=(await caller.from("drivers").select("hire_date").eq("id",driverId).maybeSingle()).data;if(d&&!d.hire_date)return{success:false,error:"Add the driver's hire date in the profile before requesting leave; it is needed to calculate the leave balance.",errorAr:"أضف تاريخ تعيين السائق في ملفه قبل طلب الإجازة؛ فهو لازم لحساب رصيد الإجازات."}}
+   }
+   return failure(code)
+  }
   const saved=receipt.safeParse(data);if(!saved.success||(v.requestId&&saved.data.id!==v.requestId)||(v.driverId&&saved.data.driver_id!==v.driverId)||(v.expectedVersion!==undefined&&saved.data.version<=v.expectedVersion))return failure("unknown")
   const expectedStatus=v.action==="cancel"?"cancelled":["create","edit","restore"].includes(v.action)?"pending":v.action
   if(saved.data.status!==expectedStatus)return failure("unknown")

@@ -13,6 +13,7 @@ import {
   signZatcaPayload,
   verifyZatcaPayload,
   pemToBase64Body,
+  zatcaCsrRequestPayload,
 } from "./zatca-crypto"
 
 const SAMPLE_XML = '<?xml version="1.0" encoding="UTF-8"?><Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2"><cbc:ID>INV-2026-000001</cbc:ID></Invoice>'
@@ -118,14 +119,23 @@ describe("CSR builder (onboarding)", () => {
     expect(dn).toContain("/businessCategory=Transportation")
   })
 
-  it("includes the code-signing keyUsage + basicConstraints", () => {
+  it("mirrors the official SDK extension set (template + SAN only; no basicConstraints/keyUsage)", () => {
     const kp = generateZatcaKeyPair()
     const csr = buildZatcaCsr(csrInput, kp)
     const parsed = parseZatcaCsr(csr)
     const names = (parsed.extreq ?? []).map((e) => e.extname)
-    expect(names).toContain("basicConstraints")
-    expect(names).toContain("keyUsage")
     expect(names).toContain("subjectAltName")
+    expect(names).not.toContain("basicConstraints")
+    expect(names).not.toContain("keyUsage")
+  })
+
+  it("encodes the request payload as base64 of the PEM text (ZATCA /compliance contract)", () => {
+    const kp = generateZatcaKeyPair()
+    const csr = buildZatcaCsr(csrInput, kp)
+    const pem = Buffer.from(zatcaCsrRequestPayload(csr), "base64").toString("utf8")
+    expect(pem.startsWith("-----BEGIN CERTIFICATE REQUEST-----\n")).toBe(true)
+    expect(pem.trim().endsWith("-----END CERTIFICATE REQUEST-----")).toBe(true)
+    expect(pemToBase64Body(pem)).toBe(csr)
   })
 
   it("includes the mandatory ZATCA certificateTemplateName extension (OID 1.3.6.1.4.1.311.20.2)", () => {

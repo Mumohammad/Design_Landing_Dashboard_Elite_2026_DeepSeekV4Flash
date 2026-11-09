@@ -45,7 +45,7 @@ export const APPROVAL_TYPE_META: Record<
   application: {
     ar: "طلب توظيف",
     en: "Application",
-    color: "#6366F1",
+    color: "#0F766E",
     module: "hr",
     entity: "driver_application",
     href: "/applications",

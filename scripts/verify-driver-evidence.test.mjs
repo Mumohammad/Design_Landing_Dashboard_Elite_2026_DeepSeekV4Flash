@@ -19,7 +19,7 @@ for(const[description,policy]of[
 ])test('evidence browser helper rejects '+description+' before fixture access',async()=>{
  let writes=0
  const page={request:{async get(){return{status:()=>200,headers:()=>({'content-security-policy':policy})}}}},admin={supabaseUrl:stage,from(){writes++;throw Error('Unexpected fixture access')}}
- await assert.rejects(()=>verifyDriverEvidence(page,admin,'14400000-0000-4000-8000-000000000001',app),/Staging CSP/);assert.equal(writes,0)
+ await assert.rejects(()=>verifyDriverEvidence(page,admin,'14400000-0000-4000-8000-000000000001',app,{targetRequest:(context,url,options)=>context.get(url,options)}),/Staging CSP/);assert.equal(writes,0)
 })
 const owned={host:'127.0.0.1',port:59463,schemaOnly:true,database:'driver_evidence_0123456789abcdef0123456789abcdef'}
 test('native concurrency helper accepts only the explicit owned schema-only loopback target',()=>assert.equal(assertNativeEvidenceTarget(owned),owned.database))

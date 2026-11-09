@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test"
+import { test, expect, type Page } from "./preview-test"
 import { translations } from "../src/lib/i18n/translations"
 import { assertStagingTarget } from "./staging-target"
 

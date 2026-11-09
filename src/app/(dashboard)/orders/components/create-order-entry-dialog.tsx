@@ -1,10 +1,11 @@
 "use client"
 
+import { friendlyError, currentIsArabic } from "@/lib/errors/friendly"
 import { useEffect, useState } from "react"
 import { useForm, Controller } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 import { Loader2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -111,7 +112,7 @@ function Field({
         {required && <span className="text-destructive"> *</span>}
       </Label>
       {children}
-      {error && <p className="text-[11px] font-medium text-destructive">{error}</p>}
+      {error && <p className="text-xs font-medium text-destructive">{error}</p>}
     </div>
   )
 }
@@ -233,7 +234,7 @@ export function CreateOrderEntryDialog({
       onOpenChange(false)
       onCreated()
     } else {
-      setSaveError(result.error ?? "Could not save the entry. Try again.")
+      setSaveError(friendlyError(result.error, currentIsArabic(), "Could not save the entry. Try again."))
       toast.error(result.error ?? (isAr ? "حدث خطأ" : "Something went wrong"))
     }
   }
@@ -382,7 +383,7 @@ export function CreateOrderEntryDialog({
               <Button
                 type="submit"
                 disabled={submitting}
-                className="bg-gradient-to-r from-elite-blue-500 to-elite-blue-700 text-white hover:from-elite-blue-600 hover:to-elite-blue-800"
+                className="hover:from-elite-blue-600 hover:to-elite-blue-800 bg-foreground text-background"
               >
                 {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
                 {isAr ? "حفظ الطلبات" : "Save orders"}

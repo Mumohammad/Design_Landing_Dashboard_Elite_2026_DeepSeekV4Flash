@@ -26,7 +26,7 @@ import { formatDualDate } from "@/lib/formatting/hijri"
 import { useAccountingPage } from "@/hooks/use-accounting-page"
 import { readAccountingPage } from "@/lib/accounting/paged-reads"
 import { formatVatMoney } from "@/lib/accounting/vat-position"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -111,7 +111,7 @@ export default function PaymentsPage() {
           r.amount,
           METHOD_META[r.method]?.en ?? r.method,
           STATUS_META[r.status]?.en ?? r.status,
-          (isAr ? (r.customers?.name_ar ?? r.suppliers?.name_ar) : (r.customers?.name_en ?? r.suppliers?.name_en)) ?? "",
+          (() => { const party = r.customers ?? r.suppliers; return (isAr ? (party?.name_ar ?? party?.name_en) : (party?.name_en ?? party?.name_ar)) ?? "" })(),
           r.reference ?? "",
         ]),
       )
@@ -236,7 +236,7 @@ export default function PaymentsPage() {
   ]
 
   return (
-    <div className="px-4 py-4 lg:px-6">
+    <div className="py-4">
       <EnterpriseModulePage
         title={isAr ? "المدفوعات" : "Payments"}
         subtitle={

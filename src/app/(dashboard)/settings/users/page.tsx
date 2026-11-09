@@ -138,7 +138,7 @@ export default function UsersSettingsPage() {
   }
 
   return (
-    <div className="page-enter px-4 lg:px-6 py-4 space-y-6">
+    <div className="page-enter py-4 space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-foreground">{t.nav.users}</h1>
         <p className="text-sm text-muted-foreground mt-1">
@@ -164,7 +164,7 @@ export default function UsersSettingsPage() {
         </TabsList>
 
         <TabsContent value="users" className="mt-4">
-          <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+          <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
             <div className="p-4"><Input aria-label={ar?"بحث المستخدمين":"Search users"} value={search} onChange={e=>{setPage(1);setSearch(e.target.value)}} placeholder={t.common.searchPlaceholder}/></div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -218,7 +218,7 @@ export default function UsersSettingsPage() {
         </TabsContent>
 
         <TabsContent value="invites" className="mt-4 space-y-4">
-          <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm">
+          <Card className="rounded-2xl border border-border/50 bg-card shadow-sm">
             <CardHeader className="pb-4">
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-elite-blue-600/10">
@@ -251,7 +251,7 @@ export default function UsersSettingsPage() {
                   <select
                     id="inviteRole"
                     name="role"
-                    className="h-9 rounded-md border border-input bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="h-9 rounded-xl border border-input bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     {Object.keys(ROLE_AR).filter(r=>r!=="general_manager").map((r) => (
                       <option key={r} value={r}>
@@ -263,7 +263,7 @@ export default function UsersSettingsPage() {
                 <Button
                   type="submit"
                   disabled={isInviting}
-                  className="bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 hover:from-elite-blue-700 hover:to-elite-blue-800"
+                  className="hover:from-elite-blue-700 hover:to-elite-blue-800 bg-foreground text-background"
                 >
                   {isInviting ? <LoadingSpinner className="h-4 w-4" /> : <Send className="h-4 w-4" />}
                   {ar ? "إرسال الدعوة" : "Send invite"}
@@ -280,7 +280,7 @@ export default function UsersSettingsPage() {
             </CardContent>
           </Card>
 
-          <Card className="rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm overflow-hidden">
+          <Card className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
             <CardHeader className="pb-3">
               <CardTitle className="text-base">{ar ? "الدعوات المعلقة" : "Pending invites"}</CardTitle>
             </CardHeader>

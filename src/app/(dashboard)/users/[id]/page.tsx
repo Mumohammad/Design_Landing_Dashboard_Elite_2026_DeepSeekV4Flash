@@ -21,7 +21,7 @@ import {
   ShieldCheck,
   ShieldAlert,
 } from "lucide-react"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -149,12 +149,12 @@ export default function UserDetailPage() {
   const displayName = user.full_name_ar ?? user.full_name_en ?? user.email
 
   return (
-    <div className="space-y-6 p-4 lg:p-6">
+    <div className="space-y-6 py-4 lg:p-6">
       <UserManagementControls user={user} onSaved={()=>void load()}/>
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
-          <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-elite-blue-500 to-elite-orange-500 text-lg font-bold text-white">
+          <span className="flex h-14 w-14 items-center justify-center rounded-2xl text-lg font-bold text-background bg-foreground">
             {(user.full_name_ar ?? user.full_name_en ?? "?").trim().slice(0, 1)}
           </span>
           <div>
@@ -222,7 +222,7 @@ export default function UserDetailPage() {
 
       {/* Facts grid */}
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="rounded-2xl border border-border/50 bg-card/60 shadow-sm backdrop-blur-sm">
+        <Card className="rounded-2xl border border-border/50 bg-card shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-sm font-semibold">
               <Mail className="h-4 w-4 text-elite-blue-600" />
@@ -260,7 +260,7 @@ export default function UserDetailPage() {
           </CardContent>
         </Card>
 
-        <Card className="rounded-2xl border border-border/50 bg-card/60 shadow-sm backdrop-blur-sm">
+        <Card className="rounded-2xl border border-border/50 bg-card shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-sm font-semibold">
               <BadgeCheck className="h-4 w-4 text-elite-blue-600" />
@@ -286,7 +286,7 @@ export default function UserDetailPage() {
               }
             />
             {user.pdplConsent !== true && (
-              <p className="mt-2 flex items-start gap-1.5 text-[11px] leading-relaxed text-muted-foreground">
+              <p className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-muted-foreground">
                 <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-amber-500" />
                 {isAr
                   ? "مقنّع وفق نظام حماية البيانات الشخصية حتى تسجيل موافقة الشروط."
@@ -296,7 +296,7 @@ export default function UserDetailPage() {
           </CardContent>
         </Card>
 
-        <Card className="rounded-2xl border border-border/50 bg-card/60 shadow-sm backdrop-blur-sm">
+        <Card className="rounded-2xl border border-border/50 bg-card shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-sm font-semibold">
               <CalendarDays className="h-4 w-4 text-elite-blue-600" />
@@ -341,7 +341,7 @@ export default function UserDetailPage() {
       </div>
 
       {/* Employee code card */}
-      <Card className="rounded-2xl border border-border/50 bg-card/60 shadow-sm backdrop-blur-sm">
+      <Card className="rounded-2xl border border-border/50 bg-card shadow-sm">
         <CardHeader className="pb-2">
           <CardTitle className="flex items-center gap-2 text-sm font-semibold">
             <KeyRound className="h-4 w-4 text-elite-blue-600" />
@@ -361,7 +361,7 @@ export default function UserDetailPage() {
           ) : (
             <Button
               size="sm"
-              className="rounded-xl bg-gradient-to-r from-elite-blue-500 to-elite-blue-600 text-white hover:from-elite-blue-600 hover:to-elite-blue-700"
+              className="rounded-xl hover:from-elite-blue-600 hover:to-elite-blue-700 bg-foreground text-background"
               onClick={handleAssignCode}
               disabled={assigningCode}
             >

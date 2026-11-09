@@ -3,8 +3,8 @@ import { verifyNativePreviewEnvironment } from "./scripts/preview-safety.mjs"
 
 // Validate before Next embeds public values or compiles a hosted preview.
 verifyNativePreviewEnvironment(process.env)
-import { withSentryConfig } from "@sentry/nextjs"
-import { buildCsp } from "./src/lib/security/csp"
+import { withSentryConfig } from "@sentry/nextjs/config"
+import { buildCsp, buildOcrWorkerCsp } from "./src/lib/security/csp"
 import { realpathSync } from "node:fs"
 import { relative } from "node:path"
 
@@ -36,11 +36,10 @@ const DASHBOARD_PATH_FALLBACK = process.env.DASHBOARD_PATH ?? "/dashboard"
 const LANDING_PATH = LANDING_URL.slice(LANDING_URL.indexOf("://") + 3).split("/").slice(1).length
   ? "/" + LANDING_URL.slice(LANDING_URL.indexOf("://") + 3).split("/").slice(1).join("/")
   : "/landing"
-const LANDING_HOST = LANDING_URL.slice(LANDING_URL.indexOf("://") + 3).split("/")[0]
 
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["@sparticuz/chromium", "playwright-core"],
+  serverExternalPackages: ["@sparticuz/chromium", "playwright-core", "unpdf"],
   outputFileTracingIncludes: {
     "/api/invoices/*/pdf": [
       `${packagePath("@sparticuz/chromium")}/bin/*.br`,
@@ -50,6 +49,10 @@ const nextConfig: NextConfig = {
       // Playwright loads metadata/injected resources dynamically; tracing its
       // JS entry alone omits browsers.json in the deployed function.
       `${packagePath("playwright-core")}/**/*`,
+      // Sharp's native loader discovers platform libraries dynamically. Trace
+      // physical pnpm packages, including libvips, rather than symlink children.
+      `${packagePath("sharp")}/**/*`,
+      "./node_modules/.pnpm/@img+sharp-*/node_modules/@img/sharp-*/**/*",
     ],
     "/*": ["./src/assets/fonts/cairo.woff2"],
   },
@@ -65,12 +68,12 @@ const nextConfig: NextConfig = {
     // Fix for Turbopack on Windows: multiple lockfiles in parent dirs make
     // Next infer the wrong workspace root, which breaks the PostCSS worker
     // (node exits 0xc0000142 during CSS compile). Pin the project root.
-    root: process.platform === 'win32' ? '.' : undefined,
+    root: process.platform === 'win32' ? process.cwd() : undefined,
   },
 
 
-  // NOTE: Locale is handled client-side via LocaleProvider (localStorage +
-  // lang/dir attributes). The legacy `i18n` config block was removed — it is
+  // LocaleProvider handles persisted choices; the public landing page also
+  // seeds requested-language server HTML. The legacy `i18n` block was removed — it is
   // unsupported in App Router and generated bogus /ar/* prerender routes.
 
 
@@ -131,10 +134,20 @@ const nextConfig: NextConfig = {
     }
 
 
+    // The self-hosted OCR worker (/ocr/*) runs Tesseract WebAssembly inside a
+    // dedicated worker. Workers use their own response CSP, so only these
+    // static files get 'wasm-unsafe-eval'; app pages keep the strict policy.
+    const ocrHeaders = headers.map((h) =>
+      h.key === 'Content-Security-Policy' ? { key: h.key, value: buildOcrWorkerCsp() } : h,
+    );
     return [
       {
-        source: '/(.*)',
+        source: '/((?!ocr/).*)',
         headers,
+      },
+      {
+        source: '/ocr/:path*',
+        headers: ocrHeaders,
       },
     ];
   },
@@ -262,7 +275,8 @@ const nextConfig: NextConfig = {
 
 export default withSentryConfig(nextConfig, {
   // Automatically tree-shake Sentry logger to reduce bundle size
-  silent: true,
+  // Print source-map upload results in Vercel build logs.
+  silent: !process.env.VERCEL,
   org: process.env.SENTRY_ORG,
   project: process.env.SENTRY_PROJECT,
   // Auth token for source map uploads (CI only — never commit)

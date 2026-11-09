@@ -1,10 +1,11 @@
 "use client";
 
+import { friendlyError, currentIsArabic } from "@/lib/errors/friendly"
 import { LocalizedText, useUiText } from "@/components/localized-text"
 import { useState } from "react";
 
 import { Loader2, Trash2 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 import { emitDriverChanged } from "@/lib/drivers/driver-events";
 import { saveDriverProfileOperation, archiveDriverProfileOperation } from "@/lib/driver-profile-operations/actions";
@@ -300,23 +301,23 @@ function DriverTabsForm({
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!saving) onOpenChange(next); }}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+      <DialogContent className="max-h-[88dvh] overflow-y-auto rounded-2xl sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{ui(mode === "create" ? config.title.create : config.title.edit)}</DialogTitle>
           <DialogDescription>{ui(config.description)}</DialogDescription>
         </DialogHeader>
 
-        {saveError ? <p role="alert" className="text-sm text-destructive">{ui(saveError)}</p> : null}
+        {saveError ? <p role="alert" className="text-sm text-destructive">{(()=>{const f=friendlyError(saveError,currentIsArabic());return f===saveError?ui(saveError):f})()}</p> : null}
         {immutable ? <p className="text-sm text-muted-foreground">{ui("This finalized record is retained as history.")}</p> : null}
-        <fieldset disabled={saving || immutable} className="grid gap-3 sm:grid-cols-2">
+        <fieldset disabled={saving || immutable} className="grid min-w-0 gap-4 rounded-2xl border border-border/60 bg-muted/20 p-4 sm:grid-cols-2">
           {config.fields.map((field) => (
             <div
               key={field.key}
               className={field.type === "textarea" ? "space-y-1.5 sm:col-span-2" : "space-y-1.5"}
             >
-              <Label htmlFor={`${surface}-${field.key}`}>
+              <Label htmlFor={`${surface}-${field.key}`} className="text-xs font-semibold text-foreground/80">
                 {ui(field.label)}
-                {field.required ? " *" : ""}
+                {field.required ? <span className="text-destructive"> *</span> : null}
               </Label>
               {field.type === "textarea" ? (
                 <Textarea
@@ -330,7 +331,7 @@ function DriverTabsForm({
                   value={values[field.key] ?? ""}
                   onValueChange={(v) => setField(field.key, v)}
                 >
-                  <SelectTrigger id={`${surface}-${field.key}`}>
+                  <SelectTrigger id={`${surface}-${field.key}`} className="w-full data-[size=default]:h-10">
                     <SelectValue placeholder={ui("Select…")} />
                   </SelectTrigger>
                   <SelectContent>
@@ -348,6 +349,7 @@ function DriverTabsForm({
                   dir="ltr"
                   min={field.min}
                   step={field.type === "number" ? "any" : undefined}
+                  className="h-10"
                   value={values[field.key] ?? ""}
                   onChange={(e) => setField(field.key, e.target.value)}
                 />
@@ -381,7 +383,7 @@ function DriverTabsForm({
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}><LocalizedText text="Cancel" /></Button>
           <Button onClick={() => void save()} disabled={saving || immutable}>
             {saving ? <Loader2 className="size-4 animate-spin" /> : null}
-            {mode === "create" ? "Add" : "Save changes"}
+            {ui(mode === "create" ? "Add" : "Save changes")}
           </Button>
         </DialogFooter>
       </DialogContent>

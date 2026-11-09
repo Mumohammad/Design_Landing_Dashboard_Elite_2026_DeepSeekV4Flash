@@ -43,26 +43,26 @@ const cards = [
 export default function HelpPage() {
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto max-w-4xl px-4 py-16 lg:px-8">
-        <Link href="/landing" className="inline-flex items-center gap-1.5 text-sm font-semibold text-muted-foreground transition-colors hover:text-elite-blue-600 dark:hover:text-elite-blue-300">
+      <div className="mx-auto max-w-4xl px-5 py-10 sm:py-16 lg:px-8">
+        <Link href="/landing" className="inline-flex items-center gap-1.5 text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground">
           <ArrowRight className="h-4 w-4" aria-hidden="true" />
           <LocalizedText text="Back to home" />
         </Link>
-        <div className="mt-8 text-center">
-          <h1 className="text-3xl font-extrabold tracking-tight sm:text-4xl"><LocalizedText text="How can we help?" /></h1>
-          <p className="mx-auto mt-3 max-w-xl text-sm leading-7 text-muted-foreground">
+        <div className="mt-10 max-w-2xl">
+          <h1 className="text-3xl font-semibold tracking-tight leading-tight sm:text-4xl"><LocalizedText text="How can we help?" /></h1>
+          <p className="mt-4 max-w-xl text-base leading-7 text-muted-foreground">
             <LocalizedText text="Quick answers and direct links for logistics operators and drivers." />
           </p>
         </div>
-        <div className="mt-12 grid gap-5 sm:grid-cols-2">
+        <div className="mt-12 grid gap-x-10 gap-y-8 sm:grid-cols-2">
           {cards.map((card) => (
-            <div key={card.title} className="rounded-2xl border border-border/50 bg-card/60 p-6 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/5 hover:border-elite-blue-500/40">
-              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-elite-blue-500 to-elite-orange-500 text-white shadow-lg shadow-elite-blue-500/20">
+            <div key={card.title} className="border-t border-border pt-6">
+              <span className="flex h-6 w-6 items-center text-muted-foreground">
                 <card.icon className="h-5 w-5" aria-hidden="true" />
               </span>
-              <h2 className="mt-4 text-base font-bold text-foreground"><LocalizedText text={card.title} /></h2>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground"><LocalizedText text={card.desc} /></p>
-              <Link href={card.href} className="mt-4 inline-flex items-center gap-1.5 text-sm font-bold text-elite-blue-600 transition-colors hover:text-elite-blue-700 dark:text-elite-blue-300">
+              <h2 className="mt-4 text-lg font-semibold text-foreground"><LocalizedText text={card.title} /></h2>
+              <p className="mt-2 max-w-[36ch] text-sm leading-7 text-muted-foreground"><LocalizedText text={card.desc} /></p>
+              <Link href={card.href} className="mt-4 inline-flex items-center gap-1.5 min-h-11 text-sm font-semibold text-foreground underline underline-offset-4 transition-colors hover:text-muted-foreground">
                 <LocalizedText text={card.cta} />
                 <ArrowRight className="h-4 w-4 rtl:-scale-x-100" aria-hidden="true" />
               </Link>

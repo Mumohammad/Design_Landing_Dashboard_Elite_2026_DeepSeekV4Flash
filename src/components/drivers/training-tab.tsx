@@ -1,5 +1,6 @@
 "use client"
 
+import { friendlyError, currentIsArabic } from "@/lib/errors/friendly"
 import { useCallback, useEffect, useState } from "react"
 import { useTablePage } from "@/hooks/use-table-page"
 import { DriverHistoryToolbar } from "./driver-history-toolbar"
@@ -9,7 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ExternalLink, Pencil, Plus, Trash2 } from "lucide-react"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 import { DriverTabsFormDialog } from "./driver-tabs-form-dialog"
 import { emitDriverChanged } from "@/lib/drivers/driver-events"
 import { archiveDriverProfileOperation } from "@/lib/driver-profile-operations/actions"
@@ -50,7 +51,7 @@ export function TrainingTab({ driverId, isAr }: TrainingTabProps) {
     setArchiveError(null)
     const result = await archiveDriverProfileOperation("training", driverId, String(row.id), String(row.updated_at ?? ""))
     if (!result.success) {
-      setArchiveError(result.error ?? "Failed to archive training record")
+      setArchiveError(friendlyError(result.error, currentIsArabic(), "Failed to archive training record"))
       toast.error(result.error)
       return
     }
@@ -82,9 +83,9 @@ export function TrainingTab({ driverId, isAr }: TrainingTabProps) {
       </div>
       {rows.length === 0 && !loadError ? <p className="rounded-2xl border border-border/50 p-8 text-center text-sm text-muted-foreground">{isAr ? "لا توجد سجلات تدريب" : "No training records yet"}</p> : null}
       {rows.length > 0 ? (
-        <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm">
+        <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60">
           <table className="w-full min-w-[760px] text-start text-sm">
-            <thead><tr className="border-b border-border/50 text-[10px] uppercase tracking-wide text-muted-foreground">
+            <thead><tr className="border-b border-border/50 text-[11px] text-muted-foreground">
               {[isAr ? "الدورة" : "Course", isAr ? "الجهة" : "Provider", isAr ? "التاريخ" : "Date", isAr ? "الانتهاء" : "Expiry", isAr ? "الدرجة" : "Score", isAr ? "النتيجة" : "Result", isAr ? "الشهادة" : "Certificate", isAr ? "إجراءات" : "Actions"].map(label => <th key={label} className="px-4 py-3 text-start font-semibold">{label}</th>)}
             </tr></thead>
             <tbody>{rows.map(r => {

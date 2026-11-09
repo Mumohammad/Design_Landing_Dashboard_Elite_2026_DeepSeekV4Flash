@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { getZatcaNetworkBase } from "./zatca-config"
+import { getZatcaNetworkBase, zatcaConfiguredEnvironment, zatcaOnboardableEnvironments, zatcaProductionAvailable } from "./zatca-config"
 import { transmitToZatca } from "./zatca-transport"
 import { requestComplianceCsid, requestProductionCsid } from "./zatca-onboarding"
 
@@ -29,21 +29,44 @@ describe("ZATCA environment boundary", () => {
     vi.stubEnv("ZATCA_MODE", "sandbox"); vi.stubEnv("ZATCA_API_BASE_URL", url)
     expect(getZatcaNetworkBase).toThrow("does not match")
   })
-  it("cannot submit or onboard into production, even with credentials or an enable flag", async () => {
+  it("production mode requires the explicit operator flag before any network call", async () => {
     vi.stubEnv("ZATCA_MODE", "production")
     vi.stubEnv("ZATCA_API_BASE_URL", "https://gw-fatoora.zatca.gov.sa/e-invoicing/core")
     const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock)
-    await expect(transmitToZatca({ xml: "<Invoice/>", pipeline: "reporting", docRef: "TEST",
+    await expect(transmitToZatca({ xml: "<Invoice/>", pipeline: "reporting", docRef: "TEST", environment: "production",
       credentials: { csidBase64: "fixture", secret: "fixture" } })).rejects.toThrow("disabled")
-    vi.stubEnv("ZATCA_PRODUCTION_ENABLED", "true")
-    await expect(transmitToZatca({ xml: "<Invoice/>", pipeline: "reporting", docRef: "TEST" })).rejects.toThrow("validation are incomplete")
-    await expect(requestComplianceCsid({ csr: "fixture", otp: "fixture" })).rejects.toThrow("validation are incomplete")
-    await expect(requestProductionCsid({ complianceRequestId: "fixture", csidBase64: "fixture", csidSecret: "fixture" })).rejects.toThrow("validation are incomplete")
+    await expect(requestComplianceCsid({ csr: "fixture", otp: "fixture", environment: "production" })).rejects.toThrow("disabled")
+    await expect(requestProductionCsid({ complianceRequestId: "fixture", csidBase64: "fixture", csidSecret: "fixture", environment: "production" })).rejects.toThrow("disabled")
+    expect(zatcaProductionAvailable()).toBe(false)
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+  it("operator flags cannot open production or silently fall back to simulation", async () => {
+    vi.stubEnv("ZATCA_MODE", "production")
+    vi.stubEnv("ZATCA_PRODUCTION_ENABLED", "true")
+    vi.stubEnv("ZATCA_API_BASE_URL", "https://gw-fatoora.zatca.gov.sa/e-invoicing/core")
+    const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock)
+    expect(zatcaProductionAvailable()).toBe(false)
+    expect(zatcaConfiguredEnvironment()).toBeNull()
+    expect(getZatcaNetworkBase).toThrow("independent authority acceptance")
+    expect(() => getZatcaNetworkBase("production")).toThrow("independent authority acceptance")
+    expect(zatcaOnboardableEnvironments(false)).toEqual([])
+    expect(zatcaOnboardableEnvironments(true)).toEqual([])
+    await expect(transmitToZatca({ xml: "<Invoice/>", pipeline: "reporting", docRef: "TEST", environment: "production" })).rejects.toThrow("independent authority acceptance")
+    await expect(requestComplianceCsid({ csr: "fixture", otp: "fixture", environment: "production" })).rejects.toThrow("independent authority acceptance")
+    await expect(requestProductionCsid({ complianceRequestId: "fixture", csidBase64: "fixture", csidSecret: "fixture", environment: "production" })).rejects.toThrow("independent authority acceptance")
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+  it("a test deployment can never reach production", () => {
+    vi.stubEnv("ZATCA_MODE", "simulation")
+    vi.stubEnv("ZATCA_API_BASE_URL", "https://gw-fatoora.zatca.gov.sa/e-invoicing/simulation")
+    vi.stubEnv("ZATCA_PRODUCTION_ENABLED", "true")
+    expect(zatcaProductionAvailable()).toBe(false)
+    expect(() => getZatcaNetworkBase("production")).toThrow("blocked")
+    expect(zatcaOnboardableEnvironments(true)).toEqual(["simulation"])
   })
   it("does not return simulated success for missing network credentials", async () => {
     vi.stubEnv("ZATCA_MODE", "sandbox")
     vi.stubEnv("ZATCA_API_BASE_URL", "https://gw-fatoora.zatca.gov.sa/e-invoicing/developer-portal")
-    await expect(transmitToZatca({ xml: "<Invoice/>", pipeline: "reporting", docRef: "TEST" })).rejects.toThrow("official API validation are incomplete")
+    await expect(transmitToZatca({ xml: "<Invoice/>", pipeline: "reporting", docRef: "TEST" })).rejects.toThrow("NOT_SIGNED")
   })
 })

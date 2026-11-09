@@ -5,7 +5,7 @@
 //   - Common page assertions (loading, empty, error states)
 //   - Locale helpers (AR/EN)
 
-import { test as base, expect, type Page } from "@playwright/test"
+import { test as base, expect, type Page } from "./preview-test"
 
 // ── Auth fixture ─────────────────────────────────────────────────────────────
 

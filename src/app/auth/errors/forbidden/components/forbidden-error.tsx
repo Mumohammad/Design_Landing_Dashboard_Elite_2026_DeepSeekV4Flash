@@ -11,20 +11,20 @@ export function ForbiddenError() {
   const { t } = useTranslation()
 
   return (
-    <div className="mx-auto flex min-h-dvh flex-col items-center justify-center gap-8 p-8 md:gap-12 md:p-16">
+    <div className="mx-auto flex w-full flex-col items-center gap-5 rounded-lg border border-border bg-card p-6 sm:p-8">
       {/* Icon instead of external image — more reliable and accessible */}
-      <div className="flex h-24 w-24 items-center justify-center rounded-3xl bg-gradient-to-br from-red-500/15 to-amber-500/15 shadow-lg shadow-red-500/10">
-        <ShieldAlert className="h-12 w-12 text-red-500" />
+      <div className="flex h-10 w-10 items-center justify-center">
+        <ShieldAlert className="h-8 w-8 text-destructive" />
       </div>
       <div className="text-center">
-        <h1 className="mb-4 text-3xl font-bold" aria-label="403">403</h1>
-        <h2 className="mb-3 text-2xl font-semibold">
+        <h1 className="mb-3 text-sm font-medium tabular-nums text-muted-foreground" aria-label="403">403</h1>
+        <h2 className="mb-3 text-2xl font-semibold leading-snug">
           {t.errors.forbiddenTitle}
         </h2>
-        <p className="text-muted-foreground">
+        <p className="text-sm leading-6 text-muted-foreground">
           {t.errors.forbiddenDescription}
         </p>
-        <div className="mt-6 flex items-center justify-center gap-4 md:mt-8">
+        <div className="mt-6 flex flex-col items-stretch justify-center gap-3 sm:flex-row">
           <Button
             className="cursor-pointer"
             onClick={() => router.push(REDIRECTS.dashboardUrl)}

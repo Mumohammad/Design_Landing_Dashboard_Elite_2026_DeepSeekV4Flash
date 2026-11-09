@@ -5,7 +5,7 @@ import { LocalizedText, useUiText } from "@/components/localized-text"
 import { useState } from "react";
 
 import { Loader2, Send } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 import { emitDriverChanged } from "@/lib/drivers/driver-events";
 import { useLeaveTypes } from "@/hooks/use-leave-types";
@@ -128,7 +128,7 @@ function LeaveRequestEditForm({
               onValueChange={setTypeId}
               disabled={saving||catalog.loading||catalog.error||leaveTypes.length === 0}
             >
-              <SelectTrigger id="leave-edit-type">
+              <SelectTrigger id="leave-edit-type" className="w-full">
                 <SelectValue
  placeholder={ui(leaveTypes.length === 0 ? "No leave types configured" : "Select leave type")}
                 />

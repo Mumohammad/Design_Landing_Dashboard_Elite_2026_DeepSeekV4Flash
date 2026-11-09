@@ -12,7 +12,7 @@ import { formatCurrency, formatNumber } from "./format"
 
 type MetricKey = "orders" | "revenue" | "completionRate"
 
-const COLORS = ["#1E5A99", "#2F7BC4", "#E87D3E", "#10B981", "#8B5CF6", "#F59E0B"]
+const COLORS = ["#1E5A99", "#2F7BC4", "#E87D3E", "#10B981", "#0F766E", "#F59E0B"]
 
 export function PlatformPerformance({
   data,

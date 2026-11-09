@@ -12,7 +12,7 @@ import { useParams } from "next/navigation"
 import { ArrowLeft, Plus, Download, DollarSign, Pencil } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useTranslation } from "@/hooks/use-translation"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 import { Button } from "@/components/ui/button"
 import { PaymentDialog } from "../components/platform-dialogs"
 import { ImportDialog } from "../components/import-dialog"
@@ -146,7 +146,7 @@ export default function PlatformDetailPage() {
   ]
 
   return (
-    <div className="px-4 lg:px-6 py-4">
+    <div className="py-4">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Link href="/platforms" className="rounded-xl border border-border/50 p-2 hover:bg-muted/40"><ArrowLeft className="h-4 w-4" /></Link>
@@ -183,7 +183,7 @@ export default function PlatformDetailPage() {
       {isLoading ? (
         <p className="p-6 text-sm text-muted-foreground">{t.common.loading}</p>
       ) : loadError ? null : (
-        <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/80">
+        <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card">
           {tab === "daily" && (
             dailyRollup.length === 0 ? (
               <p className="p-6 text-center text-sm text-muted-foreground">{pm.noEntries}</p>

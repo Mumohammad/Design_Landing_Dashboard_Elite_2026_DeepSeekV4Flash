@@ -1,3 +1,4 @@
+import {verificationFetch} from './lib/verification-access.mjs'
 import { expect as baseExpect } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 const expect = baseExpect.configure({ timeout: 20_000 })
@@ -5,7 +6,7 @@ const expect = baseExpect.configure({ timeout: 20_000 })
 // Only synthetic ledger fixtures in an isolated caller-owned test company.
 export async function verifyVatPosition(page, admin, tenantId, appUrl) {
   const origin = new URL(appUrl).origin
-  const policy = (await fetch(`${origin}/landing`)).headers.get('content-security-policy') ?? ''
+  const policy = (await verificationFetch(`${origin}/landing`,{},origin)).headers.get('content-security-policy') ?? ''
   const local = ['http://localhost:3107', 'http://localhost:3108'].includes(origin) && policy.includes('http://127.0.0.1:58321')
   if ((!local && !policy.includes('https://viowrovartosrkqukjxy.supabase.co')) || policy.includes('https://wwfnsbilmyxeawgzicmv.supabase.co')) throw Error('Isolated VAT test target required')
   const initialViewport = page.viewportSize(), ids = { vat_output_ledger: [], vat_input_ledger: [], vat_adjustments: [] }

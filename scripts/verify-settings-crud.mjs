@@ -1,9 +1,10 @@
+import {verificationFetch} from './lib/verification-access.mjs'
 import { expect as baseExpect } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 const expect=baseExpect.configure({timeout:20_000})
 export async function verifySettingsCrud(page,admin,tenantId,appUrl){
  const backend=new URL(admin.supabaseUrl),app=new URL(appUrl)
- const policy=(await fetch(appUrl+'/landing')).headers.get('content-security-policy')??''
+ const policy=(await verificationFetch(appUrl+'/landing',{},appUrl)).headers.get('content-security-policy')??''
  const local=['localhost','127.0.0.1'].includes(backend.hostname)&&['localhost','127.0.0.1'].includes(app.hostname)
  const stage=backend.origin==='https://viowrovartosrkqukjxy.supabase.co'&&/^elite-dashboard-[a-z0-9-]+-elitesaasc-5643\.vercel\.app$/.test(app.hostname)&&policy.includes(backend.origin)
  if((!local&&!stage)||app.hostname==='elite-dashboard-blush.vercel.app'||policy.includes('https://wwfnsbilmyxeawgzicmv.supabase.co')||!tenantId)throw Error('Isolated settings verification required')

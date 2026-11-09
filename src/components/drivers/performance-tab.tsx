@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Pencil, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { DriverTabsFormDialog } from "./driver-tabs-form-dialog"
+import { DriverScorecard } from "./driver-scorecard"
 
 type PerformanceTabProps = { driverId: string; isAr: boolean }
 
@@ -108,7 +109,7 @@ export function PerformanceTab({ driverId, isAr }: PerformanceTabProps) {
             {isAr ? "إضافة تقييم أداء" : "Add performance review"}
           </Button>
         </div>
-        <div className="rounded-2xl border border-border/50 bg-card/60 p-8 text-center backdrop-blur-sm">
+        <div className="rounded-2xl border border-border/50 bg-card/60 p-8 text-center">
           <p className="text-sm text-muted-foreground">
             {isAr ? "لا توجد تقييمات أداء بعد" : "No performance reviews yet"}
           </p>
@@ -153,6 +154,7 @@ export function PerformanceTab({ driverId, isAr }: PerformanceTabProps) {
 
   return (
     <div className="space-y-4">
+      <DriverScorecard driverId={driverId} isAr={isAr} />
       {historyToolbar}
       <div className="flex items-center justify-end gap-2">
         <Button
@@ -181,7 +183,7 @@ export function PerformanceTab({ driverId, isAr }: PerformanceTabProps) {
         </Button>
       </div>
       {/* Latest review highlight */}
-      <div className="rounded-2xl border border-border/50 bg-card/60 p-5 backdrop-blur-sm">
+      <div className="rounded-2xl border border-border/50 bg-card/60 p-5">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <div className="text-xs text-muted-foreground">
@@ -233,10 +235,10 @@ export function PerformanceTab({ driverId, isAr }: PerformanceTabProps) {
       </div>
 
       {/* History */}
-      <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm">
+      <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60">
         <table className="w-full min-w-[680px] text-start text-sm">
           <thead>
-            <tr className="border-b border-border/50 text-[10px] uppercase tracking-wide text-muted-foreground">
+            <tr className="border-b border-border/50 text-[11px] text-muted-foreground">
               <th className="px-4 py-3 text-start font-semibold">{isAr ? "الفترة" : "Period"}</th>
               <th className="px-4 py-3 text-start font-semibold">{isAr ? "التاريخ" : "Date"}</th>
               <th className="px-4 py-3 text-start font-semibold">{isAr ? "الحضور" : "Attendance"}</th>

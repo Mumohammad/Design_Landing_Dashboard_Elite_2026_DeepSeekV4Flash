@@ -18,7 +18,9 @@ export default defineConfig({
 
   use: {
     baseURL: process.env.BASE_URL ?? "http://localhost:3000",
-    trace: "on-first-retry",
+    // Traces persist request headers, including short-lived OIDC identities.
+    // Hosted evidence keeps screenshots/video; disposable local traces remain.
+    trace: process.env.BASE_URL?.startsWith("https:") ? "off" : "on-first-retry",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
     actionTimeout: 15_000,
