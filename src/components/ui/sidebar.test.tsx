@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
-import { SidebarMenuButton, SidebarProvider } from "./sidebar"
+import { SidebarInset, SidebarMenuButton, SidebarProvider } from "./sidebar"
 
 const scope = vi.hoisted(() => ({ mobile: false }))
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => scope.mobile }))
@@ -28,4 +28,14 @@ describe("sidebar tooltip layers", () => {
   it("retains tooltips for collapsed desktop navigation", () => {
     expect(renderButton(false)).toContain('data-state="closed"')
   })
+})
+
+it("keeps one main landmark when dashboard content is inside the sidebar inset", () => {
+  const html = renderToStaticMarkup(createElement(SidebarInset, { className: "custom-shell" },
+    createElement("header", null, "Workspace navigation"),
+    createElement("main", { id: "main-content" }, "Dashboard content")))
+  expect(html.match(/<main(?:\s|>)/g)).toHaveLength(1)
+  expect(html).toContain('<div data-slot="sidebar-inset"')
+  expect(html).toContain('id="main-content"')
+  expect(html).toContain("custom-shell")
 })
