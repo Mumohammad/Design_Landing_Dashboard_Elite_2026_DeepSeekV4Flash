@@ -72,7 +72,12 @@ export async function verifyReceivableCrud(page, admin, tenantId, appUrl) {
     await expect(page.getByRole('row').filter({ hasText: reference })).toContainText('4.72')
     await expect(page.locator('html')).toHaveAttribute('lang',locale)
     console.log('PASS: manual receivable → exact VAT preview → committed response loss → unchanged-form retry → one record/audit → fresh form/mobile → persisted reload')
-  } catch (error) { error.verificationStage = stage; throw error }
+  } catch (error) {
+    error.verificationStage = stage
+    error.verificationContext = { accountingRoute: new URL(page.url()).pathname === '/accounting', transportFaultInjected: intercepted }
+    try { error.verificationContext.mainCount = await page.locator('main').count(); error.verificationContext.dialogs = await page.getByRole('dialog').count(); error.verificationContext.alerts = await page.getByRole('alert').count() } catch { /* A closed page is still a failed check. */ }
+    throw error
+  }
   finally {
     await page.unroute(pattern,loseResponse).catch(()=>{})
     if (viewport) await page.setViewportSize(viewport)
