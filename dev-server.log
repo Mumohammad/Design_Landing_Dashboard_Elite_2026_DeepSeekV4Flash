@@ -1,0 +1,402 @@
+
+> shadcn-dashboard-nextjs@1.0.0 dev C:\Users\Zbook\Downloads\shadcn-dashboard-landing-template-main (1)\shadcn-dashboard-landing-template-main\nextjs-version
+> next dev
+
+▲ Next.js 16.1.1 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.112.1:3000
+- Environments: .env.local
+- Experiments (use with caution):
+  · optimizePackageImports
+
+✓ Starting...
+✓ Ready in 22.7s
+○ Compiling /auth/sign-in ...
+ GET /auth/sign-in 200 in 17.4s (compile: 16.5s, render: 910ms)
+○ Compiling /dashboard ...
+ GET /dashboard 200 in 12.9s (compile: 9.9s, proxy.ts: 2.4s, render: 689ms)
+ GET /dashboard 200 in 7.4s (compile: 41ms, proxy.ts: 6.9s, render: 491ms)
+✓ Finished filesystem cache database compaction in 14.6s
+ POST /auth/sign-in?returnTo=%2Fdashboard 200 in 10.8s (compile: 24ms, render: 10.8s)
+ POST /auth/sign-in?returnTo=%2Fdashboard 200 in 27.9s (compile: 16ms, render: 27.9s)
+ GET /accounting 200 in 61s (compile: 520ms, proxy.ts: 59s, render: 1321ms)
+ GET /auth/sign-in 200 in 98ms (compile: 8ms, render: 90ms)
+ GET /auth/sign-in?returnTo=%2Faccounting 200 in 114ms (compile: 13ms, render: 101ms)
+ POST /dashboard 200 in 46s (compile: 16ms, proxy.ts: 32.2s, render: 13.7s)
+ GET /auth/sign-in 200 in 285ms (compile: 24ms, render: 261ms)
+ GET /dashboard 200 in 993ms (compile: 21ms, proxy.ts: 922ms, render: 50ms)
+ GET /dashboard 200 in 1227ms (compile: 32ms, proxy.ts: 857ms, render: 338ms)
+ GET /accounting 200 in 1565ms (compile: 22ms, proxy.ts: 743ms, render: 801ms)
+⨯ Error: aborted
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+○ Compiling /_error ...
+ POST /accounting 200 in 2.2s (compile: 24ms, proxy.ts: 896ms, render: 1233ms)
+ POST /accounting 200 in 2.1s (compile: 29ms, proxy.ts: 845ms, render: 1224ms)
+ POST /accounting 200 in 4.5s (compile: 30ms, proxy.ts: 755ms, render: 3.7s)
+ GET /auth/sign-in 200 in 277ms (compile: 27ms, render: 250ms)
+ GET /dashboard 200 in 1031ms (compile: 35ms, proxy.ts: 883ms, render: 113ms)
+ GET /dashboard 200 in 913ms (compile: 15ms, proxy.ts: 766ms, render: 132ms)
+ GET /accounting 200 in 3.4s (compile: 672ms, proxy.ts: 1017ms, render: 1662ms)
+⨯ Error: aborted
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+ POST /accounting 200 in 2.3s (compile: 18ms, proxy.ts: 1072ms, render: 1165ms)
+ POST /accounting 200 in 2.3s (compile: 31ms, proxy.ts: 738ms, render: 1511ms)
+ POST /accounting 200 in 3.5s (compile: 22ms, proxy.ts: 899ms, render: 2.5s)
+ POST /accounting 200 in 4.5s (compile: 17ms, proxy.ts: 810ms, render: 3.7s)
+ GET /auth/sign-in 200 in 379ms (compile: 22ms, render: 357ms)
+ GET /dashboard 200 in 1175ms (compile: 13ms, proxy.ts: 1100ms, render: 62ms)
+ GET /dashboard 200 in 883ms (compile: 17ms, proxy.ts: 758ms, render: 107ms)
+ GET /accounting 200 in 1761ms (compile: 20ms, proxy.ts: 645ms, render: 1096ms)
+⨯ Error: aborted
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+ POST /accounting 200 in 1910ms (compile: 31ms, proxy.ts: 896ms, render: 983ms)
+ POST /accounting 200 in 1869ms (compile: 15ms, proxy.ts: 708ms, render: 1146ms)
+ POST /accounting 200 in 3.3s (compile: 19ms, proxy.ts: 790ms, render: 2.5s)
+ POST /accounting 200 in 5.1s (compile: 16ms, proxy.ts: 953ms, render: 4.2s)
+ GET /auth/sign-in 200 in 284ms (compile: 23ms, render: 262ms)
+ GET /dashboard 200 in 1533ms (compile: 22ms, proxy.ts: 1467ms, render: 45ms)
+ GET /dashboard 200 in 1022ms (compile: 16ms, proxy.ts: 910ms, render: 96ms)
+ GET /accounting 200 in 1568ms (compile: 20ms, proxy.ts: 658ms, render: 890ms)
+⨯ Error: aborted
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+ POST /accounting 200 in 2.3s (compile: 23ms, proxy.ts: 1169ms, render: 1149ms)
+ POST /accounting 200 in 2.3s (compile: 32ms, proxy.ts: 1196ms, render: 1116ms)
+ POST /accounting 200 in 3.0s (compile: 19ms, proxy.ts: 820ms, render: 2.1s)
+ POST /accounting 200 in 4.7s (compile: 15ms, proxy.ts: 845ms, render: 3.8s)
+ GET /auth/sign-in 200 in 172ms (compile: 17ms, render: 156ms)
+ GET /dashboard 200 in 989ms (compile: 21ms, proxy.ts: 901ms, render: 67ms)
+ GET /dashboard 200 in 1051ms (compile: 31ms, proxy.ts: 851ms, render: 169ms)
+ POST /dashboard 200 in 4.5s (compile: 15ms, proxy.ts: 918ms, render: 3.6s)
+ GET /accounting?tab=vat 200 in 1551ms (compile: 18ms, proxy.ts: 735ms, render: 797ms)
+ GET /auth/sign-in 200 in 261ms (compile: 27ms, render: 234ms)
+ GET /dashboard 200 in 1188ms (compile: 16ms, proxy.ts: 1117ms, render: 55ms)
+ GET /dashboard 200 in 830ms (compile: 18ms, proxy.ts: 711ms, render: 101ms)
+ POST /dashboard 200 in 4.2s (compile: 23ms, proxy.ts: 714ms, render: 3.5s)
+ GET /accounting 200 in 1066ms (compile: 15ms, proxy.ts: 641ms, render: 409ms)
+ POST /accounting 200 in 2.4s (compile: 14ms, proxy.ts: 1213ms, render: 1132ms)
+ POST /accounting 200 in 2.2s (compile: 13ms, proxy.ts: 1068ms, render: 1135ms)
+ POST /accounting 200 in 3.2s (compile: 24ms, proxy.ts: 825ms, render: 2.3s)
+ GET /auth/sign-in 200 in 352ms (compile: 32ms, render: 320ms)
+ GET /dashboard 200 in 991ms (compile: 17ms, proxy.ts: 919ms, render: 54ms)
+ GET /dashboard 200 in 1102ms (compile: 16ms, proxy.ts: 934ms, render: 151ms)
+ GET /accounting 200 in 1558ms (compile: 17ms, proxy.ts: 790ms, render: 751ms)
+⨯ Error: aborted
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+ POST /accounting 200 in 2.5s (compile: 25ms, proxy.ts: 1353ms, render: 1086ms)
+ POST /accounting 200 in 2.2s (compile: 31ms, proxy.ts: 1002ms, render: 1205ms)
+ POST /accounting 200 in 3.7s (compile: 220ms, proxy.ts: 725ms, render: 2.8s)
+ POST /accounting 200 in 4.9s (compile: 40ms, proxy.ts: 1101ms, render: 3.8s)
+ GET /auth/sign-in 200 in 339ms (compile: 20ms, render: 319ms)
+ GET /dashboard 200 in 1033ms (compile: 32ms, proxy.ts: 944ms, render: 57ms)
+ GET /dashboard 200 in 1346ms (compile: 28ms, proxy.ts: 1113ms, render: 206ms)
+ GET /accounting 200 in 1777ms (compile: 44ms, proxy.ts: 977ms, render: 756ms)
+ POST /accounting 200 in 2.4s (compile: 21ms, proxy.ts: 1349ms, render: 1067ms)
+ POST /accounting 200 in 1959ms (compile: 15ms, proxy.ts: 797ms, render: 1147ms)
+ POST /accounting 200 in 3.7s (compile: 22ms, proxy.ts: 752ms, render: 2.9s)
+ POST /accounting 200 in 4.7s (compile: 25ms, proxy.ts: 1003ms, render: 3.7s)
+ POST /accounting 200 in 956ms (compile: 45ms, proxy.ts: 751ms, render: 160ms)
+ GET /auth/sign-in 200 in 202ms (compile: 23ms, render: 179ms)
+ GET /dashboard 200 in 1187ms (compile: 16ms, proxy.ts: 1087ms, render: 83ms)
+ GET /dashboard 200 in 1293ms (compile: 41ms, proxy.ts: 1083ms, render: 169ms)
+ POST /dashboard 200 in 4.2s (compile: 30ms, proxy.ts: 1041ms, render: 3.2s)
+ GET /accounting 200 in 1180ms (compile: 19ms, proxy.ts: 830ms, render: 331ms)
+ POST /accounting 200 in 3.6s (compile: 19ms, proxy.ts: 1538ms, render: 2.0s)
+ POST /accounting 200 in 2.5s (compile: 23ms, proxy.ts: 918ms, render: 1561ms)
+ POST /accounting 200 in 2.1s (compile: 17ms, proxy.ts: 939ms, render: 1123ms)
+ GET /auth/sign-in 200 in 306ms (compile: 22ms, render: 284ms)
+ GET /dashboard 200 in 1094ms (compile: 18ms, proxy.ts: 936ms, render: 140ms)
+ GET /dashboard 200 in 1169ms (compile: 22ms, proxy.ts: 841ms, render: 307ms)
+ POST /dashboard 200 in 4.2s (compile: 18ms, proxy.ts: 730ms, render: 3.5s)
+ GET /accounting 200 in 1104ms (compile: 18ms, proxy.ts: 714ms, render: 372ms)
+ POST /accounting 200 in 1359ms (compile: 27ms, proxy.ts: 896ms, render: 436ms)
+ GET /auth/sign-in 200 in 236ms (compile: 23ms, render: 213ms)
+ GET /dashboard 200 in 1032ms (compile: 23ms, proxy.ts: 907ms, render: 103ms)
+ GET /dashboard 200 in 918ms (compile: 17ms, proxy.ts: 815ms, render: 86ms)
+ POST /dashboard 200 in 4.4s (compile: 13ms, proxy.ts: 959ms, render: 3.4s)
+ GET /accounting 200 in 1293ms (compile: 20ms, proxy.ts: 701ms, render: 572ms)
+ POST /accounting 200 in 1691ms (compile: 19ms, proxy.ts: 647ms, render: 1025ms)
+ GET /auth/sign-in 200 in 226ms (compile: 22ms, render: 204ms)
+ GET /dashboard 200 in 1389ms (compile: 24ms, proxy.ts: 976ms, render: 389ms)
+ GET /dashboard 200 in 1155ms (compile: 24ms, proxy.ts: 1008ms, render: 122ms)
+ POST /dashboard 200 in 4.4s (compile: 19ms, proxy.ts: 935ms, render: 3.4s)
+ GET /accounting 200 in 1308ms (compile: 11ms, proxy.ts: 907ms, render: 391ms)
+ POST /accounting 200 in 2.4s (compile: 16ms, proxy.ts: 935ms, render: 1498ms)
+ POST /accounting 200 in 2.1s (compile: 14ms, proxy.ts: 933ms, render: 1114ms)
+ POST /accounting 200 in 3.2s (compile: 19ms, proxy.ts: 929ms, render: 2.3s)
+ GET /auth/sign-in 200 in 321ms (compile: 20ms, render: 301ms)
+ GET /dashboard 200 in 1214ms (compile: 27ms, proxy.ts: 1140ms, render: 47ms)
+ GET /dashboard 200 in 1943ms (compile: 51ms, proxy.ts: 903ms, render: 989ms)
+ GET /accounting 200 in 2.0s (compile: 24ms, proxy.ts: 804ms, render: 1200ms)
+⨯ Error: aborted
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+ POST /accounting 200 in 2.3s (compile: 19ms, proxy.ts: 1093ms, render: 1225ms)
+ POST /accounting 200 in 2.5s (compile: 15ms, proxy.ts: 1178ms, render: 1263ms)
+ POST /accounting 200 in 3.5s (compile: 23ms, proxy.ts: 678ms, render: 2.8s)
+ POST /accounting 200 in 4.8s (compile: 16ms, proxy.ts: 775ms, render: 4.0s)
+ GET /auth/sign-in 200 in 165ms (compile: 15ms, render: 150ms)
+ GET /dashboard 200 in 975ms (compile: 16ms, proxy.ts: 912ms, render: 47ms)
+ GET /dashboard 200 in 782ms (compile: 15ms, proxy.ts: 678ms, render: 90ms)
+ POST /dashboard 200 in 4.4s (compile: 24ms, proxy.ts: 990ms, render: 3.4s)
+ GET /accounting 200 in 1208ms (compile: 19ms, proxy.ts: 659ms, render: 530ms)
+ POST /accounting 200 in 2.1s (compile: 18ms, proxy.ts: 1019ms, render: 1055ms)
+ POST /accounting 200 in 1946ms (compile: 24ms, proxy.ts: 802ms, render: 1120ms)
+ POST /accounting 200 in 2.6s (compile: 11ms, proxy.ts: 849ms, render: 1720ms)
+ GET /auth/sign-in 200 in 279ms (compile: 24ms, render: 255ms)
+ GET /dashboard 200 in 1327ms (compile: 30ms, proxy.ts: 1222ms, render: 75ms)
+ GET /dashboard 200 in 1018ms (compile: 17ms, proxy.ts: 830ms, render: 171ms)
+ POST /dashboard 200 in 4.6s (compile: 14ms, proxy.ts: 1056ms, render: 3.5s)
+ GET /accounting 200 in 1475ms (compile: 22ms, proxy.ts: 890ms, render: 563ms)
+ POST /accounting 200 in 2.2s (compile: 13ms, proxy.ts: 914ms, render: 1315ms)
+ POST /accounting 200 in 1818ms (compile: 18ms, proxy.ts: 637ms, render: 1162ms)
+ POST /accounting 200 in 3.0s (compile: 13ms, proxy.ts: 901ms, render: 2.0s)
+ GET /auth/sign-in 200 in 256ms (compile: 32ms, render: 224ms)
+ GET /dashboard 200 in 1404ms (compile: 27ms, proxy.ts: 1190ms, render: 187ms)
+ GET /dashboard 200 in 1144ms (compile: 38ms, proxy.ts: 882ms, render: 225ms)
+ POST /dashboard 200 in 4.6s (compile: 16ms, proxy.ts: 674ms, render: 3.9s)
+ GET /accounting 200 in 1407ms (compile: 19ms, proxy.ts: 892ms, render: 496ms)
+ POST /accounting 200 in 1876ms (compile: 14ms, proxy.ts: 860ms, render: 1001ms)
+ POST /accounting 200 in 1957ms (compile: 25ms, proxy.ts: 831ms, render: 1101ms)
+ POST /accounting 200 in 2.6s (compile: 18ms, proxy.ts: 611ms, render: 2.0s)
+ GET /auth/sign-in 200 in 300ms (compile: 22ms, render: 277ms)
+ GET /dashboard 200 in 1201ms (compile: 12ms, proxy.ts: 1153ms, render: 35ms)
+ GET /dashboard 200 in 1088ms (compile: 18ms, proxy.ts: 941ms, render: 129ms)
+ POST /dashboard 200 in 4.2s (compile: 25ms, proxy.ts: 658ms, render: 3.5s)
+ GET /accounting 200 in 1148ms (compile: 11ms, proxy.ts: 758ms, render: 379ms)
+ POST /accounting 200 in 2.1s (compile: 16ms, proxy.ts: 1081ms, render: 1050ms)
+ POST /accounting 200 in 2.0s (compile: 15ms, proxy.ts: 727ms, render: 1275ms)
+ POST /accounting 200 in 2.5s (compile: 21ms, proxy.ts: 764ms, render: 1712ms)
+ GET /auth/sign-in 200 in 146ms (compile: 18ms, render: 128ms)
+ GET /dashboard 200 in 944ms (compile: 24ms, proxy.ts: 855ms, render: 66ms)
+ GET /dashboard 200 in 814ms (compile: 20ms, proxy.ts: 718ms, render: 76ms)
+ POST /dashboard 200 in 4.6s (compile: 24ms, proxy.ts: 733ms, render: 3.8s)
+ GET /accounting 200 in 1623ms (compile: 18ms, proxy.ts: 665ms, render: 940ms)
+ POST /accounting 200 in 2.0s (compile: 15ms, proxy.ts: 1001ms, render: 1004ms)
+ POST /accounting 200 in 2.1s (compile: 24ms, proxy.ts: 900ms, render: 1157ms)
+ POST /accounting 200 in 2.4s (compile: 21ms, proxy.ts: 694ms, render: 1728ms)
+ GET /auth/sign-in 200 in 329ms (compile: 24ms, render: 305ms)
+ GET /dashboard 200 in 1648ms (compile: 88ms, proxy.ts: 1342ms, render: 218ms)
+ GET /dashboard 200 in 1073ms (compile: 19ms, proxy.ts: 928ms, render: 126ms)
+ POST /dashboard 200 in 4.3s (compile: 16ms, proxy.ts: 715ms, render: 3.6s)
+ GET /accounting 200 in 1184ms (compile: 22ms, proxy.ts: 777ms, render: 385ms)
+ POST /accounting 200 in 2.7s (compile: 28ms, proxy.ts: 1638ms, render: 1017ms)
+ POST /accounting 200 in 1669ms (compile: 15ms, proxy.ts: 696ms, render: 958ms)
+ POST /accounting 200 in 2.6s (compile: 17ms, proxy.ts: 622ms, render: 1962ms)
+ GET /auth/sign-in 200 in 375ms (compile: 30ms, render: 345ms)
+ GET /dashboard 200 in 1210ms (compile: 16ms, proxy.ts: 1080ms, render: 114ms)
+ GET /dashboard 200 in 998ms (compile: 20ms, proxy.ts: 855ms, render: 123ms)
+ GET /accounting 200 in 1592ms (compile: 27ms, proxy.ts: 723ms, render: 842ms)
+⨯ Error: aborted
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+⨯ Error: aborted
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+ POST /accounting 200 in 2.0s (compile: 15ms, proxy.ts: 871ms, render: 1157ms)
+ POST /accounting 200 in 1751ms (compile: 12ms, proxy.ts: 609ms, render: 1130ms)
+ POST /accounting 200 in 2.9s (compile: 54ms, proxy.ts: 640ms, render: 2.2s)
+ POST /accounting 200 in 4.2s (compile: 19ms, proxy.ts: 822ms, render: 3.3s)
+ POST /accounting 200 in 1206ms (compile: 13ms, proxy.ts: 749ms, render: 444ms)
+ GET /auth/sign-in 200 in 241ms (compile: 15ms, render: 226ms)
+ GET /dashboard 200 in 1048ms (compile: 12ms, proxy.ts: 970ms, render: 67ms)
+ GET /dashboard 200 in 834ms (compile: 18ms, proxy.ts: 703ms, render: 112ms)
+ GET /accounting 200 in 1626ms (compile: 20ms, proxy.ts: 731ms, render: 874ms)
+⨯ Error: aborted
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+ POST /accounting 200 in 2.0s (compile: 26ms, proxy.ts: 902ms, render: 1105ms)
+ POST /accounting 200 in 1625ms (compile: 16ms, proxy.ts: 632ms, render: 977ms)
+ POST /accounting 200 in 2.9s (compile: 19ms, proxy.ts: 739ms, render: 2.1s)
+ POST /accounting 200 in 3.8s (compile: 24ms, proxy.ts: 733ms, render: 3.1s)
+ GET /auth/sign-in 200 in 312ms (compile: 24ms, render: 289ms)
+ GET /dashboard 200 in 1431ms (compile: 58ms, proxy.ts: 874ms, render: 499ms)
+ GET /dashboard 200 in 1156ms (compile: 32ms, proxy.ts: 988ms, render: 137ms)
+ GET /accounting 200 in 1440ms (compile: 24ms, proxy.ts: 691ms, render: 725ms)
+⨯ Error: aborted
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+ POST /accounting 200 in 1863ms (compile: 24ms, proxy.ts: 835ms, render: 1004ms)
+ POST /accounting 200 in 1842ms (compile: 21ms, proxy.ts: 698ms, render: 1124ms)
+ POST /accounting 200 in 2.7s (compile: 18ms, proxy.ts: 712ms, render: 2.0s)
+ GET /auth/sign-in 200 in 238ms (compile: 22ms, render: 216ms)
+ GET /dashboard 200 in 1047ms (compile: 20ms, proxy.ts: 960ms, render: 66ms)
+ GET /dashboard 200 in 921ms (compile: 21ms, proxy.ts: 795ms, render: 105ms)
+ GET /accounting 200 in 1860ms (compile: 50ms, proxy.ts: 781ms, render: 1028ms)
+ POST /accounting 200 in 2.4s (compile: 24ms, proxy.ts: 731ms, render: 1642ms)
+ POST /accounting 200 in 2.0s (compile: 15ms, proxy.ts: 724ms, render: 1297ms)
+ POST /accounting 200 in 2.0s (compile: 21ms, proxy.ts: 859ms, render: 1167ms)
+ POST /accounting 200 in 3.7s (compile: 18ms, proxy.ts: 682ms, render: 3.0s)
+ POST /accounting 200 in 1058ms (compile: 26ms, proxy.ts: 995ms, render: 37ms)
+ GET /auth/sign-in 200 in 259ms (compile: 24ms, render: 235ms)
+ GET /dashboard 200 in 1307ms (compile: 32ms, proxy.ts: 1214ms, render: 61ms)
+ GET /dashboard 200 in 1029ms (compile: 17ms, proxy.ts: 911ms, render: 101ms)
+ GET /accounting 200 in 1458ms (compile: 21ms, proxy.ts: 657ms, render: 779ms)
+⨯ Error: aborted
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+ POST /accounting 200 in 3.1s (compile: 16ms, proxy.ts: 1181ms, render: 1875ms)
+○ Compiling /auth/accept-invite ...
+⨯ ReferenceError: window is not defined
+    at <unknown> (src\app\auth\accept-invite\page.tsx:25:35)
+    at AcceptInvitePage (src\app\auth\accept-invite\page.tsx:24:25)
+  23 |   // Suspense boundary useSearchParams would require (same pattern as sign-in).
+  24 |   const invite = useMemo(() => {
+> 25 |     const q = new URLSearchParams(window.location.search)
+     |                                   ^
+  26 |     return { tid: q.get("tid") ?? "", token: q.get("token") ?? "" }
+  27 |   }, [])
+  28 | {
+  digest: '2417046593'
+}
+ GET /auth/accept-invite?tid=372e43eb-c5db-4b17-a92b-03ad47218c32&token=982a5d92-ff04-4cfb-9c4b-e0913596e0f1 200 in 16.9s (compile: 13.6s, render: 3.3s)
+⨯ ReferenceError: window is not defined
+    at <unknown> (src\app\auth\accept-invite\page.tsx:25:35)
+    at AcceptInvitePage (src\app\auth\accept-invite\page.tsx:24:25)
+  23 |   // Suspense boundary useSearchParams would require (same pattern as sign-in).
+  24 |   const invite = useMemo(() => {
+> 25 |     const q = new URLSearchParams(window.location.search)
+     |                                   ^
+  26 |     return { tid: q.get("tid") ?? "", token: q.get("token") ?? "" }
+  27 |   }, [])
+  28 | {
+  digest: '2417046593'
+}
+ GET /auth/accept-invite?tid=372e43eb-c5db-4b17-a92b-03ad47218c32&token=00000000-0000-0000-0000-000000000000 200 in 1149ms (compile: 54ms, render: 1095ms)
+[rate-limit] Upstash Redis is not configured or failed to initialize. Falling back to in-memory rate limiting (development only — not safe for multi-instance production). undefined
+ POST /auth/accept-invite?tid=372e43eb-c5db-4b17-a92b-03ad47218c32&token=00000000-0000-0000-0000-000000000000 200 in 2.1s (compile: 40ms, render: 2.0s)
+⨯ ReferenceError: window is not defined
+    at <unknown> (src\app\auth\accept-invite\page.tsx:25:35)
+    at AcceptInvitePage (src\app\auth\accept-invite\page.tsx:24:25)
+  23 |   // Suspense boundary useSearchParams would require (same pattern as sign-in).
+  24 |   const invite = useMemo(() => {
+> 25 |     const q = new URLSearchParams(window.location.search)
+     |                                   ^
+  26 |     return { tid: q.get("tid") ?? "", token: q.get("token") ?? "" }
+  27 |   }, [])
+  28 | {
+  digest: '2417046593'
+}
+ GET /auth/accept-invite?tid=372e43eb-c5db-4b17-a92b-03ad47218c32&token=982a5d92-ff04-4cfb-9c4b-e0913596e0f1 200 in 1196ms (compile: 39ms, render: 1157ms)
+ POST /auth/accept-invite?tid=372e43eb-c5db-4b17-a92b-03ad47218c32&token=982a5d92-ff04-4cfb-9c4b-e0913596e0f1 200 in 3.0s (compile: 35ms, render: 2.9s)
+✓ Compiled in 843ms
+⨯ ReferenceError: window is not defined
+    at <unknown> (src\app\auth\accept-invite\page.tsx:25:35)
+    at AcceptInvitePage (src\app\auth\accept-invite\page.tsx:24:25)
+  23 |   // Suspense boundary useSearchParams would require (same pattern as sign-in).
+  24 |   const invite = useMemo(() => {
+> 25 |     const q = new URLSearchParams(window.location.search)
+     |                                   ^
+  26 |     return { tid: q.get("tid") ?? "", token: q.get("token") ?? "" }
+  27 |   }, [])
+  28 | {
+  digest: '3216399083'
+}
+ GET /auth/accept-invite?tid=a56878ac-6e21-4db9-9207-57b80cf00de9&token=5682fd94-2cc1-41c6-b3a2-3959af2ca351 200 in 2.5s (compile: 765ms, render: 1712ms)
+⨯ ReferenceError: window is not defined
+    at <unknown> (src\app\auth\accept-invite\page.tsx:25:35)
+    at AcceptInvitePage (src\app\auth\accept-invite\page.tsx:24:25)
+  23 |   // Suspense boundary useSearchParams would require (same pattern as sign-in).
+  24 |   const invite = useMemo(() => {
+> 25 |     const q = new URLSearchParams(window.location.search)
+     |                                   ^
+  26 |     return { tid: q.get("tid") ?? "", token: q.get("token") ?? "" }
+  27 |   }, [])
+  28 | {
+  digest: '3216399083'
+}
+ GET /auth/accept-invite?tid=a56878ac-6e21-4db9-9207-57b80cf00de9&token=00000000-0000-0000-0000-000000000000 200 in 1266ms (compile: 36ms, render: 1229ms)
+[rate-limit] Upstash Redis is not configured or failed to initialize. Falling back to in-memory rate limiting (development only — not safe for multi-instance production). undefined
+✓ Finished filesystem cache database compaction in 15.3s
+✓ Finished writing to filesystem cache in 12.5s
+ POST /auth/accept-invite?tid=a56878ac-6e21-4db9-9207-57b80cf00de9&token=00000000-0000-0000-0000-000000000000 200 in 1110ms (compile: 43ms, render: 1068ms)
+⨯ ReferenceError: window is not defined
+    at <unknown> (src\app\auth\accept-invite\page.tsx:25:35)
+    at AcceptInvitePage (src\app\auth\accept-invite\page.tsx:24:25)
+  23 |   // Suspense boundary useSearchParams would require (same pattern as sign-in).
+  24 |   const invite = useMemo(() => {
+> 25 |     const q = new URLSearchParams(window.location.search)
+     |                                   ^
+  26 |     return { tid: q.get("tid") ?? "", token: q.get("token") ?? "" }
+  27 |   }, [])
+  28 | {
+  digest: '3216399083'
+}
+ GET /auth/accept-invite?tid=a56878ac-6e21-4db9-9207-57b80cf00de9&token=5682fd94-2cc1-41c6-b3a2-3959af2ca351 200 in 1530ms (compile: 24ms, render: 1506ms)
+[audit_log] insert failed: {
+  code: '23503',
+  details: 'Key (actor_id)=(8e10e6f5-22ae-43cd-9bf9-d30f9b341ce2) is not present in table "users".',
+  hint: null,
+  message: 'insert or update on table "audit_log" violates foreign key constraint "audit_log_actor_id_fkey"'
+}
+ POST /auth/accept-invite?tid=a56878ac-6e21-4db9-9207-57b80cf00de9&token=5682fd94-2cc1-41c6-b3a2-3959af2ca351 200 in 4.5s (compile: 25ms, render: 4.5s)
+ GET /auth/sign-in 200 in 1712ms (compile: 406ms, render: 1306ms)
+⨯ ReferenceError: window is not defined
+    at <unknown> (src\app\auth\accept-invite\page.tsx:25:35)
+    at AcceptInvitePage (src\app\auth\accept-invite\page.tsx:24:25)
+  23 |   // Suspense boundary useSearchParams would require (same pattern as sign-in).
+  24 |   const invite = useMemo(() => {
+> 25 |     const q = new URLSearchParams(window.location.search)
+     |                                   ^
+  26 |     return { tid: q.get("tid") ?? "", token: q.get("token") ?? "" }
+  27 |   }, [])
+  28 | {
+  digest: '3216399083'
+}
+ GET /auth/accept-invite?tid=464a57b6-ef78-44f3-8588-2d4d0912ceb3&token=3c7242e1-1a43-40e9-93d2-715765cedc24 200 in 12.7s (compile: 311ms, render: 12.4s)
+⨯ ReferenceError: window is not defined
+    at <unknown> (src\app\auth\accept-invite\page.tsx:25:35)
+    at AcceptInvitePage (src\app\auth\accept-invite\page.tsx:24:25)
+  23 |   // Suspense boundary useSearchParams would require (same pattern as sign-in).
+  24 |   const invite = useMemo(() => {
+> 25 |     const q = new URLSearchParams(window.location.search)
+     |                                   ^
+  26 |     return { tid: q.get("tid") ?? "", token: q.get("token") ?? "" }
+  27 |   }, [])
+  28 | {
+  digest: '3216399083'
+}
+ GET /auth/accept-invite?tid=464a57b6-ef78-44f3-8588-2d4d0912ceb3&token=00000000-0000-0000-0000-000000000000 200 in 4.5s (compile: 394ms, render: 4.1s)
+ POST /auth/accept-invite?tid=464a57b6-ef78-44f3-8588-2d4d0912ceb3&token=00000000-0000-0000-0000-000000000000 200 in 2.5s (compile: 127ms, render: 2.4s)
+⨯ ReferenceError: window is not defined
+    at <unknown> (src\app\auth\accept-invite\page.tsx:25:35)
+    at AcceptInvitePage (src\app\auth\accept-invite\page.tsx:24:25)
+  23 |   // Suspense boundary useSearchParams would require (same pattern as sign-in).
+  24 |   const invite = useMemo(() => {
+> 25 |     const q = new URLSearchParams(window.location.search)
+     |                                   ^
+  26 |     return { tid: q.get("tid") ?? "", token: q.get("token") ?? "" }
+  27 |   }, [])
+  28 | {
+  digest: '3216399083'
+}
+ GET /auth/accept-invite?tid=464a57b6-ef78-44f3-8588-2d4d0912ceb3&token=3c7242e1-1a43-40e9-93d2-715765cedc24 200 in 14.4s (compile: 622ms, render: 13.8s)
+[audit_log] insert failed: {
+  code: '23503',
+  details: 'Key (actor_id)=(115fb249-1752-4fac-94f0-4b5c4b6df984) is not present in table "users".',
+  hint: null,
+  message: 'insert or update on table "audit_log" violates foreign key constraint "audit_log_actor_id_fkey"'
+}
+ POST /auth/accept-invite?tid=464a57b6-ef78-44f3-8588-2d4d0912ceb3&token=3c7242e1-1a43-40e9-93d2-715765cedc24 200 in 59s (compile: 9.9s, render: 49s)
+ GET /auth/sign-in 200 in 16.9s (compile: 1701ms, render: 15.2s)
+ GET /auth/sign-in 200 in 1032ms (compile: 188ms, render: 844ms)
+ GET /auth/sign-in 200 in 571ms (compile: 74ms, render: 497ms)
+ GET /auth/sign-in 200 in 433ms (compile: 63ms, render: 370ms)
+○ Compiling /landing ...
+ GET /landing 200 in 6.9s (compile: 4.9s, render: 2.0s)
+✓ Compiled in 1164ms

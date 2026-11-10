@@ -1,0 +1,723 @@
+"use client"
+import { driverErrorMessage } from "@/lib/drivers/error-messages"
+
+import { cloneElement, isValidElement, useState } from "react"
+import { useRouter } from "next/navigation"
+import { useForm, useWatch, Controller } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
+import { z } from "zod"
+import { toast } from "@/lib/toast"
+import { Bike, Briefcase, Camera, CircleAlert, IdCard, Loader2, Phone, StickyNote, UserRound, Wallet } from "lucide-react"
+
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { createDriver } from "@/lib/drivers/actions"
+import { useTranslation } from "@/hooks/use-translation"
+import { PlatformIdsEditor, platformRowsError, type PlatformIdRow } from "@/components/drivers/platform-ids-editor"
+import { saveDriverPlatformAccount } from "@/app/actions/drivers/platform-accounts"
+import { uploadDriverPhoto, validateDriverPhoto } from "@/lib/drivers/upload-photo"
+import { RiderCardFace } from "@/components/drivers/driver-card-preview"
+import { DEFAULT_CARD_PLATFORM, platformTheme } from "@/lib/drivers/platforms"
+import { NationalityPicker, SaudiCityPicker, SaudiRegionPicker } from "@/components/drivers/reference-pickers"
+import { isSaudiShortAddress, isValidSaudiId } from "@/lib/validation/saudi-id"
+import {
+  validateSaudiIBAN,
+  type DriverCategory,
+  type DriverStatus,
+  type EmploymentType,
+  type ContractType,
+} from "@/types/drivers"
+
+const SAUDI_MOBILE_REGEX = /^(05\d{8}|\+9665\d{8})$/
+const IQAMA_REGEX = /^[12]\d{9}$/
+const isSaudiNationality = (d: { nationality?: string; nationality_code?: string }) =>
+  d.nationality_code?.trim().toUpperCase() === "SA" || ["سعودي", "سعودية", "saudi"].includes(d.nationality?.trim().toLowerCase() ?? "")
+
+// Loose client-side schema (string values from the DOM). The canonical
+// driverCreateSchema re-validates everything server-side in createDriver.
+const formSchema = z
+  .object({
+    full_name_ar: z.string().trim().min(1, "Required"),
+    full_name_en: z.string().optional(),
+    preferred_name: z.string().optional(),
+    nationality: z.string().optional(),
+    nationality_code: z
+      .string()
+      .regex(/^[A-Za-z]{2}$/, "ISO 2-letter code")
+      .or(z.literal(""))
+      .optional(),
+    date_of_birth: z.string().optional(),
+    gender: z.string().optional(),
+
+    iqama_number: z
+      .string()
+      .regex(IQAMA_REGEX, "Invalid iqama number")
+      .or(z.literal(""))
+      .optional(),
+    iqama_expiry_date: z.string().optional(),
+    profession_on_iqama: z.string().max(120).optional(),
+    passport_number: z.string().optional(),
+    passport_expiry_date: z.string().optional(),
+    license_number: z.string().optional(),
+    license_type: z.string().optional(),
+    license_expiry_date: z.string().optional(),
+    national_address: z
+      .string()
+      .refine((v) => !v.trim() || isSaudiShortAddress(v), "Short address: 4 letters + 4 digits")
+      .optional(),
+
+    primary_mobile: z
+      .string()
+      .regex(SAUDI_MOBILE_REGEX, "Saudi mobile: 05XXXXXXXX or +9665XXXXXXXX"),
+    secondary_mobile: z
+      .string()
+      .regex(SAUDI_MOBILE_REGEX, "Invalid Saudi mobile")
+      .or(z.literal(""))
+      .optional(),
+    personal_email: z.string().email("Invalid email").or(z.literal("")).optional(),
+    work_email: z.string().email("Invalid email").or(z.literal("")).optional(),
+    current_city: z.string().optional(),
+    current_region: z.string().optional(),
+
+    category: z.enum(["sponsored_type1", "sponsored_type2", "freelancer"]),
+    employment_type: z
+      .enum(["full_time", "part_time", "contract", "temporary"])
+      .or(z.literal(""))
+      .optional(),
+    contract_type: z
+      .enum(["unlimited", "limited", "task_based"])
+      .or(z.literal(""))
+      .optional(),
+    status: z.enum([
+      "draft",
+      "active",
+      "on_leave",
+      "suspended",
+      "terminated",
+      "blacklisted",
+    ]),
+    job_title: z.string().optional(),
+    department: z.string().optional(),
+    hire_date: z.string().optional(),
+    termination_date: z.string().optional(),
+    contract_start: z.string().optional(),
+    contract_end: z.string().optional(),
+
+    basic_salary: z.string().optional(),
+    housing_allowance: z.string().optional(),
+    transport_allowance: z.string().optional(),
+    bank_name: z.string().optional(),
+    iban: z
+      .string()
+      .refine((v) => !v || validateSaudiIBAN(v.replace(/\s/g, "").toUpperCase()), {
+        message: "Invalid Saudi IBAN",
+      })
+      .optional(),
+
+    internal_notes: z.string().optional(),
+  })
+  .refine((d) => !d.iqama_number || isValidSaudiId(d.iqama_number), {
+    message: "ID check digit is not valid",
+    path: ["iqama_number"],
+  })
+  .refine((d) => !d.iqama_number || !(d.nationality || d.nationality_code) || (d.iqama_number[0] === "1") === isSaudiNationality(d), {
+    message: "Saudi citizens use a National ID starting with 1; residents an Iqama starting with 2",
+    path: ["iqama_number"],
+  })
+  .refine(
+    (d) => !d.contract_start || !d.contract_end || d.contract_end > d.contract_start,
+    {
+      message: "Contract end must be after start",
+      path: ["contract_end"],
+    },
+  )
+
+  .refine(data=>["terminated","blacklisted"].includes(data.status)?!!data.hire_date&&!!data.termination_date&&data.termination_date>=data.hire_date:!data.termination_date,{message:"Termination date must match employment status and be on or after hire date",path:["termination_date"]})
+
+type FormValues = z.infer<typeof formSchema>
+
+function toNullable(v: string | undefined): string | null {
+  const t = v?.trim()
+  return t ? t : null
+}
+
+function toNumberNullable(v: string | undefined): number | null {
+  const t = v?.trim()
+  if (!t) return null
+  const n = Number(t)
+  return Number.isFinite(n) ? n : null
+}
+
+const CATEGORIES: { value: DriverCategory; ar: string; en: string }[] = [
+  { value: "sponsored_type1", ar: "كفيل نوع ١", en: "Sponsored Type 1" },
+  { value: "sponsored_type2", ar: "كفيل نوع ٢", en: "Sponsored Type 2" },
+  { value: "freelancer", ar: "مستقل", en: "Freelancer" },
+]
+
+const STATUSES: { value: DriverStatus; ar: string; en: string }[] = [
+  { value: "draft", ar: "مسودة", en: "Draft" },
+  { value: "active", ar: "نشط", en: "Active" },
+  { value: "on_leave", ar: "في إجازة", en: "On Leave" },
+  { value: "suspended", ar: "معلّق", en: "Suspended" },
+  { value: "terminated", ar: "منهى", en: "Terminated" },
+  { value: "blacklisted", ar: "محظور", en: "Blacklisted" },
+]
+
+const EMPLOYMENT_TYPES: { value: EmploymentType; ar: string; en: string }[] = [
+  { value: "full_time", ar: "دوام كامل", en: "Full-time" },
+  { value: "part_time", ar: "دوام جزئي", en: "Part-time" },
+  { value: "contract", ar: "عقد", en: "Contract" },
+  { value: "temporary", ar: "مؤقت", en: "Temporary" },
+]
+
+const CONTRACT_TYPES: { value: ContractType; ar: string; en: string }[] = [
+  { value: "unlimited", ar: "غير محدد المدة", en: "Unlimited" },
+  { value: "limited", ar: "محدد المدة", en: "Limited" },
+  { value: "task_based", ar: "بالمهام", en: "Task-based" },
+]
+
+const ERROR_AR: Record<string, string> = {
+  "Saudi mobile: 05XXXXXXXX or +9665XXXXXXXX": "رقم جوال سعودي: 05XXXXXXXX أو +9665XXXXXXXX",
+  "Invalid Saudi mobile": "رقم جوال سعودي غير صحيح",
+  "Invalid iqama number": "رقم هوية/إقامة غير صحيح (10 أرقام تبدأ بـ 1 أو 2)",
+  "ID check digit is not valid": "رقم الهوية/الإقامة غير صالح (خانة التحقق لا تطابق)",
+  "Saudi citizens use a National ID starting with 1; residents an Iqama starting with 2": "المواطن السعودي يستخدم هوية وطنية تبدأ بـ 1، والمقيم إقامة تبدأ بـ 2",
+  "Expiry must be after issue": "يجب أن يكون الانتهاء بعد الإصدار",
+  "Short address: 4 letters + 4 digits": "العنوان المختصر: 4 أحرف و4 أرقام (مثل RRRD2929)",
+  "Invalid email": "بريد إلكتروني غير صحيح",
+  "Invalid Saudi IBAN": "رقم آيبان سعودي غير صحيح",
+  "ISO 2-letter code": "رمز من حرفين (مثل SA)",
+  "Contract end must be after start": "يجب أن تكون نهاية العقد بعد بدايته",
+  Required: "هذا الحقل مطلوب",
+  "Termination date must match employment status and be on or after hire date": "تاريخ انتهاء العمل للحالات المنهية أو المحظورة فقط، ويجب أن يكون بعد تاريخ التعيين",
+}
+
+const SECTIONS = [
+  { id: "identity", icon: UserRound, ar: "الهوية", en: "Identity", hintAr: "الاسم والجنسية والبيانات الشخصية", hintEn: "Name, nationality and personal details" },
+  { id: "legal", icon: IdCard, ar: "البيانات الرسمية", en: "Legal documents", hintAr: "الإقامة والجواز ورخصة القيادة", hintEn: "Iqama, passport and driving license" },
+  { id: "contact", icon: Phone, ar: "التواصل", en: "Contact", hintAr: "أرقام الجوال والبريد والموقع", hintEn: "Mobiles, email and location" },
+  { id: "employment", icon: Briefcase, ar: "التوظيف", en: "Employment", hintAr: "الفئة والحالة والعقد", hintEn: "Category, status and contract" },
+  { id: "platforms", icon: Bike, ar: "المنصات وأرقام المندوب", en: "Platforms & rider IDs", hintAr: "هنقرستيشن، كيتا، جاهز وغيرها", hintEn: "HungerStation, Keeta, Jahez and more" },
+  { id: "payroll", icon: Wallet, ar: "الراتب والبنك", en: "Payroll & bank", hintAr: "الراتب والبدلات وحساب البنك", hintEn: "Salary, allowances and bank account" },
+  { id: "notes", icon: StickyNote, ar: "ملاحظات داخلية", en: "Internal notes", hintAr: "لا تظهر للسائق", hintEn: "Not visible to the driver" },
+] as const
+
+function Section({ id, isAr, children, cols = 3 }: { id: (typeof SECTIONS)[number]["id"]; isAr: boolean; children: React.ReactNode; cols?: 1 | 3 }) {
+  const meta = SECTIONS.find((x) => x.id === id)!
+  const Icon = meta.icon
+  return (
+    <section id={`create-driver-section-${id}`} aria-labelledby={`create-driver-section-${id}-title`} className="scroll-mt-28 rounded-2xl border border-border/60 bg-card p-4 shadow-xs sm:p-5">
+      <div className="mb-4 flex items-start gap-3">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-elite-blue-500/10 text-elite-blue-600 dark:text-elite-blue-300"><Icon className="size-4" /></span>
+        <div className="min-w-0">
+          <h3 id={`create-driver-section-${id}-title`} className="text-sm font-semibold">{isAr ? meta.ar : meta.en}</h3>
+          <p className="text-xs text-muted-foreground">{isAr ? meta.hintAr : meta.hintEn}</p>
+        </div>
+      </div>
+      <div className={cols === 3 ? "grid gap-4 sm:grid-cols-2 lg:grid-cols-3" : "grid gap-2"}>{children}</div>
+    </section>
+  )
+}
+
+function MoneyInput(props: React.ComponentProps<typeof Input> & { isAr: boolean }) {
+  const { isAr, className, ...rest } = props
+  return (
+    <div className="relative">
+      <Input {...rest} className={`h-10 pe-12 text-end tabular-nums ${className ?? ""}`} />
+      <span className="pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-muted-foreground">{isAr ? "ر.س" : "SAR"}</span>
+    </div>
+  )
+}
+
+function Field({
+  id,
+  label,
+  error,
+  required,
+  hint,
+  isAr,
+  children,
+  className,
+}: {
+  id: string
+  label: string
+  error?: string
+  required?: boolean
+  hint?: string
+  isAr?: boolean
+  children: React.ReactNode
+  className?: string
+}) {
+  const describedBy = error ? `${id}-error` : hint ? `${id}-hint` : undefined
+  const control = isValidElement<Record<string, unknown>>(children)
+    ? cloneElement(children, { "aria-invalid": error ? true : undefined, "aria-describedby": describedBy })
+    : children
+  return (
+    <div className={`grid content-start gap-1.5 ${className ?? ""}`}>
+      <Label htmlFor={id} className="text-xs font-semibold text-foreground/80">
+        {label}
+        {required && <span className="text-destructive"> *</span>}
+      </Label>
+      {control}
+      {error ? (
+        <p id={`${id}-error`} className="flex items-center gap-1 text-[11px] font-medium text-destructive"><CircleAlert className="size-3 shrink-0" />{isAr ? (ERROR_AR[error] ?? error) : error}</p>
+      ) : hint ? (
+        <p id={`${id}-hint`} className="text-[11px] text-muted-foreground">{hint}</p>
+      ) : null}
+    </div>
+  )
+}
+
+export function CreateDriverDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const { locale } = useTranslation()
+  const isAr = locale === "ar"
+  const router = useRouter()
+  const [submitting, setSubmitting] = useState(false)
+  const [platformRows, setPlatformRows] = useState<PlatformIdRow[]>([{ code: "hungerstation", riderId: "" }])
+  const [photoFile, setPhotoFile] = useState<File | null>(null)
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null)
+
+  function pickPhoto(file: File | null) {
+    if (photoPreview) URL.revokeObjectURL(photoPreview)
+    if (!file) { setPhotoFile(null); setPhotoPreview(null); return }
+    const valid = validateDriverPhoto(file)
+    if (!valid.ok) { toast.error(isAr ? valid.errorAr : valid.error); setPhotoFile(null); setPhotoPreview(null); return }
+    setPhotoFile(file)
+    setPhotoPreview(URL.createObjectURL(file))
+  }
+
+  const {
+    register,
+    handleSubmit,
+    control,
+    reset,
+    setValue,
+    formState: { errors },
+  } = useForm<FormValues>({
+    resolver: zodResolver(formSchema),
+    defaultValues: {
+      category: "sponsored_type1",
+      status: "draft",
+    },
+  })
+
+  async function onSubmit(values: FormValues) {
+    const platformError = platformRowsError(platformRows, isAr)
+    if (platformError) {
+      toast.error(platformError)
+      document.getElementById("create-driver-section-platforms")?.scrollIntoView({ behavior: "smooth", block: "start" })
+      return
+    }
+    setSubmitting(true)
+    const result = await createDriver({
+      full_name_ar: values.full_name_ar.trim(),
+      full_name_en: toNullable(values.full_name_en),
+      preferred_name: toNullable(values.preferred_name),
+      nationality: toNullable(values.nationality),
+      nationality_code: toNullable(values.nationality_code),
+      date_of_birth: toNullable(values.date_of_birth),
+      gender: toNullable(values.gender),
+      iqama_number: toNullable(values.iqama_number),
+      iqama_expiry_date: toNullable(values.iqama_expiry_date),
+      profession_on_iqama: toNullable(values.profession_on_iqama),
+      passport_number: toNullable(values.passport_number),
+      passport_expiry_date: toNullable(values.passport_expiry_date),
+      license_number: toNullable(values.license_number),
+      license_type: toNullable(values.license_type),
+      license_expiry_date: toNullable(values.license_expiry_date),
+      national_address: values.national_address?.trim() ? values.national_address.replace(/\s+/g, "").toUpperCase() : null,
+      primary_mobile: values.primary_mobile.trim(),
+      secondary_mobile: toNullable(values.secondary_mobile),
+      personal_email: toNullable(values.personal_email),
+      work_email: toNullable(values.work_email),
+      current_city: toNullable(values.current_city),
+      current_region: toNullable(values.current_region),
+      category: values.category,
+      employment_type: (toNullable(values.employment_type) as EmploymentType | null) ?? undefined,
+      contract_type: (toNullable(values.contract_type) as ContractType | null) ?? undefined,
+      status: values.status,
+      job_title: toNullable(values.job_title),
+      department: toNullable(values.department),
+      hire_date: toNullable(values.hire_date),
+      termination_date: toNullable(values.termination_date),
+      contract_start: toNullable(values.contract_start),
+      contract_end: toNullable(values.contract_end),
+      basic_salary: toNumberNullable(values.basic_salary),
+      housing_allowance: toNumberNullable(values.housing_allowance),
+      transport_allowance: toNumberNullable(values.transport_allowance),
+      bank_name: toNullable(values.bank_name),
+      iban: toNullable(values.iban),
+      internal_notes: toNullable(values.internal_notes),
+    })
+    if (result.success && result.id) {
+      // Upload the photo first: platform-account saves bump profile_version.
+      if (photoFile) {
+        const up = await uploadDriverPhoto({ id: result.id, profile_version: result.profile_version ?? 0 }, photoFile)
+        if (!up.ok) toast.warning(isAr ? `تم إنشاء السائق، لكن ${up.errorAr}` : `Driver created, but ${up.error}`)
+      }
+      const rows = platformRows.filter((r) => r.code && r.riderId.trim())
+      let failed = 0
+      for (const [i, r] of rows.entries()) {
+        const saved = await saveDriverPlatformAccount({ driverId: result.id, platformCode: r.code, platformDriverId: r.riderId.trim(), isPrimary: i === 0 })
+        if (!saved.ok) { failed += 1; toast.error(isAr ? saved.errorAr : saved.error) }
+      }
+      if (failed) toast.warning(isAr ? "تم إنشاء السائق، أكمل أرقام المنصات من ملفه." : "Driver created; finish the platform IDs from the profile.")
+    }
+    setSubmitting(false)
+
+    if (result.success) {
+      toast.success(isAr ? "تم إنشاء السائق بنجاح" : "Driver created successfully")
+      reset()
+      setPlatformRows([{ code: "hungerstation", riderId: "" }])
+      pickPhoto(null)
+      onOpenChange(false)
+      router.refresh()
+      if (result.id) router.push(`/drivers/${result.id}`)
+    } else {
+      toast.error(driverErrorMessage(result.error, isAr, isAr ? "حدث خطأ" : "Something went wrong"))
+    }
+  }
+
+  const nationalityCode = useWatch({ control, name: "nationality_code" })
+  const [cardNameEn, cardNameAr, cardMobile, cardIqama] = useWatch({ control, name: ["full_name_en", "full_name_ar", "primary_mobile", "iqama_number"] })
+  const cardPlatform = platformRows.find((r) => r.code && r.riderId.trim())
+  const inputClass = "h-10"
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[92dvh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] gap-0 overflow-y-auto overflow-x-hidden rounded-2xl p-0 sm:max-w-5xl [&>[data-slot=dialog-close]]:z-20">
+        <div className="sticky top-0 z-10 min-w-0 border-b border-border/60 bg-background/95 pb-3 pl-4 pr-12 pt-4 backdrop-blur sm:pl-6">
+          <DialogHeader className="text-start">
+            <DialogTitle className="text-lg">
+              {isAr ? "إنشاء سائق جديد" : "Create New Driver"}
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              {isAr
+                ? "الحقول المعلّمة بـ * مطلوبة، ويمكن إكمال الباقي لاحقاً من ملف السائق."
+                : "Fields marked * are required; the rest can be completed later from the driver profile."}
+            </DialogDescription>
+          </DialogHeader>
+          <nav aria-label={isAr ? "أقسام النموذج" : "Form sections"} className="-mx-1 mt-3 flex gap-1.5 overflow-x-auto px-1 pb-0.5">
+            {SECTIONS.map((sec) => (
+              <a key={sec.id} href={`#create-driver-section-${sec.id}`} onClick={(e) => { e.preventDefault(); document.getElementById(`create-driver-section-${sec.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" }) }}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border/60 bg-muted/30 px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:border-elite-blue-500/40 hover:bg-elite-blue-500/10 hover:text-elite-blue-700 dark:hover:text-elite-blue-300">
+                <sec.icon className="size-3.5" />{isAr ? sec.ar : sec.en}
+              </a>
+            ))}
+          </nav>
+        </div>
+
+        <form onSubmit={handleSubmit(onSubmit)} className="grid min-w-0 gap-4 px-4 py-4 sm:px-6" noValidate>
+          {/* Identity */}
+          <Section id="identity" isAr={isAr}>
+            <div className="flex items-center gap-4 rounded-xl border border-dashed border-border/70 bg-muted/30 p-3 sm:col-span-2 lg:col-span-3">
+              <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-background">
+                {photoPreview
+                  ? // eslint-disable-next-line @next/next/no-img-element -- local blob preview
+                    <img src={photoPreview} alt={isAr ? "معاينة صورة السائق" : "Driver photo preview"} className="h-full w-full object-cover" />
+                  : <Camera className="h-7 w-7 text-muted-foreground" aria-hidden />}
+              </div>
+              <div className="grid min-w-0 gap-1.5">
+                <Label htmlFor="create-driver-photo" className="text-sm font-medium">{isAr ? "الصورة الشخصية للسائق" : "Driver profile photo"}</Label>
+                <p className="text-xs text-muted-foreground">{isAr ? "تظهر على بطاقة الهوية والملف (JPG/PNG/WebP — حتى 5MB)" : "Shown on the ID card and profile (JPG/PNG/WebP — up to 5MB)"}</p>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" size="sm" variant="outline" onClick={() => document.getElementById("create-driver-photo")?.click()} data-testid="create-driver-photo-button">
+                    <Camera className="h-4 w-4" aria-hidden />{photoFile ? (isAr ? "تغيير الصورة" : "Change photo") : (isAr ? "رفع صورة" : "Upload photo")}
+                  </Button>
+                  {photoFile && <Button type="button" size="sm" variant="ghost" onClick={() => pickPhoto(null)}>{isAr ? "إزالة" : "Remove"}</Button>}
+                </div>
+                <input id="create-driver-photo" type="file" accept="image/*" className="sr-only" onChange={(e) => { pickPhoto(e.target.files?.[0] ?? null); e.target.value = "" }} />
+              </div>
+            </div>
+            <Field isAr={isAr} id="create-driver-full_name_ar" label={isAr ? "الاسم الكامل (عربي)" : "Full name (Arabic)"} required error={errors.full_name_ar?.message}>
+              <Input id="create-driver-full_name_ar" {...register("full_name_ar")} className={inputClass} />
+            </Field>
+            <Field isAr={isAr} id="create-driver-full_name_en" label={isAr ? "الاسم الكامل (إنجليزي)" : "Full name (English)"} error={errors.full_name_en?.message}>
+              <Input id="create-driver-full_name_en" {...register("full_name_en")} className={inputClass} />
+            </Field>
+            <Field isAr={isAr} id="create-driver-preferred_name" label={isAr ? "الاسم المفضل" : "Preferred name"} error={errors.preferred_name?.message}>
+              <Input id="create-driver-preferred_name" {...register("preferred_name")} className={inputClass} />
+            </Field>
+            <Field isAr={isAr} id="create-driver-nationality" label={isAr ? "الجنسية" : "Nationality"} error={errors.nationality?.message}>
+              <Controller control={control} name="nationality" render={({ field }) => (
+                <NationalityPicker id="create-driver-nationality" isAr={isAr} value={field.value} code={nationalityCode}
+                  onChange={(name, code) => { field.onChange(name); setValue("nationality_code", code, { shouldValidate: true }) }} />
+              )} />
+            </Field>
+            <Field isAr={isAr} id="create-driver-nationality_code" hint={isAr ? "يُملأ تلقائياً عند اختيار الجنسية" : "Filled automatically from the nationality"} label={isAr ? "رمز الجنسية (ISO)" : "Nationality code (ISO)"} error={errors.nationality_code?.message}>
+              <Input id="create-driver-nationality_code" {...register("nationality_code")} readOnly tabIndex={-1} maxLength={2} className={`${inputClass} bg-muted/40`} dir="ltr" placeholder="SA, EG, PK..." />
+            </Field>
+            <Field isAr={isAr} id="create-driver-date_of_birth" label={isAr ? "تاريخ الميلاد" : "Date of birth"} error={errors.date_of_birth?.message}>
+              <Input id="create-driver-date_of_birth" {...register("date_of_birth")} type="date" className={inputClass} />
+            </Field>
+            <Field isAr={isAr} id="create-driver-gender" label={isAr ? "الجنس" : "Gender"} error={errors.gender?.message}>
+              <Controller
+                control={control}
+                name="gender"
+                render={({ field }) => (
+                  <Select value={field.value || ""} onValueChange={(v) => field.onChange(v || undefined)}>
+                    <SelectTrigger id="create-driver-gender" className="w-full data-[size=default]:h-10">
+                      <SelectValue placeholder={isAr ? "اختر" : "Select"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="male">{isAr ? "ذكر" : "Male"}</SelectItem>
+                      <SelectItem value="female">{isAr ? "أنثى" : "Female"}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </Field>
+          </Section>
+
+          {/* Legal */}
+          <Section id="legal" isAr={isAr}>
+            <Field isAr={isAr} id="create-driver-iqama_number" label={isAr ? "رقم الهوية / الإقامة" : "National ID / Iqama number"} hint={isAr ? "10 أرقام: 1 للمواطن، 2 للمقيم" : "10 digits: 1 for citizens, 2 for residents"} error={errors.iqama_number?.message}>
+              <Input id="create-driver-iqama_number" {...register("iqama_number")} className={inputClass} dir="ltr" placeholder="1XXXXXXXXX" />
+            </Field>
+            <Field isAr={isAr} id="create-driver-iqama_expiry_date" label={isAr ? "انتهاء الهوية/الإقامة" : "ID / Iqama expiry"} error={errors.iqama_expiry_date?.message}>
+              <Input id="create-driver-iqama_expiry_date" {...register("iqama_expiry_date")} type="date" className={inputClass} />
+            </Field>
+            <Field isAr={isAr} id="create-driver-profession_on_iqama" label={isAr ? "المهنة في الإقامة" : "Profession on Iqama"} hint={isAr ? "كما في منصة مقيم/أبشر، مثل: سائق" : "As shown in Muqeem/Absher, e.g. Driver"} error={errors.profession_on_iqama?.message}>
+              <Input id="create-driver-profession_on_iqama" {...register("profession_on_iqama")} className={inputClass} />
+            </Field>
+            <Field isAr={isAr} id="create-driver-passport_number" label={isAr ? "رقم جواز السفر" : "Passport number"} error={errors.passport_number?.message}>
+              <Input id="create-driver-passport_number" {...register("passport_number")} className={inputClass} dir="ltr" />
+            </Field>
+            <Field isAr={isAr} id="create-driver-passport_expiry_date" label={isAr ? "انتهاء الجواز" : "Passport expiry"}>
+              <Input id="create-driver-passport_expiry_date" {...register("passport_expiry_date")} type="date" className={inputClass} />
+            </Field>
+            <Field isAr={isAr} id="create-driver-license_number" label={isAr ? "رقم رخصة القيادة" : "Driving license no."} hint={isAr ? "في السعودية غالباً هو رقم الهوية/الإقامة" : "In Saudi Arabia usually the ID/Iqama number"} error={errors.license_number?.message}>
+              <Input id="create-driver-license_number" {...register("license_number")} className={inputClass} dir="ltr" />
+            </Field>
+            <Field isAr={isAr} id="create-driver-license_type" label={isAr ? "نوع الرخصة" : "License type"}>
+              <Input id="create-driver-license_type" list="create-driver-license-types" autoComplete="off" {...register("license_type")} className={inputClass} placeholder={isAr ? "خاصة / عمومي / دراجة نارية" : "Private / Public / Motorcycle"} />
+              <datalist id="create-driver-license-types">{(isAr ? ["خاصة", "نقل خفيف", "نقل ثقيل", "عمومي", "دراجة نارية", "معدات ثقيلة"] : ["Private", "Light transport", "Heavy transport", "Public", "Motorcycle", "Heavy equipment"]).map((v) => <option key={v} value={v} />)}</datalist>
+            </Field>
+            <Field isAr={isAr} id="create-driver-license_expiry_date" label={isAr ? "انتهاء الرخصة" : "License expiry"} error={errors.license_expiry_date?.message}>
+              <Input id="create-driver-license_expiry_date" {...register("license_expiry_date")} type="date" className={inputClass} />
+            </Field>
+          </Section>
+
+          {/* Contact */}
+          <Section id="contact" isAr={isAr}>
+            <Field isAr={isAr} id="create-driver-primary_mobile" label={isAr ? "الجوال الأساسي" : "Primary mobile"} hint={isAr ? "يبدأ بـ 05 أو +9665" : "Starts with 05 or +9665"} required error={errors.primary_mobile?.message}>
+              <Input id="create-driver-primary_mobile" {...register("primary_mobile")} className={inputClass} dir="ltr" placeholder="05XXXXXXXX" />
+            </Field>
+            <Field isAr={isAr} id="create-driver-secondary_mobile" label={isAr ? "جوال ثانوي" : "Secondary mobile"} error={errors.secondary_mobile?.message}>
+              <Input id="create-driver-secondary_mobile" {...register("secondary_mobile")} className={inputClass} dir="ltr" placeholder="05XXXXXXXX" />
+            </Field>
+            <Field isAr={isAr} id="create-driver-personal_email" label={isAr ? "البريد الشخصي" : "Personal email"} error={errors.personal_email?.message}>
+              <Input id="create-driver-personal_email" {...register("personal_email")} type="email" className={inputClass} dir="ltr" />
+            </Field>
+            <Field isAr={isAr} id="create-driver-work_email" label={isAr ? "البريد الوظيفي" : "Work email"} error={errors.work_email?.message}>
+              <Input id="create-driver-work_email" {...register("work_email")} type="email" className={inputClass} dir="ltr" />
+            </Field>
+            <Field isAr={isAr} id="create-driver-current_city" label={isAr ? "المدينة" : "City"} error={errors.current_city?.message}>
+              <Controller control={control} name="current_city" render={({ field }) => (
+                <SaudiCityPicker id="create-driver-current_city" isAr={isAr} value={field.value}
+                  onChange={(city, region) => { field.onChange(city); if (region) setValue("current_region", region, { shouldValidate: true }) }} />
+              )} />
+            </Field>
+            <Field isAr={isAr} id="create-driver-national_address" label={isAr ? "العنوان الوطني المختصر" : "Short national address"} hint={isAr ? "من سبل، مثل RRRD2929" : "From SPL, e.g. RRRD2929"} error={errors.national_address?.message}>
+              <Input id="create-driver-national_address" {...register("national_address")} maxLength={9} className={inputClass} dir="ltr" placeholder="RRRD2929" />
+            </Field>
+            <Field isAr={isAr} id="create-driver-current_region" label={isAr ? "المنطقة" : "Region"} error={errors.current_region?.message}>
+              <Controller control={control} name="current_region" render={({ field }) => (
+                <SaudiRegionPicker id="create-driver-current_region" isAr={isAr} value={field.value} onChange={field.onChange} />
+              )} />
+            </Field>
+          </Section>
+
+          {/* Employment */}
+          <Section id="employment" isAr={isAr}>
+            <Field isAr={isAr} id="create-driver-category" label={isAr ? "الفئة" : "Category"} required error={errors.category?.message}>
+              <Controller
+                control={control}
+                name="category"
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger id="create-driver-category" className="w-full data-[size=default]:h-10">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CATEGORIES.map((c) => (
+                        <SelectItem key={c.value} value={c.value}>
+                          {isAr ? c.ar : c.en}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </Field>
+            <Field isAr={isAr} id="create-driver-status" label={isAr ? "الحالة" : "Status"} required error={errors.status?.message}>
+              <Controller
+                control={control}
+                name="status"
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger id="create-driver-status" className="w-full data-[size=default]:h-10">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {STATUSES.map((s) => (
+                        <SelectItem key={s.value} value={s.value}>
+                          {isAr ? s.ar : s.en}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </Field>
+            <Field isAr={isAr} id="create-driver-employment_type" label={isAr ? "نوع التوظيف" : "Employment type"} error={errors.employment_type?.message}>
+              <Controller
+                control={control}
+                name="employment_type"
+                render={({ field }) => (
+                  <Select value={field.value || ""} onValueChange={(v) => field.onChange(v || undefined)}>
+                    <SelectTrigger id="create-driver-employment_type" className="w-full data-[size=default]:h-10">
+                      <SelectValue placeholder={isAr ? "اختر" : "Select"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {EMPLOYMENT_TYPES.map((t) => (
+                        <SelectItem key={t.value} value={t.value}>
+                          {isAr ? t.ar : t.en}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </Field>
+            <Field isAr={isAr} id="create-driver-contract_type" label={isAr ? "نوع العقد" : "Contract type"} error={errors.contract_type?.message}>
+              <Controller
+                control={control}
+                name="contract_type"
+                render={({ field }) => (
+                  <Select value={field.value || ""} onValueChange={(v) => field.onChange(v || undefined)}>
+                    <SelectTrigger id="create-driver-contract_type" className="w-full data-[size=default]:h-10">
+                      <SelectValue placeholder={isAr ? "اختر" : "Select"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CONTRACT_TYPES.map((t) => (
+                        <SelectItem key={t.value} value={t.value}>
+                          {isAr ? t.ar : t.en}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </Field>
+            <Field isAr={isAr} id="create-driver-job_title" label={isAr ? "المسمى الوظيفي" : "Job title"} error={errors.job_title?.message}>
+              <Input id="create-driver-job_title" {...register("job_title")} className={inputClass} />
+            </Field>
+            <Field isAr={isAr} id="create-driver-department" label={isAr ? "القسم" : "Department"} error={errors.department?.message}>
+              <Input id="create-driver-department" {...register("department")} className={inputClass} />
+            </Field>
+            <Field isAr={isAr} id="create-driver-hire_date" label={isAr ? "تاريخ التعيين" : "Hire date"}>
+              <Input id="create-driver-hire_date" {...register("hire_date")} type="date" className={inputClass} />
+            </Field>
+            <Field isAr={isAr} id="create-driver-termination_date" label={isAr ? "تاريخ انتهاء العمل" : "Termination date"} error={errors.termination_date?.message}><Input id="create-driver-termination_date" {...register("termination_date")} type="date" className={inputClass}/><p className="text-xs text-muted-foreground">{isAr?"للسجلات المنهية أو المحظورة فقط.":"For terminated or blacklisted employment records."}</p></Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field isAr={isAr} id="create-driver-contract_start" label={isAr ? "بداية العقد" : "Contract start"}>
+                <Input id="create-driver-contract_start" {...register("contract_start")} type="date" className={inputClass} />
+              </Field>
+              <Field isAr={isAr} id="create-driver-contract_end" label={isAr ? "نهاية العقد" : "Contract end"} error={errors.contract_end?.message}>
+                <Input id="create-driver-contract_end" {...register("contract_end")} type="date" className={inputClass} />
+              </Field>
+            </div>
+          </Section>
+
+          {/* Platforms */}
+          <Section id="platforms" isAr={isAr} cols={1}>
+            <PlatformIdsEditor rows={platformRows} onChange={setPlatformRows} isAr={isAr} idPrefix="create-driver" />
+            <div className="mt-2 flex flex-col items-center gap-4 rounded-xl border border-border/50 bg-gradient-to-br from-elite-blue-500/5 via-transparent to-violet-500/5 p-4 sm:flex-row sm:items-start" data-testid="create-driver-card-preview">
+              <div className="flex gap-3">{(["front", "back"] as const).map((side) => (<div key={side} className="rounded-[14px] shadow-[0_14px_32px_-16px_rgba(15,30,51,0.5)]">
+                <RiderCardFace side={side} scale={0.5}
+                  theme={platformTheme(cardPlatform?.code ?? platformRows.find((r) => r.code)?.code ?? DEFAULT_CARD_PLATFORM)}
+                  riderId={cardPlatform?.riderId.trim() || "—"}
+                  person={{ name: cardNameEn?.trim() || cardNameAr?.trim() || "—", phone: cardMobile?.trim() || null, idNumber: cardIqama?.trim() || null, photoUrl: photoPreview }} /></div>))}
+              </div>
+              <div className="grid gap-1 text-center sm:text-start">
+                <p className="flex items-center justify-center gap-1.5 text-sm font-semibold sm:justify-start"><IdCard className="h-4 w-4 text-elite-blue-500" aria-hidden />{isAr ? "معاينة بطاقة السائق" : "Driver ID card preview"}</p>
+                <p className="text-xs text-muted-foreground">{isAr ? "تتحدث مباشرة أثناء الكتابة. بعد الحفظ تجدها في ملف السائق ويمكن طباعتها فورًا." : "Updates live as you type. After saving, it's on the driver profile ready to print."}</p>
+                {!photoPreview && <Button type="button" size="sm" variant="outline" className="mt-1 w-fit gap-1.5 justify-self-center sm:justify-self-start" onClick={() => document.getElementById("create-driver-photo")?.click()}><Camera className="h-4 w-4" aria-hidden />{isAr ? "أضف صورة للبطاقة" : "Add a photo for the card"}</Button>}
+              </div>
+            </div>
+          </Section>
+
+          {/* Payroll */}
+          <Section id="payroll" isAr={isAr}>
+            <Field isAr={isAr} id="create-driver-basic_salary" label={isAr ? "الراتب الأساسي (ر.س)" : "Basic salary (SAR)"} error={errors.basic_salary?.message}>
+              <MoneyInput isAr={isAr} id="create-driver-basic_salary" {...register("basic_salary")} inputMode="decimal" dir="ltr" placeholder="4000" />
+            </Field>
+            <Field isAr={isAr} id="create-driver-housing_allowance" label={isAr ? "بدل السكن (ر.س)" : "Housing allowance (SAR)"} error={errors.housing_allowance?.message}>
+              <MoneyInput isAr={isAr} id="create-driver-housing_allowance" {...register("housing_allowance")} inputMode="decimal" dir="ltr" placeholder="0" />
+            </Field>
+            <Field isAr={isAr} id="create-driver-transport_allowance" label={isAr ? "بدل النقل (ر.س)" : "Transport allowance (SAR)"} error={errors.transport_allowance?.message}>
+              <MoneyInput isAr={isAr} id="create-driver-transport_allowance" {...register("transport_allowance")} inputMode="decimal" dir="ltr" placeholder="0" />
+            </Field>
+            <Field isAr={isAr} id="create-driver-bank_name" label={isAr ? "اسم البنك" : "Bank name"} error={errors.bank_name?.message}>
+              <Input id="create-driver-bank_name" {...register("bank_name")} className={inputClass} />
+            </Field>
+            <Field isAr={isAr} id="create-driver-iban" label={isAr ? "رقم الآيبان" : "IBAN"} hint={isAr ? "24 خانة تبدأ بـ SA" : "24 characters starting with SA"} error={errors.iban?.message}>
+              <Input id="create-driver-iban" {...register("iban", { setValueAs: (v: string) => (v ?? "").replace(/\s/g, "").toUpperCase() })} className={`${inputClass} font-mono uppercase tracking-wide`} dir="ltr" maxLength={34} placeholder="SA00 0000 0000 0000 0000 0000" />
+            </Field>
+          </Section>
+
+          {/* Notes */}
+          <Section id="notes" isAr={isAr} cols={1}>
+            <Label htmlFor="create-driver-internal_notes" className="sr-only">{isAr ? "ملاحظات داخلية" : "Internal notes"}</Label>
+            <Textarea id="create-driver-internal_notes" {...register("internal_notes")} rows={3} placeholder={isAr ? "أي ملاحظات للفريق الداخلي…" : "Anything the internal team should know…"} />
+          </Section>
+
+          {Object.keys(errors).length > 0 && (
+            <p role="alert" className="flex items-center gap-2 rounded-xl bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive"><CircleAlert className="size-4 shrink-0" />{isAr ? `يرجى تصحيح ${Object.keys(errors).length} حقل قبل الحفظ.` : `Please fix ${Object.keys(errors).length} field(s) before saving.`}</p>
+          )}
+          <div className="sticky bottom-0 z-10 -mx-4 flex items-center justify-end gap-3 border-t border-border/60 bg-background/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => onOpenChange(false)}
+              disabled={submitting}
+            >
+              {isAr ? "إلغاء" : "Cancel"}
+            </Button>
+            <Button
+              type="submit"
+              disabled={submitting}
+              className="rounded-xl bg-elite-blue-500 text-white hover:bg-elite-blue-600"
+            >
+              {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+              {isAr ? "إنشاء السائق" : "Create driver"}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}

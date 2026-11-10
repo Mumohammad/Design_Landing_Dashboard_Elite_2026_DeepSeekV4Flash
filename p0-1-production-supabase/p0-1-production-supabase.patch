@@ -1,0 +1,287 @@
+diff -ruN old/.env.example new/.env.example
+--- a/.env.example	2026-09-07 02:51:10.000000000 +0000
++++ b/.env.example	2026-09-07 02:51:49.000000000 +0000
+@@ -108,3 +108,14 @@
+ # Staging deployment URL (from Vercel preview).
+ # Set after first preview deployment succeeds.
+ STAGING_URL=
++
++# ── Production Environment ────────────────────────────────────
++# Production Supabase project for the production deployment.
++# Create at: https://supabase.com/dashboard → New Project → "EliteDev Production"
++# Store these as GitHub environment secrets:
++#   GitHub → Settings → Environments → production
++# and mirror them in the Vercel production environment.
++# NEVER commit real values — this file holds placeholders only.
++PRODUCTION_SUPABASE_URL=
++PRODUCTION_SUPABASE_ANON_KEY=
++PRODUCTION_SUPABASE_SERVICE_KEY=
+diff -ruN old/.github/workflows/ci.yml new/.github/workflows/ci.yml
+--- a/.github/workflows/ci.yml	2026-09-07 02:51:08.000000000 +0000
++++ b/.github/workflows/ci.yml	2026-09-07 02:51:47.000000000 +0000
+@@ -97,6 +97,9 @@
+         fi
+         echo "✅ No environment files in repository"
+ 
++    - name: Deploy config check
++      run: node scripts/verify-deploy-config.mjs
++
+     # ── Smoke test (production build, not dev server) ─────────────────────
+ 
+     - name: Smoke test health endpoint
+diff -ruN old/.github/workflows/deploy.yml new/.github/workflows/deploy.yml
+--- a/.github/workflows/deploy.yml	2026-09-07 02:51:06.000000000 +0000
++++ b/.github/workflows/deploy.yml	2026-09-07 02:51:11.000000000 +0000
+@@ -122,6 +122,16 @@
+         echo "CI workflow completed successfully — proceeding with production deployment"
+         echo "CI run: ${{ github.event.workflow_run.html_url }}"
+ 
++    - name: Verify production Supabase secrets
++      run: |
++        if [ -z "${{ secrets.PRODUCTION_SUPABASE_URL }}" ] || [ -z "${{ secrets.PRODUCTION_SUPABASE_ANON_KEY }}" ] || [ -z "${{ secrets.PRODUCTION_SUPABASE_SERVICE_KEY }}" ]; then
++          echo "❌ Production Supabase secrets are not configured"
++          echo "   Add PRODUCTION_SUPABASE_URL / PRODUCTION_SUPABASE_ANON_KEY / PRODUCTION_SUPABASE_SERVICE_KEY"
++          echo "   to GitHub → Settings → Environments → production (see docs/P0-1-production-supabase-runbook.md)"
++          exit 1
++        fi
++        echo "✅ Production Supabase secrets present"
++
+     - name: Install Vercel CLI
+       run: npm install -g vercel@latest
+ 
+@@ -137,9 +147,9 @@
+       run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+       env:
+         # ── Production Supabase (production uses its own project) ──
+-        NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+-        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+-        SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_KEY }}
++        NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.PRODUCTION_SUPABASE_URL }}
++        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.PRODUCTION_SUPABASE_ANON_KEY }}
++        SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.PRODUCTION_SUPABASE_SERVICE_KEY }}
+         NEXT_PUBLIC_APP_URL: ${{ steps.deploy.outputs.url || 'https://app.elitedev.com.sa' }}
+         # ── Production-specific settings ──
+         SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+diff -ruN old/docs/P0-1-production-supabase-runbook.md new/docs/P0-1-production-supabase-runbook.md
+--- a/docs/P0-1-production-supabase-runbook.md	1970-01-01 00:00:00.000000000 +0000
++++ b/docs/P0-1-production-supabase-runbook.md	2026-09-07 02:51:53.000000000 +0000
+@@ -0,0 +1,89 @@
++# P0-1 — Production Supabase Project & Deploy Repoint — Runbook
++
++> Status: code changes prepared (2026-09-07). The Supabase project itself must
++> be created by a workspace owner with Supabase access. This document is the
++> exact procedure; the deploy job fails fast until it is completed.
++
++## Why this exists
++
++The production deploy job in `.github/workflows/deploy.yml` previously built
++with `STAGING_SUPABASE_*` secrets. Any pilot traffic would have been written
++to the staging database. The workflow now requires `PRODUCTION_SUPABASE_*`
++secrets and aborts the build if they are missing.
++
++## Prerequisites
++
++- Supabase dashboard access (owner) — https://supabase.com/dashboard
++- Supabase CLI locally — `supabase --version`
++- GitHub admin on the repo (environment secrets)
++- Vercel project access
++
++## Step 1 — Create the production project
++
++1. Supabase Dashboard → **New project** → name: `EliteDev Production`.
++2. **Region:** pick the region that satisfies your data-residency
++   requirements. Staging is `iad1` (us-east-1). For Saudi deployments the
++   nearest commonly used region is `eu-central-1` (Frankfurt); confirm current
++   availability in the dashboard and record the decision.
++3. Set a strong database password; store it in a password manager.
++4. Optional but recommended: enable **Point-in-Time Recovery** now (cheap
++   insurance; restore drills are tracked as P1-9).
++
++## Step 2 — Apply migrations (do NOT seed)
++
++```bash
++supabase link --project-ref <production-project-ref>
++supabase db push            # applies migrations 001–061
++supabase migration list     # confirm all applied
++```
++
++Do **not** run `supabase db seed` against production. `supabase/seed.sql`
++contains demo credentials (`Test1234!`) and placeholder API keys
++(tracked as R-08 / P0-8).
++
++## Step 3 — Match auth configuration to staging
++
++In the production project's **Authentication** settings:
++
++- **Site URL** → production app URL (e.g. `https://app.elitedev.com.sa`)
++- **Redirect URLs** → production app URL paths
++- Keep direct signups **disabled** (AUTH010 bans self-service signup;
++  provisioning is invite-only). Do not relax this.
++- Configure the same email provider (Resend) and templates as staging.
++- Re-apply any MFA policy configured on staging.
++
++## Step 4 — Add GitHub environment secrets
++
++GitHub → **Settings → Environments → `production` → Environment secrets**:
++
++| Secret | Source |
++| --- | --- |
++| `PRODUCTION_SUPABASE_URL` | Project Settings → API → Project URL |
++| `PRODUCTION_SUPABASE_ANON_KEY` | Project Settings → API → anon public key |
++| `PRODUCTION_SUPABASE_SERVICE_KEY` | Project Settings → API → service_role key |
++
++The deploy job now fails fast if any of these are missing.
++
++## Step 5 — Mirror in Vercel production environment
++
++The workflow overrides these at build time, but set the same three values in
++**Vercel → Project → Settings → Environment Variables → Production** so any
++build outside the workflow is also correct.
++
++## Step 6 — Verification checklist
++
++1. Merge the P0-1 branch; the production job must pass the
++   **Verify production Supabase secrets** step.
++2. `curl https://<prod>/api/health` → `"status":"healthy"`.
++3. Confirm the built bundle contains the **production** project URL and not
++   the staging URL (search the served JS for the staging project ref).
++4. Log in with a real production user and create a test row; confirm the row
++   appears in the **production** Supabase dashboard, not staging.
++5. Confirm **Deploy config check** is green in CI
++   (`scripts/verify-deploy-config.mjs`).
++
++## Guardrails
++
++- Never commit real production credentials; secrets live only in GitHub/Vercel.
++- RLS and authorization are unchanged by this task.
++- Staging remains the preview-deployment backend — that is intentional.
+diff -ruN old/scripts/verify-deploy-config.mjs new/scripts/verify-deploy-config.mjs
+--- a/scripts/verify-deploy-config.mjs	1970-01-01 00:00:00.000000000 +0000
++++ b/scripts/verify-deploy-config.mjs	2026-09-07 02:51:51.000000000 +0000
+@@ -0,0 +1,126 @@
++#!/usr/bin/env node
++/**
++ * verify-deploy-config.mjs — regression guard for the P0-1 production
++ * Supabase repoint (2026-09-07).
++ *
++ * Asserts that the production deployment job in .github/workflows/deploy.yml
++ * builds against the PRODUCTION_* Supabase secrets and never references
++ * STAGING_* secrets, while the preview job intentionally keeps using staging.
++ *
++ * Dependency-free (Node >= 18). Usage:
++ *   node scripts/verify-deploy-config.mjs [path/to/deploy.yml]
++ *
++ * Exit code 0 when every invariant holds, 1 otherwise.
++ */
++
++import { readFileSync } from "node:fs"
++import path from "node:path"
++import { fileURLToPath } from "node:url"
++
++const scriptDir = path.dirname(fileURLToPath(import.meta.url))
++const workflowPath = process.argv[2]
++  ? path.resolve(process.argv[2])
++  : path.resolve(scriptDir, "..", ".github", "workflows", "deploy.yml")
++
++let text
++let lines
++
++try {
++  text = readFileSync(workflowPath, "utf8")
++  lines = text.split("\n")
++} catch (error) {
++  console.error(`❌ Cannot read workflow file: ${workflowPath}`)
++  console.error(`   ${error.message}`)
++  process.exit(1)
++}
++
++// Job keys sit at exactly two spaces of indentation under `jobs:`.
++// Step keys are indented deeper, so this regex only matches job names.
++const jobKeyRe = /^  ([A-Za-z0-9_-]+):\s*$/
++
++const jobBlocks = new Map()
++let current = null
++for (const line of lines) {
++  const match = line.match(jobKeyRe)
++  if (match) {
++    current = match[1]
++    jobBlocks.set(current, [])
++    continue
++  }
++  if (current !== null) jobBlocks.get(current).push(line)
++}
++
++const failures = []
++const ok = (message) => console.log(`  ✅ ${message}`)
++const fail = (message) => {
++  failures.push(message)
++  console.error(`  ❌ ${message}`)
++}
++
++const requireJob = (name) => {
++  if (!jobBlocks.has(name)) {
++    fail(`Job "${name}" is missing from ${workflowPath}`)
++    return null
++  }
++  return jobBlocks.get(name)
++}
++
++const findEnvValues = (block, key) => {
++  const re = new RegExp(`^\\s+${key}:\\s*(.+)$`)
++  return block.filter((line) => re.test(line)).map((line) => line.match(re)[1])
++}
++
++const assertSecret = (block, key, secretName, job) => {
++  const values = findEnvValues(block, key)
++  if (values.length === 0) {
++    fail(`"${key}" is not set in the "${job}" job`)
++    return
++  }
++  const expected = `secrets.${secretName}`
++  if (!values.some((value) => value.includes(expected))) {
++    fail(
++      `"${key}" in the "${job}" job must reference ${expected}; found: ${values.join(" | ")}`
++    )
++  }
++}
++
++console.log(`Verifying deploy workflow: ${workflowPath}`)
++console.log("")
++
++const production = requireJob("production")
++const preview = requireJob("preview")
++
++if (production) {
++  console.log("Production job:")
++  assertSecret(production, "NEXT_PUBLIC_SUPABASE_URL", "PRODUCTION_SUPABASE_URL", "production")
++  assertSecret(production, "NEXT_PUBLIC_SUPABASE_ANON_KEY", "PRODUCTION_SUPABASE_ANON_KEY", "production")
++  assertSecret(production, "SUPABASE_SERVICE_ROLE_KEY", "PRODUCTION_SUPABASE_SERVICE_KEY", "production")
++  const stagingRefs = production.filter((line) => line.includes("STAGING_"))
++  if (stagingRefs.length > 0) {
++    fail(
++      `Production job must not reference STAGING_* secrets (${stagingRefs.length} line(s)):\n${stagingRefs.map((line) => `      ${line.trim()}`).join("\n")}`
++    )
++  } else {
++    ok("No STAGING_* references in the production job")
++  }
++  const hasGuard = production.some((line) => line.includes("Verify production Supabase secrets"))
++  if (hasGuard) {
++    ok("Fail-fast secret guard step present")
++  } else {
++    fail('Production job is missing the "Verify production Supabase secrets" guard step')
++  }
++}
++
++if (preview) {
++  console.log("Preview job:")
++  assertSecret(preview, "NEXT_PUBLIC_SUPABASE_URL", "STAGING_SUPABASE_URL", "preview")
++  assertSecret(preview, "NEXT_PUBLIC_SUPABASE_ANON_KEY", "STAGING_SUPABASE_ANON_KEY", "preview")
++  assertSecret(preview, "SUPABASE_SERVICE_ROLE_KEY", "STAGING_SUPABASE_SERVICE_KEY", "preview")
++}
++
++console.log("")
++if (failures.length > 0) {
++  console.error(`❌ Deploy config verification FAILED (${failures.length} violation(s))`)
++  process.exit(1)
++}
++console.log("✅ Deploy config verification passed — production uses its own Supabase project")

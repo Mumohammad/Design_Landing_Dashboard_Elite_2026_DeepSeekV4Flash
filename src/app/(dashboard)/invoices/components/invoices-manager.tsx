@@ -1,0 +1,1291 @@
+"use client"
+
+// Phase 5 — Invoice Engine manager: list + create draft (with lines editor) +
+// detail + lifecycle (issue / finalize / cancel) + credit & debit notes.
+// Bilingual (AR/EN, RTL-aware), reuses EnterpriseModulePage like the other
+// financial managers. Rendered from the /invoices page.
+
+import { LocalizedText } from "@/components/localized-text"
+import { useEffect, useMemo, useState } from "react"
+import {useInvoicePage} from "@/hooks/use-invoice-page"
+import {formatInvoiceSummary,type InvoiceListRow} from "@/lib/accounting/invoice-pages"
+import {InvoicePartyPicker} from "@/components/accounting/invoice-party-picker"
+import { createClient } from "@/lib/supabase/client"
+import { useTranslation } from "@/hooks/use-translation"
+import {
+  EnterpriseModulePage,
+  type KpiCardData,
+  type TableColumn,
+} from "@/components/dashboard/enterprise-module-page"
+import {
+  createInvoiceDraft,
+  updateInvoiceDraft,
+  deleteInvoiceDraft,
+  issueInvoice,
+  finalizeInvoice,
+  getAlreadyPaidInfo,
+  recordAlreadyPaidPayment,
+  type AlreadyPaidMethod,
+  cancelInvoice,
+  issueCreditNote,
+  issueDebitNote,
+  exportInvoicesCsv,
+  type InvoiceType,
+} from "@/lib/accounting/invoices"
+import { applyInvoiceDiscount, computeInvoiceTotals, lineGrossCents, percentDiscount } from "@/lib/accounting/invoice-math"
+import { sendDocumentToZatca } from "@/lib/accounting/zatca"
+import { getZatcaStatus } from "@/lib/accounting/zatca-management"
+import { requestInvoicePdf } from "@/lib/invoice-pdf-download"
+import { businessDateKey } from "@/lib/formatting/business-date"
+import { useBusinessDate } from "@/hooks/use-business-date"
+import {
+  MoreHorizontal, Pencil, Trash2, FileText, Plus, Send, Check, Ban, RotateCcw, Download, Save, X, Printer,
+  Loader2, CheckCircle2, AlertTriangle, ReceiptText, BadgeDollarSign, CircleDollarSign,
+} from "lucide-react"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { RichTextEditor } from "@/components/ui/rich-text-editor"
+import { normalizeRichText } from "@/lib/rich-text/sanitize"
+import { Textarea } from "@/components/ui/textarea"
+import { BankAccountPicker } from "@/components/accounting/bank-account-picker"
+
+// ── Row shapes ────────────────────────────────────────────────────────────
+
+type InvoiceRow = InvoiceListRow
+
+interface InvoiceLineRow {
+  line_no: number
+  item_name: string | null
+  description: string
+  quantity: number
+  unit_price: number
+  discount: number
+  amount: number
+  vat_rate: number
+  vat_amount: number
+}
+
+// Electronic invoice status (Daftra-style). Phase 1 documents are generated
+// locally with the simplified QR and never sent; Phase 2 states only appear
+// once the tenant is connected to a ZATCA gateway.
+const EINVOICE_META: Record<string, { ar: string; en: string; className: string }> = {
+  local: { ar: "محلية · المرحلة 1", en: "Local · Phase 1", className: "bg-slate-500/10 text-slate-600 border-slate-500/20" },
+  not_transmitted: { ar: "لم تُرسل", en: "Not submitted", className: "bg-amber-500/10 text-amber-700 border-amber-500/20" },
+  pending: { ar: "قيد الإرسال", en: "Pending", className: "bg-blue-500/10 text-blue-600 border-blue-500/20" },
+  reported: { ar: "مُبلّغة", en: "Reported", className: "bg-emerald-500/10 text-emerald-700 border-emerald-500/20" },
+  cleared: { ar: "مُخلّصة", en: "Cleared", className: "bg-emerald-500/10 text-emerald-700 border-emerald-500/20" },
+  failed: { ar: "فشل الإرسال", en: "Failed", className: "bg-red-500/10 text-red-600 border-red-500/20" },
+  rejected: { ar: "مرفوضة", en: "Rejected", className: "bg-red-500/10 text-red-600 border-red-500/20" },
+}
+const SENDABLE_ZATCA = new Set(["not_transmitted", "failed", "rejected", "pending"])
+
+const STATUS_META: Record<string, { ar: string; en: string; className: string }> = {
+  draft: { ar: "مسودة", en: "Draft", className: "bg-gray-500/15 text-gray-600 border-gray-500/20" },
+  issued: { ar: "صادرة", en: "Issued", className: "bg-blue-500/15 text-blue-600 border-blue-500/20" },
+  finalized: { ar: "معتمدة", en: "Finalized", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/20" },
+  paid: { ar: "مدفوعة", en: "Paid", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/20" },
+  partially_paid: { ar: "مدفوعة جزئياً", en: "Partially paid", className: "bg-amber-500/15 text-amber-600 border-amber-500/20" },
+  overdue: { ar: "متأخرة", en: "Overdue", className: "bg-red-500/15 text-red-600 border-red-500/20" },
+  cancelled: { ar: "ملغاة", en: "Cancelled", className: "bg-gray-500/15 text-gray-600 border-gray-500/20" },
+  credited: { ar: "معتمدة بإشعار", en: "Credited", className: "bg-teal-500/15 text-teal-600 border-teal-500/20" },
+}
+
+const PAID_METHODS: { value: AlreadyPaidMethod; ar: string; en: string }[] = [
+  { value: "cash", ar: "نقداً", en: "Cash" },
+  { value: "transfer", ar: "تحويل بنكي", en: "Bank transfer" },
+  { value: "card", ar: "بطاقة (مدى/ائتمانية)", en: "Card (mada/credit)" },
+  { value: "cheque", ar: "شيك", en: "Cheque" },
+]
+
+function fmtMoney(n: number | null | undefined): string {
+  return (n ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function fmtUnitPrice(n: number): string {
+  return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 })
+}
+
+function fmtDate(d: string | null | undefined): string {
+  if (!d) return "—"
+  try {
+    return new Date(d).toLocaleDateString("en-GB", { timeZone: "UTC", day: "2-digit", month: "short", year: "numeric" })
+  } catch {
+    return d
+  }
+}
+
+// ── Lines editor state ────────────────────────────────────────────────────
+
+interface LineDraft {
+  key: number
+  item_name: string
+  description: string
+  quantity: string
+  unit_price: string
+  discount: string
+  discount_mode: "amount" | "percent"
+  vat_rate: string
+}
+
+type InvoiceDiscount = { mode: "percent" | "amount"; value: string }
+
+function emptyLine(key: number, vatRate = "15"): LineDraft {
+  return { key, item_name: "", description: "", quantity: "1", unit_price: "", discount: "0", discount_mode: "amount", vat_rate: vatRate }
+}
+
+// Daftra-style line discount (amount or %) + optional invoice-level discount,
+// resolved into canonical per-line amounts before VAT (line allowances).
+function lineInputs(lines: LineDraft[], defaultVatRate = "15", invoiceDiscount?: InvoiceDiscount) {
+  const base = lines.map((l) => {
+    const quantity = Number(l.quantity || NaN), unit_price = Number(l.unit_price || NaN)
+    const raw = Number(l.discount || 0)
+    const discount = l.discount_mode === "percent" && raw ? percentDiscount(quantity, unit_price, raw) : raw
+    return {
+      item_name: l.item_name.trim() || null,
+      description: l.description.trim(), quantity, unit_price, discount,
+      vat_rate: Number(l.vat_rate || defaultVatRate),
+    }
+  })
+  return invoiceDiscount && Number(invoiceDiscount.value || 0)
+    ? applyInvoiceDiscount(base, { mode: invoiceDiscount.mode, value: Number(invoiceDiscount.value) })
+    : base
+}
+
+function computeLineTotals(lines: LineDraft[], invoiceDiscount?: InvoiceDiscount) {
+  try { return computeInvoiceTotals(lineInputs(lines, "15", invoiceDiscount)) }
+  catch { return null }
+}
+
+function lineNet(l: LineDraft): number | null {
+  try {
+    const q = Number(l.quantity || NaN), p = Number(l.unit_price || NaN)
+    const gross = Number(lineGrossCents(q, p)) / 100
+    const raw = Number(l.discount || 0)
+    const d = l.discount_mode === "percent" && raw ? percentDiscount(q, p, raw) : raw
+    return gross - d < 0 ? null : Math.round((gross - d) * 100) / 100
+  } catch { return null }
+}
+
+function addDays(date: string, days: number): string {
+  const d = new Date(date + "T00:00:00Z")
+  if (Number.isNaN(d.getTime())) return date
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
+function dayDiff(from: string, to: string): number | null {
+  const a = Date.parse(from + "T00:00:00Z"), b = Date.parse(to + "T00:00:00Z")
+  return Number.isNaN(a) || Number.isNaN(b) ? null : Math.round((b - a) / 86400000)
+}
+
+const VAT_OPTIONS = [
+  { value: "15", ar: "ضريبة القيمة المضافة 15%", en: "VAT 15%" },
+  { value: "0", ar: "بدون ضريبة (0%)", en: "No tax (0%)" },
+]
+
+// ── Main component ────────────────────────────────────────────────────────
+
+export function InvoicesManager() {
+  const businessDay = useBusinessDate()
+  const { t, locale } = useTranslation()
+  const ar = locale === "ar"
+
+  const invoicePage=useInvoicePage<InvoiceRow>("invoices")
+  const {rows,loading:isLoading,error:loadError,search,setSearch,status:statusFilter,setStatus:setStatusFilter}=invoicePage
+  const page=invoicePage.pagination.currentPage,totalCount=invoicePage.pagination.totalRecords
+  const setPage=invoicePage.pagination.onPageChange
+  const load=async()=>{invoicePage.reload()}
+  const [feedback, setFeedback] = useState<{ type: "ok" | "err"; text: string } | null>(null)
+
+
+  const [editTarget, setEditTarget] = useState<InvoiceRow | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<InvoiceRow | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [detailTarget, setDetailTarget] = useState<InvoiceRow | null>(null)
+  const [detailLines, setDetailLines] = useState<InvoiceLineRow[]>([])
+  const [detailNotes, setDetailNotes] = useState<{ id: string; kind: "credit" | "debit"; number: string; total: number; reason: string; issue_date: string }[]>([])
+  const [cancelTarget, setCancelTarget] = useState<InvoiceRow | null>(null)
+  const [creditTarget, setCreditTarget] = useState<InvoiceRow | null>(null)
+  const [debitTarget, setDebitTarget] = useState<InvoiceRow | null>(null)
+
+  // E-invoicing mode: "connected" only once an EGS unit is onboarded on the
+  // configured ZATCA gateway; otherwise Phase 1 (local generation).
+  const [zatcaMode, setZatcaMode] = useState<{ connected: boolean; environment: string | null }>({ connected: false, environment: null })
+  useEffect(() => {
+    void getZatcaStatus().then((res) => {
+      if (res.success && res.status) setZatcaMode({ connected: res.status.mode === "connected", environment: res.status.environment })
+    }).catch(() => { /* Accounting access is optional; default to Phase 1. */ })
+  }, [])
+
+  const flash = (type: "ok" | "err", text: string) => {
+    setFeedback({ type, text })
+    window.setTimeout(() => setFeedback(null), 6000)
+  }
+
+  const summary=invoicePage.summary
+  const kpiCards:KpiCardData[]=[
+   {label:ar?"إجمالي الفواتير":"Total invoices",value:summary?.total??"—",icon:FileText,color:"#1E5A99"},
+   {label:ar?"مسودات":"Drafts",value:summary?.drafts??"—",icon:ReceiptText,color:"#64748B"},
+   {label:ar?"معتمدة":"Finalized",value:summary?.finalized??"—",icon:CheckCircle2,color:"#10B981"},
+   {label:ar?"قيمة الفواتير (ر.س)":"Invoice value (SAR)",value:formatInvoiceSummary(summary?.value_sar),icon:CircleDollarSign,color:"#8B5CF6"},
+  ]
+
+  const columns: TableColumn<InvoiceRow>[] = [
+    {
+      key: "invoice_number",
+      header: ar ? "الرقم" : "Number",
+      render: (r) => <span dir="ltr" className="font-mono text-xs font-medium">{r.invoice_number}</span>,
+    },
+    {
+      key: "invoice_type",
+      header: ar ? "النوع" : "Type",
+      render: (r) => (
+        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${
+          r.invoice_type === "sales"
+            ? "border-blue-500/20 bg-blue-500/10 text-blue-600"
+            : "border-orange-500/20 bg-orange-500/10 text-orange-600"
+        }`}>
+          {r.invoice_type === "sales" ? (ar ? "بيعية" : "Sales") : ar ? "شرائية" : "Purchase"}
+        </span>
+      ),
+    },
+    {
+      key: "party",
+      header: ar ? "الطرف" : "Party",
+      render: (r) => (
+        <span className="font-medium">{(ar?(r.customer_name||r.customer_name_en||r.supplier_name||r.supplier_name_en):(r.customer_name_en||r.customer_name||r.supplier_name_en||r.supplier_name)) || "—"}</span>
+      ),
+    },
+    {
+      key: "issue_date",
+      header: ar ? "التاريخ" : "Date",
+      render: (r) => <span dir="ltr" className="text-xs">{fmtDate(r.issue_date)}</span>,
+    },
+    {
+      key: "due_date",
+      header: ar ? "الاستحقاق" : "Due",
+      render: (r) => (
+        <span dir="ltr" className={`text-xs ${!["paid", "cancelled", "credited"].includes(r.status) && businessDay && r.due_date < businessDay ? "text-red-600 font-medium" : ""}`}>
+          {fmtDate(r.due_date)}
+        </span>
+      ),
+    },
+    {
+      key: "status",
+      header: t.common.status,
+      render: (r) => {
+        const s = STATUS_META[r.status] ?? STATUS_META.draft
+        return (
+          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${s.className}`}>
+            {ar ? s.ar : s.en}
+          </span>
+        )
+      },
+    },
+    {
+      key: "zatca_status",
+      header: ar ? "الفاتورة الإلكترونية" : "E-invoice",
+      render: (r) => {
+        if (r.invoice_type !== "sales" || ["draft", "issued", "cancelled"].includes(r.status)) return <span className="text-xs text-muted-foreground">—</span>
+        const key = zatcaMode.connected ? (r.zatca_status ?? "not_transmitted") : (r.zatca_status && r.zatca_status !== "not_transmitted" ? r.zatca_status : "local")
+        const m = EINVOICE_META[key] ?? EINVOICE_META.not_transmitted
+        return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${m.className}`}>{ar ? m.ar : m.en}</span>
+      },
+    },
+    {
+      key: "total",
+      header: ar ? "الإجمالي" : "Total",
+      render: (r) => (
+        <span dir="ltr" className="text-xs font-medium tabular-nums">{fmtMoney(r.total)} {r.currency}</span>
+      ),
+    },
+  ]
+
+  // ── Export ──────────────────────────────────────────────────────────────
+  const [isExporting, setIsExporting] = useState(false)
+  async function handleExport() {
+    setIsExporting(true)
+    const res = await exportInvoicesCsv({search,status:statusFilter,locale})
+    setIsExporting(false)
+    if (res.success && res.csv) {
+      const blob = new Blob([res.csv], { type: "text/csv;charset=utf-8" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = "invoices.csv"
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      flash("ok", ar ? "تم تصدير الفواتير." : "Invoices exported.")
+    } else {
+      flash("err", (ar?res.errorAr:res.error) ?? (ar?"تعذر تصدير الفواتير.":"Invoice export failed."))
+    }
+  }
+
+  // ── Create form ─────────────────────────────────────────────────────────
+  const [formType, setFormType] = useState<InvoiceType>("sales")
+  const [draftRequest,setDraftRequest]=useState<string|null>(null)
+  const [partyReadReady,setPartyReadReady]=useState(false)
+  const [formPartyId, setFormPartyId] = useState("")
+  const [formIssue, setFormIssue] = useState(() => businessDateKey(new Date()))
+  const [formDue, setFormDue] = useState(() => businessDateKey(new Date()))
+  const [formShowDueDate, setFormShowDueDate] = useState(false)
+  const [formVatRate, setFormVatRate] = useState("15")
+  const [formCurrency, setFormCurrency] = useState("SAR")
+  const [formNotes, setFormNotes] = useState("")
+  const [formBank, setFormBank] = useState("")
+  const [formPaid, setFormPaid] = useState(false)
+  const [formPaidMethod, setFormPaidMethod] = useState<AlreadyPaidMethod>("cash")
+  const [lines, setLines] = useState<LineDraft[]>([emptyLine(1)])
+  const [formTerms, setFormTerms] = useState("0")
+  const [invDiscount, setInvDiscount] = useState<InvoiceDiscount>({ mode: "percent", value: "" })
+  const [formTab, setFormTab] = useState<"discount" | "notes" | "bank">("discount")
+  const [isSaving, setIsSaving] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+
+  const lineTotals = computeLineTotals(lines, invDiscount)
+  const grossTotal = lineTotals ? Math.round((lineTotals.subtotal + lineTotals.discount) * 100) / 100 : null
+  const hasLineInput = lines.some((line) => line.item_name || line.description || line.unit_price)
+
+
+  const openCreate = () => {
+    setDraftRequest(crypto.randomUUID());setPartyReadReady(false)
+    setEditTarget(null)
+    setFormCurrency("SAR")
+    setFormType("sales")
+    setFormPartyId("")
+    setFormIssue(businessDateKey(new Date()))
+    setFormDue(businessDateKey(new Date()))
+    setFormShowDueDate(false)
+    setFormVatRate("15")
+    setFormNotes("")
+    setFormBank("")
+    setFormPaid(false)
+    setFormPaidMethod("cash")
+    setFormTerms("0")
+    setInvDiscount({ mode: "percent", value: "" })
+    setFormTab("discount")
+    setLines([emptyLine(1)])
+    setFormError(null)
+    setCreateOpen(true)
+  }
+
+  const updateLine = (key: number, patch: Partial<LineDraft>) =>
+    setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)))
+  const addLine = () => setLines((prev) => [...prev, emptyLine(Date.now(), prev[prev.length - 1]?.vat_rate ?? "15")])
+  const changeIssue = (v: string) => { setFormIssue(v); const t = Number(formTerms); if (v && Number.isInteger(t) && t >= 0) setFormDue(addDays(v, t)) }
+  const changeTerms = (v: string) => { setFormTerms(v); const t = Number(v); if (v !== "" && Number.isInteger(t) && t >= 0 && t <= 3650) setFormDue(addDays(formIssue, t)) }
+  const changeDue = (v: string) => { setFormDue(v); const d = dayDiff(formIssue, v); if (d !== null && d >= 0) setFormTerms(String(d)) }
+  const removeLine = (key: number) => setLines((prev) => (prev.length > 1 ? prev.filter((l) => l.key !== key) : prev))
+
+  async function openEdit(row: InvoiceRow) {
+    setBusyId(row.id)
+    const client = createClient()
+    const [{ data, error }, header] = await Promise.all([
+      client.from("invoice_lines")
+        .select("line_no,item_name,description,quantity,unit_price,discount,vat_rate")
+        .eq("invoice_id", row.id).order("line_no"),
+      client.from("invoices").select("bank_account_id,already_paid,already_paid_method").eq("id", row.id).maybeSingle(),
+    ])
+    setBusyId(null)
+    if (error || !data?.length || header.error) { flash("err", ar ? "تعذر تحميل البنود. حاول مجدداً." : "Could not load invoice lines. Retry."); return }
+    setEditTarget(row)
+    setDraftRequest(crypto.randomUUID());setPartyReadReady(false)
+    setFormType(row.invoice_type)
+    setFormPartyId(row.customer_id ?? row.supplier_id ?? "")
+    setFormIssue(row.issue_date)
+    setFormDue(row.due_date)
+    setFormShowDueDate(row.show_due_date)
+    setFormVatRate(String(row.vat_rate))
+    setFormCurrency(row.currency)
+    setFormNotes(row.notes ?? "")
+    const saved = header.data as { bank_account_id?: string | null; already_paid?: boolean; already_paid_method?: AlreadyPaidMethod | null } | null
+    setFormBank(saved?.bank_account_id ?? "")
+    setFormPaid(!!saved?.already_paid)
+    setFormPaidMethod(saved?.already_paid_method ?? "cash")
+    setFormTerms(String(Math.max(0, dayDiff(row.issue_date, row.due_date) ?? 0)))
+    setInvDiscount({ mode: "percent", value: "" })
+    setFormTab("discount")
+    setLines(data.map((l) => ({ key: l.line_no, item_name: l.item_name ?? "", description: l.description,
+      quantity: String(l.quantity), unit_price: String(l.unit_price),
+      discount: String(l.discount), discount_mode: "amount" as const, vat_rate: String(l.vat_rate) })))
+    setFormError(null)
+    setCreateOpen(true)
+  }
+
+  async function handleCreate(print = false) {
+    const win = print ? window.open("", "_blank") : null
+    if (win) { win.opener = null; win.document.body.textContent = ar ? "جارٍ تجهيز PDF الفاتورة…" : "Preparing invoice PDF…" }
+    if (formPaid && formPaidMethod !== "cash" && !formBank) {
+      win?.close()
+      setFormTab("bank")
+      setFormError(ar ? "اختر الحساب البنكي الذي استُلمت عليه الدفعة، أو اختر الدفع نقداً." : "Choose the bank account that received the payment, or choose cash.")
+      return
+    }
+    setIsSaving(true)
+    setFormError(null)
+    try {
+      const input = { invoice_type: formType, request_id: draftRequest ?? undefined,
+        customer_id: formType === "sales" ? formPartyId || null : null,
+        supplier_id: formType === "purchase" ? formPartyId || null : null,
+        issue_date: formIssue, due_date: formDue, show_due_date: formShowDueDate, currency: formCurrency,
+        vat_rate: Number(lines[0]?.vat_rate || formVatRate || 0), notes: normalizeRichText(formNotes) || null,
+        bank_account_id: formBank || null,
+        already_paid: formPaid, already_paid_method: formPaid ? formPaidMethod : null,
+        lines: lineInputs(lines, formVatRate, invDiscount) }
+      const res = editTarget
+        ? await updateInvoiceDraft({ ...input, id: editTarget.id, expected_updated_at: editTarget.updated_at })
+        : await createInvoiceDraft(input)
+      if (!res.success) { win?.close(); setFormError((ar?res.errorAr:res.error) ?? (ar?"تعذر تأكيد الحفظ. أعد المحاولة بالتفاصيل نفسها.":"Unable to confirm the save. Retry with unchanged details.")); return }
+      flash("ok", ar ? "تم حفظ مسودة الفاتورة." : "Invoice draft saved.")
+      setCreateOpen(false)
+      const resId = (res as { id?: unknown }).id
+      const savedId = editTarget?.id ?? (typeof resId === "string" ? resId : undefined)
+      if (win && savedId) {
+        void requestInvoicePdf(savedId, undefined, ar ? "ar" : "en").then(({ blob }) => {
+          if (win.closed) return
+          const url = URL.createObjectURL(blob); win.location.replace(url)
+          const cleanup = window.setInterval(() => { if (win.closed) { URL.revokeObjectURL(url); window.clearInterval(cleanup) } }, 30_000)
+        }).catch((error) => { win.close(); flash("err", error instanceof Error ? error.message : (ar ? "تعذرت الطباعة." : "Print failed.")) })
+      }
+      await load()
+    } catch { win?.close(); setFormError(ar ? "تعذر الحفظ. حاول مجدداً." : "Could not save. Please retry.") }
+    finally { setIsSaving(false) }
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget) return
+    setIsDeleting(true)
+    try {
+      const res = await deleteInvoiceDraft({ id: deleteTarget.id, expected_updated_at: deleteTarget.updated_at })
+      if (!res.success) { flash("err", res.error ?? "Delete failed"); return }
+      setDeleteTarget(null)
+      flash("ok", ar ? "تم حذف المسودة." : "Draft deleted.")
+      await load()
+    } catch { flash("err", ar ? "تعذر الحذف. حاول مجدداً." : "Could not delete. Please retry.") }
+    finally { setIsDeleting(false) }
+  }
+
+  // ── Detail ──────────────────────────────────────────────────────────────
+  const [isDetailLoading, setIsDetailLoading] = useState(false)
+  async function openDetail(r: InvoiceRow) {
+    setDetailTarget(r)
+    setDetailLines([])
+    setDetailNotes([])
+    setIsDetailLoading(true)
+    const supabase = createClient()
+    const [linesRes, cnRes, dnRes] = await Promise.all([
+      supabase
+        .from("invoice_lines")
+        .select("line_no,item_name,description,quantity,unit_price,discount,amount,vat_rate,vat_amount")
+        .eq("invoice_id", r.id)
+        .order("line_no", { ascending: true }),
+      supabase
+        .from("credit_notes")
+        .select("id,credit_note_number,total,reason,issue_date")
+        .eq("reference_invoice_id", r.id),
+      supabase
+        .from("debit_notes")
+        .select("id,debit_note_number,total,reason,issue_date")
+        .eq("reference_invoice_id", r.id),
+    ])
+    if (linesRes.data) setDetailLines(linesRes.data as InvoiceLineRow[])
+    setDetailNotes([
+      ...((cnRes.data ?? []).map((n) => ({
+        id: n.id,
+        kind: "credit" as const,
+        number: n.credit_note_number,
+        total: Number(n.total),
+        reason: n.reason,
+        issue_date: n.issue_date,
+      }))),
+      ...((dnRes.data ?? []).map((n) => ({
+        id: n.id,
+        kind: "debit" as const,
+        number: n.debit_note_number,
+        total: Number(n.total),
+        reason: n.reason,
+        issue_date: n.issue_date,
+      }))),
+    ])
+    setIsDetailLoading(false)
+  }
+
+  // ── Print / PDF (Phase 6) ───────────────────────────────────────────────
+  const [printingId, setPrintingId] = useState<string | null>(null)
+  const [printTarget, setPrintTarget] = useState<InvoiceRow | null>(null)
+  const [printBank, setPrintBank] = useState("")
+  const [printError, setPrintError] = useState("")
+  async function handlePrint(r: InvoiceRow, mode: "preview" | "download" = "preview") {
+    const win = mode === "preview" ? window.open("", "_blank") : null
+    if (mode === "preview" && !win) {
+      setPrintError(ar ? "اسمح بالنوافذ المنبثقة للطباعة وحفظ PDF." : "Allow pop-ups to print or save a PDF.")
+      return
+    }
+    if (win) {
+      win.opener = null
+      win.document.body.textContent = ar ? "جارٍ تجهيز PDF الفاتورة…" : "Preparing invoice PDF…"
+    }
+    setPrintingId(r.id)
+    setPrintError("")
+    try {
+      const { blob, filename } = await requestInvoicePdf(r.id, printBank || undefined, ar ? "ar" : "en")
+      if (win?.closed) throw Error(ar ? "أُغلقت نافذة المعاينة. حاول مجدداً." : "The PDF preview was closed. Please try again.")
+      const url = URL.createObjectURL(blob)
+      if (win) {
+        win.location.replace(url)
+        // Keep the PDF available for the viewer's print/download controls.
+        const cleanup = window.setInterval(() => {
+          if (win.closed) { URL.revokeObjectURL(url); window.clearInterval(cleanup) }
+        }, 30_000)
+      } else {
+        const link = document.createElement("a")
+        link.href = url
+        link.download = filename
+        document.body.append(link)
+        link.click()
+        link.remove()
+        window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+      }
+      setPrintTarget(null)
+    } catch (error) {
+      win?.close()
+      setPrintError(error instanceof Error ? error.message : "Print failed")
+    } finally { setPrintingId(null) }
+  }
+
+  // ── Lifecycle actions ───────────────────────────────────────────────────
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [paidPrompt, setPaidPrompt] = useState<{ row: InvoiceRow; method: AlreadyPaidMethod | null; amount: number } | null>(null)
+  const [paidBusy, setPaidBusy] = useState(false)
+  async function confirmAlreadyPaid() {
+    if (!paidPrompt) return
+    setPaidBusy(true)
+    try {
+      const res = await recordAlreadyPaidPayment({ id: paidPrompt.row.id })
+      if (!res.success) { flash("err", (ar ? res.errorAr : res.error) ?? (ar ? "تعذر تسجيل الدفعة." : "Unable to record the payment.")); return }
+      flash("ok", res.postingStatus === "pending"
+        ? (ar ? "سُجّلت الدفعة وهي بانتظار الترحيل المحاسبي." : "Payment recorded; accounting posting is pending.")
+        : (ar ? "تم تسجيل الدفعة وأصبحت الفاتورة مدفوعة." : "Payment recorded; the invoice is paid."))
+      setPaidPrompt(null)
+      await load()
+    } catch { flash("err", ar ? "تعذر تسجيل الدفعة. حاول مجدداً." : "Could not record the payment. Please retry.") }
+    finally { setPaidBusy(false) }
+  }
+  async function runAction(action: "issue" | "finalize", r: InvoiceRow) {
+    setBusyId(r.id)
+    try {
+      const input = { id: r.id, expected_updated_at: r.updated_at }
+      const res = action === "issue" ? await issueInvoice(input) : await finalizeInvoice(input)
+      if (res.success) {
+        const finalizeMsg = res.postingPending
+          ? (ar ? "تم اعتماد الفاتورة. الترحيل المحاسبي قيد الانتظار؛ راجع أحداث المحاسبة." : "Invoice approved. Accounting posting is pending; review Accounting events.")
+          : r.invoice_type === "purchase"
+            ? (ar ? "تم اعتماد فاتورة الشراء وإنشاء ذمم دائنة." : "Purchase invoice approved; payable created.")
+            : (ar ? "تم اعتماد الفاتورة نهائياً." : "Invoice finalized.")
+        flash("ok", action === "issue" ? (ar ? "تم إصدار الفاتورة." : "Invoice issued.") : finalizeMsg)
+        setDetailTarget(null)
+        await load()
+        if (action === "finalize") {
+          const paid = await getAlreadyPaidInfo({ id: r.id }).catch(() => null)
+          if (paid?.success && paid.info?.already_paid && (paid.info.open_amount ?? 0) > 0) setPaidPrompt({ row: r, method: paid.info.method, amount: paid.info.open_amount! })
+        }
+      } else {
+        flash("err", (ar ? res.errorAr : res.error) ?? (ar ? "تعذر تأكيد الإجراء." : "Unable to confirm this action."))
+      }
+    } catch {
+      flash("err", ar ? "تعذر تأكيد إجراء الفاتورة. أعد تحميلها وراجع حالتها قبل المحاولة مجدداً." : "Unable to confirm the invoice decision. Reload and review its status before retrying.")
+    } finally { setBusyId(null) }
+  }
+
+  // Per-document "Send to ZATCA" (Phase 2, non-production gateway only).
+  async function sendToZatca(r: InvoiceRow) {
+    setBusyId(r.id)
+    try {
+      const res = await sendDocumentToZatca(r.id)
+      if (!res.success) flash("err", res.error ?? (ar ? "تعذر الإرسال إلى ZATCA." : "Unable to send to ZATCA."))
+      else if ((res.failed ?? 0) > 0) flash("err", ar ? `رفض/فشل الإرسال: ${res.error ?? ""}` : `Submission failed: ${res.error ?? ""}`)
+      else if ((res.processed ?? 0) === 0) flash("ok", ar ? "لا يوجد ما يُرسل: الفاتورة مُرسلة مسبقاً أو صادرة قبل بدء الربط." : "Nothing to send: already submitted or issued before the go-live.")
+      else flash("ok", ar ? `أُرسلت الفاتورة إلى ZATCA (${zatcaMode.environment ?? "test"} · بيئة اختبار لا تُحتسب).` : `Sent to ZATCA (${zatcaMode.environment ?? "test"} · test environment, not counted).`)
+      await load()
+    } catch {
+      flash("err", ar ? "تعذر الإرسال إلى ZATCA." : "Unable to send to ZATCA.")
+    } finally { setBusyId(null) }
+  }
+
+  // Unposted cancellation preserves the reviewed version/reason on failure.
+  const [cancelReason, setCancelReason] = useState("")
+  const [cancelError, setCancelError] = useState("")
+  const [isCancelling, setIsCancelling] = useState(false)
+  async function handleCancel() {
+    if (!cancelTarget || isCancelling) return
+    setIsCancelling(true); setCancelError("")
+    try {
+      const res = await cancelInvoice({ id: cancelTarget.id, expected_updated_at: cancelTarget.updated_at, reason: cancelReason })
+      if (!res.success) { setCancelError((ar ? res.errorAr : res.error) ?? (ar ? "تعذر تأكيد الإلغاء." : "Unable to confirm cancellation.")); return }
+      setCancelTarget(null); setCancelReason("")
+      flash("ok", ar ? "تم إلغاء الفاتورة." : "Invoice cancelled.")
+      await load()
+    } catch {
+      setCancelError(ar ? "تعذر تأكيد الإلغاء. أعد تحميل الفاتورة وراجع حالتها قبل المحاولة مجدداً." : "Unable to confirm cancellation. Reload the invoice and review its status before retrying.")
+    } finally { setIsCancelling(false) }
+  }
+
+  // Preserve the same request/date and form through network or validation
+  // failures. Opening a new dialog is an explicit new note request.
+  const [creditReason, setCreditReason] = useState("")
+  const [creditRequest, setCreditRequest] = useState("")
+  const [creditDate, setCreditDate] = useState("")
+  const [isCrediting, setIsCrediting] = useState(false)
+  const [noteError, setNoteError] = useState("")
+  async function handleCredit() {
+    if (!creditTarget || isCrediting) return
+    setIsCrediting(true); setNoteError("")
+    try {
+      const res = await issueCreditNote({ request_id: creditRequest, reference_invoice_id: creditTarget.id,
+        expected_updated_at: creditTarget.updated_at, reason: creditReason, issue_date: creditDate })
+      if (!res.success) { setNoteError((ar ? res.errorAr : res.error) ?? (ar ? "تعذر تأكيد الإشعار." : "Unable to confirm the note.")); return }
+      setCreditTarget(null); setCreditReason("")
+      flash("ok", ar ? "تم إصدار الإشعار الدائن وترحيله محاسبياً. أي رصيد لإشعارات مدينة مستقلة يبقى مستحقاً." : "Credit note issued and posted. Separate debit-note balances remain payable.")
+      await load()
+    } catch {
+      setNoteError(ar ? "تعذر تأكيد الإشعار. راجع الفاتورة والإشعارات قبل إعادة الطلب نفسه." : "Unable to confirm the note. Review the invoice and notes before retrying the same request.")
+    } finally { setIsCrediting(false) }
+  }
+
+  const [debitAmount, setDebitAmount] = useState("")
+  const [debitReason, setDebitReason] = useState("")
+  const [debitVatRate, setDebitVatRate] = useState("15")
+  const [debitRequest, setDebitRequest] = useState("")
+  const [debitDate, setDebitDate] = useState("")
+  const [isDebiting, setIsDebiting] = useState(false)
+  const debitPreview = useMemo(() => {
+    if (!debitAmount.trim() || !debitVatRate.trim() || Number(debitAmount) <= 0 || !/^\d+(?:\.\d{1,2})?$/.test(debitAmount.trim())) return null
+    try { return computeInvoiceTotals([{ description: "Debit note", quantity: 1,
+      unit_price: Number(debitAmount), vat_rate: Number(debitVatRate) }]) } catch { return null }
+  }, [debitAmount, debitVatRate])
+  async function handleDebit() {
+    if (!debitTarget || isDebiting || !debitPreview) return
+    setIsDebiting(true); setNoteError("")
+    try {
+      const res = await issueDebitNote({ request_id: debitRequest, reference_invoice_id: debitTarget.id,
+        expected_updated_at: debitTarget.updated_at, reason: debitReason, issue_date: debitDate,
+        amount: Number(debitAmount), vat_rate: Number(debitVatRate) })
+      if (!res.success) { setNoteError((ar ? res.errorAr : res.error) ?? (ar ? "تعذر تأكيد الإشعار." : "Unable to confirm the note.")); return }
+      setDebitTarget(null); setDebitAmount(""); setDebitReason("")
+      flash("ok", ar ? "تم إصدار الإشعار المدين وترحيله محاسبياً." : "Debit note issued and posted.")
+      await load()
+    } catch {
+      setNoteError(ar ? "تعذر تأكيد الإشعار. راجع الفاتورة والإشعارات قبل إعادة الطلب نفسه." : "Unable to confirm the note. Review the invoice and notes before retrying the same request.")
+    } finally { setIsDebiting(false) }
+  }
+
+
+  return (
+    <div className="space-y-4" data-testid="invoices-manager">
+      {feedback && (
+        <div
+          role="status"
+          className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-sm ${
+            feedback.type === "ok"
+              ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-600"
+              : "border-red-500/20 bg-red-500/10 text-red-500"
+          }`}
+        >
+          {feedback.type === "ok" ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
+          {feedback.text}
+        </div>
+      )}
+
+      <EnterpriseModulePage
+        title={ar ? "الفواتير" : "Invoices"}
+        subtitle={ar
+          ? "دورة حياة الفاتورة: مسودة ← صادرة ← معتمدة (نهائية)، مع الإشعارات الدائنة والمدينة"
+          : "Invoice lifecycle: draft → issued → finalized (immutable), plus credit & debit notes"}
+        kpiCards={kpiCards}
+        searchPlaceholder={ar ? "ابحث برقم الفاتورة أو الطرف أو الحالة…" : "Search invoice number, party or status…"}
+        searchValue={search}
+        onSearchChange={setSearch}
+        primaryCtaLabel={ar ? "فاتورة جديدة" : "New invoice"}
+        onPrimaryCta={openCreate}
+        primaryCtaIcon={Plus}
+        toolbarActions={
+          <div className="flex flex-wrap items-center gap-2">
+          <select aria-label={ar ? "حالة الفاتورة" : "Invoice status"} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-9 rounded-xl border bg-background px-3 text-xs">
+            <option value="all">{ar ? "جميع الحالات" : "All statuses"}</option>
+            {Object.entries(STATUS_META).map(([value, meta]) => <option key={value} value={value}>{ar ? meta.ar : meta.en}</option>)}
+          </select>
+          <button
+            onClick={() => void handleExport()}
+            disabled={isExporting}
+            className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-border/50 bg-muted/30 px-3 text-xs font-medium text-foreground/80 transition-colors hover:bg-muted/60 disabled:opacity-50"
+          >
+            {isExporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+            {ar ? "تصدير CSV" : "Export CSV"}
+          </button>
+          </div>
+        }
+        columns={columns}
+        data={rows}
+        rowActions={(r) => {
+          const canIssue = r.status === "draft"
+          const canFinalize = r.status === "issued"
+          const canCancel = r.status === "draft" || r.status === "issued"
+          const canCredit = r.status === "finalized" && r.invoice_type === "sales"
+          const canDebit = r.status === "finalized" && r.invoice_type === "sales"
+          const canSendZatca = zatcaMode.connected && r.invoice_type === "sales"
+            && !["draft", "issued", "cancelled"].includes(r.status) && SENDABLE_ZATCA.has(r.zatca_status ?? "not_transmitted")
+          return (
+            <DropdownMenu dir={ar ? "rtl" : "ltr"}>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" disabled={busyId === r.id || printingId === r.id} aria-label={`${ar ? "إجراءات الفاتورة" : "Invoice actions"} ${r.invoice_number}`}>
+                  {busyId === r.id || printingId === r.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreHorizontal className="h-4 w-4" />}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-44 rounded-xl">
+                <DropdownMenuItem onSelect={() => void openDetail(r)}><FileText className="h-4 w-4" />{ar ? "تفاصيل" : "Details"}</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => { setPrintTarget(r); setPrintBank(""); setPrintError(""); void createClient().from("invoices").select("bank_account_id").eq("id", r.id).maybeSingle().then(({ data }) => { const saved = (data as { bank_account_id?: string | null } | null)?.bank_account_id; if (saved) setPrintBank((current) => current || saved) }) }}><Printer className="h-4 w-4" />{ar ? "طباعة / حفظ PDF" : "Print / Save PDF"}</DropdownMenuItem>
+                {canIssue && <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => void openEdit(r)}><Pencil className="h-4 w-4" />{ar ? "تعديل" : "Edit"}</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => void runAction("issue", r)}><Send className="h-4 w-4" />{ar ? "إصدار" : "Issue"}</DropdownMenuItem>
+                  <DropdownMenuItem className="text-destructive" onSelect={() => setDeleteTarget(r)}><Trash2 className="h-4 w-4" />{ar ? "حذف" : "Delete"}</DropdownMenuItem>
+                </>}
+                {canFinalize && <DropdownMenuItem onSelect={() => void runAction("finalize", r)}><Check className="h-4 w-4" />{ar ? "اعتماد" : "Finalize"}</DropdownMenuItem>}
+                {canSendZatca && <DropdownMenuItem onSelect={() => void sendToZatca(r)}><Send className="h-4 w-4" />{ar ? "إرسال إلى ZATCA" : "Send to ZATCA"}</DropdownMenuItem>}
+                {canCredit && <DropdownMenuItem onSelect={() => { setCreditTarget(r); setCreditReason(""); setCreditRequest(crypto.randomUUID()); setCreditDate(businessDateKey(new Date())); setNoteError("") }}><RotateCcw className="h-4 w-4" />{ar ? "دائن" : "Credit"}</DropdownMenuItem>}
+                {canDebit && <DropdownMenuItem onSelect={() => { setDebitTarget(r); setDebitAmount(""); setDebitReason(""); setDebitVatRate(String(r.vat_rate)); setDebitRequest(crypto.randomUUID()); setDebitDate(businessDateKey(new Date())); setNoteError("") }}><BadgeDollarSign className="h-4 w-4" />{ar ? "مدين" : "Debit"}</DropdownMenuItem>}
+                {canCancel && <DropdownMenuItem className="text-destructive" onSelect={() => { setCancelTarget(r); setCancelReason(""); setCancelError("") }}><Ban className="h-4 w-4" />{ar ? "إلغاء" : "Cancel"}</DropdownMenuItem>}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )
+        }}
+        isLoading={isLoading}
+        loadError={loadError?(ar?"تعذر تحميل الفواتير وإجمالياتها. أعد المحاولة.":"Could not load invoices and their totals. Retry."):undefined}
+        onRetry={()=>void load()}
+        retryLabel={ar ? "أعد المحاولة" : "Retry"}
+        emptyStateMessage={ar ? "لا توجد فواتير بعد. أنشئ أول فاتورة." : "No invoices yet. Create your first invoice."}
+      />
+
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card p-4 text-sm text-muted-foreground">
+        <span>{isLoading?(ar?"جارٍ تحميل الفواتير…":"Loading invoices…"):loadError?"—":ar ? `${totalCount} فاتورة · الصفحة ${page} من ${invoicePage.pagination.totalPages}` : `Page ${page} of ${invoicePage.pagination.totalPages} · ${totalCount} invoices`}</span>
+        <div className="flex gap-2">
+          <Button variant="outline" disabled={isLoading || loadError || page <= 1} onClick={() => setPage(page - 1)}>{ar ? "السابق" : "Previous"}</Button>
+          <Button variant="outline" disabled={isLoading || loadError || page * 50 >= totalCount} onClick={() => setPage(page + 1)}>{ar ? "التالي" : "Next"}</Button>
+        </div>
+      </div>
+      <Dialog open={!!printTarget} onOpenChange={(open) => { if (!open && !printingId) setPrintTarget(null) }}>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto rounded-2xl">
+          <DialogHeader><DialogTitle>{ar ? "طباعة / حفظ PDF" : "Print / Save PDF"}</DialogTitle>
+            <DialogDescription>{ar ? "نزّل ملف PDF جاهزاً أو افتحه ثم اطبعه من عارض PDF. لا يحتوي الملف على تاريخ المتصفح أو روابطه أو رؤوسه وتذييلاته. حساب التحويل اختياري." : "Download the finished PDF or open it and print from your PDF viewer. The file has no browser date, links, headers or footers. A receiving bank is optional."}</DialogDescription>
+          </DialogHeader>
+          <BankAccountPicker key={printTarget?.id} value={printBank} onChange={setPrintBank} ar={ar} disabled={!!printingId} />
+          <p role="note" className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+            {printTarget && printTarget.invoice_type === "sales" && !["draft", "issued", "cancelled"].includes(printTarget.status)
+              ? (ar ? "فاتورة إلكترونية (المرحلة الأولى): رمز QR يُنشأ محلياً بوقت الاعتماد ولا تُرسل الفاتورة إلى ZATCA ما لم تُرسل من الربط. لا تعد هذه النسخة دليلاً على التخليص أو الإبلاغ." : "Phase 1 e-invoice: the QR is generated locally at the finalization time and the invoice is not sent to ZATCA unless submitted through the connection. This copy is not evidence of clearance or reporting.")
+              : (ar ? "الرمز الحالي داخلي. لم تُعتمد الفاتورة بعد، ولا تعد هذه النسخة دليلاً على اعتماد أو إرسال الفاتورة لدى الهيئة." : "The current QR is internal. The invoice is not finalized; this copy is not evidence of ZATCA clearance or reporting.")}
+          </p>
+          {printError && <p role="alert" className="text-sm text-destructive">{printError}</p>}
+          <div className="flex flex-wrap gap-2">
+          <Button disabled={!!printingId} onClick={() => printTarget && void handlePrint(printTarget, "download")}>
+            {printingId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            {ar ? "تنزيل PDF" : "Download PDF"}
+          </Button>
+          <Button variant="outline" disabled={!!printingId} onClick={() => printTarget && void handlePrint(printTarget)}>
+            {printingId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
+            {ar ? "فتح الفاتورة للطباعة" : "Open invoice for printing"}
+          </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => { if (!open && !isDeleting) setDeleteTarget(null) }}>
+        <DialogContent className="rounded-2xl">
+          <DialogHeader><DialogTitle>{ar ? "حذف مسودة الفاتورة؟" : "Delete invoice draft?"}</DialogTitle>
+            <DialogDescription>{deleteTarget?.invoice_number} — {ar ? "ستُحفظ البنود وسجل التدقيق. لا يمكن حذف الفواتير الصادرة." : "Line items and audit history are retained. Issued invoices cannot be deleted."}</DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2"><Button variant="outline" disabled={isDeleting} onClick={() => setDeleteTarget(null)}>{ar ? "رجوع" : "Back"}</Button>
+            <Button variant="destructive" disabled={isDeleting} onClick={() => void handleDelete()}>{isDeleting && <Loader2 className="h-4 w-4 animate-spin" />}{ar ? "حذف المسودة" : "Delete draft"}</Button></div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Create draft dialog (Daftra-style invoice editor) ──────────── */}
+      <Dialog open={createOpen} onOpenChange={(o) => { if (!o && !isSaving) setCreateOpen(false) }}>
+        <DialogContent className="max-h-[92dvh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-y-auto overflow-x-hidden rounded-2xl p-0 sm:max-w-6xl [&>[data-slot=dialog-close]]:z-20">
+          <fieldset disabled={isSaving} className="min-w-0" data-testid="invoice-draft-fields">
+            <legend className="sr-only">{ar?"بيانات الفاتورة":"Invoice details"}</legend>
+            {/* Top bar: title + primary actions (like Daftra: preview / save draft / save & print) */}
+            <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 border-b border-border/60 bg-background/95 py-3 pl-4 pr-12 backdrop-blur sm:pl-6">
+              <DialogHeader className="min-w-0 text-start">
+                <DialogTitle className="text-lg">{editTarget ? (ar ? "تعديل مسودة الفاتورة" : "Edit invoice draft") : (ar ? "فاتورة جديدة (مسودة)" : "New invoice (draft)")}</DialogTitle>
+                <DialogDescription className="text-xs">
+                  {ar ? "احفظ مسودة وراجع المبالغ ثم أصدرها عند الجاهزية. الفاتورة المعتمدة غير قابلة للتعديل." : "Save a draft, review the amounts, then issue it when ready. Finalized invoices cannot be edited."}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button type="button" variant="outline" onClick={() => void handleCreate(true)} disabled={isSaving || !formPartyId || !lineTotals || !partyReadReady || !draftRequest} className="rounded-xl">
+                  <Printer className="h-4 w-4" />{ar ? "حفظ وطباعة" : "Save & print"}
+                </Button>
+                <Button type="button" onClick={() => void handleCreate()} disabled={isSaving || !formPartyId || !lineTotals || !partyReadReady || !draftRequest} className="rounded-xl bg-elite-blue-600 hover:bg-elite-blue-700">
+                  {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  {ar ? "حفظ المسودة" : "Save draft"}
+                </Button>
+              </div>
+            </div>
+
+            <div className="min-w-0 space-y-5 px-4 py-5 sm:px-6">
+              {/* Client card + invoice details card */}
+              <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,380px)]">
+                <section className="min-w-0 space-y-4 rounded-2xl border border-border/60 bg-muted/20 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold">{formType === "sales" ? (ar ? "بيانات العميل" : "Client details") : (ar ? "بيانات المورد" : "Supplier details")}</h3>
+                    <div role="group" aria-label={ar ? "النوع" : "Type"} className="inline-flex rounded-xl border border-border/60 bg-background p-0.5">
+                      {(["sales", "purchase"] as InvoiceType[]).map((tp) => (
+                        <button key={tp} disabled={Boolean(editTarget) || isSaving} type="button" aria-pressed={formType === tp}
+                          onClick={() => { setFormType(tp); setFormPartyId("") }}
+                          className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed ${formType === tp ? (tp === "sales" ? "bg-elite-blue-600 text-white shadow-sm" : "bg-orange-500 text-white shadow-sm") : "text-muted-foreground hover:text-foreground"}`}>
+                          {ar ? (tp === "sales" ? "فاتورة بيع" : "فاتورة شراء") : tp === "sales" ? "Sales invoice" : "Purchase invoice"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <InvoicePartyPicker key={formType+":"+(editTarget?.id??"new")} kind={formType==="sales"?"customers":"suppliers"} id="inv-party" value={formPartyId} onChange={setFormPartyId} ar={ar} disabled={isSaving} onAvailabilityChange={setPartyReadReady} label={formType==="sales"?(ar?"العميل *":"Client *"):(ar?"المورد *":"Supplier *")} selectedLabel={editTarget?(ar?(editTarget.customer_name||editTarget.supplier_name):(editTarget.customer_name_en||editTarget.customer_name||editTarget.supplier_name_en||editTarget.supplier_name)):null}/>
+                  <div className="flex items-end gap-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="inv-currency">{ar ? "العملة" : "Currency"}</Label>
+                      <Input id="inv-currency" value={formCurrency} readOnly className="h-10 w-28 bg-muted/40" dir="ltr" />
+                    </div>
+                    <p className="pb-2 text-xs text-muted-foreground">{ar ? "تدعم المحاسبة الريال السعودي فقط." : "Accounting supports SAR only."}</p>
+                  </div>
+                </section>
+
+                <section className="min-w-0 space-y-3 rounded-2xl border border-border/60 bg-muted/20 p-4">
+                  <h3 className="text-sm font-semibold">{ar ? "بيانات الفاتورة" : "Invoice details"}</h3>
+                  <div className="grid grid-cols-[minmax(0,130px)_minmax(0,1fr)] items-center gap-x-3 gap-y-2.5">
+                    <Label htmlFor="inv-number" className="text-xs text-muted-foreground">{ar ? "رقم الفاتورة" : "Invoice number"}</Label>
+                    <Input id="inv-number" readOnly dir={editTarget ? "ltr" : undefined} value={editTarget?.invoice_number ?? (ar ? "يُولّد تلقائياً عند الحفظ" : "Auto-generated on save")} className={`h-10 bg-muted/40 text-sm ${editTarget ? "font-mono" : "text-muted-foreground"}`} />
+                    <Label htmlFor="inv-issue" className="text-xs text-muted-foreground">{ar ? "تاريخ الفاتورة" : "Invoice date"}</Label>
+                    <Input id="inv-issue" type="date" dir="ltr" value={formIssue} onChange={(e) => changeIssue(e.target.value)} className="h-10" />
+                    <Label htmlFor="inv-terms" className="text-xs text-muted-foreground">{ar ? "شروط الدفع" : "Payment terms"}</Label>
+                    <div className="flex h-10 overflow-hidden rounded-xl border border-input bg-background shadow-xs focus-within:border-elite-blue-500 focus-within:ring-4 focus-within:ring-elite-blue-500/15">
+                      <input id="inv-terms" type="number" inputMode="numeric" dir="ltr" min="0" max="3650" step="1" value={formTerms} onChange={(e) => changeTerms(e.target.value)} className="w-full min-w-0 border-0 bg-transparent px-3 text-sm tabular-nums outline-none" />
+                      <span className="flex items-center border-s border-input bg-muted/40 px-3 text-xs text-muted-foreground">{ar ? "يوم" : "days"}</span>
+                    </div>
+                    <Label htmlFor="inv-due" className="text-xs text-muted-foreground">{ar ? "تاريخ الاستحقاق" : "Due date"}</Label>
+                    <Input id="inv-due" type="date" dir="ltr" value={formDue} onChange={(e) => changeDue(e.target.value)} className="h-10" />
+                  </div>
+                  <div className="flex items-center gap-2 pt-1"><input id="inv-show-due" type="checkbox" checked={formShowDueDate} onChange={e => setFormShowDueDate(e.target.checked)} className="size-4 accent-elite-blue-600" /><Label htmlFor="inv-show-due" className="text-xs font-normal">{ar ? "إظهار تاريخ الاستحقاق في الفاتورة المطبوعة" : "Show due date on the printed invoice"}</Label></div>
+                </section>
+              </div>
+
+              {/* Items table */}
+              <section className="min-w-0 overflow-hidden rounded-2xl border border-border/60">
+                <div className="relative overflow-x-auto">
+                  <table className="w-full min-w-[920px] border-collapse text-sm">
+                    <thead className="bg-elite-blue-600/5 text-xs text-muted-foreground">
+                      <tr className="[&>th]:px-2 [&>th]:py-2.5 [&>th]:text-start [&>th]:font-semibold">
+                        <th className="w-[16%]">{ar ? "البند" : "Item"}</th>
+                        <th>{ar ? "الوصف" : "Description"}</th>
+                        <th className="w-[12%]">{ar ? "سعر الوحدة" : "Unit price"}</th>
+                        <th className="w-[8%]">{ar ? "الكمية" : "Qty"}</th>
+                        <th className="w-[15%]">{ar ? "الخصم" : "Discount"}</th>
+                        <th className="w-[14%]">{ar ? "الضريبة" : "Tax"}</th>
+                        <th className="w-[10%] !text-end">{ar ? "المجموع" : "Total"}</th>
+                        <th className="w-10"><span className="sr-only">{ar ? "حذف" : "Remove"}</span></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lines.map((l) => {
+                        const net = lineNet(l)
+                        const vatOptions = VAT_OPTIONS.some((o) => Number(o.value) === Number(l.vat_rate)) ? VAT_OPTIONS : [...VAT_OPTIONS, { value: l.vat_rate, ar: `ضريبة ${l.vat_rate}%`, en: `VAT ${l.vat_rate}%` }]
+                        return (
+                          <tr key={l.key} className="border-t border-border/50 align-top [&>td]:px-2 [&>td]:py-2">
+                            <td><Input aria-label={ar ? "اسم الصنف (اختياري)" : "Item name (optional)"} maxLength={200} value={l.item_name} onChange={e => updateLine(l.key, { item_name: e.target.value })} placeholder={ar ? "اسم الصنف" : "Item name"} className="h-10" /></td>
+                            <td><Textarea maxLength={1000} rows={1} aria-label={ar ? "وصف البند" : "Line description"} value={l.description} onChange={(e) => updateLine(l.key, { description: e.target.value })} placeholder={ar ? "وصف البند" : "Line description"} className="min-h-10 resize-y py-2" /></td>
+                            <td><Input aria-label={ar ? "سعر الوحدة" : "Unit price"} type="number" inputMode="decimal" dir="ltr" min="0" step="0.0001" value={l.unit_price} onChange={(e) => updateLine(l.key, { unit_price: e.target.value })} placeholder="0.00" className="h-10 text-end tabular-nums" /></td>
+                            <td><Input aria-label={ar ? "الكمية" : "Quantity"} type="number" inputMode="decimal" dir="ltr" min="0.001" step="0.001" value={l.quantity} onChange={(e) => updateLine(l.key, { quantity: e.target.value })} className="h-10 text-end tabular-nums" /></td>
+                            <td>
+                              <div className="flex h-10 overflow-hidden rounded-xl border border-input bg-background focus-within:border-elite-blue-500 focus-within:ring-4 focus-within:ring-elite-blue-500/15">
+                                <input aria-label={ar ? "الخصم" : "Discount"} type="number" inputMode="decimal" dir="ltr" min="0" step="0.01" value={l.discount} onChange={(e) => updateLine(l.key, { discount: e.target.value })} className="w-full min-w-0 border-0 bg-transparent px-2 text-end text-sm tabular-nums outline-none" />
+                                <select aria-label={ar ? "نوع الخصم" : "Discount type"} value={l.discount_mode} onChange={(e) => updateLine(l.key, { discount_mode: e.target.value as LineDraft["discount_mode"] })} className="border-0 border-s border-input bg-muted/40 px-1.5 text-xs outline-none">
+                                  <option value="amount">{ar ? "ر.س" : "SAR"}</option>
+                                  <option value="percent">%</option>
+                                </select>
+                              </div>
+                            </td>
+                            <td>
+                              <select aria-label={ar ? "ضريبة البند" : "Line VAT rate"} value={l.vat_rate} onChange={(e) => updateLine(l.key, { vat_rate: e.target.value })} className="h-10 w-full rounded-xl border border-input bg-background px-2 text-xs">
+                                {vatOptions.map((o) => <option key={o.value} value={o.value}>{ar ? o.ar : o.en}</option>)}
+                              </select>
+                            </td>
+                            <td className="!text-end"><span dir="ltr" className="inline-block pt-2.5 font-medium tabular-nums">{net === null ? "—" : fmtMoney(net)}</span></td>
+                            <td>
+                              <button type="button" aria-label={ar ? "حذف البند" : "Remove line"} onClick={() => removeLine(l.key)} disabled={lines.length <= 1}
+                                className="mt-1 flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-500 disabled:opacity-30">
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="border-t border-border/50 bg-muted/10 px-3 py-2">
+                  <button type="button" onClick={addLine} disabled={lines.length >= 200} className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-elite-blue-600 transition-colors hover:bg-elite-blue-600/10 disabled:opacity-40">
+                    <Plus className="h-4 w-4" />{ar ? "إضافة بند" : "Add line"}
+                  </button>
+                </div>
+              </section>
+
+              {/* Tabs (discount / notes) + totals */}
+              <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,360px)]">
+                <section className="min-w-0 rounded-2xl border border-border/60">
+                  <div role="tablist" aria-label={ar ? "خيارات الفاتورة" : "Invoice options"} className="flex gap-1 border-b border-border/60 px-2 pt-2">
+                    {([["discount", ar ? "الخصم" : "Discount"], ["notes", ar ? "الملاحظات / الشروط" : "Notes / terms"], ["bank", ar ? "الحساب البنكي" : "Bank account"]] as const).map(([k, label]) => (
+                      <button key={k} type="button" role="tab" aria-selected={formTab === k} onClick={() => setFormTab(k)}
+                        className={`-mb-px rounded-t-lg border-b-2 px-3 py-2 text-sm font-medium transition-colors ${formTab === k ? "border-elite-blue-600 text-elite-blue-700 dark:text-elite-blue-300" : "border-transparent text-muted-foreground hover:text-foreground"}`}>{label}</button>
+                    ))}
+                  </div>
+                  <div className="p-4">
+                    {formTab === "discount" ? (
+                      <div className="space-y-2">
+                        <Label htmlFor="inv-discount">{ar ? "خصم على إجمالي الفاتورة (قبل الضريبة)" : "Invoice discount (before VAT)"}</Label>
+                        <div className="flex max-w-sm gap-2">
+                          <Input id="inv-discount" type="number" inputMode="decimal" dir="ltr" min="0" step="0.01" placeholder="0" value={invDiscount.value} onChange={(e) => setInvDiscount((d) => ({ ...d, value: e.target.value }))} className="h-10 text-end tabular-nums" />
+                          <select aria-label={ar ? "نوع خصم الفاتورة" : "Invoice discount type"} value={invDiscount.mode} onChange={(e) => setInvDiscount((d) => ({ ...d, mode: e.target.value as InvoiceDiscount["mode"] }))} className="h-10 rounded-xl border border-input bg-background px-3 text-sm">
+                            <option value="percent">{ar ? "نسبة %" : "Percent %"}</option>
+                            <option value="amount">{ar ? "مبلغ (ر.س)" : "Amount (SAR)"}</option>
+                          </select>
+                        </div>
+                        <p className="text-xs text-muted-foreground">{ar ? "يُوزَّع الخصم نسبياً على البنود قبل احتساب الضريبة فيُخفّض وعاء الضريبة لكل بند." : "Distributed pro-rata across the lines before VAT, reducing each line's taxable amount."}</p>
+                      </div>
+                    ) : formTab === "bank" ? (
+                      <div className="space-y-2">
+                        <BankAccountPicker idPrefix="invoice" testId="invoice-bank-picker" legend={ar ? "الحساب البنكي المطبوع على الفاتورة" : "Bank account printed on the invoice"} value={formBank} onChange={setFormBank} ar={ar} disabled={isSaving} />
+                        <p className="text-xs text-muted-foreground">{ar ? "يظهر اسم البنك واسم المستفيد ورقم الآيبان في مربع «معلومات الحساب البنكي» أسفل الفاتورة المطبوعة وملف PDF." : "The bank name, beneficiary and IBAN print in the “Bank account details” box at the foot of the invoice and PDF."}</p>
+                        {formBank && <Button type="button" variant="ghost" size="sm" onClick={() => setFormBank("")}>{ar ? "بدون حساب بنكي" : "No bank account"}</Button>}
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        <Label htmlFor="inv-notes">{ar ? "الملاحظات / الشروط" : "Notes / terms"}</Label>
+                        <RichTextEditor id="inv-notes" data-testid="invoice-notes-editor" ar={ar} disabled={isSaving} value={formNotes} onChange={setFormNotes} aria-label={ar ? "الملاحظات / الشروط" : "Notes / terms"} placeholder={ar ? "تظهر في الفاتورة المطبوعة وملف PDF" : "Shown on the printed invoice and PDF"} />
+                      </div>
+                    )}
+                  </div>
+                </section>
+
+                <section aria-label={ar ? "ملخص الإجماليات" : "Totals summary"} className="min-w-0 space-y-2 rounded-2xl border border-border/60 bg-muted/20 p-4 text-sm">
+                  <div className="flex justify-between gap-3 text-muted-foreground"><span>{ar ? "المجموع قبل الخصم" : "Subtotal"}</span><span dir="ltr" className="tabular-nums">{grossTotal === null ? "—" : fmtMoney(grossTotal)}</span></div>
+                  <div className="flex justify-between gap-3 text-muted-foreground"><span>{ar ? "الخصم" : "Discount"}</span><span dir="ltr" className="tabular-nums">{lineTotals ? (lineTotals.discount ? "−" : "") + fmtMoney(lineTotals.discount) : "—"}</span></div>
+                  <div className="flex justify-between gap-3 text-muted-foreground"><span>{ar ? "الإجمالي الخاضع للضريبة" : "Taxable amount"}</span><span dir="ltr" className="tabular-nums">{lineTotals ? fmtMoney(lineTotals.subtotal) : "—"}</span></div>
+                  <div className="flex justify-between gap-3 text-muted-foreground"><span><LocalizedText text="VAT" /></span><span dir="ltr" className="tabular-nums">{lineTotals ? fmtMoney(lineTotals.vat_amount) : "—"}</span></div>
+                  <div className="flex items-baseline justify-between gap-3 border-t border-border/60 pt-2 text-base font-semibold"><span>{ar ? "الإجمالي (ر.س)" : "Total (SAR)"}</span><span dir="ltr" className="tabular-nums text-emerald-600">{lineTotals ? fmtMoney(lineTotals.total) : "—"}</span></div>
+                  <div className="space-y-2 border-t border-border/60 pt-3">
+                    <div className="flex items-center gap-2">
+                      <input id="inv-already-paid" type="checkbox" checked={formPaid} onChange={(e) => setFormPaid(e.target.checked)} className="size-4 accent-elite-blue-600" />
+                      <Label htmlFor="inv-already-paid" className="text-sm font-medium">{ar ? "مدفوع بالفعل" : "Already paid"}</Label>
+                    </div>
+                    {formPaid && (
+                      <div className="space-y-1.5">
+                        <Label htmlFor="inv-paid-method" className="text-xs">{ar ? "طريقة الدفع" : "Payment method"}</Label>
+                        <select id="inv-paid-method" value={formPaidMethod} onChange={(e) => setFormPaidMethod(e.target.value as AlreadyPaidMethod)} className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm">
+                          {PAID_METHODS.map((m) => <option key={m.value} value={m.value}>{ar ? m.ar : m.en}</option>)}
+                        </select>
+                        <p className="text-xs text-muted-foreground">{ar ? "بعد اعتماد الفاتورة سيُطلب منك تأكيد تسجيل الدفعة كاملة." + (formPaidMethod !== "cash" ? " تُستخدم الدفعة الحساب البنكي المختار في تبويب «الحساب البنكي»." : "") : "After the invoice is approved you will be asked to confirm recording the full payment." + (formPaidMethod !== "cash" ? " The payment uses the bank account chosen in the Bank account tab." : "")}</p>
+                      </div>
+                    )}
+                  </div>
+                </section>
+              </div>
+
+              {!lineTotals && hasLineInput && <p role="status" className="rounded-xl bg-amber-500/10 px-3 py-2 text-xs text-amber-700">{ar ? "أكمل كل بند: وصف، كمية موجبة حتى ٣ منازل عشرية، وسعر وحدة حتى ٤ منازل عشرية. لا يتجاوز الخصم قيمة البند أو الفاتورة." : "Complete every line: description, a positive quantity with up to 3 decimals, and a unit price with up to 4 decimals. Discounts cannot exceed the line or invoice value."}</p>}
+              {formError && <p role="alert" className="rounded-xl bg-red-500/10 px-3 py-2 text-xs text-red-600">{formError}</p>}
+
+              <div className="flex items-center justify-end gap-2 border-t border-border/60 pt-4">
+                <Button variant="ghost" disabled={isSaving} onClick={() => setCreateOpen(false)}>
+                  <X className="h-4 w-4" />
+                  {ar ? "إلغاء" : "Cancel"}
+                </Button>
+              </div>
+            </div>
+          </fieldset>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!paidPrompt} onOpenChange={(o) => { if (!o && !paidBusy) setPaidPrompt(null) }}>
+        <DialogContent className="rounded-2xl sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{ar ? "تسجيل دفعة الفاتورة" : "Record the invoice payment"}</DialogTitle>
+            <DialogDescription>
+              {paidPrompt && (ar
+                ? `الفاتورة ${paidPrompt.row.invoice_number} محددة كـ«مدفوع بالفعل». هل تريد تسجيل دفعة بقيمة ${fmtMoney(paidPrompt.amount)} ر.س (${PAID_METHODS.find((m) => m.value === paidPrompt.method)?.ar ?? ""}) بتاريخ الفاتورة الآن؟`
+                : `Invoice ${paidPrompt.row.invoice_number} is marked “Already paid”. Record a payment of SAR ${fmtMoney(paidPrompt.amount)} (${PAID_METHODS.find((m) => m.value === paidPrompt.method)?.en ?? ""}) on the invoice date now?`)}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button variant="ghost" disabled={paidBusy} onClick={() => setPaidPrompt(null)}>{ar ? "لاحقاً" : "Later"}</Button>
+            <Button disabled={paidBusy} onClick={() => void confirmAlreadyPaid()}>
+              {paidBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+              {ar ? "تسجيل الدفعة" : "Record payment"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Detail dialog ─────────────────────────────────────────────── */}
+      <Dialog open={!!detailTarget} onOpenChange={(o) => { if (!o) setDetailTarget(null) }}>
+        <DialogContent className="sm:max-w-2xl rounded-2xl max-h-[85dvh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              <span dir="ltr" className="font-mono">{detailTarget?.invoice_number ?? ""}</span>
+              {" — "}
+              {detailTarget ? (detailTarget.customer_name ?? detailTarget.supplier_name ?? "") : ""}
+            </DialogTitle>
+            <DialogDescription>
+              {detailTarget && (
+                <span className="flex flex-wrap items-center gap-2">
+                  <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${
+                    (STATUS_META[detailTarget.status] ?? STATUS_META.draft).className
+                  }`}>
+                    {ar ? (STATUS_META[detailTarget.status] ?? STATUS_META.draft).ar : (STATUS_META[detailTarget.status] ?? STATUS_META.draft).en}
+                  </span>
+                  <span dir="ltr" className="text-xs text-muted-foreground">{fmtDate(detailTarget.issue_date)} → {fmtDate(detailTarget.due_date)}</span>
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          {isDetailLoading ? (
+            <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-elite-blue-600" /></div>
+          ) : (
+            <div className="space-y-4">
+              <div className="overflow-x-auto rounded-xl border border-border/50">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border/60 text-start text-xs text-muted-foreground">
+                      <th className="px-3 py-2 text-start font-medium">#</th>
+                      <th className="px-3 py-2 text-start font-medium">{ar ? "اسم الصنف" : "Item name"}</th>
+                      <th className="px-3 py-2 text-start font-medium">{ar ? "الوصف" : "Description"}</th>
+                      <th className="px-3 py-2 text-start font-medium">{ar ? "الكمية" : "Qty"}</th>
+                      <th className="px-3 py-2 text-start font-medium">{ar ? "السعر" : "Price"}</th>
+                      <th className="px-3 py-2 text-start font-medium">{ar ? "المبلغ" : "Amount"}</th>
+                      <th className="px-3 py-2 text-start font-medium"><LocalizedText text="VAT" /></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detailLines.map((l) => (
+                      <tr key={l.line_no} className="border-b border-border/40 last:border-0">
+                        <td className="px-3 py-2 text-xs text-muted-foreground">{l.line_no}</td>
+                        <td className="px-3 py-2" dir="auto">{l.item_name || "—"}</td>
+                        <td className="px-3 py-2">{l.description}</td>
+                        <td className="px-3 py-2 text-xs tabular-nums" dir="ltr">{l.quantity}</td>
+                        <td className="px-3 py-2 text-xs tabular-nums" dir="ltr">{fmtUnitPrice(l.unit_price)}</td>
+                        <td className="px-3 py-2 text-xs tabular-nums" dir="ltr">{fmtMoney(l.amount)}</td>
+                        <td className="px-3 py-2 text-xs tabular-nums" dir="ltr">{fmtMoney(l.vat_amount)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="flex items-center justify-end gap-4 text-sm">
+                <span className="text-muted-foreground">{ar ? "المجموع الفرعي" : "Subtotal"}: <b dir="ltr" className="tabular-nums">{fmtMoney(detailTarget?.subtotal)}</b></span>
+                <span className="text-muted-foreground"><LocalizedText text="VAT:" /> <b dir="ltr" className="tabular-nums">{fmtMoney(detailTarget?.vat_amount)}</b></span>
+                <span className="font-medium">{ar ? "الإجمالي" : "Total"}: <b dir="ltr" className="tabular-nums text-emerald-600">{fmtMoney(detailTarget?.total)} {detailTarget?.currency}</b></span>
+              </div>
+
+              {detailNotes.length > 0 && (
+                <div className="rounded-xl border border-border/50 bg-muted/20 p-3">
+                  <p className="mb-2 text-xs font-medium text-muted-foreground">{ar ? "الإشعارات المرتبطة" : "Related notes"}</p>
+                  <div className="space-y-1.5">
+                    {detailNotes.map((n) => (
+                      <div key={n.id} className="flex items-center justify-between text-xs">
+                        <span dir="ltr" className="font-mono">{n.number}</span>
+                        <span className={n.kind === "credit" ? "text-teal-600" : "text-orange-600"}>
+                          {ar ? (n.kind === "credit" ? "إشعار دائن" : "إشعار مدين") : n.kind === "credit" ? "Credit note" : "Debit note"}
+                        </span>
+                        <span dir="ltr" className="tabular-nums font-medium">{fmtMoney(n.total)}</span>
+                        <span className="text-muted-foreground">{n.reason}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {detailTarget && detailTarget.status === "issued" && (
+                <div className="flex items-center gap-2 border-t border-border/50 pt-3">
+                  <Button
+                    onClick={() => void runAction("finalize", detailTarget)}
+                    disabled={busyId === detailTarget.id}
+                    className="bg-emerald-600 hover:bg-emerald-700"
+                  >
+                    {busyId === detailTarget.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                    {ar ? "اعتماد نهائي (إصدار حدث)" : "Finalize (emits event)"}
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Cancel dialog ─────────────────────────────────────────────── */}
+      <Dialog open={!!cancelTarget} onOpenChange={(o) => { if (!o && !isCancelling) setCancelTarget(null) }}>
+        <DialogContent className="max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>{ar ? "إلغاء الفاتورة" : "Cancel invoice"}</DialogTitle>
+            <DialogDescription>
+              <span dir="ltr" className="font-mono">{cancelTarget?.invoice_number ?? ""}</span>
+              {" — "}
+              {ar ? "يمكن إلغاء المسودات والفواتير الصادرة غير المرحلة فقط. الفواتير المعتمدة تحتاج إشعاراً دائناً أو إجراء عكس مراجعاً." : "Only unposted draft or issued invoices can be cancelled. Finalized invoices require a credit note or reviewed reversal."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            {cancelError && <p role="alert" className="text-sm text-destructive">{cancelError}</p>}
+            <Label htmlFor="cancel-reason">{ar ? "سبب الإلغاء (5–500 حرف)" : "Cancellation reason (5–500 characters)"}</Label>
+            <Input
+              id="cancel-reason" dir={ar ? "rtl" : "ltr"} maxLength={500} disabled={isCancelling}
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              placeholder={ar ? "سبب الإلغاء" : "Cancellation reason"}
+              className="h-9"
+            />
+            <div className="flex items-center gap-3">
+              <Button
+                onClick={() => void handleCancel()}
+                disabled={isCancelling || cancelReason.trim().length < 5}
+                className="bg-red-600 hover:bg-red-700"
+              >
+                {isCancelling ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}
+                {ar ? "إلغاء الفاتورة" : "Cancel invoice"}
+              </Button>
+              <Button variant="ghost" disabled={isCancelling} onClick={() => setCancelTarget(null)}>
+                <X className="h-4 w-4" />
+                {ar ? "تراجع" : "Back"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Credit note dialog ────────────────────────────────────────── */}
+      <Dialog open={!!creditTarget} onOpenChange={(o) => { if (!o && !isCrediting) setCreditTarget(null) }}>
+        <DialogContent className="max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>{ar ? "إشعار دائن" : "Credit note"}</DialogTitle>
+            <DialogDescription>
+              <span dir="ltr" className="font-mono">{creditTarget?.invoice_number ?? ""}</span>
+              {" — "}
+              {ar
+                ? "عكس كامل للفاتورة؛ يُصدر إشعاراً دائناً نهائياً ويحوّل الفاتورة إلى \"معتمدة بإشعار\"."
+                : "Full reversal of the invoice; issues a finalized credit note and marks the invoice as credited."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            {noteError && <p role="alert" className="text-sm text-destructive">{noteError}</p>}
+            <div className="space-y-1.5">
+              <Label htmlFor="cn-date">{ar ? "تاريخ الإشعار (التوقيت السعودي)" : "Note date (Saudi calendar)"}</Label>
+              <Input id="cn-date" type="date" dir="ltr" min={creditTarget?.issue_date} max={businessDay ?? undefined}
+                value={creditDate} onChange={(e) => setCreditDate(e.target.value)} disabled={isCrediting} />
+            </div>
+            <Label htmlFor="cn-reason">{ar ? "سبب الإشعار (5–500 حرف)" : "Reason (5–500 characters)"}</Label>
+            <Input
+              id="cn-reason" dir={ar ? "rtl" : "ltr"} maxLength={500} disabled={isCrediting}
+              value={creditReason}
+              onChange={(e) => setCreditReason(e.target.value)}
+              placeholder={ar ? "سبب الإشعار الدائن" : "Credit note reason"}
+              className="h-9"
+            />
+            <div className="flex items-center gap-3">
+              <Button
+                onClick={() => void handleCredit()}
+                disabled={isCrediting || creditReason.trim().length < 5 || !creditDate}
+                className="bg-teal-600 hover:bg-teal-700"
+              >
+                {isCrediting ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                {ar ? "إصدار الإشعار الدائن" : "Issue credit note"}
+              </Button>
+              <Button variant="ghost" disabled={isCrediting} onClick={() => setCreditTarget(null)}>
+                <X className="h-4 w-4" />
+                {ar ? "تراجع" : "Back"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Debit note dialog ─────────────────────────────────────────── */}
+      <Dialog open={!!debitTarget} onOpenChange={(o) => { if (!o && !isDebiting) setDebitTarget(null) }}>
+        <DialogContent className="max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>{ar ? "إشعار مدين" : "Debit note"}</DialogTitle>
+            <DialogDescription>
+              <span dir="ltr" className="font-mono">{debitTarget?.invoice_number ?? ""}</span>
+              {" — "}
+              {ar ? "رسوم إضافية على فاتورة معتمدة، مع احتساب الضريبة." : "Additional charge against a finalized invoice, with VAT applied."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            {noteError && <p role="alert" className="text-sm text-destructive">{noteError}</p>}
+            <div className="space-y-1.5">
+              <Label htmlFor="dn-date">{ar ? "تاريخ الإشعار (التوقيت السعودي)" : "Note date (Saudi calendar)"}</Label>
+              <Input id="dn-date" type="date" dir="ltr" min={debitTarget?.issue_date} max={businessDay ?? undefined}
+                value={debitDate} onChange={(e) => setDebitDate(e.target.value)} disabled={isDebiting} />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="dn-amount">{ar ? "المبلغ (قبل الضريبة)" : "Amount (excl. VAT)"}</Label>
+                <Input
+                  id="dn-amount"
+                  type="number"
+                  dir="ltr"
+                  min="0.01"
+                  max="99999999.99"
+                  disabled={isDebiting}
+                  step="0.01"
+                  value={debitAmount}
+                  onChange={(e) => setDebitAmount(e.target.value)}
+                  className="h-9 text-end tabular-nums"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="dn-rate">{ar ? "الضريبة %" : "VAT %"}</Label>
+                <Input id="dn-rate" type="number" dir="ltr" min="0" max="100" step="0.01" disabled={isDebiting} value={debitVatRate} onChange={(e) => setDebitVatRate(e.target.value)} className="h-9 text-end tabular-nums" />
+              </div>
+            </div>
+            {debitPreview && (
+              <p className="text-xs text-muted-foreground" dir="ltr">{ar ? "الضريبة:" : "VAT:"} {fmtMoney(debitPreview.vat_amount)} · {ar ? "الإجمالي:" : "Total:"} {fmtMoney(debitPreview.total)} SAR</p>
+            )}
+            <Label htmlFor="dn-reason">{ar ? "سبب الإشعار (5–500 حرف)" : "Reason (5–500 characters)"}</Label>
+            <Input
+              id="dn-reason" dir={ar ? "rtl" : "ltr"} maxLength={500} disabled={isDebiting}
+              value={debitReason}
+              onChange={(e) => setDebitReason(e.target.value)}
+              placeholder={ar ? "سبب الإشعار المدين" : "Debit note reason"}
+              className="h-9"
+            />
+            <div className="flex items-center gap-3">
+              <Button
+                onClick={() => void handleDebit()}
+                disabled={isDebiting || debitReason.trim().length < 5 || !debitDate || !debitPreview}
+                className="bg-orange-600 hover:bg-orange-700"
+              >
+                {isDebiting ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeDollarSign className="h-4 w-4" />}
+                {ar ? "إصدار الإشعار المدين" : "Issue debit note"}
+              </Button>
+              <Button variant="ghost" disabled={isDebiting} onClick={() => setDebitTarget(null)}>
+                <X className="h-4 w-4" />
+                {ar ? "تراجع" : "Back"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}

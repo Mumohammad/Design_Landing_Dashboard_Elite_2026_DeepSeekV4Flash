@@ -1,0 +1,357 @@
+"use client"
+
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { useRouter } from "next/navigation"
+import { Car, CheckCircle2, Wrench, UserCheck, Plus } from "lucide-react"
+import { useTablePage } from "@/hooks/use-table-page"
+import { substringFilter } from "@/lib/supabase/search-filter"
+import { createClient } from "@/lib/supabase/client"
+import { useTranslation } from "@/hooks/use-translation"
+import {
+  EnterpriseModulePage,
+  type KpiCardData,
+  type TableColumn,
+} from "@/components/dashboard/enterprise-module-page"
+import { Badge } from "@/components/ui/badge"
+import { VEHICLE_OWNERSHIP, type VehicleStatus, type VehicleCondition, type FuelType, type VehicleOwnership } from "@/types/vehicles"
+import { worstDocsExpiryState, type DocsExpiryState } from "@/lib/vehicles/assignment-utils"
+import Link from "next/link"
+import { CreateVehicleDialog } from "./components/create-vehicle-dialog"
+
+interface VehicleRow {
+  ownership_type?: VehicleOwnership | null
+  id: string
+  vehicle_code: string | null
+  plate_number: string
+  make: string | null
+  model: string | null
+  year: number | null
+  color: string | null
+  status: VehicleStatus
+  condition_status: VehicleCondition
+  fuel_type: FuelType | null
+  odometer_current: number
+  insurance_expiry: string | null
+  registration_expiry: string | null
+  inspection_expiry: string | null
+  current_driver_id: string | null
+  current_driver: { full_name_ar: string | null; full_name_en: string | null; driver_code: string | null } | null
+}
+
+type ExpiryState = "ok" | "soon" | "expired" | "none"
+
+export default function VehiclesPage() {
+  const { t, locale } = useTranslation()
+  const router = useRouter()
+  const isArLocale = locale === "ar"
+
+  const [addOpen, setAddOpen] = useState(false)
+  const buildQuery = useCallback((term: string) => {
+    let query = createClient().from("vehicles")
+      .select("id,vehicle_code,plate_number,make,model,year,color,status,condition_status,fuel_type,odometer_current,insurance_expiry,registration_expiry,inspection_expiry,ownership_type,current_driver_id,current_driver:drivers!vehicles_current_driver_id_fkey(full_name_ar,full_name_en,driver_code)", { count: "exact" })
+      .is("deleted_at", null)
+    if (term.trim()) query = query.or(substringFilter(["plate_number", "vehicle_code", "make", "model"], term))
+    return query.order("created_at", { ascending: false }).order("id")
+  }, [])
+  const { rows: vehicles, search, setSearch, loading: isLoading, error, pagination, reload } = useTablePage<VehicleRow>(buildQuery)
+  const [counts, setCounts] = useState<number[] | null>(null)
+  const loadCounts = useCallback(async () => {
+    const results = await Promise.all([null, "available", "assigned", "in_maintenance"].map((status) => {
+      const query = createClient().from("vehicles").select("id", { count: "exact", head: true }).is("deleted_at", null)
+      return status ? query.eq("status", status) : query
+    }))
+    setCounts(results.some((result) => result.error || result.count === null) ? null : results.map((result) => result.count!))
+  }, [])
+  useEffect(() => { const timer = setTimeout(() => void loadCounts(), 0); return () => clearTimeout(timer) }, [loadCounts])
+
+  const statusBadgeClass: Record<VehicleStatus, string> = {
+    available:
+      "border-transparent bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
+    assigned:
+      "border-transparent bg-elite-blue-500/15 text-elite-blue-700 dark:text-elite-blue-300",
+    in_maintenance:
+      "border-transparent bg-amber-500/15 text-amber-700 dark:text-amber-400",
+    off_road:
+      "border-transparent bg-orange-500/15 text-orange-700 dark:text-orange-400",
+    retired:
+      "border-transparent bg-gray-500/15 text-gray-600 dark:text-gray-400",
+  }
+
+  const conditionBadgeClass: Record<VehicleCondition, string> = {
+    excellent:
+      "border-transparent bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
+    good: "border-transparent bg-elite-blue-500/10 text-elite-blue-700 dark:text-elite-blue-300",
+    fair: "border-transparent bg-amber-500/10 text-amber-700 dark:text-amber-400",
+    poor: "border-transparent bg-orange-500/10 text-orange-700 dark:text-orange-400",
+    damaged: "border-transparent bg-red-500/10 text-red-700 dark:text-red-400",
+  }
+
+  const statusLabel: Record<VehicleStatus, string> = {
+    available: t.vehicles.statusAvailable,
+    assigned: t.vehicles.statusAssigned,
+    in_maintenance: t.vehicles.statusMaintenance,
+    off_road: t.vehicles.statusOffRoad,
+    retired: t.vehicles.statusRetired,
+  }
+
+  const conditionLabel: Record<VehicleCondition, string> = {
+    excellent: t.vehicles.conditionExcellent,
+    good: t.vehicles.conditionGood,
+    fair: t.vehicles.conditionFair,
+    poor: t.vehicles.conditionPoor,
+    damaged: t.vehicles.conditionDamaged,
+  }
+
+  const dateLocale = locale === "ar" ? "ar-EG" : "en-GB"
+
+  function formatDate(dateStr: string | null): string {
+    if (!dateStr) return t.vehicles.notSet
+    const d = new Date(dateStr)
+    if (Number.isNaN(d.getTime())) return t.vehicles.notSet
+    return d.toLocaleDateString(dateLocale, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    })
+  }
+
+  function expiryState(dateStr: string | null): ExpiryState {
+    if (!dateStr) return "none"
+    const expiry = new Date(dateStr)
+    if (Number.isNaN(expiry.getTime())) return "none"
+    const diffDays =
+      (expiry.getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+    if (diffDays < 0) return "expired"
+    if (diffDays <= 30) return "soon"
+    return "ok"
+  }
+
+  function renderExpiry(dateStr: string | null) {
+    const state = expiryState(dateStr)
+    const label = formatDate(dateStr)
+    if (state === "none") {
+      return <span className="text-muted-foreground">{t.vehicles.notSet}</span>
+    }
+    if (state === "expired") {
+      return (
+        <Badge
+          title={t.vehicles.expired}
+          className="border-transparent bg-red-500/15 text-red-700 dark:text-red-400"
+        >
+          {label}
+        </Badge>
+      )
+    }
+    if (state === "soon") {
+      return (
+        <Badge
+          title={t.vehicles.expiringSoon}
+          className="border-transparent bg-amber-500/15 text-amber-700 dark:text-amber-400"
+        >
+          {label}
+        </Badge>
+      )
+    }
+    return <span className="text-foreground/80">{label}</span>
+  }
+
+  const kpiCards: KpiCardData[] = useMemo(
+    () => [
+      {
+        label: t.vehicles.kpiTotal,
+        value: counts?.[0] ?? "—",
+        icon: Car,
+        color: "#1E5A99",
+      },
+      {
+        label: t.vehicles.kpiAvailable,
+        value: counts?.[1] ?? "—",
+        icon: CheckCircle2,
+        color: "#10B981",
+      },
+      {
+        label: t.vehicles.kpiAssigned,
+        value: counts?.[2] ?? "—",
+        icon: UserCheck,
+        color: "#3B82F6",
+      },
+      {
+        label: t.vehicles.kpiMaintenance,
+        value: counts?.[3] ?? "—",
+        icon: Wrench,
+        color: "#F59E0B",
+      },
+    ],
+    [t, counts]
+  )
+
+  const columns: TableColumn<VehicleRow>[] = [
+    {
+      key: "vehicle_code",
+      header: t.vehicles.colCode,
+      render: (row) =>
+        row.vehicle_code ? (
+          <span className="font-mono text-xs text-foreground/80">
+            {row.vehicle_code}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">{t.vehicles.notSet}</span>
+        ),
+    },
+    {
+      key: "plate_number",
+      header: t.vehicles.colPlate,
+      render: (row) => (
+        <span className="flex flex-col">
+          <span className="font-semibold text-foreground">{row.plate_number}</span>
+          {row.ownership_type && (
+            <span className="text-[11px] text-muted-foreground">
+              {(() => { const o = VEHICLE_OWNERSHIP.find((x) => x.value === row.ownership_type); return o ? (isArLocale ? o.ar : o.en) : null })()}
+            </span>
+          )}
+        </span>
+      ),
+    },
+    {
+      key: "make",
+      header: t.vehicles.colVehicle,
+      render: (row) => {
+        const name = `${row.make ?? ""} ${row.model ?? ""}`.trim()
+        return name ? (
+          <span className="text-foreground/90">{name}</span>
+        ) : (
+          <span className="text-muted-foreground">{t.vehicles.notSet}</span>
+        )
+      },
+    },
+    {
+      key: "year",
+      header: t.vehicles.colYear,
+      render: (row) =>
+        row.year ? (
+          <span className="tabular-nums text-foreground/80">{row.year}</span>
+        ) : (
+          <span className="text-muted-foreground">{t.vehicles.notSet}</span>
+        ),
+    },
+    {
+      key: "status",
+      header: t.vehicles.colStatus,
+      render: (row) => (
+        <Badge className={statusBadgeClass[row.status]}>
+          {statusLabel[row.status]}
+        </Badge>
+      ),
+    },
+    {
+      key: "condition_status",
+      header: t.vehicles.colCondition,
+      render: (row) => (
+        <Badge className={conditionBadgeClass[row.condition_status]}>
+          {conditionLabel[row.condition_status]}
+        </Badge>
+      ),
+    },
+    {
+      key: "odometer_current",
+      header: t.vehicles.colOdometer,
+      render: (row) => (
+        <span className="tabular-nums text-foreground/80">
+          {row.odometer_current.toLocaleString(dateLocale)} {t.vehicles.unitKm}
+        </span>
+      ),
+    },
+    {
+      key: "insurance_expiry",
+      header: t.vehicles.colInsurance,
+      render: (row) => renderExpiry(row.insurance_expiry),
+    },
+    {
+      key: "docs_state",
+      header: isArLocale ? "حالة الوثائق" : "Docs",
+      render: (row) => {
+        const state: DocsExpiryState = worstDocsExpiryState({
+          insurance_expiry: row.insurance_expiry,
+          registration_expiry: row.registration_expiry,
+          inspection_expiry: row.inspection_expiry,
+        })
+        if (state === "none") {
+          return <span className="text-muted-foreground">{t.vehicles.notSet}</span>
+        }
+        const meta: Record<Exclude<DocsExpiryState, "none">, { label: string; className: string }> = {
+          expired: {
+            label: isArLocale ? "منتهية" : "Expired",
+            className: "border-transparent bg-red-500/15 text-red-700 dark:text-red-400",
+          },
+          soon: {
+            label: isArLocale ? "تنتهي قريبًا" : "Expiring ≤30d",
+            className: "border-transparent bg-amber-500/15 text-amber-700 dark:text-amber-400",
+          },
+          ok: {
+            label: isArLocale ? "سارية" : "Valid",
+            className: "border-transparent bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
+          },
+        }
+        return <Badge className={meta[state].className}>{meta[state].label}</Badge>
+      },
+    },
+    {
+      key: "assigned_driver",
+      header: isArLocale ? "السائق المعيّن" : "Assigned driver",
+      render: (row) => {
+        const name =
+          row.current_driver?.full_name_ar ??
+          row.current_driver?.full_name_en ??
+          row.current_driver?.driver_code ??
+          null
+        if (!row.current_driver_id || !name) {
+          return <span className="text-muted-foreground">{t.vehicles.notAssigned}</span>
+        }
+        return (
+          <Link
+            href={`/drivers/${row.current_driver_id}`}
+            onClick={(e) => e.stopPropagation()}
+            className="inline-flex items-center gap-1 text-sm font-medium text-elite-blue-600 hover:underline dark:text-elite-blue-400"
+          >
+            {name}
+            <UserCheck className="h-3 w-3" />
+          </Link>
+        )
+      },
+    },
+  ]
+
+  return (
+    <div className="px-4 lg:px-6">
+      <EnterpriseModulePage
+        title={t.vehicles.title}
+        subtitle={t.vehicles.subtitle}
+        primaryCtaLabel={t.vehicles.addVehicle}
+        primaryCtaIcon={Plus}
+        onPrimaryCta={() => setAddOpen(true)}
+        kpiCards={kpiCards}
+        searchPlaceholder={t.vehicles.searchPlaceholder}
+        searchValue={search}
+        onSearchChange={setSearch}
+        columns={columns}
+        data={vehicles}
+        pagination={pagination}
+        loadError={error ? (isArLocale ? "تعذر تحميل المركبات. أعد المحاولة." : "Could not load vehicles. Try again.") : undefined}
+        onRetry={() => { reload(); void loadCounts() }}
+        retryLabel={t.common.retry}
+        onRowClick={(row) => router.push(`/vehicles/${row.id}`)}
+        emptyStateMessage={t.vehicles.emptyMessage}
+        emptyStateAction={{
+          label: t.vehicles.addVehicle,
+          onClick: () => setAddOpen(true),
+        }}
+        isLoading={isLoading}
+      >
+        <CreateVehicleDialog open={addOpen} onOpenChange={(open) => {
+          setAddOpen(open)
+          if (!open) { reload(); void loadCounts() }
+        }} />
+      </EnterpriseModulePage>
+    </div>
+  )
+}

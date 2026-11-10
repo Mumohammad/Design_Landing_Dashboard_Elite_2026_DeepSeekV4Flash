@@ -1,0 +1,37 @@
+[
+ {"id":"sep-default","workbook":"sep-2026.xlsx","payrollMonth":"September 2026","rules":{},"sources":{},"expenses":[]},
+ {"id":"may-default","workbook":"may-2026.xlsx","payrollMonth":"May 2026","rules":{},"sources":{},"expenses":[]},
+ {"id":"edge-adjustments","workbook":"edge.xlsx","payrollMonth":"May 2026","rules":{},
+  "sources":{
+   "customBonuses":[
+    {"id":"cb1","name":"Eid bonus","nameAr":"مكافأة العيد","amount":200,"type":"fixed","status":"active","applyToAll":true,"targetRiderIds":null},
+    {"id":"cb2","name":"Top rider","nameAr":null,"amount":75.25,"type":"fixed","status":"active","applyToAll":false,"targetRiderIds":"[\"9100002\",\"9199999\"]"},
+    {"id":"cb3","name":"Old","nameAr":null,"amount":999,"type":"fixed","status":"inactive","applyToAll":true,"targetRiderIds":null}],
+   "customDeductions":[
+    {"id":"cd1","name":"Uniform","nameAr":"زي","amount":120,"status":"active","applyToAll":true,"targetRiderIds":null,"installmentEnabled":false,"installmentMonthlyAmount":0,"installmentTotalPaid":0,"installmentStatus":"none"},
+    {"id":"cd2","name":"Phone loan","nameAr":null,"amount":1000,"status":"active","applyToAll":false,"targetRiderIds":"[\"9100003\"]","installmentEnabled":true,"installmentMonthlyAmount":300,"installmentTotalPaid":900,"installmentStatus":"active"},
+    {"id":"cd3","name":"Laptop","nameAr":null,"amount":600,"status":"active","applyToAll":false,"targetRiderIds":"[\"9100004\"]","installmentEnabled":true,"installmentMonthlyAmount":250,"installmentTotalPaid":0,"installmentStatus":"active"}],
+   "manualAdjustments":[
+    {"id":"ma1","riderId":"9100002","title":"License issuing","titleAr":"إصدار رخصة","amount":350,"type":"deduction","category":"license","status":"active"},
+    {"id":"ma2","riderId":"9100002","title":"Referral","titleAr":null,"amount":50,"type":"bonus","category":"custom_bonus","status":"active"},
+    {"id":"ma3","riderId":"9100003","title":"Paid already","titleAr":null,"amount":500,"type":"deduction","category":"custom_deduction","status":"paid"}],
+   "trafficViolations":[
+    {"id":"tv1","riderId":"9100002","violationType":"Speeding","amount":300,"status":"approved","installmentEnabled":false,"installmentMonthlyAmount":0,"installmentTotalPaid":0,"installmentStatus":"none"},
+    {"id":"tv2","riderId":"9100004","violationType":"Red light","amount":3000,"status":"approved","installmentEnabled":true,"installmentMonthlyAmount":500,"installmentTotalPaid":2800,"installmentStatus":"active"},
+    {"id":"tv3","riderId":"9100005","violationType":"Parking","amount":100,"status":"pending","installmentEnabled":false,"installmentMonthlyAmount":0,"installmentTotalPaid":0,"installmentStatus":"none"},
+    {"id":"tv4","riderId":"9100005","violationType":"Seatbelt","amount":150,"status":"approved","installmentEnabled":true,"installmentMonthlyAmount":100,"installmentTotalPaid":150,"installmentStatus":"completed"}]},
+  "expenses":[
+   {"categoryName":"Iqama","amount":1000,"allocationType":"per_driver","assignedRiderId":null},
+   {"categoryName":"Petrol","amount":1200,"allocationType":"per_driver","assignedRiderId":null},
+   {"categoryName":"Office","amount":18000,"allocationType":"shared","assignedRiderId":null},
+   {"categoryName":"Office","amount":500,"allocationType":"shared","assignedRiderId":null},
+   {"categoryName":"Accommodation / flat","amount":12000,"allocationType":"shared","assignedRiderId":null},
+   {"categoryName":"Car repair","amount":800,"allocationType":"assigned","assignedRiderId":"9100002"}]},
+ {"id":"edge-rule-variants","workbook":"edge.xlsx","payrollMonth":"May 2026",
+  "rules":{"salary_mode":"days_prorated_mode","rounding_mode":"ceil","round_salary_per_order":true,"pen_max_allowed":100,"deduction_cap":300,"salary_floor":500,"pen_stacking_enabled":false,"pen_rider_balance_enabled":false,"pen_traffic_violations_enabled":false,"use_actual_working_days":false,"variance_tolerance_amount":20,"variance_major_threshold":800,"pen_review_threshold":50},
+  "sources":{"trafficViolations":[{"id":"tv1","riderId":"9100002","violationType":"Speeding","amount":300,"status":"approved","installmentEnabled":false,"installmentMonthlyAmount":0,"installmentTotalPaid":0,"installmentStatus":"none"}]},"expenses":[]},
+ {"id":"rlvl-only-target-flat","workbook":"rlvl-only.xlsx","payrollMonth":"Sep 2026",
+  "rules":{"use_actual_working_days_for_target":false,"bonus_active_in_orders_mode":false,"monthly_base_salary":2500,"monthly_target_orders":400,"standard_working_days":26,"rounding_mode":"floor","use_uploaded_basic_payment_as_control":false},"sources":{},
+  "expenses":[{"categoryName":"Office","amount":7000,"allocationType":"shared","assignedRiderId":null}]},
+ {"id":"sep-rounding-none","workbook":"sep-2026.xlsx","payrollMonth":"September 2026","rules":{"rounding_mode":"none","deduction_per_missing_order":5.5,"bonus_per_extra_order":8.25,"deduction_active_in_orders_mode":false},"sources":{},"expenses":[]}
+]

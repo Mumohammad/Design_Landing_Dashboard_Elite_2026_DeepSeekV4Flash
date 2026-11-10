@@ -1,0 +1,11 @@
+"use server"
+import {z} from "zod"
+import {DOC_REGISTER_TYPES} from "@/lib/drivers/documents"
+import {callDriverEvidence,evidenceFailure,type EvidenceResult} from "@/lib/drivers/evidence-actions"
+const date=z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value=>{try{return new Date(value+"T00:00:00Z").toISOString().slice(0,10)===value}catch{return false}})
+const identity={driverId:z.uuid(),expectedDriverVersion:z.number().int().positive()}
+const register=z.object({...identity,docType:z.enum(DOC_REGISTER_TYPES),filePath:z.string().min(8).max(500),docNumber:z.string().trim().max(100).optional(),expiryDate:date.optional(),issuingAuthority:z.string().trim().max(200).optional(),fileSize:z.number().int().positive().max(20971520).optional(),mimeType:z.string().trim().max(100).optional()}).strict()
+const reviewed=z.object({...identity,documentId:z.uuid(),expectedVersion:z.number().int().positive()}).strict()
+export async function registerDriverDocument(input:unknown):Promise<EvidenceResult>{const p=register.safeParse(input);if(!p.success)return evidenceFailure("EVIDENCE_INPUT");const v=p.data;return callDriverEvidence("document_register",{driverId:v.driverId,expectedDriverVersion:v.expectedDriverVersion,input:{doc_type:v.docType,file_path:v.filePath,...(v.docNumber?{doc_number:v.docNumber}:{}),...(v.expiryDate?{expiry_date:v.expiryDate}:{}),...(v.issuingAuthority?{issuing_authority:v.issuingAuthority}:{}),...(v.fileSize?{file_size:v.fileSize}:{}),...(v.mimeType?{mime_type:v.mimeType}:{})}})}
+export async function verifyDriverDocument(input:unknown):Promise<EvidenceResult>{const p=reviewed.safeParse(input);if(!p.success)return evidenceFailure("EVIDENCE_INPUT");return callDriverEvidence("document_verify",{driverId:p.data.driverId,expectedDriverVersion:p.data.expectedDriverVersion,id:p.data.documentId,expectedVersion:p.data.expectedVersion})}
+export async function removeDriverDocument(input:unknown):Promise<EvidenceResult>{const p=reviewed.safeParse(input);if(!p.success)return evidenceFailure("EVIDENCE_INPUT");return callDriverEvidence("document_remove",{driverId:p.data.driverId,expectedDriverVersion:p.data.expectedDriverVersion,id:p.data.documentId,expectedVersion:p.data.expectedVersion})}

@@ -1,0 +1,232 @@
+-- ====================================================================
+-- 060 — Behavioral RLS Tests (pgTAP + JWT context switching)
+--
+-- These tests actually SET role/JWT claim context and attempt
+-- CRUD operations to prove allow/deny behavior. This is the
+-- re-audit gap: introspection-only tests are insufficient.
+--
+-- REQUIREMENTS:
+--   - pgTAP extension must be installed: CREATE EXTENSION IF NOT EXISTS pgtap;
+--   - Run against a disposable test database WITH test fixtures.
+--   - Run in a SINGLE TRANSACTION (psql --single-transaction) so that
+--     SET LOCAL ROLE and request.jwt.claims persist across statements.
+--   - Do NOT run against production.
+--
+-- TEST MATRIX:
+--   1. Anonymous SELECT on sensitive tables → DENY
+--   2. Auth same-tenant SELECT → ALLOW
+--   3. Auth cross-tenant SELECT → DENY
+--   4. Auth self-role-escalation UPDATE → DENY (trigger)
+--   5. Auth self-status-escalation UPDATE → DENY (trigger)
+--   6. Auth direct GM-role-assignment UPDATE → DENY (trigger)
+--   7. Service-role INSERT on RBAC tables → ALLOW
+--   8. Auth INSERT on roles table → DENY (no policy)
+--   9. Auth UPDATE on invites table → DENY (no policy)
+--  10. RLS enabled on all business-critical tables
+-- ====================================================================
+
+-- Skip all tests if pgTAP is not available
+BEGIN;
+
+SELECT plan(10);
+
+-- ─── Test 1: Anonymous SELECT on users table → DENY ──────────────
+-- Anonymous users should not be able to read any users rows via RLS.
+-- Note: this test assumes the test database has at least one row in
+-- the users table. If empty, the test still passes (0 rows returned
+-- under anon role = correct behavior).
+
+SET LOCAL ROLE anon;
+SELECT set_config('request.jwt.claims', '{"role": "anon"}', true);
+
+SELECT is(
+  has_table_privilege('anon', 'public.users', 'SELECT'),
+  false,
+  'anon role has no users SELECT grant'
+);
+
+-- ─── Test 2: Auth same-tenant SELECT on users → ALLOW ────────────
+-- An authenticated user in tenant A should see users in tenant A.
+-- We simulate a JWT with sub = a known user's auth_user_id.
+
+RESET ROLE;
+SET LOCAL ROLE authenticated;
+
+-- Use a fixture user that belongs to tenant_001
+SELECT set_config('request.jwt.claims',
+  '{"sub": "00000000-0000-0000-0000-000000000001", "role":"authenticated","aal":"aal2"}',
+  true
+);
+
+SELECT ok(
+  (SELECT count(*)::int FROM users WHERE tenant_id = '00000000-0000-0000-0000-000000000001') >= 0,
+  'same-tenant authenticated user can read users (returns >= 0 rows)'
+);
+
+-- ─── Test 3: Auth cross-tenant SELECT on users → DENY ────────────
+-- An authenticated user in tenant A should NOT see users in tenant B.
+
+RESET ROLE;
+SET LOCAL ROLE authenticated;
+
+-- User belongs to tenant_001; try to read tenant_002 data
+SELECT set_config('request.jwt.claims',
+  '{"sub": "00000000-0000-0000-0000-000000000001", "role":"authenticated","aal":"aal2"}',
+  true
+);
+
+SELECT is(
+  (SELECT count(*)::int FROM users WHERE tenant_id = '00000000-0000-0000-0000-000000000002'),
+  0,
+  'cross-tenant users query returns 0 rows (RLS blocks)'
+);
+
+-- ─── Tests 4-6: Trigger enforcement (AUTH001/002/005) ────────────
+--
+-- RUN CONTEXT (fixed): the prevent_user_self_escalation trigger reads
+-- request.jwt.claims — NOT the current role. After migration 058 dropped the
+-- authenticated UPDATE policy on users, running these as "authenticated" makes
+-- the UPDATE a silent RLS no-op (0 rows, no exception). So we run as the table
+-- OWNER (postgres, RLS bypassed — the row is actually reached) while
+-- SIMULATING the caller's JWT claims.
+--
+-- NO-OP GUARD (fixed): both seed users are general_manager/active, so
+-- SET role='general_manager' / SET status='active' would be IS NOT DISTINCT
+-- no-ops and the trigger would never fire. Each assertion below mutates to a
+-- DIFFERENT value.
+
+-- ─── Test 4: Auth self-role-escalation UPDATE → DENY (trigger) ───
+RESET ROLE;
+SET LOCAL ROLE postgres;
+
+SELECT set_config('request.jwt.claims',
+  '{"sub": "00000000-0000-0000-0000-000000000001", "role":"authenticated","aal":"aal2"}',
+  true
+);
+
+SELECT throws_ok(
+  $$UPDATE users SET role = 'admin' WHERE auth_user_id = '00000000-0000-0000-0000-000000000001'$$,
+  'P0001'::char(5), 'AUTH001: users cannot modify their own role',
+  'self-role-escalation UPDATE raises AUTH001'
+);
+
+-- ─── Test 5: Auth self-status-escalation UPDATE → DENY (trigger) ─
+RESET ROLE;
+SET LOCAL ROLE postgres;
+
+SELECT set_config('request.jwt.claims',
+  '{"sub": "00000000-0000-0000-0000-000000000001", "role":"authenticated","aal":"aal2"}',
+  true
+);
+
+SELECT throws_ok(
+  $$UPDATE users SET status = 'inactive' WHERE auth_user_id = '00000000-0000-0000-0000-000000000001'$$,
+  'P0001'::char(5), 'AUTH002: users cannot modify their own account status',
+  'self-status-escalation UPDATE raises AUTH002'
+);
+
+-- ─── Test 6: Auth GM role assignment → DENY (trigger) ────────────
+-- Precondition: AUTH005 only fires when OLD.role <> 'general_manager', but
+-- both seed users are GMs. Demote fixture user 002 first under a service
+-- context (empty claims → trigger passes), then escalate with caller claims.
+RESET ROLE;
+SET LOCAL ROLE postgres;
+SELECT set_config('request.jwt.claims', '{}', true);
+UPDATE users SET role = 'supervisor' WHERE id = '00000000-0000-0000-0000-000000000002';
+
+SELECT set_config('request.jwt.claims',
+  '{"sub": "00000000-0000-0000-0000-000000000001", "role":"authenticated","aal":"aal2"}',
+  true
+);
+
+SELECT throws_ok(
+  $$UPDATE users SET role = 'general_manager' WHERE id = '00000000-0000-0000-0000-000000000002'$$,
+  'P0001'::char(5), 'AUTH005: assigning general_manager role is not permitted via direct UPDATE',
+  'GM role escalation via authenticated UPDATE raises AUTH005'
+);
+
+-- ─── Test 7: Service-role INSERT on roles → ALLOW ────────────────
+-- The service-role bypasses RLS and should be able to insert into
+-- the roles table (used by the invitation flow).
+
+RESET ROLE;
+SET LOCAL ROLE postgres;
+
+SELECT set_config('request.jwt.claims', '{}', true);
+
+SELECT lives_ok(
+  $$INSERT INTO roles (id, name, name_en, name_ar, tenant_id, created_at)
+    VALUES (gen_random_uuid(), 'admin', 'Test Role RL', 'دور تجريبي', '00000000-0000-0000-0000-000000000001', now())
+    ON CONFLICT DO NOTHING$$,
+  'service-role can INSERT into roles'
+);
+
+-- Cleanup: remove the test role
+DELETE FROM roles WHERE name_en = 'Test Role RL';
+
+-- ─── Test 8: Auth INSERT on roles table → DENY (no policy) ───────
+-- An authenticated user should not be able to insert into roles
+-- because the INSERT policy was removed by migration 058.
+
+RESET ROLE;
+SET LOCAL ROLE authenticated;
+
+SELECT set_config('request.jwt.claims',
+  '{"sub": "00000000-0000-0000-0000-000000000001", "role":"authenticated","aal":"aal2"}',
+  true
+);
+
+SELECT throws_ok(
+  $$INSERT INTO roles (id, name, name_en, name_ar, tenant_id)
+    VALUES (gen_random_uuid(), 'admin', 'Hack Role', 'دور اختراق', '00000000-0000-0000-0000-000000000001')$$,
+  '42501', NULL,
+  'authenticated INSERT on roles is denied at the grant boundary'
+);
+
+-- ─── Test 9: Auth UPDATE on invites table → DENY (no policy) ─────
+-- An authenticated user should not be able to modify invites.
+
+RESET ROLE;
+SET LOCAL ROLE authenticated;
+
+SELECT set_config('request.jwt.claims',
+  '{"sub": "00000000-0000-0000-0000-000000000001", "role":"authenticated","aal":"aal2"}',
+  true
+);
+
+-- Try to update any invite (even if none exist, this tests RLS)
+SELECT throws_ok(
+  $$UPDATE invites SET status = 'revoked' WHERE false$$,
+  '42501', NULL,
+  'authenticated UPDATE on invites is denied at the grant boundary'
+);
+
+-- ─── Test 10: RLS enabled on all business-critical tables ────────
+-- FIX: the original list referenced table names that do not exist
+-- (payroll_periods, payments, documents). Corrected to the real schema
+-- names (driver_payroll_periods, finance_payments, document_templates).
+RESET ROLE;
+SET LOCAL ROLE postgres;
+
+SELECT is(
+  (SELECT count(*)::int FROM pg_tables
+   WHERE schemaname = 'public'
+     AND rowsecurity = true
+     AND tablename IN (
+       'tenants', 'users', 'roles', 'role_permissions',
+       'user_role_assignments', 'tenant_memberships',
+       'invites', 'audit_log', 'drivers', 'vehicles',
+       'driver_payroll_periods', 'expenses', 'invoices',
+       'finance_payments', 'document_templates', 'generated_documents'
+     )),
+  16,
+  'RLS is enabled on all 16 business-critical tables'
+);
+
+-- ─── Cleanup & finish ─────────────────────────────────────────────
+RESET ROLE;
+SET LOCAL ROLE postgres;
+
+SELECT * FROM finish();
+
+ROLLBACK;

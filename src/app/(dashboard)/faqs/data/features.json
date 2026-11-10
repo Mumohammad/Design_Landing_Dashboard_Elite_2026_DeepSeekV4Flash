@@ -1,0 +1,26 @@
+[
+  {
+    "id": 1,
+    "title": "All-in-One Operations",
+    "description": "Drivers, vehicles, attendance, expenses, and payroll managed from a single unified operations hub.",
+    "icon": "Sparkles"
+  },
+  {
+    "id": 2,
+    "title": "Enterprise Security",
+    "description": "Row-level security, granular role-based permissions, and a complete audit trail on every action.",
+    "icon": "Shield"
+  },
+  {
+    "id": 3,
+    "title": "Platform Integrations",
+    "description": "Connect with HungerStation, Jahez, Keeta, ToYou, Mrsool, and more for order-level reconciliation.",
+    "icon": "Truck"
+  },
+  {
+    "id": 4,
+    "title": "24/7 Support",
+    "description": "Round-the-clock expert support with priority response for Professional and Enterprise plans.",
+    "icon": "Clock"
+  }
+]

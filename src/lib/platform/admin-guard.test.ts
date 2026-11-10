@@ -1,0 +1,17 @@
+import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
+import {NextRequest} from 'next/server';
+const m=vi.hoisted(()=>({user:{id:'auth-platform',email:'admin@example.test'} as {id:string;email:string}|null,claims:{sub:'auth-platform',aal:'aal2',role:'authenticated'} as Record<string,unknown>,claimsError:null as object|null,userError:null as object|null,admin:{user_id:'auth-platform'} as object|null,adminError:null as object|null,create:vi.fn(),getUser:vi.fn(),getClaims:vi.fn()}));
+vi.mock('@supabase/supabase-js',()=>({createClient:(...args:unknown[])=>m.create(...args)}));
+import {verifyPlatformAdmin} from './admin-guard';
+const req=(header='Bearer signed-access-token')=>new NextRequest('https://example.test/api/platform/admin/users',{headers:{authorization:header}});
+beforeEach(()=>{vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL','https://stage.example.test');vi.stubEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY','public-test-key');vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY','synthetic-service-test-key');m.user={id:'auth-platform',email:'admin@example.test'};m.claims={sub:'auth-platform',aal:'aal2',role:'authenticated'};m.claimsError=null;m.userError=null;m.admin={user_id:'auth-platform'};m.adminError=null;vi.clearAllMocks();m.getUser.mockImplementation(async()=>({data:{user:m.user},error:m.userError}));m.getClaims.mockImplementation(async()=>({data:{claims:m.claims},error:m.claimsError}));m.create.mockImplementation((_url:string,key:string)=>key==='public-test-key'?{auth:{getUser:m.getUser,getClaims:m.getClaims}}:{from:()=>({select:()=>({eq:()=>({maybeSingle:async()=>({data:m.admin,error:m.adminError})})})})});});
+afterEach(()=>vi.unstubAllEnvs());
+describe('verified platform admin caller',()=>{
+ it('rejects a missing bearer session before constructing clients',async()=>{expect(await verifyPlatformAdmin(req(''))).toEqual({ok:false,status:401});expect(m.create).not.toHaveBeenCalled();});
+ it('rejects invalid remote Auth identity',async()=>{m.userError={message:'invalid token'};expect(await verifyPlatformAdmin(req())).toEqual({ok:false,status:401});});
+ it.each([{aal:'aal1'},{role:'service_role'},{sub:'other-auth-id'}])('rejects mismatched verified claims %j',async(delta)=>{Object.assign(m.claims,delta);expect(await verifyPlatformAdmin(req())).toEqual({ok:false,status:403});expect(m.create).toHaveBeenCalledTimes(1);});
+ it('rejects claim verification errors',async()=>{m.claimsError={message:'unavailable'};expect(await verifyPlatformAdmin(req())).toEqual({ok:false,status:403});});
+ it('requires platform membership even for a valid AAL2 session',async()=>{m.admin=null;expect(await verifyPlatformAdmin(req())).toEqual({ok:false,status:403});});
+ it('fails closed on a membership lookup error even if stale data is present',async()=>{m.adminError={message:'lookup unavailable'};expect(await verifyPlatformAdmin(req())).toEqual({ok:false,status:403});});
+ it('exposes only the verified bearer-bound public client for caller RPCs',async()=>{const result=await verifyPlatformAdmin(req());expect(result).toMatchObject({ok:true,userId:'auth-platform'});expect(m.getUser).toHaveBeenCalledWith('signed-access-token');expect(m.getClaims).toHaveBeenCalledWith('signed-access-token');expect(m.create).toHaveBeenNthCalledWith(1,'https://stage.example.test','public-test-key',{global:{headers:{Authorization:'Bearer signed-access-token'}},auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}});if(result.ok)expect(result.caller).toEqual({auth:{getUser:m.getUser,getClaims:m.getClaims}});});
+});

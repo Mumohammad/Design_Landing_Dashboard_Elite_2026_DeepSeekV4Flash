@@ -1,0 +1,9 @@
+# Staging Preview registry
+
+This metadata branch records public facts for independently verified immutable staging Previews. It changes only registry metadata and its own disabled-deployment configuration. Its inherited master application snapshot is not a release candidate. Never merge this branch into application branches.
+
+The trusted release CI reads release/staging-previews.json using its existing contents-read permission. Entries must match the exact PR commit and approved Vercel project/team, release branch and staging Supabase backend. CI still performs its live health, exact-commit and exclusive-staging-CSP preflight before exporting the selected public URL or creating synthetic fixtures.
+
+Publish an entry only after checking the READY deployment metadata and successful read-only preflight. Keep updates non-forced with the expected previous branch head. Never record secrets, signed URLs, credentials, business records or Production targets. The schema is bounded to 128 entries / 64 KiB; archive older metadata deliberately before those limits are reached.
+
+Automatic Vercel deployments are disabled for this data-only branch by its own vercel.json. This configuration must not be copied into application branches.

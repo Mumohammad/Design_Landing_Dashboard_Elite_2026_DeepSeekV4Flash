@@ -1,0 +1,10 @@
+BEGIN;
+SET LOCAL search_path = public,extensions,pg_temp;
+SELECT plan(5);
+SELECT ok(EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='platform_admins' AND column_name='note' AND data_type='text' AND is_nullable='YES'),'platform provenance supports nullable text without a record backfill');
+SELECT ok(EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='platform_admins' AND column_name='note' AND column_default IS NULL),'platform provenance has no automatic value or rewrite default');
+SELECT ok((SELECT relrowsecurity FROM pg_class WHERE oid='public.platform_admins'::regclass),'platform administrator records retain row security');
+SELECT ok(NOT EXISTS(SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='platform_admins' AND cmd IN ('ALL','INSERT','UPDATE','DELETE') AND roles && ARRAY['public','anon','authenticated']::name[]),'ordinary clients gain no platform administrator write policy');
+SELECT ok(has_table_privilege('service_role','public.platform_admins','SELECT') AND has_table_privilege('service_role','public.platform_admins','INSERT') AND has_table_privilege('service_role','public.platform_admins','DELETE'),'trusted administration retains its existing record lifecycle privileges');
+SELECT * FROM finish();
+ROLLBACK;
