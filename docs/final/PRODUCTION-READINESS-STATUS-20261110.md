@@ -4,6 +4,18 @@
 
 Read this update with the [full audit, 20 findings, complete solutions and module matrix](PRODUCTION-READINESS-AUDIT-20261103.md) and [remediation evidence](READINESS-REMEDIATION-PROGRESS-20261109.md). Original failed runs remain preserved. No demonstrated customer-data breach or production exploit is claimed.
 
+## Disk recovery and fully validated contrast repair
+
+The disk-space blocker is resolved: approximately 7.3 GB was available when validation resumed. Earlier out-of-memory and interrupted attempts remain preserved. Full sequential validation on local application commit **74729eb80f2024c8264241e2256e9be034139657** passed all six gates: **192 files / 2,809 unit tests**, **432 release guards**, TypeScript, full-project lint (zero errors / 28 existing warnings), optimized production build and PDF runtime assets. The frozen-source check found no drift. No test was skipped or waived in these local suites.
+
+The expense rejection action now changes colors immediately when it re-enables after a failed/lost response. Its destructive colors, disabled semantics, persistent error and financial retry assertions remain unchanged. Fourteen isolated Chromium measurements across light/dark transitions passed again against compiled production CSS, minimum **6.42:1** versus the retained **4.5:1** gate. The verifier logs only a numeric ratio on failure. Fresh disposable/hosted acceptance remains required; this local pass is not a Production deployment or exact sample-PDF certification.
+
+At the preceding published head e98e3e7, disposable browser checks completed payroll rejection/recovery/approval/cancellation and later fleet, orders, invitations, violations, applications, leave, eight report exports, settings, overview, password and MFA flows before the reproduced contrast failure. Hosted E2E was rerun after the owner saved/read back the exact Preview URL: **27 passed, 14 flaky, one failed, zero skipped**. Final failure: two HTTP 400 vehicle reads in the EN/AR module sweep, consistent with missing staging ownership/rental fields. Preview forwarding failures remain in flaky retries; nine-group staging acceptance stayed skipped.
+
+A fresh CLI-generated configuration gets past DbConfigLoadError and reaches staging, where the temporary database-login role-status request is denied on privileges. Both projects still work through connected SQL tools. Neither PostgreSQL connection URL was found in the three known ignored files or process environment. The owner offered Supabase access; recovery/migration work will use available authorized capabilities after verification. No credential was printed, no hosted migration was applied, and no backup/restore success is claimed.
+
+The [partial privileged-object review](PRIVILEGED-OBJECT-REVIEW-20261110.md) records audit_log_safe's matching hosted fingerprint, caller/tenant/permission/minimization markers and denied anonymous/mutation/raw-payload grants. The advisor remains visible. A full definer-function register and hosted real-role acceptance are still open; metadata alone does not close a security finding.
+
 ## Current continuation — connected services and mandatory application fixture
 
 GitHub, Supabase and Vercel connector access was successfully verified. The tested payroll follow-up was published as **7d6928107214a100ffb5c81eaae3f512456e815a** with the exact locally reviewed tree e405be3a1067161e1d6fb228eb859ce56d70ba82. PR #128 remains draft/unmerged; Production remains unchanged. The latest verified staging Preview is still the earlier 9e4d706 build at https://elite-dashboard-m4x6yhd05-elitesaasc-5643.vercel.app. Historical connectivity and unpublished-state notes below are superseded by this dated update.

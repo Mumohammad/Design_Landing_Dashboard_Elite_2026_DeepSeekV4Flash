@@ -17,7 +17,10 @@ async function verifyTextContrast(locator) {
     const a=luminance(foreground),b=luminance(background)
     return (Math.max(a,b)+0.05)/(Math.min(a,b)+0.05)
   })
-  if(ratio<4.5)throw Error('Decision text contrast is below 4.5:1')
+  if(ratio<4.5){
+    console.error(JSON.stringify({check:'decision text contrast',ratio:Number(ratio.toFixed(3)),minimum:4.5}))
+    throw Error('Decision text contrast is below 4.5:1')
+  }
 }
 
 /** Retained accounting evidence is not deleted to reset an acceptance fixture. */
