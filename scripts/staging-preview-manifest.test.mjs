@@ -3,7 +3,8 @@ import assert from 'node:assert/strict'
 import path from 'node:path'
 import fs from 'node:fs'
 import { previewFromManifest, readPreviewManifest, waitForPreviewManifest, assertTrustedPreviewEvent, PreviewManifestError, PREVIEW_REPOSITORY, PREVIEW_BRANCH, PREVIEW_BACKEND, PREVIEW_PROJECT, PREVIEW_TEAM, PREVIEW_REGISTRY_URL } from './lib/staging-preview-manifest.mjs'
-import { configureStagingPreview } from './resolve-staging-preview.mjs'
+import { configureStagingPreview, preflightSelectedPreview } from './resolve-staging-preview.mjs'
+import { verificationFetch, GITHUB_OIDC_AUDIENCE } from './lib/verification-access.mjs'
 const commit='a'.repeat(40),other='b'.repeat(40),appUrl='https://elite-dashboard-tested123-elitesaasc-5643.vercel.app',token='fabricated-ci-token'
 const entry=(sha=commit)=>({commit:sha,appUrl,deploymentId:'dpl_fabricated12345',projectId:PREVIEW_PROJECT,teamId:PREVIEW_TEAM,backendProject:PREVIEW_BACKEND,environment:'preview',branch:PREVIEW_BRANCH,verifiedAt:'2026-11-10T00:00:00.000Z'})
 const manifest=()=>({schemaVersion:1,repository:PREVIEW_REPOSITORY,previews:{[commit]:entry()}})
@@ -58,6 +59,40 @@ test('failed preflight or foreign resolver output cannot write environment or cr
 })
 test('wrong job event is denied before any network access',async()=>{
  for(const [key,value] of [['GITHUB_ACTIONS','false'],['GITHUB_EVENT_NAME','push'],['GITHUB_REPOSITORY','foreign/repo'],['GITHUB_ENV','relative'],['GITHUB_ENV','/tmp/name\ninjected']])await assert.rejects(()=>configureStagingPreview({env:{...env(),[key]:value},event:event(),resolve:async()=>assert.fail('No request for untrusted context')}),code('PREVIEW_CONTEXT'))
+})
+const inheritedApp='https://elite-dashboard-inherited123-elitesaasc-5643.vercel.app'
+function selectedPreflightFixture({landingStatus=200,healthCommit=commit,policy="connect-src 'self' https://viowrovartosrkqukjxy.supabase.co wss://viowrovartosrkqukjxy.supabase.co"}={}) {
+ const now=Date.now(),identity=[Buffer.from('{}').toString('base64url'),Buffer.from(JSON.stringify({iss:'https://token.actions.githubusercontent.com',aud:GITHUB_OIDC_AUDIENCE,exp:Math.floor(now/1000)+600})).toString('base64url'),'fabricated-signature'].join('.')
+ const selectedEnv={...env(),BASE_URL:inheritedApp,VERIFY_APP_URL:inheritedApp,ACTIONS_ID_TOKEN_REQUEST_URL:'https://token.actions.githubusercontent.com/fabricated-identity',ACTIONS_ID_TOKEN_REQUEST_TOKEN:'fabricated-endpoint-token'}
+ const requests=[]
+ const fetchImpl=async(input,options)=>{
+  const url=new URL(input);requests.push(url.origin);assert.equal(options.redirect,'manual')
+  if(url.origin==='https://token.actions.githubusercontent.com'){
+   assert.equal(options.headers.Authorization,'Bearer fabricated-endpoint-token');assert.equal(url.searchParams.get('audience'),GITHUB_OIDC_AUDIENCE)
+   return Response.json({value:identity})
+  }
+  assert.equal(url.origin,appUrl);const headers=new Headers(options.headers)
+  assert.equal(headers.get('x-vercel-trusted-oidc-idp-token'),identity);assert.equal(headers.has('authorization'),false)
+  return url.pathname==='/api/health'?Response.json({status:'healthy',version:healthCommit}):new Response('',{status:landingStatus,headers:{'content-security-policy':policy}})
+ }
+ return {selectedEnv,options:{env:selectedEnv,fetchImpl,now:()=>now,mask:()=>{}},requests}
+}
+test('reproduces inherited-origin rejection and validates the selected origin without mutating old environment',async()=>{
+ const saved={BASE_URL:process.env.BASE_URL,VERIFY_APP_URL:process.env.VERIFY_APP_URL}
+ process.env.BASE_URL=inheritedApp;process.env.VERIFY_APP_URL=inheritedApp
+ try{
+  assert.throws(()=>verificationFetch(appUrl+'/api/health',{},appUrl),/Verification application origins disagree/)
+  const fixture=selectedPreflightFixture()
+  await preflightSelectedPreview({backendUrl:'https://'+PREVIEW_BACKEND+'.supabase.co',appUrl,expectedCommit:commit},fixture.options)
+  assert.equal(process.env.BASE_URL,inheritedApp);assert.equal(process.env.VERIFY_APP_URL,inheritedApp)
+  assert.equal(fixture.selectedEnv.BASE_URL,inheritedApp);assert.equal(fixture.selectedEnv.VERIFY_APP_URL,inheritedApp)
+  assert.equal(fixture.requests.filter(origin=>origin==='https://token.actions.githubusercontent.com').length,1)
+  assert.equal(fixture.requests.filter(origin=>origin===appUrl).length,2);assert.equal(fixture.requests.includes(inheritedApp),false)
+ }finally{for(const [key,value]of Object.entries(saved))if(value===undefined)delete process.env[key];else process.env[key]=value}
+})
+for(const [name,options]of [['denied access',{landingStatus:403}],['stale deployment',{healthCommit:other}],['Production CSP',{policy:"connect-src 'self' https://wwfnsbilmyxeawgzicmv.supabase.co"}]])test('selected-origin preflight still rejects '+name,async()=>{
+ const fixture=selectedPreflightFixture(options)
+ await assert.rejects(()=>preflightSelectedPreview({backendUrl:'https://'+PREVIEW_BACKEND+'.supabase.co',appUrl,expectedCommit:commit},fixture.options))
 })
 test('both hosted jobs resolve their immutable target before configuration/fixture allocation',()=>{
  const workflow=fs.readFileSync(new URL('../.github/workflows/ci.yml',import.meta.url),'utf8')
