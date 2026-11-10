@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "repository": "Mumohammad/Design_Landing_Dashboard_Elite_2026_DeepSeekV4Flash",
+  "previews": {
+    "e98e3e72b19d31c3d341f095cd6dcca080413dd3": {
+      "projectId": "prj_0FJTFtAXzBZMUP9rPyU7XtiEYteX",
+      "teamId": "team_j3ptCX4b6u3KnlTRbe8mRhKG",
+      "backendProject": "viowrovartosrkqukjxy",
+      "environment": "preview",
+      "branch": "codex/production-modules-completion",
+      "commit": "e98e3e72b19d31c3d341f095cd6dcca080413dd3",
+      "appUrl": "https://elite-dashboard-n48mlh8fd-elitesaasc-5643.vercel.app",
+      "deploymentId": "dpl_HqfSfZY6mAM47UEbo3nTTw49Ptut",
+      "verifiedAt": "2026-11-10T12:13:29.393Z"
+    },
+    "d100ee99d5f34a4d7d1efd43bc4334c18a4547a6": {
+      "projectId": "prj_0FJTFtAXzBZMUP9rPyU7XtiEYteX",
+      "teamId": "team_j3ptCX4b6u3KnlTRbe8mRhKG",
+      "backendProject": "viowrovartosrkqukjxy",
+      "environment": "preview",
+      "branch": "codex/production-modules-completion",
+      "commit": "d100ee99d5f34a4d7d1efd43bc4334c18a4547a6",
+      "appUrl": "https://elite-dashboard-1g4ptoym8-elitesaasc-5643.vercel.app",
+      "deploymentId": "dpl_6A5EQzbTbSQwaAh4exsZWtk4zjqW",
+      "verifiedAt": "2026-11-10T16:28:26.336Z"
+    }
+  }
+}
