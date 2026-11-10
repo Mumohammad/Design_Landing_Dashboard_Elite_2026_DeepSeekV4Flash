@@ -1,6 +1,7 @@
 import { expect as baseExpect } from '@playwright/test'
 import path from 'node:path'
 import { getDefaultRuleMap } from '../src/lib/payroll-engine/rules.ts'
+import { payslipBreakdown } from '../src/lib/payroll-engine/payslip.ts'
 
 const expect = baseExpect.configure({ timeout: 30_000 })
 
@@ -69,17 +70,66 @@ export async function verifyPlatformPayroll(page, admin, tenantId, ownerAuthId, 
     await expect(slip.getByText('FINAL NET SALARY')).toBeVisible()
     await page.keyboard.press('Escape')
 
+    stage = 'payroll blocked approval preserves balances'
+    const pending = await admin.from('payroll_engine_results').select('rider_id,result').eq('run_id', runId).eq('tenant_id', tenantId)
+    expect(pending.error).toBeNull()
+    expect(pending.data).toHaveLength(17)
+    const unrecovered = pending.data.filter(row => payslipBreakdown(row.result).capFloorAdjustment < -0.005)
+    expect(unrecovered).toHaveLength(1)
+    expect(unrecovered[0].rider_id).not.toBe(target.rider_id)
+    const beforeBlocked = await admin.from('payroll_engine_runs').select('status,version').eq('id', runId).eq('tenant_id', tenantId).single()
+    expect(beforeBlocked.error).toBeNull()
+    page.once('dialog', d => d.accept())
+    await page.getByRole('button', { name: 'Approve', exact: true }).click()
+    await expect(page.getByRole('alert')).toContainText('Some deductions exceed recoverable pay. Resolve them before approval; no balances were advanced.')
+    const afterBlocked = await admin.from('payroll_engine_runs').select('status,version').eq('id', runId).eq('tenant_id', tenantId).single()
+    expect(afterBlocked.error).toBeNull()
+    expect(afterBlocked.data).toEqual(beforeBlocked.data)
+    const unpaid = await admin.from('payroll_engine_adjustments').select('status').eq('tenant_id', tenantId)
+    expect(unpaid.error).toBeNull()
+    expect(unpaid.data).toEqual([{ status: 'active' }])
+
+    // This controlled synthetic bonus resolves the fixture's uncovered balance;
+    // no production deduction/write-off policy or financial guard is changed.
+    stage = 'payroll explicit synthetic balance recovery'
+    const recoveryBonus = Math.ceil((-payslipBreakdown(unrecovered[0].result).capFloorAdjustment + 0.01) * 100) / 100
+    expect(Number.isFinite(recoveryBonus) && recoveryBonus > 0).toBe(true)
+    await page.goto(`${appUrl}/payroll/platform/adjustments`)
+    await page.getByRole('tab', { name: 'Manual adjustments' }).click()
+    await page.getByLabel('Rider ID').fill(unrecovered[0].rider_id)
+    await page.getByLabel('Type').selectOption('bonus')
+    await page.getByLabel('Title', { exact: true }).fill('CI recovery bonus')
+    await page.getByLabel('Arabic title').fill('مكافأة تسوية اختبارية')
+    await page.getByLabel('Amount (SAR)').fill(recoveryBonus.toFixed(2))
+    await page.getByRole('button', { name: 'Add adjustment' }).click()
+    await expect(page.getByRole('status').filter({ hasText: 'Payslips updated in 1 draft payroll run' })).toBeVisible()
+    const recovered = await admin.from('payroll_engine_results').select('result').eq('run_id', runId).eq('tenant_id', tenantId)
+    expect(recovered.error).toBeNull()
+    expect(recovered.data).toHaveLength(17)
+    expect(recovered.data.every(row => payslipBreakdown(row.result).capFloorAdjustment >= -0.005)).toBe(true)
+    await page.goto(`${appUrl}/payroll/platform/runs/${runId}`)
+
+
     stage = 'payroll approve'
     page.once('dialog', d => d.accept())
     await page.getByRole('button', { name: 'Approve', exact: true }).click()
     await expect.poll(async () => (await admin.from('payroll_engine_runs').select('status').eq('id', runId).single()).data?.status).toBe('approved')
+
+    const settled = await admin.from('payroll_engine_adjustments').select('status').eq('tenant_id', tenantId)
+    expect(settled.error).toBeNull()
+    expect(settled.data).toHaveLength(2)
+    expect(settled.data.every(row => row.status === 'paid')).toBe(true)
 
     stage = 'payroll cancel'
     await page.getByRole('button', { name: 'Cancel run', exact: true }).first().click()
     await page.locator('textarea').last().fill('Browser verification rollback')
     await page.getByRole('button', { name: 'Cancel run', exact: true }).last().click()
     await expect.poll(async () => (await admin.from('payroll_engine_runs').select('status').eq('id', runId).single()).data?.status).toBe('cancelled')
-    console.log('PASS: platform payroll workbook import matched golden totals; a manual bonus instantly recalculated the draft payslip; branded payslip preview; approved and cancelled through authenticated browser actions')
+    const restored = await admin.from('payroll_engine_adjustments').select('status').eq('tenant_id', tenantId)
+    expect(restored.error).toBeNull()
+    expect(restored.data).toHaveLength(2)
+    expect(restored.data.every(row => row.status === 'active')).toBe(true)
+    console.log('PASS: golden payroll import, default snapshot, instant bonus/payslip, guarded rejection without settlement, explicit synthetic recovery, approval settlement and cancellation rollback')
   } catch (error) {
     console.error(JSON.stringify({ check: 'platform-payroll', stage, errorType: error.name, callsite: /verify-local-payroll-platform\.mjs:(\d+):(\d+)/.exec(error.stack)?.slice(1), operation: /expect\(locator\)\.[A-Za-z]+/.exec(error.message)?.[0] }))
     throw new Error(`Platform payroll browser verification failed: ${stage}`)

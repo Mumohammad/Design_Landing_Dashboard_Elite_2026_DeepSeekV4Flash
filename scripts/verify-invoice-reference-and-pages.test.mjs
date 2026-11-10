@@ -1,6 +1,5 @@
 import test from'node:test'
 import assert from'node:assert/strict'
-import{expect as browserExpect}from'@playwright/test'
 import{assertInvoiceReferenceTestTarget,createInvoiceResponseLoss,verifyInvoiceReferenceAndPages,invoicePdfContainsText}from'./verify-invoice-reference-and-pages.mjs'
 const stage='https://viowrovartosrkqukjxy.supabase.co',app='https://elite-dashboard-fixture-elitesaasc-5643.vercel.app',sha='a'.repeat(40)
 for(const[name,backend,url,commit]of[
@@ -35,10 +34,11 @@ test('invoice response loss waits for delayed commit and abort before the unchan
  fields.resolve();await nextTurn();assert.equal(loss.ready,true)
  const waiting=loss.wait().then(()=>{finished=true})
  // The previous ordering starts this check while the commit is still pending.
- await assert.rejects(()=>browserExpect.poll(()=>state.alert,{timeout:20,intervals:[1]}).toBe(true))
+ const assertAlert=()=>assert.equal(state.alert,true)
+ assert.throws(assertAlert,{code:'ERR_ASSERTION'})
  assert.equal(finished,false);assert.equal(state.invoices,0);assert.equal(state.audits,0)
  forward.resolve();await nextTurn();assert.equal(state.invoices,1);assert.equal(state.audits,1);assert.equal(finished,false);assert.equal(state.alert,false)
- abort.resolve();await handling;await waiting;await browserExpect.poll(()=>state.alert,{timeout:20,intervals:[1]}).toBe(true)
+ abort.resolve();await handling;await waiting;assertAlert()
  await loss.handler(fixture.route)
  assert.equal(pendingChecks,1);assert.equal(fixture.calls.forwarded,1);assert.equal(fixture.calls.aborted,1);assert.equal(fixture.calls.continued,1)
  assert.deepEqual(loss.ids,[requestId,requestId]);assert.equal(state.invoices,1);assert.equal(state.audits,1)
