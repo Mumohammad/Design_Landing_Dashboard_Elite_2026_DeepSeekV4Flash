@@ -14,3 +14,11 @@ export async function assertStagingTarget(request: APIRequestContext) {
   expect(policy).toContain(staging)
   expect(policy).not.toContain("https://wwfnsbilmyxeawgzicmv.supabase.co")
 }
+
+/** A required public fixture, never an authentication credential. */
+export function requireApplicationTenantSlug(value: string | undefined = process.env.E2E_TENANT_SLUG): string {
+  if (typeof value !== "string" || value !== value.trim() || !/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(value)) {
+    throw new Error("A canonical E2E_TENANT_SLUG for an active synthetic staging tenant is required")
+  }
+  return value
+}

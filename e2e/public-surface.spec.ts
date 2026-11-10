@@ -3,7 +3,7 @@
 // tests need credentials, so they are safe for every hosted staging run.
 
 import { test, expect } from "./preview-test"
-import { assertStagingTarget } from "./staging-target"
+import { assertStagingTarget, requireApplicationTenantSlug } from "./staging-target"
 
 test.beforeAll(async ({ request }) => assertStagingTarget(request))
 
@@ -84,9 +84,8 @@ test.describe("Driver application", () => {
     await expect(page.getByRole("heading", { level: 1, name: "404" })).toBeVisible()
   })
 
-  const slug = process.env.E2E_TENANT_SLUG
   test("welcome screen starts the application and never shows a stale resume panel", async ({ page }) => {
-    test.skip(!slug, "Set E2E_TENANT_SLUG to a staging tenant that accepts applications")
+    const slug = requireApplicationTenantSlug()
     await page.context().clearCookies()
     await page.goto(`/apply/${slug}`)
     await expect(page.locator("h1")).toBeVisible()
@@ -96,7 +95,7 @@ test.describe("Driver application", () => {
   })
 
   test("a tampered saved-application cookie is ignored", async ({ page, baseURL }) => {
-    test.skip(!slug, "Set E2E_TENANT_SLUG to a staging tenant that accepts applications")
+    const slug = requireApplicationTenantSlug()
     const url = new URL(baseURL ?? "http://localhost:3000")
     await page.context().addCookies([{ name: "driver-application-draft", value: "tampered.value", domain: url.hostname, path: "/", httpOnly: true, sameSite: "Lax", secure: url.protocol === "https:" }])
     await page.goto(`/apply/${slug}`)

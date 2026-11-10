@@ -81,7 +81,11 @@ export async function verifyPlatformPayroll(page, admin, tenantId, ownerAuthId, 
     expect(beforeBlocked.error).toBeNull()
     page.once('dialog', d => d.accept())
     await page.getByRole('button', { name: 'Approve', exact: true }).click()
-    await expect(page.getByRole('alert')).toContainText('Some deductions exceed recoverable pay. Resolve them before approval; no balances were advanced.')
+    // Next's route announcer is also an alert. Require the specific financial
+    // rejection to be unique and visible, without matching unrelated live regions.
+    const rejection = page.getByRole('alert').filter({ hasText: 'Some deductions exceed recoverable pay. Resolve them before approval; no balances were advanced.' })
+    await expect(rejection).toHaveCount(1)
+    await expect(rejection).toBeVisible()
     const afterBlocked = await admin.from('payroll_engine_runs').select('status,version').eq('id', runId).eq('tenant_id', tenantId).single()
     expect(afterBlocked.error).toBeNull()
     expect(afterBlocked.data).toEqual(beforeBlocked.data)
@@ -131,7 +135,9 @@ export async function verifyPlatformPayroll(page, admin, tenantId, ownerAuthId, 
     expect(restored.data.every(row => row.status === 'active')).toBe(true)
     console.log('PASS: golden payroll import, default snapshot, instant bonus/payslip, guarded rejection without settlement, explicit synthetic recovery, approval settlement and cancellation rollback')
   } catch (error) {
-    console.error(JSON.stringify({ check: 'platform-payroll', stage, errorType: error.name, callsite: /verify-local-payroll-platform\.mjs:(\d+):(\d+)/.exec(error.stack)?.slice(1), operation: /expect\(locator\)\.[A-Za-z]+/.exec(error.message)?.[0] }))
+    const failureKind = /strict mode violation/.test(error.message) ? 'ambiguous-locator' : /Timeout|timed out/i.test(error.message) ? 'timeout' : 'assertion-or-service'
+    const alertCount = await page.getByRole('alert').count().catch(() => null)
+    console.error(JSON.stringify({ check: 'platform-payroll', stage, errorType: error.name, failureKind, alertCount, callsite: /verify-local-payroll-platform\.mjs:(\d+):(\d+)/.exec(error.stack)?.slice(1), operation: /expect\(locator\)\.[A-Za-z]+/.exec(error.message)?.[0] }))
     throw new Error(`Platform payroll browser verification failed: ${stage}`)
   }
 }
