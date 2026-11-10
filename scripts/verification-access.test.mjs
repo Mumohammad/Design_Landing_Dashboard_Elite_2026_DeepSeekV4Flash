@@ -94,3 +94,24 @@ test('network errors do not serialize transport credentials or raw request URLs'
  assert.equal(scrubbed.includes(localToken()),false);assert.equal(scrubbed.includes(githubToken()),false)
  assert.equal(redactVerificationText('x-vercel-trusted-oidc-idp-token: opaque-header-value').includes('opaque-header-value'),false)
 })
+
+
+function documentRoute({location='/dashboard?lang=en&returnTo=%2Finvoices',status=307,method='GET',frame={}}={}){
+ const observed={aborted:0,continued:0},response={status:()=>status,headers:()=>({'location':location,'content-length':'0','set-cookie':'synthetic=fixture; Path=/; HttpOnly'})};
+ const route={request:()=>({url:()=>app+'/platform/login',headers:()=>({}),method:()=>method,isNavigationRequest:()=>true,resourceType:()=> 'document',frame:()=>frame}),fetch:async options=>{observed.options=options;return response},fulfill:async options=>{observed.fulfilled=options},abort:async()=>{observed.aborted++},continue:async()=>{observed.continued++}};
+ return {route,observed,response}
+}
+for(const status of [301,302,303,307,308])test('protected document redirect bridge creates a fresh same-origin navigation: '+status,async()=>{
+ const a=access(),{route,observed}=documentRoute({status});await a.routeContinue(route);
+ assert.equal(observed.fulfilled.status,200);assert.equal(observed.options.maxRedirects,0);assert.equal(observed.options.headers['x-vercel-trusted-oidc-idp-token'],localToken());
+ assert.ok(observed.fulfilled.body.includes('http-equiv="refresh"'));assert.ok(observed.fulfilled.body.includes('/dashboard?lang=en&amp;returnTo=%2Finvoices'));
+ assert.equal(observed.fulfilled.body.includes(localToken()),false);assert.equal(observed.fulfilled.headers.location,undefined);assert.equal(observed.fulfilled.headers['content-length'],undefined);assert.equal(observed.fulfilled.headers['set-cookie'],'synthetic=fixture; Path=/; HttpOnly');assert.match(observed.fulfilled.headers['cache-control'],/no-store/);
+})
+for(const location of ['https://evil.test/steal',app+':8443/dashboard','https://u:p@'+new URL(app).host+'/dashboard','http://'+new URL(app).host+'/dashboard'])test('protected document redirect bridge denies foreign or credential-bearing target '+location,async()=>{
+ const {route,observed}=documentRoute({location});await assert.rejects(()=>access().routeContinue(route),VerificationAccessError);assert.equal(observed.aborted,1);assert.equal(observed.fulfilled,undefined);assert.equal(observed.continued,0)
+})
+test('protected document redirects reject a method-changing form navigation',async()=>{const {route,observed}=documentRoute({method:'POST',status:303});await assert.rejects(()=>access().routeContinue(route),VerificationAccessError);assert.equal(observed.aborted,1)})
+test('protected document redirect budget is bounded per frame and resets on terminal content',async()=>{
+ const a=access(),frame={};for(let i=0;i<8;i++)await a.routeContinue(documentRoute({frame}).route);const blocked=documentRoute({frame});await assert.rejects(()=>a.routeContinue(blocked.route),VerificationAccessError);assert.equal(blocked.observed.aborted,1);
+ const terminal=documentRoute({frame,status:200});await a.routeContinue(terminal.route);assert.equal(terminal.observed.fulfilled.response,terminal.response);await a.routeContinue(documentRoute({frame}).route)
+})

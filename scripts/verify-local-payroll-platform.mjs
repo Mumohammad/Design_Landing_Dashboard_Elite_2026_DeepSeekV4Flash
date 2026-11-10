@@ -60,7 +60,10 @@ export async function verifyPlatformPayroll(page, admin, tenantId, ownerAuthId, 
     stage = 'payroll payslip preview'
     await page.goto(`${appUrl}/payroll/platform/runs/${runId}`)
     await page.getByRole('tab', { name: 'Payslips' }).click()
-    await page.locator('div.rounded-2xl').filter({ hasText: target.rider_id }).getByRole('button', { name: 'View payslip' }).first().click()
+    await page.getByPlaceholder('Search rider ID or name', { exact: true }).fill(target.rider_id)
+    const viewPayslip = page.getByRole('button', { name: 'View payslip', exact: true })
+    await expect(viewPayslip).toHaveCount(1)
+    await viewPayslip.click()
     const slip = page.frameLocator('[data-testid="payslip-frame"]')
     await expect(slip.getByText('CI Eid bonus')).toBeVisible()
     await expect(slip.getByText('FINAL NET SALARY')).toBeVisible()

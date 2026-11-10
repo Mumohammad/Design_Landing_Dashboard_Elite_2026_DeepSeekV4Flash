@@ -45,6 +45,7 @@ export function createVerificationAccess(appUrl, { env = process.env, fetchImpl 
   const origin = verificationOrigin(appUrl)
   const local = loopback(new URL(origin).hostname)
   let cached, pending
+  const documentRedirectHops = new WeakMap()
 
   async function githubToken() {
     if (cached && cached.expires > now() + 60000) return cached.token
@@ -115,6 +116,29 @@ export function createVerificationAccess(appUrl, { env = process.env, fetchImpl 
       // continue({headers}) propagates overrides through redirects. Keep the
       // credential only on this server-side hop; the browser receives no header.
       const response = await routeFetch(route, options)
+      if (incoming.isNavigationRequest?.() && incoming.resourceType?.() === 'document') {
+        // Playwright routes only the first request in an HTTP redirect chain:
+        // https://playwright.dev/docs/network#handle-requests
+        // A credential-free meta refresh creates a separately intercepted GET.
+        // This adapter is test transport only; API checks retain raw 3xx evidence.
+        const frame = incoming.frame?.()
+        const reject = async () => { await route.abort('blockedbyclient'); fail('Protected document redirect is outside the supported verification boundary') }
+        if (!frame || typeof frame !== 'object') return reject()
+        const location = response.headers().location
+        if ([301,302,303,307,308].includes(response.status()) && location) {
+          let destination
+          try { destination = new URL(location, url) } catch { return reject() }
+          const hops = documentRedirectHops.get(frame) ?? 0
+          if (incoming.method() !== 'GET' || destination.origin !== origin || destination.username || destination.password || hops >= 8) return reject()
+          documentRedirectHops.set(frame, hops + 1)
+          const escape = value => value.replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]))
+          const headers = { ...response.headers(), 'content-type':'text/html; charset=utf-8', 'cache-control':'private, no-store, max-age=0' }
+          for (const key of ['location','content-length','content-encoding','transfer-encoding']) delete headers[key]
+          const body = '<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=' + escape(destination.href) + '"></head><body>Continuing verification.</body></html>'
+          return route.fulfill({ response, status:200, headers, body })
+        }
+        documentRedirectHops.delete(frame)
+      }
       return route.fulfill({ response })
     }
     return route.continue({ ...options, headers: await headersFor(url, options.headers ?? incoming.headers()) })
