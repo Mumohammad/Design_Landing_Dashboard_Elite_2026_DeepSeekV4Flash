@@ -1,4 +1,4 @@
-import {continueVerificationRoute,forwardVerificationRoute} from './lib/verification-access.mjs'
+import {continueVerificationRoute,forwardVerificationRoute,verificationFetch} from './lib/verification-access.mjs'
 import { expect as baseExpect } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 const expect=baseExpect.configure({timeout:30_000})
@@ -6,10 +6,12 @@ const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const minor=value=>{const text=String(value);if(!/^\d+(?:\.\d{1,2})?$/.test(text))throw Error('Exact synthetic amount unavailable');const[a,b='']=text.split('.');return BigInt(a)*100n+BigInt(b.padEnd(2,'0'))}
 
 /** Pure guard, also tested without browser/database credentials. */
-export async function assertAccountingMasterTestTarget(databaseUrl,appUrl,expectedCommit,fetcher=fetch){
+export async function assertAccountingMasterTestTarget(databaseUrl,appUrl,expectedCommit,fetcher=(input,options)=>verificationFetch(input,options,appUrl)){
  const database=new URL(databaseUrl),target=new URL(appUrl)
  if(database.origin!=='https://viowrovartosrkqukjxy.supabase.co'||database.pathname!=='/'||database.username||database.password||database.search||database.hash||target.protocol!=='https:'||!/^elite-dashboard-[a-z0-9]+-elitesaasc-5643\.vercel\.app$/.test(target.hostname)||target.port||target.pathname!=='/'||target.username||target.password||target.search||target.hash||!/^[0-9a-f]{40}$/.test(expectedCommit??''))throw Error('Exact isolated master acceptance target required')
- const response=await fetcher(target.origin+'/api/health',{redirect:'manual',signal:AbortSignal.timeout(20_000)}),health=await response.json()
+ const response=await fetcher(target.origin+'/api/health',{redirect:'manual',signal:AbortSignal.timeout(20_000)})
+ if(response.status!==200)throw Error('Healthy exact-commit staging isolation required')
+ let health;try{health=await response.json()}catch{throw Error('Valid staging health JSON required')}
  const landing=await fetcher(target.origin+'/landing',{redirect:'manual',signal:AbortSignal.timeout(20_000)}),policy=landing.headers.get('content-security-policy')??''
  const connect=(policy.split(';').map(value=>value.trim()).find(value=>value.startsWith('connect-src '))??'').split(/\s+/).slice(1)
  if(!response.ok||health.version!==expectedCommit||health.status!=='healthy'||landing.status!==200||!connect.includes(database.origin)||policy.includes('wwfnsbilmyxeawgzicmv')||connect.includes('*')||connect.includes('https://*.supabase.co'))throw Error('Healthy exact-commit staging isolation required')
