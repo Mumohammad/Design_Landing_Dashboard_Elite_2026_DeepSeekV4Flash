@@ -380,7 +380,7 @@ jobs:
     # Forks never receive this credential-bearing hosted job.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (vars.STAGING_E2E_ENABLED == 'true' || github.event.pull_request.head.ref == 'codex/production-modules-completion')
     env:
-      BASE_URL: ${{ secrets.STAGING_URL }}
+      BASE_URL: ${{ vars.STAGING_APP_URL || secrets.STAGING_URL }}
       TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
       TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
       STAGING_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
@@ -443,7 +443,7 @@ jobs:
       group: staging-full-acceptance-production-modules-completion
       cancel-in-progress: false
     env:
-      VERIFY_APP_URL: ${{ secrets.STAGING_URL }}
+      VERIFY_APP_URL: ${{ vars.STAGING_APP_URL || secrets.STAGING_URL }}
       VERIFY_COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}

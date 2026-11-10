@@ -84,3 +84,17 @@ for(const[name,actual,expected,result]of[
  ['reordered characters','Refer ence item ACBD','Reference item ABCD',false],
  ['absent item','Separate reference description ABCD','Reference item ABCD',false],
 ])test('invoice PDF text check: '+name,()=>assert.equal(invoicePdfContainsText(actual,expected),result))
+
+
+test('hosted invoice loss and retry preserve scoped Preview identity without redirect forwarding',async()=>{
+ const saved=Object.fromEntries(['VERIFY_APP_URL','BASE_URL','VERCEL_OIDC_TOKEN'].map(key=>[key,process.env[key]]));
+ const token=[Buffer.from('{}').toString('base64url'),Buffer.from(JSON.stringify({iss:'https://oidc.vercel.com/elitesaasc-5643',exp:Math.floor(Date.now()/1000)+600})).toString('base64url'),'fabricated-signature'].join('.');
+ process.env.VERIFY_APP_URL=app;delete process.env.BASE_URL;process.env.VERCEL_OIDC_TOKEN=token;
+ try{
+  const fixture=invoiceLossRoute(),forwarded=[];let fulfilled=0;
+  fixture.request.url=()=>app+'/invoices?lang=ar';fixture.route.fetch=async options=>{forwarded.push(options);return{ok:()=>true}};fixture.route.fulfill=async()=>{fulfilled++};
+  const loss=createInvoiceResponseLoss(description,async()=>{});await loss.handler(fixture.route);await loss.wait();await loss.handler(fixture.route);
+  assert.equal(forwarded.length,2);assert.equal(fulfilled,1);assert.equal(fixture.calls.continued,0);assert.equal(fixture.calls.aborted,1);
+  for(const options of forwarded){assert.equal(options.maxRedirects,0);assert.equal(options.headers['x-vercel-trusted-oidc-idp-token'],token);assert.equal(options.headers['next-action'],'offline-action')}
+ }finally{for(const[key,value]of Object.entries(saved))if(value===undefined)delete process.env[key];else process.env[key]=value}
+})

@@ -29,3 +29,10 @@ The [access-protected-vercel-deployment skill](C:/Users/Zbook/.codex/plugins/cac
 That requirement was satisfied before the change: the owner approved the concrete Preview-only request in this chat. The approval did not broaden the rule to Production or authorize unrelated secret/permission changes.
 
 After the rule was applied, the hosted E2E retry passed the previous protection-denial boundary and failed at the exact-commit readiness check. The existing staging Preview is still an older commit. This rule does not create a deployment, repair database drift or certify hosted acceptance.
+
+
+## Public staging address (10 November follow-up)
+
+The immutable Preview URL contains no credential. The release jobs prefer the repository variable `STAGING_APP_URL` and retain `STAGING_URL` as a backward-compatible secret fallback. Credentials and API keys remain encrypted secrets. Configure only an immutable, protected Preview in the approved elite-dashboard project, then run the unchanged exact-head health/CSP checks before sign-in or fixtures. A stale commit, Production backend, arbitrary origin or denied Preview identity still fails closed; this setting does not grant access or alter Deployment Protection.
+
+The public variable was saved and read back for the verified `d341394` staging Preview. It must follow the exact tested head on subsequent Preview builds. Editing the legacy encrypted URL secret required GitHub account confirmation; no authentication credential was changed or retrieved.

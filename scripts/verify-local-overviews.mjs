@@ -1,3 +1,4 @@
+import {verificationFetch} from './lib/verification-access.mjs'
 import { expect as baseExpect } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 
@@ -12,7 +13,7 @@ export async function verifyOverviews(page, admin, tenantId, actorId, appUrl) {
   if (local && (!['localhost', '127.0.0.1'].includes(database.hostname) || database.port !== '58321')) throw Error('Disposable database required')
   if (!local) {
     if (database.origin !== 'https://viowrovartosrkqukjxy.supabase.co') throw Error('Isolated staging database required')
-    const policy = (await fetch(`${appUrl}/landing`)).headers.get('content-security-policy') ?? ''
+    const policy = (await verificationFetch(`${appUrl}/landing`,{},appUrl)).headers.get('content-security-policy') ?? ''
     if (!policy.includes('https://viowrovartosrkqukjxy.supabase.co') || policy.includes('https://wwfnsbilmyxeawgzicmv.supabase.co')) throw Error('Isolated verification target required')
   }
   if (!tenantId || !actorId) throw Error('Disposable identity required')

@@ -1,3 +1,4 @@
+import {continueVerificationRoute,forwardVerificationRoute} from './lib/verification-access.mjs'
 import {expect as baseExpect} from '@playwright/test'
 import {randomUUID} from 'node:crypto'
 import path from 'node:path'
@@ -23,13 +24,13 @@ export function createInvoiceResponseLoss(description,assertPendingFields){
  const ids=[],completion=Promise.withResolvers();let lost=false,ready=false
  const handler=async route=>{
   const request=route.request(),body=request.postData()??''
-  if(request.method()!=='POST'||!request.headers()['next-action']||!body.includes(description))return route.continue()
+  if(request.method()!=='POST'||!request.headers()['next-action']||!body.includes(description))return continueVerificationRoute(route)
   ids.push(/request_id[\\\"\s:]{1,12}([0-9a-f-]{36})/i.exec(body)?.[1])
-  if(lost)return route.continue()
+  if(lost)return continueVerificationRoute(route)
   lost=true;let failure
   try{await assertPendingFields()}catch{failure=Error('Pending invoice fields remained editable')}
   ready=true
-  if(!failure)try{const response=await route.fetch({timeout:60000});if(!response.ok())failure=Error('Owned save response was not successful')}catch{failure=Error('Owned invoice save forwarding failed')}
+  if(!failure)try{const response=await forwardVerificationRoute(route,{timeout:60000});if(!response.ok())failure=Error('Owned save response was not successful')}catch{failure=Error('Owned invoice save forwarding failed')}
   try{await route.abort('failed')}catch{failure??=Error('Owned invoice response loss failed')}
   completion.resolve(failure)
  }
