@@ -87,9 +87,9 @@ for(const[name,actual,expected,result]of[
 
 
 test('hosted invoice loss and retry preserve scoped Preview identity without redirect forwarding',async()=>{
- const saved=Object.fromEntries(['VERIFY_APP_URL','BASE_URL','VERCEL_OIDC_TOKEN'].map(key=>[key,process.env[key]]));
+ const saved=Object.fromEntries(['VERIFY_APP_URL','BASE_URL','VERCEL_OIDC_TOKEN','GITHUB_ACTIONS'].map(key=>[key,process.env[key]]));
  const token=[Buffer.from('{}').toString('base64url'),Buffer.from(JSON.stringify({iss:'https://oidc.vercel.com/elitesaasc-5643',exp:Math.floor(Date.now()/1000)+600})).toString('base64url'),'fabricated-signature'].join('.');
- process.env.VERIFY_APP_URL=app;delete process.env.BASE_URL;process.env.VERCEL_OIDC_TOKEN=token;
+ process.env.VERIFY_APP_URL=app;delete process.env.BASE_URL;process.env.VERCEL_OIDC_TOKEN=token;process.env.GITHUB_ACTIONS='false';
  try{
   const fixture=invoiceLossRoute(),forwarded=[];let fulfilled=0;
   fixture.request.url=()=>app+'/invoices?lang=ar';fixture.route.fetch=async options=>{forwarded.push(options);return{ok:()=>true}};fixture.route.fulfill=async()=>{fulfilled++};

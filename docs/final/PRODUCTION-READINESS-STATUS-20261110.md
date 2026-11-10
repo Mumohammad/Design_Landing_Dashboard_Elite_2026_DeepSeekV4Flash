@@ -60,3 +60,33 @@ All module groups remain in the full audit's readiness matrix. In particular, dr
 5. Verify the merged commit's staged Production build, backend, key flows and rollback before assigning the canonical domain, then recheck canonical commit/health and report actual results.
 
 Until these gates pass, the honest status is **staging available; unrestricted Production release blocked**.
+
+
+## Fresh runtime RPC catalog check and CI fixture correction
+
+A new read-only catalog check on 10 November compared **144 distinct literal runtime RPC names** in the unchanged application source with the public function catalog: **23 are absent in Production, 50 in staging**. [The review manifest](RUNTIME-RPC-CATALOG-20261110.json) records each missing name, source call sites and repository definition locations. Dynamic names, exact signatures, runtime permissions and function behavior are not covered. Optional/disabled code is included; these are not counts of broken active modules. Definition locations are not an execution plan.
+
+Confirmed missing Production names include `read_my_payroll_source_version`, `save_my_platform_payroll`, `approve_my_platform_payroll`, `reserve_driver_portal_upload`, `activate_driver_portal_upload`, `complete_driver_portal_upload`, `save_my_company_logo`, `read_my_zatca_environment` and `save_my_zatca_environment`. Their source calls were read directly and use the normal public-schema clients. Staging additionally lacks the expense/Telegram RPC family and several driver evidence/offboarding/fine contracts. Service-only privilege observations are not automatically treated as defects.
+
+This expands R01/R02's concrete evidence and explains why application-only merging cannot complete all module CRUD. The required solution remains a compatible, dependency-ordered forward manifest with aliases/applied history preserved, fresh restore rehearsals, staged application and real role/tenant/MFA tests. No hosted SQL write or migration was executed.
+
+CI at `97c9455` exposed an environment-isolation error in the new fabricated local-identity test: GitHub Actions' inherited flag selected the real CI identity path. The exact failure was reproduced locally with `GITHUB_ACTIONS=true`; saving/overriding/restoring that flag inside the fabricated fixture fixes it. All **401 release guards then passed with GitHub Actions mode enabled**. This changes only the unit fixture; actual GitHub/OIDC behavior and Production access are unchanged. Fresh full CI on the correction is still required.
+
+The `97c9455` Preview, https://elite-dashboard-ay6938spr-elitesaasc-5643.vercel.app, is READY and passed actual protected health/exact-commit/staging-only CSP and private invoice sign-in redirect checks. Updating STAGING_APP_URL from the earlier Preview to this address now requires GitHub account confirmation; that update has **not** been accepted or verified. Its open confirmation must be completed by the account holder. The earlier variable remains saved for `d341394`; stale-hosted E2E remains a failing gate.
+
+
+## Subsequent complete-ledger/bank CI results and payroll contract
+
+The `97c9455` disposable-browser job subsequently passed the repaired complete Journal/AR/AP paging, literal search, malformed-read/retry and Arabic mobile checks. Bank create/edit/deactivate/reactivate/mobile/soft-delete/reload/audit and paged payment bank selection also passed. It then failed the payroll verifier's stale assertion that reading default rules must have created an owned database rule-set row. The run had already passed its draft status, 17-rider golden net total and created-by owner assertions. This was not evidence of a missing driver link.
+
+Current source intentionally returns virtual repository defaults without settings writes; the existing unit contract explicitly tests that behavior. The verifier follow-up now requires an initially empty rule table, a null saved rule-set ID, the exact complete 46-rule repository snapshot and default-rule name on the run, and a still-empty rule table after import. Golden amount/count, real run actor, bonus recalculation, payslip, approval and cancellation assertions are retained. All 43 focused golden/default-read/actor tests pass; the complete browser payroll sequence must still run on the next head. Native rules import is verified under the project's Node 24 runtime.
+
+### Additional finding R21 — broken legacy company-provisioning endpoint
+
+The RPC inventory found `create_platform_user` has no repository migration definition and is absent in both hosted projects. Read-only relation catalogs also show that `platform_companies`, `platform_users` and `platform_subscriptions` are absent in both. The guarded legacy `src/app/api/platform/companies/route.ts` still queries/inserts those relations and calls that missing RPC. It cannot complete its advertised request in these environments. This finding concerns that callable legacy endpoint; the separate `/api/platform/admin/create-company` uses the canonical tenant model and `provision_company_atomic`, and has not been certified by this check. No authorized production mutation was attempted.
+
+**Impact:** an authorized legacy company-creation request fails instead of provisioning a company; blindly applying the current migration folder cannot supply a function with no definition. The source's multi-step compensation and unchecked subscription result also require correctness review before supporting that contract. The platform-admin/MFA guard remains present; absence of the backend contract is not proof of an authorization bypass.
+
+**Required solution:** establish the supported company-onboarding API contract, adapt the legacy route through the reviewed canonical provisioning service while preserving its caller contract, or explicitly retire it before writes with a documented supported replacement. Do not invent an unsafe password-handling database RPC or duplicate tenant tables to satisfy the old name. Use caller-bound request receipts, atomic database provisioning and recoverable Auth/invite orchestration, checked subscription/audit outcomes, ownership-safe compensation and sanitized errors.
+
+**Acceptance:** unauthorized/AAL1/foreign callers are denied; duplicate and lost-response retries yield one company/owner/link/subscription/audit result; every Auth/database/subscription failure leaves no unowned orphan or duplicate invitation; canonical and compatibility responses are tested on isolated staging. Provider delivery is a separate authorized acceptance step. This remains an unresolved workflow blocker if the legacy endpoint is included in the launch contract.
