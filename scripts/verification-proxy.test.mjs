@@ -6,6 +6,8 @@ import {generateKeyPairSync,createHash} from 'node:crypto'
 import {createRequire} from 'node:module'
 import {mkdtempSync,writeFileSync,existsSync} from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
+import {fileURLToPath} from 'node:url'
 import {spawn} from 'node:child_process'
 import {startVerificationProxy} from './lib/verification-proxy.mjs'
 const require=createRequire(import.meta.url),{KEYUTIL,KJUR}=require('jsrsasign'),{chromium}=require('@playwright/test')
@@ -175,17 +177,17 @@ test('default transport rejects private upstream addresses before opening a tunn
 })
 
 test('a Playwright contextOptions override cannot silently restore legacy hosted transport',{timeout:30000},async()=>{
+ const folder=mkdtempSync(path.join(os.tmpdir(),'native-context-override-')),marker=path.join(folder,'body-ran.txt')
+ const fixture=path.relative(folder,fileURLToPath(new URL('../e2e/preview-test.ts',import.meta.url))).split(path.sep).join('/')
  const rejectProxy=http.createServer((_req,res)=>{res.writeHead(403);res.end()})
  rejectProxy.on('connect',(_req,socket)=>socket.end('HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n'))
  await new Promise(resolve=>rejectProxy.listen(0,'127.0.0.1',resolve))
- const folder=mkdtempSync(path.resolve('supabase/.temp/native-context-override-')),marker=path.join(folder,'body-ran.txt')
- const fixture=path.relative(folder,path.resolve('e2e/preview-test.ts')).split(path.sep).join('/')
+ try{
  const app='https://elite-dashboard-fixture-elitesaasc-5643.vercel.app'
  writeFileSync(path.join(folder,'override.spec.ts'),`import {test} from ${JSON.stringify(fixture)};import fs from 'node:fs';test.use({contextOptions:{proxy:{server:${JSON.stringify('http://127.0.0.1:'+rejectProxy.address().port)}}}});test('fixture must reject a context without its own proxy',async({page})=>{await page.setContent('<body>Synthetic only</body>');fs.writeFileSync(${JSON.stringify(marker)},'body ran')})`)
  writeFileSync(path.join(folder,'config.mjs'),`export default ${JSON.stringify({testDir:folder,outputDir:path.join(folder,'results'),workers:1,retries:0,reporter:'json',use:{baseURL:app,trace:'off',video:'off',screenshot:'off'}})}`)
  const env={BASE_URL:app,VERIFY_APP_URL:app,GITHUB_ACTIONS:'false',CI:'false'}
  for(const key of ['PATH','SystemRoot','WINDIR','TEMP','TMP','USERPROFILE','LOCALAPPDATA','APPDATA','HOME','HOMEDRIVE','HOMEPATH'])if(process.env[key])env[key]=process.env[key]
- try{
   const run=await new Promise((resolve,reject)=>{
    const child=spawn(process.execPath,[require.resolve('@playwright/test/cli'),'test','--config',path.join(folder,'config.mjs')],{env,windowsHide:true,stdio:['ignore','pipe','ignore']});let stdout=''
    const timer=setTimeout(()=>child.kill(),20000)
@@ -199,4 +201,23 @@ test('a Playwright contextOptions override cannot silently restore legacy hosted
   assert.equal(JSON.stringify(report).includes('Verification proxy context was not confirmed'),true,'The explicit transport proof must reject the overridden context')
   assert.equal(existsSync(marker),false)
  }finally{rejectProxy.closeAllConnections();await new Promise(resolve=>rejectProxy.close(resolve))}
+})
+
+test('the context override regression works in a clean working directory',{timeout:30000},async()=>{
+ const cwd=mkdtempSync(path.join(os.tmpdir(),'native-clean-working-directory-'))
+ assert.equal(existsSync(path.join(cwd,'supabase','.temp')),false)
+ const env={}
+ for(const key of ['PATH','SystemRoot','WINDIR','TEMP','TMP','USERPROFILE','LOCALAPPDATA','APPDATA','HOME','HOMEDRIVE','HOMEPATH'])if(process.env[key])env[key]=process.env[key]
+ const result=await new Promise((resolve,reject)=>{
+  let stdout=''
+  const child=spawn(process.execPath,['--test','--test-reporter=tap','--test-name-pattern=^a Playwright contextOptions',fileURLToPath(import.meta.url)],{cwd,env,windowsHide:true,stdio:['ignore','pipe','ignore']})
+  const timer=setTimeout(()=>child.kill(),25000)
+  child.stdout.on('data',part=>{stdout+=part.toString();if(stdout.length>2*1024*1024)child.kill()})
+  child.once('error',error=>{clearTimeout(timer);reject(error)})
+  child.once('close',status=>{clearTimeout(timer);resolve({status,stdout})})
+ })
+ assert.equal(result.status,0,'The real isolated fixture test must finish successfully without repository-local temp directories')
+ assert.match(result.stdout,/# pass 1/)
+ assert.match(result.stdout,/# fail 0/)
+ assert.equal(existsSync(path.join(cwd,'supabase')),false)
 })

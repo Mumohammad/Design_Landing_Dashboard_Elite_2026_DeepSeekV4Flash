@@ -61,6 +61,7 @@ jobs:
       run: pnpm exec playwright install --with-deps chromium
 
     - name: Native Preview verification transport
+      timeout-minutes: 3
       run: node --test scripts/verification-proxy.test.mjs
 
     - name: API route guard check
