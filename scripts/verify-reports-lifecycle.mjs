@@ -114,7 +114,7 @@ export async function verifyReportsLifecycle(page, admin, tenantId, appUrl) {
     const actionPattern='**/reports**', actionFault=async route=>{if(route.request().method()==='POST'&&route.request().headers()['next-action'])return route.abort('failed');return continueVerificationRoute(route)}
     routes.push([actionPattern,actionFault]);await page.route(actionPattern,actionFault)
     await page.getByRole('button',{name:'إنشاء تقرير',exact:true}).click()
-    await expect(page.getByRole('alert')).toContainText('تعذر إنشاء التقرير. أعد المحاولة.')
+    await expect(page.getByRole('alert').filter({hasText:'تعذر إنشاء التقرير. أعد المحاولة.'})).toContainText('تعذر إنشاء التقرير. أعد المحاولة.')
     await expect(page.getByRole('button',{name:'إنشاء تقرير',exact:true})).toBeEnabled()
     expect((await reports()).length).toBe(initialCount)
     await page.unroute(actionPattern,actionFault)

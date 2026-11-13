@@ -57,6 +57,12 @@ jobs:
 
     # ── FX-10: every API route must self-guard or be explicitly allowlisted ──
 
+    - name: Install Chromium for native verification transport tests
+      run: pnpm exec playwright install --with-deps chromium
+
+    - name: Native Preview verification transport
+      run: node --test scripts/verification-proxy.test.mjs
+
     - name: API route guard check
       run: node scripts/verify-api-guards.mjs
 

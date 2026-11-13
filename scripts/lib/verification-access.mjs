@@ -41,10 +41,11 @@ export function redactVerificationText(value, secrets = []) {
 }
 
 /** Tokens live only in this closure and GitHub's masking channel, never files or step outputs. */
-export function createVerificationAccess(appUrl, { env = process.env, fetchImpl = fetch, now = Date.now, mask = githubMask } = {}) {
+export function createVerificationAccess(appUrl, { env = process.env, fetchImpl = fetch, now = Date.now, mask = githubMask, startProxyImpl } = {}) {
   const origin = verificationOrigin(appUrl)
   const local = loopback(new URL(origin).hostname)
   let cached, pending
+  let nativeProxy=false,proxyPending,proxyInstance,installedLegacy=false
   const documentRedirectHops = new WeakMap()
 
   async function githubToken() {
@@ -112,6 +113,12 @@ export function createVerificationAccess(appUrl, { env = process.env, fetchImpl 
 
   async function routeContinue(route, options = {}) {
     const incoming = route.request(), url = options.url ?? incoming.url()
+    if(nativeProxy){
+      // Playwright header overrides persist across redirects. Leave browser
+      // cookies/authorization native; OIDC is injected downstream by the proxy.
+      if(options.headers!==undefined||new URL(url).origin!==new URL(incoming.url()).origin)fail('Native Preview continuation does not accept header or cross-origin overrides')
+      return route.continue(options)
+    }
     if (!local && new URL(url).origin === origin) {
       // continue({headers}) propagates overrides through redirects. Keep the
       // credential only on this server-side hop; the browser receives no header.
@@ -150,6 +157,13 @@ export function createVerificationAccess(appUrl, { env = process.env, fetchImpl 
       if (installed !== origin) fail('A browser context cannot share Preview identities across origins')
       return
     }
+    if(nativeProxy){
+      const proxy=proxyInstance??await proxyPending
+      await proxy.assertContext(context)
+      contexts.set(context,origin)
+      return
+    }
+    installedLegacy=true
     contexts.set(context, origin)
     if (!local) {
       let closed = false
@@ -165,7 +179,20 @@ export function createVerificationAccess(appUrl, { env = process.env, fetchImpl 
       })
     }
   }
-  return { origin, local, headersFor, fetch: fetchRequest, request, routeFetch, routeContinue, install }
+  async function startBrowserProxy(){
+    if(local)return null
+    if(installedLegacy)fail('Start native Preview transport before installing browser contexts')
+    nativeProxy=true
+    proxyPending??=(async()=>{
+      const start=startProxyImpl??(await import('./verification-proxy.mjs')).startVerificationProxy
+      const proxy=await start({origin,headersFor})
+      if(!proxy||typeof proxy.assertContext!=='function')fail('Native Preview transport could not be started')
+      proxyInstance=proxy
+      return proxy
+    })()
+    return proxyPending
+  }
+  return { origin, local, headersFor, fetch: fetchRequest, request, routeFetch, routeContinue, install, startBrowserProxy }
 }
 
 function configuredAccess(appUrl) {
@@ -191,6 +218,11 @@ export const installVerificationAccess = (context, appUrl) => {
   const access = configuredAccess(appUrl)
   if (!access) fail('Configure the exact verification application origin before browser access')
   return access.install(context)
+}
+export const createVerificationBrowserProxy = appUrl => {
+  const access=configuredAccess(appUrl)
+  if(!access)fail('Configure the exact verification application origin before browser access')
+  return access.startBrowserProxy()
 }
 // Existing disposable-local response-loss helpers have no hosted target env.
 // They retain their native route behavior; hosted children always have the

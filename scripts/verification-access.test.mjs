@@ -87,6 +87,35 @@ test('active context transport failures remain failures and never fabricate succ
  await assert.rejects(()=>handler(route),VerificationAccessError)
  assert.equal(fulfilled,0)
 })
+
+test('native proxy mode verifies the context and continues browser routes without a fetch/fulfill bridge',async()=>{
+ let setup,probed=0,routes=0,continued,fulfilled=0
+ const proxy={contextOptions:{proxy:{server:'http://127.0.0.1:1'}},assertContext:async()=>{probed++},close:async()=>{}}
+ const a=access({startProxyImpl:async options=>{setup=options;return proxy}})
+ assert.equal(typeof a.startBrowserProxy,'function','Native proxy setup must be explicit')
+ assert.equal(await a.startBrowserProxy(),proxy)
+ assert.equal(setup.origin,app)
+ const ctx={route:async()=>{routes++}}
+ await a.install(ctx);assert.equal(probed,1);assert.equal(routes,0)
+ const route={request:()=>({url:()=>app+'/native',headers:()=>({[HEADER_FOR_TEST]:localToken(),authorization:'fabricated-app-authorization'})}),continue:async options=>{continued=options},fulfill:async()=>{fulfilled++},fetch:async()=>{throw Error('Browser must use native HTTP')}}
+ await a.routeContinue(route)
+ assert.equal(continued.headers,undefined,'Native continuation must not convert cookies/authorization into redirect-persistent overrides');assert.equal(fulfilled,0)
+ await assert.rejects(()=>a.routeContinue(route,{headers:{cookie:'fabricated-app-session'}}),VerificationAccessError)
+ await assert.rejects(()=>a.routeContinue(route,{url:foreign+'/redirected'}),VerificationAccessError)
+ assert.equal((await setup.headersFor(app))['x-vercel-trusted-oidc-idp-token'],localToken())
+ assert.equal((await setup.headersFor(foreign))['x-vercel-trusted-oidc-idp-token'],undefined)
+})
+
+const HEADER_FOR_TEST='x-vercel-trusted-oidc-idp-token'
+test('failed native context proof cannot mark a context installed or fall back to the legacy bridge',async()=>{
+ let probed=0,routes=0
+ const a=access({startProxyImpl:async()=>({assertContext:async()=>{probed++;throw Error('Verification proxy context was not confirmed')}})})
+ assert.equal(typeof a.startBrowserProxy,'function','Native proxy setup must be explicit')
+ await a.startBrowserProxy();const ctx={route:async()=>{routes++}}
+ await assert.rejects(()=>a.install(ctx),/Verification proxy context was not confirmed/)
+ await assert.rejects(()=>a.install(ctx),/Verification proxy context was not confirmed/)
+ assert.equal(probed,2);assert.equal(routes,0)
+})
 test('GitHub requests exact audience, caches concurrently and refreshes before expiry',async()=>{
  let now=time,issued=0;const masked=[],requests=[]
  const a=access({env:githubEnv,now:()=>now,mask:token=>masked.push(token),fetchImpl:async(url,options)=>{issued++;requests.push([url,options]);return Response.json({value:githubToken({exp:now/1000+120,jti:issued})})}})
