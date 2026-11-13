@@ -200,24 +200,25 @@ function DocumentsTab({ driverId,driverVersion, isAr }: DocumentsTabProps) {
     window.open(data.signedUrl, "_blank", "noopener,noreferrer")
   }
 
-  if(history.error)return <div className="space-y-3">{toolbar}<div role="alert" className="space-y-2"><p className="text-sm text-destructive">{isAr?"تعذر تحميل المستندات. أعد المحاولة.":"Could not load documents. Try again."}</p><Button variant="outline" onClick={load}>{isAr?"أعد المحاولة":"Try again"}</Button></div></div>
-
-  if (rows === null) {
-    return (
-      <div className="space-y-3">{toolbar}
-        <Skeleton className="h-10 w-full rounded-xl" />
-        <Skeleton className="h-10 w-full rounded-xl" />
-        <Skeleton className="h-10 w-full rounded-xl" />
-      </div>
-    )
-  }
-
   return (
     <div className="space-y-6">
       <DriverDocumentVault driverId={driverId} isAr={isAr} canUpload={!!driverVersion} onUpload={(type) => { setReplaceTarget(type || null); setDialogOpen(true) }} onView={(path) => void openFile(path)} />
       <div className="space-y-4 rounded-2xl border border-border/50 bg-card/40 p-4">
       <h3 className="text-sm font-semibold">{isAr ? "كل السجلات وسجل الاستبدال" : "All records & replacement history"}</h3>
+      {/* Keep the controls mounted while search, paging and retries replace the results. */}
       {toolbar}
+      {history.error ? (
+        <div role="alert" className="space-y-2">
+          <p className="text-sm text-destructive">{isAr ? "تعذر تحميل المستندات. أعد المحاولة." : "Could not load documents. Try again."}</p>
+          <Button variant="outline" onClick={load}>{isAr ? "أعد المحاولة" : "Try again"}</Button>
+        </div>
+      ) : rows === null ? (
+        <div className="space-y-3" role="status" aria-label={isAr ? "جارٍ تحميل المستندات" : "Loading documents"}>
+          <Skeleton className="h-10 w-full rounded-xl" />
+          <Skeleton className="h-10 w-full rounded-xl" />
+          <Skeleton className="h-10 w-full rounded-xl" />
+        </div>
+      ) : <>
       <div className="flex items-center justify-between gap-3">
         <span className="text-xs text-muted-foreground">
           {isAr
@@ -309,7 +310,7 @@ function DocumentsTab({ driverId,driverVersion, isAr }: DocumentsTabProps) {
           </table>
         </div>
       )}
-
+      </>}
       </div>
       <DocumentUploadDialog
         open={dialogOpen}
