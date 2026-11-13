@@ -91,7 +91,7 @@ export async function verifyDriverProfileOperations(page, admin, tenantId, appUr
     await row.getByRole("button", { name: "Edit", exact: true }).click()
     await dialog.locator("#attendance-notes").fill("Locked edit must fail")
     await dialog.getByRole("button", { name: "Save changes", exact: true }).click()
-    await expect(dialog.getByRole("alert")).toContainText("PAY_PREPARATION_LOCKED")
+    await expect(dialog.getByRole("alert")).toContainText("Payroll preparation for this month is locked.")
     await expect(dialog.locator("#attendance-notes")).toHaveValue("Locked edit must fail")
     expect((await read("driver_attendance")).notes).toBe("Attendance edited")
     await dialog.getByRole("button", { name: "Cancel", exact: true }).click()
