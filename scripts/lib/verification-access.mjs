@@ -151,7 +151,19 @@ export function createVerificationAccess(appUrl, { env = process.env, fetchImpl 
       return
     }
     contexts.set(context, origin)
-    if (!local) await context.route(url => url.origin === origin, route => routeContinue(route))
+    if (!local) {
+      let closed = false
+      context.once?.('close', () => { closed = true })
+      await context.route(url => url.origin === origin, async route => {
+        try { return await routeContinue(route) }
+        catch (error) {
+          // BrowserContext.close disposes its APIRequestContext, rejecting a
+          // pending route.fetch after the test has finished. That is cancelled
+          // work, not a confirmed response. Active-context failures still fail.
+          if (!closed) throw error
+        }
+      })
+    }
   }
   return { origin, local, headersFor, fetch: fetchRequest, request, routeFetch, routeContinue, install }
 }

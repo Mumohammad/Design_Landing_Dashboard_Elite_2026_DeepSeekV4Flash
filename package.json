@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/build-with-receipt-parser.mjs",
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",

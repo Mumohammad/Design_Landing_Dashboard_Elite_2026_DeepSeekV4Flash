@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { EventEmitter } from 'node:events'
 import {createVerificationAccess, verificationOrigin, VerificationAccessError, redactVerificationText, GITHUB_OIDC_AUDIENCE} from './lib/verification-access.mjs'
 
 const app='https://elite-dashboard-fixture-elitesaasc-5643.vercel.app'
@@ -64,6 +65,27 @@ test('context installs once and refuses a second application identity',async()=>
  const a=access();await a.install(ctx);await a.install(ctx)
  assert.equal(installs,1);assert.equal(predicate(new URL(app+'/landing')),true);assert.equal(predicate(new URL(foreign)),false)
  await assert.rejects(()=>createVerificationAccess(app.replace('fixture','another')).install(ctx),/cannot share/)
+})
+
+test('context closure cancels its pending transport handler without inventing a response',async()=>{
+ const ctx=new EventEmitter();let handler,rejectFetch,started,fulfilled=0
+ const beginning=new Promise(resolve=>{started=resolve})
+ ctx.route=async(_predicate,callback)=>{handler=callback}
+ const a=access();await a.install(ctx)
+ const route={request:()=>({url:()=>app+'/slow',headers:()=>({})}),fetch:()=>{started();return new Promise((_resolve,reject)=>{rejectFetch=reject})},fulfill:async()=>{fulfilled++}}
+ const pending=handler(route)
+ await beginning;ctx.emit('close');rejectFetch(Error('Synthetic API request context disposed'))
+ await assert.doesNotReject(()=>pending)
+ assert.equal(fulfilled,0)
+})
+
+test('active context transport failures remain failures and never fabricate successful responses',async()=>{
+ const ctx=new EventEmitter();let handler,fulfilled=0
+ ctx.route=async(_predicate,callback)=>{handler=callback}
+ const a=access();await a.install(ctx)
+ const route={request:()=>({url:()=>app+'/slow',headers:()=>({})}),fetch:async()=>{throw Error('Synthetic active request failure')},fulfill:async()=>{fulfilled++}}
+ await assert.rejects(()=>handler(route),VerificationAccessError)
+ assert.equal(fulfilled,0)
 })
 test('GitHub requests exact audience, caches concurrently and refreshes before expiry',async()=>{
  let now=time,issued=0;const masked=[],requests=[]

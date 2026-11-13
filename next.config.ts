@@ -38,9 +38,20 @@ const LANDING_PATH = LANDING_URL.slice(LANDING_URL.indexOf("://") + 3).split("/"
   : "/landing"
 
 
+const receiptParserAssets = [
+  "./workers/receipt-extract.cjs",
+  `${packagePath("unpdf")}/**/*`,
+  `${packagePath("jsqr")}/**/*`,
+  `${packagePath("sharp")}/**/*`,
+  "./node_modules/.pnpm/@img+sharp-*/node_modules/@img/sharp-*/**/*",
+]
+
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["@sparticuz/chromium", "playwright-core", "unpdf"],
+  serverExternalPackages: ["@sparticuz/chromium", "playwright-core", "unpdf", "sharp", "jsqr"],
   outputFileTracingIncludes: {
+    "/api/telegram/expenses": receiptParserAssets,
+    "/expenses/claims": receiptParserAssets,
+    "/expenses/claims/*": receiptParserAssets,
     "/api/invoices/*/pdf": [
       `${packagePath("@sparticuz/chromium")}/bin/*.br`,
       // Optional licensed server fonts stay private and out of browser assets.
