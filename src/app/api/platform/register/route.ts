@@ -163,7 +163,7 @@ export async function POST(req: NextRequest) {
       // FX-07 anti-enumeration: `admin.createUser` for an existing account
       // fails ("User already registered" …) and used to surface as a raw
       // error string. Existing and fresh emails must behave identically:
-      // same status, same body. Details stay in server logs only.
+      // same status, same body. Do not log provider diagnostics either.
       if (!['email_exists', 'user_already_exists'].includes(authError.code ?? '')) {
         return NextResponse.json({ error: 'Registration temporarily unavailable' }, { status: 503 });
       }
@@ -213,7 +213,7 @@ export async function POST(req: NextRequest) {
       });
 
       if (linkError || !linkData?.properties?.action_link) {
-        console.error('Confirmation link generation failed:', linkError);
+        console.error('Confirmation link generation failed');
         // Non-fatal: the user can still request a new link via forgot-password.
       } else {
         // Best-effort — never fail the registration over an email hiccup.
@@ -229,11 +229,11 @@ export async function POST(req: NextRequest) {
 
     // Email confirmation disabled → straight to sign-in with a success banner.
     return NextResponse.json({ success: true, requires_confirmation: false, ...logoResult });
-  } catch (error) {
+  } catch {
     // FX-07: never relay raw error text — this catch previously returned
     // `error.message`, leaking PostgREST diagnostics (table/column names,
     // unique-violation details) to the client.
-    console.error('Registration error:', error);
+    console.error('Registration failed unexpectedly');
     return NextResponse.json({ error: 'Registration failed' }, { status: 500 });
   }
 }

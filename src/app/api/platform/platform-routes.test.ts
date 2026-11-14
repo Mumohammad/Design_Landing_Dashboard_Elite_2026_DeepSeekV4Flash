@@ -6,6 +6,7 @@
 
 import { describe, expect, it, vi, beforeAll, beforeEach, afterEach } from "vitest"
 import { NextRequest } from "next/server"
+import { inspect } from "node:util"
 
 // ── Mocks (hoisted) ────────────────────────────────────────────────────────
 
@@ -16,6 +17,7 @@ const { authState, rlState } = vi.hoisted(() => ({
     provisionCalls: 0,
     provisionResult: { id: "11111111-2222-3333-4444-555555555555", slug: "acme" } as unknown,
     generateLinkInputs: [] as unknown[],
+    generateLinkError: null as Error | null,
     createUserError: null as { message: string; code?: string } | null,
     tenantsInsertError: null as { message: string; code?: string } | null,
   },
@@ -38,6 +40,7 @@ vi.mock("@supabase/supabase-js", () => ({
         deleteUser: vi.fn(async () => { authState.deleteUserCalls++; return { error: null } }),
         generateLink: async (input: unknown) => {
           authState.generateLinkInputs.push(input)
+          if (authState.generateLinkError) return { data: null, error: authState.generateLinkError }
           return { data: { properties: { action_link: "https://confirm.example.test" } }, error: null }
         },
       },
@@ -141,6 +144,7 @@ beforeEach(() => {
   authState.provisionCalls = 0
   authState.provisionResult = { id: "11111111-2222-3333-4444-555555555555", slug: "acme" }
   authState.generateLinkInputs = []
+  authState.generateLinkError = null
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => ({ ok: false, json: async () => ({}) }))
@@ -330,4 +334,36 @@ describe("registration image and atomic provisioning boundaries",()=>{
   authState.tenantsInsertError={code:"FETCH_ERROR",message:"unknown network outcome"};expect((await post({})).status).toBe(503);expect(authState.deleteUserCalls).toBe(1)
   authState.tenantsInsertError=null;authState.provisionResult={id:"not-a-tenant"};expect((await post({})).status).toBe(503);expect(authState.deleteUserCalls).toBe(1)
  })
+})
+
+describe("registration diagnostic privacy", () => {
+  const privateDetail = "SYNTHETIC_PRIVATE_PROVIDER_DETAIL"
+  const payload = JSON.stringify({ company_name: "Logging fixture", domain: "logging.test", email: "owner@logging.test", password: "Password123" })
+  const post = () => registerPost(jsonPost("/api/platform/register", payload))
+
+  it("retains the confirmation-required response without logging a rejected link's private diagnostics", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      authState.generateLinkError = Object.assign(new Error(privateDetail), { provider: { token: privateDetail } })
+      const response = await post()
+      expect(response.status).toBe(200)
+      expect(await response.json()).toMatchObject({ success: true, requires_confirmation: true })
+      expect(logged).toHaveBeenCalled()
+      expect(inspect(logged.mock.calls, { depth: 8 })).not.toContain(privateDetail)
+      expect(authState.deleteUserCalls).toBe(0)
+    } finally { logged.mockRestore() }
+  })
+
+  it("keeps unexpected provider failures generic in the response and server logs", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      rlState.registerError = Object.assign(new Error(privateDetail), { request: { authorization: privateDetail } })
+      const response = await post()
+      expect(response.status).toBe(500)
+      expect(JSON.stringify(await response.json())).not.toContain(privateDetail)
+      expect(logged).toHaveBeenCalled()
+      expect(inspect(logged.mock.calls, { depth: 8 })).not.toContain(privateDetail)
+      expect(authState.createUserCalls).toBe(0)
+    } finally { logged.mockRestore() }
+  })
 })
