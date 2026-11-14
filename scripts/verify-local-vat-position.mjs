@@ -24,7 +24,7 @@ export async function verifyVatPosition(page, admin, tenantId, appUrl) {
     if ((await admin.from('vat_adjustments').insert(adjustments)).error) throw Error('Adjustment fixture failed')
     stage = 'complete VAT browser/API totals'
     await page.goto(`${origin}/accounting?lang=en`)
-    const response = page.waitForResponse(r => new URL(r.url()).pathname === '/rest/v1/rpc/read_my_vat_position')
+    const response = page.waitForResponse(r => r.request().method() === 'POST' && new URL(r.url()).pathname === '/rest/v1/rpc/read_my_vat_position')
     await page.getByRole('tab', { name: 'VAT', exact: true }).click()
     const result = await (await response).json()
     expect(Number(result.output_vat)).toBe(61.50)
