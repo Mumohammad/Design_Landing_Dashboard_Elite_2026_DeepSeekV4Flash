@@ -48,7 +48,7 @@ function translateError(dict: ReturnType<typeof useDriverRegistration>["dict"], 
 function SectionHeading({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
     <div className="space-y-1.5">
-      <h2 className="text-2xl font-extrabold tracking-tight text-foreground">{title}</h2>
+      <h1 className="text-2xl font-semibold tracking-tight text-foreground">{title}</h1>
       {subtitle && <p className="text-sm text-muted-foreground">{subtitle}</p>}
     </div>
   )
@@ -57,12 +57,12 @@ function SectionHeading({ title, subtitle }: { title: string; subtitle?: string 
 function Footer({ onBack }: { onBack?: () => void }) {
   const { dict } = useDriverRegistration()
   return (
-    <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-5">
+    <div className="flex items-center justify-between gap-3 border-t border-border pt-5">
       {onBack ? (
         <button
           type="button"
           onClick={onBack}
-          className="rounded-xl px-4 py-2.5 text-sm font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          className="rounded-md px-4 py-2.5 text-sm font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         >
           {dict.common.back}
         </button>
@@ -71,7 +71,7 @@ function Footer({ onBack }: { onBack?: () => void }) {
       )}
       <button
         type="submit"
-        className="h-11 rounded-xl bg-elite-blue-500 px-8 text-sm font-bold text-white shadow-elite-blue-500/25 transition-all hover:bg-elite-blue-600 hover:shadow-elite-blue-500/40"
+        className="h-11 rounded-md bg-foreground text-background hover:bg-foreground/90 px-8 text-sm font-medium transition-all"
       >
         {dict.common.next}
       </button>
@@ -130,7 +130,7 @@ export function PersonalStep({
               <FormItem>
                 <FormLabel>{dict.personal.firstName}</FormLabel>
                 <FormControl>
-                  <Input className="h-11 rounded-xl" placeholder={dict.personal.firstNamePh} {...field} />
+                  <Input className="h-11 rounded-md" placeholder={dict.personal.firstNamePh} {...field} />
                 </FormControl>
                 <FormMessage>{translateError(dict, form.formState.errors.firstName?.message)}</FormMessage>
               </FormItem>
@@ -146,7 +146,7 @@ export function PersonalStep({
                   <span className="text-xs font-normal text-muted-foreground">({dict.common.optional})</span>
                 </FormLabel>
                 <FormControl>
-                  <Input className="h-11 rounded-xl" placeholder={dict.personal.middleNamePh} {...field} />
+                  <Input className="h-11 rounded-md" placeholder={dict.personal.middleNamePh} {...field} />
                 </FormControl>
                 <FormMessage>{translateError(dict, form.formState.errors.middleName?.message)}</FormMessage>
               </FormItem>
@@ -159,7 +159,7 @@ export function PersonalStep({
               <FormItem>
                 <FormLabel>{dict.personal.lastName}</FormLabel>
                 <FormControl>
-                  <Input className="h-11 rounded-xl" placeholder={dict.personal.lastNamePh} {...field} />
+                  <Input className="h-11 rounded-md" placeholder={dict.personal.lastNamePh} {...field} />
                 </FormControl>
                 <FormMessage>{translateError(dict, form.formState.errors.lastName?.message)}</FormMessage>
               </FormItem>
@@ -193,7 +193,7 @@ export function PersonalStep({
               <FormItem>
                 <FormLabel>{dict.personal.nationality}</FormLabel>
                 <FormControl>
-                  <Input className="h-11 rounded-xl" placeholder={dict.personal.nationalityPh} {...field} />
+                  <Input className="h-11 rounded-md" placeholder={dict.personal.nationalityPh} {...field} />
                 </FormControl>
                 <FormMessage>{translateError(dict, form.formState.errors.nationality?.message)}</FormMessage>
               </FormItem>
@@ -217,7 +217,7 @@ export function PersonalStep({
                   {genderOptions.map((g) => (
                     <div
                       key={g.value}
-                      className="flex items-center gap-2 rounded-xl border border-border px-4 py-3 transition-colors has-data-[state=checked]:border-elite-blue-500 has-data-[state=checked]:bg-elite-blue-500/5"
+                      className="flex items-center gap-2 rounded-md border border-border px-4 py-3 transition-colors has-data-[state=checked]:border-foreground has-data-[state=checked]:bg-muted"
                     >
                       <RadioGroupItem value={g.value} id={`gender-${g.value}`} />
                       <Label htmlFor={`gender-${g.value}`} className="font-medium">{g.label}</Label>
@@ -286,7 +286,7 @@ export function ContactStep({
               <FormItem>
                 <FormLabel>{dict.contact.mobile}</FormLabel>
                 <FormControl>
-                  <Input className="h-11 rounded-xl" inputMode="tel" placeholder={dict.contact.mobilePh} {...field} />
+                  <Input className="h-11 rounded-md" inputMode="tel" placeholder={dict.contact.mobilePh} {...field} />
                 </FormControl>
                 <FormMessage>{translateError(dict, form.formState.errors.mobile?.message)}</FormMessage>
               </FormItem>
@@ -302,7 +302,7 @@ export function ContactStep({
                   <span className="text-xs font-normal text-muted-foreground">({dict.common.optional})</span>
                 </FormLabel>
                 <FormControl>
-                  <Input className="h-11 rounded-xl" inputMode="tel" placeholder={dict.contact.altMobilePh} {...field} />
+                  <Input className="h-11 rounded-md" inputMode="tel" placeholder={dict.contact.altMobilePh} {...field} />
                 </FormControl>
                 <FormMessage>{translateError(dict, form.formState.errors.alternativeMobile?.message)}</FormMessage>
               </FormItem>
@@ -318,7 +318,7 @@ export function ContactStep({
                   <span className="text-xs font-normal text-muted-foreground">({dict.common.optional})</span>
                 </FormLabel>
                 <FormControl>
-                  <Input className="h-11 rounded-xl" inputMode="email" placeholder={dict.contact.emailPh} {...field} />
+                  <Input className="h-11 rounded-md" inputMode="email" placeholder={dict.contact.emailPh} {...field} />
                 </FormControl>
                 <FormMessage>{translateError(dict, form.formState.errors.email?.message)}</FormMessage>
               </FormItem>
@@ -331,7 +331,7 @@ export function ContactStep({
               <FormItem>
                 <FormLabel>{dict.contact.city}</FormLabel>
                 <FormControl>
-                  <Input className="h-11 rounded-xl" placeholder={dict.contact.cityPh} {...field} />
+                  <Input className="h-11 rounded-md" placeholder={dict.contact.cityPh} {...field} />
                 </FormControl>
                 <FormMessage>{translateError(dict, form.formState.errors.city?.message)}</FormMessage>
               </FormItem>
@@ -344,7 +344,7 @@ export function ContactStep({
               <FormItem>
                 <FormLabel>{dict.contact.district}</FormLabel>
                 <FormControl>
-                  <Input className="h-11 rounded-xl" placeholder={dict.contact.districtPh} {...field} />
+                  <Input className="h-11 rounded-md" placeholder={dict.contact.districtPh} {...field} />
                 </FormControl>
                 <FormMessage>{translateError(dict, form.formState.errors.district?.message)}</FormMessage>
               </FormItem>
@@ -357,7 +357,7 @@ export function ContactStep({
               <FormItem>
                 <FormLabel>{dict.contact.address}</FormLabel>
                 <FormControl>
-                  <Input className="h-11 rounded-xl" placeholder={dict.contact.addressPh} {...field} />
+                  <Input className="h-11 rounded-md" placeholder={dict.contact.addressPh} {...field} />
                 </FormControl>
                 <FormMessage>{translateError(dict, form.formState.errors.address?.message)}</FormMessage>
               </FormItem>
@@ -436,8 +436,8 @@ export function IdentityStep({
                     <div
                       key={t.value}
                       className={cn(
-                        "flex items-center gap-2 rounded-xl border border-border px-4 py-3.5 transition-colors has-data-[state=checked]:border-elite-blue-500 has-data-[state=checked]:bg-elite-blue-500/5",
-                        identityType === t.value && "border-elite-blue-500 bg-elite-blue-500/5"
+                        "flex items-center gap-2 rounded-md border border-border px-4 py-3.5 transition-colors has-data-[state=checked]:border-foreground has-data-[state=checked]:bg-muted",
+                        identityType === t.value && "border-foreground bg-muted"
                       )}
                     >
                       <RadioGroupItem value={t.value} id={`identity-${t.value}`} />
@@ -459,7 +459,7 @@ export function IdentityStep({
               <FormItem>
                 <FormLabel>{dict.identity.number}</FormLabel>
                 <FormControl>
-                  <Input className="h-11 rounded-xl" placeholder={dict.identity.numberPh} {...field} />
+                  <Input className="h-11 rounded-md" placeholder={dict.identity.numberPh} {...field} />
                 </FormControl>
                 <FormMessage>{translateError(dict, form.formState.errors.identityNumber?.message)}</FormMessage>
               </FormItem>
@@ -542,7 +542,7 @@ export function LicenseStep({
               <FormItem>
                 <FormLabel>{dict.license.number}</FormLabel>
                 <FormControl>
-                  <Input className="h-11 rounded-xl" placeholder={dict.license.numberPh} {...field} />
+                  <Input className="h-11 rounded-md" placeholder={dict.license.numberPh} {...field} />
                 </FormControl>
                 <FormMessage>{translateError(dict, form.formState.errors.licenseNumber?.message)}</FormMessage>
               </FormItem>
@@ -555,7 +555,7 @@ export function LicenseStep({
               <FormItem>
                 <FormLabel>{dict.license.type}</FormLabel>
                 <FormControl>
-                  <Input className="h-11 rounded-xl" placeholder={dict.license.typePh} {...field} />
+                  <Input className="h-11 rounded-md" placeholder={dict.license.typePh} {...field} />
                 </FormControl>
                 <FormMessage>{translateError(dict, form.formState.errors.licenseType?.message)}</FormMessage>
               </FormItem>
@@ -568,7 +568,7 @@ export function LicenseStep({
               <FormItem>
                 <FormLabel>{dict.license.country}</FormLabel>
                 <FormControl>
-                  <Input className="h-11 rounded-xl" placeholder={dict.license.countryPh} {...field} />
+                  <Input className="h-11 rounded-md" placeholder={dict.license.countryPh} {...field} />
                 </FormControl>
                 <FormMessage>{translateError(dict, form.formState.errors.licenseCountry?.message)}</FormMessage>
               </FormItem>
@@ -682,17 +682,17 @@ export function WorkStep({
       )}
 
       {!isFullTime && (
-        <p className="rounded-xl border border-elite-blue-500/20 bg-elite-blue-500/5 px-4 py-3 text-sm text-muted-foreground">
+        <p className="rounded-md border border-border bg-muted px-4 py-3 text-sm text-muted-foreground">
           {dict.work.freelancerNote}
         </p>
       )}
 
-      <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-5">
+      <div className="flex items-center justify-between gap-3 border-t border-border pt-5">
         {onBack ? (
           <button
             type="button"
             onClick={onBack}
-            className="rounded-xl px-4 py-2.5 text-sm font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="rounded-md px-4 py-2.5 text-sm font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
             {dict.common.back}
           </button>
@@ -702,7 +702,7 @@ export function WorkStep({
         <button
           type="button"
           onClick={submit}
-          className="h-11 rounded-xl bg-elite-blue-500 px-8 text-sm font-bold text-white shadow-elite-blue-500/25 transition-all hover:bg-elite-blue-600 hover:shadow-elite-blue-500/40"
+          className="h-11 rounded-md bg-foreground text-background hover:bg-foreground/90 px-8 text-sm font-medium transition-all"
         >
           {dict.common.next}
         </button>
@@ -764,10 +764,10 @@ export function PlatformsStep({
             onClick={() => toggle(p.code)}
             aria-pressed={selected.includes(p.code)}
             className={cn(
-              "flex items-center gap-3 rounded-2xl border p-4 text-start transition-all duration-200",
+              "flex items-center gap-3 rounded-lg border p-4 text-start transition-all duration-200",
               selected.includes(p.code)
-                ? "border-elite-blue-500 bg-elite-blue-500/5 shadow-elite-blue-500/10"
-                : "border-border bg-card hover:-translate-y-0.5 hover:border-elite-blue-500/40"
+                ? "border-foreground bg-muted"
+                : "border-border bg-card hover:border-ring"
             )}
           >
             <span className="text-xl" aria-hidden>{p.emoji ?? "📦"}</span>
@@ -775,32 +775,32 @@ export function PlatformsStep({
             <span
               className={cn(
                 "ms-auto flex h-5 w-5 items-center justify-center rounded-md border-2 transition-colors",
-                selected.includes(p.code) ? "border-elite-blue-500 bg-elite-blue-500" : "border-muted-foreground/30"
+                selected.includes(p.code) ? "border-foreground bg-foreground" : "border-muted-foreground/30"
               )}
             >
-              {selected.includes(p.code) && <span className="text-[11px] font-black text-white">✓</span>}
+              {selected.includes(p.code) && <span className="text-xs font-medium text-background">✓</span>}
             </span>
           </button>
         ))}
       </div>
 
-      <div className="rounded-2xl border border-border bg-card/60 p-4">
+      <div className="rounded-lg border border-border bg-card p-4">
         <button
           type="button"
           onClick={() => toggle("none")}
           aria-pressed={noneSelected}
           className={cn(
-            "flex w-full items-center gap-3 rounded-xl p-2 text-start transition-colors",
-            noneSelected && "text-elite-blue-600 dark:text-elite-blue-300"
+            "flex w-full items-center gap-3 rounded-md p-2 text-start transition-colors",
+            noneSelected && "text-foreground"
           )}
         >
           <span
             className={cn(
               "flex h-5 w-5 items-center justify-center rounded-md border-2 transition-colors",
-              noneSelected ? "border-elite-blue-500 bg-elite-blue-500" : "border-muted-foreground/30"
+              noneSelected ? "border-foreground bg-foreground" : "border-muted-foreground/30"
             )}
           >
-            {noneSelected && <span className="text-[11px] font-black text-white">✓</span>}
+            {noneSelected && <span className="text-xs font-medium text-background">✓</span>}
           </span>
           <span className="text-sm font-bold">{dict.platforms.none}</span>
         </button>
@@ -809,12 +809,12 @@ export function PlatformsStep({
 
       {error && <p className="text-sm font-medium text-destructive" role="alert">{error}</p>}
 
-      <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-5">
+      <div className="flex items-center justify-between gap-3 border-t border-border pt-5">
         {onBack ? (
           <button
             type="button"
             onClick={onBack}
-            className="rounded-xl px-4 py-2.5 text-sm font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="rounded-md px-4 py-2.5 text-sm font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
             {dict.common.back}
           </button>
@@ -824,7 +824,7 @@ export function PlatformsStep({
         <button
           type="button"
           onClick={submit}
-          className="h-11 rounded-xl bg-elite-blue-500 px-8 text-sm font-bold text-white shadow-elite-blue-500/25 transition-all hover:bg-elite-blue-600 hover:shadow-elite-blue-500/40"
+          className="h-11 rounded-md bg-foreground text-background hover:bg-foreground/90 px-8 text-sm font-medium transition-all"
         >
           {dict.common.next}
         </button>
@@ -910,10 +910,10 @@ export function VehicleStep({
             onClick={() => setHasVehicle(true)}
             aria-pressed={hasVehicle}
             className={cn(
-              "flex-1 rounded-2xl border p-4 text-center text-sm font-bold transition-all",
+              "flex-1 rounded-lg border p-4 text-center text-sm font-bold transition-all",
               hasVehicle
-                ? "border-elite-blue-500 bg-elite-blue-500/5 text-elite-blue-600 dark:text-elite-blue-300"
-                : "border-border bg-card text-muted-foreground hover:border-elite-blue-500/40"
+                ? "border-foreground bg-muted text-foreground"
+                : "border-border bg-card text-muted-foreground hover:border-foreground/40"
             )}
           >
             {dict.common.yes}
@@ -923,10 +923,10 @@ export function VehicleStep({
             onClick={() => setHasVehicle(false)}
             aria-pressed={!hasVehicle}
             className={cn(
-              "flex-1 rounded-2xl border p-4 text-center text-sm font-bold transition-all",
+              "flex-1 rounded-lg border p-4 text-center text-sm font-bold transition-all",
               !hasVehicle
-                ? "border-elite-blue-500 bg-elite-blue-500/5 text-elite-blue-600 dark:text-elite-blue-300"
-                : "border-border bg-card text-muted-foreground hover:border-elite-blue-500/40"
+                ? "border-foreground bg-muted text-foreground"
+                : "border-border bg-card text-muted-foreground hover:border-foreground/40"
             )}
           >
             {dict.common.no}
@@ -941,7 +941,7 @@ export function VehicleStep({
             <div className="space-y-1.5">
               <Label>{dict.vehicle.type}</Label>
               <Select value={values.vehicleType || undefined} onValueChange={(v) => set("vehicleType", v)}>
-                <SelectTrigger className="h-11 rounded-xl">
+                <SelectTrigger className="h-11 rounded-md">
                   <SelectValue placeholder={dict.vehicle.typePh} />
                 </SelectTrigger>
                 <SelectContent>
@@ -985,12 +985,12 @@ export function VehicleStep({
 
       {error && <p className="text-sm font-medium text-destructive" role="alert">{error}</p>}
 
-      <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-5">
+      <div className="flex items-center justify-between gap-3 border-t border-border pt-5">
         {onBack ? (
           <button
             type="button"
             onClick={onBack}
-            className="rounded-xl px-4 py-2.5 text-sm font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="rounded-md px-4 py-2.5 text-sm font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
             {dict.common.back}
           </button>
@@ -1000,7 +1000,7 @@ export function VehicleStep({
         <button
           type="button"
           onClick={submit}
-          className="h-11 rounded-xl bg-elite-blue-500 px-8 text-sm font-bold text-white shadow-elite-blue-500/25 transition-all hover:bg-elite-blue-600 hover:shadow-elite-blue-500/40"
+          className="h-11 rounded-md bg-foreground text-background hover:bg-foreground/90 px-8 text-sm font-medium transition-all"
         >
           {dict.common.next}
         </button>
@@ -1052,12 +1052,12 @@ export function DocumentsStep({
         )}
       </div>
 
-      <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-5">
+      <div className="flex items-center justify-between gap-3 border-t border-border pt-5">
         {onBack ? (
           <button
             type="button"
             onClick={onBack}
-            className="rounded-xl px-4 py-2.5 text-sm font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="rounded-md px-4 py-2.5 text-sm font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
             {dict.common.back}
           </button>
@@ -1067,7 +1067,7 @@ export function DocumentsStep({
         <button
           type="button"
           onClick={submit}
-          className="h-11 rounded-xl bg-elite-blue-500 px-8 text-sm font-bold text-white shadow-elite-blue-500/25 transition-all hover:bg-elite-blue-600 hover:shadow-elite-blue-500/40"
+          className="h-11 rounded-md bg-foreground text-background hover:bg-foreground/90 px-8 text-sm font-medium transition-all"
         >
           {dict.common.next}
         </button>

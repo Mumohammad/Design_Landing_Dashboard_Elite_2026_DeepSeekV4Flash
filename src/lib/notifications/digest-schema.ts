@@ -77,7 +77,8 @@ export function settingsFromRow(row: Record<string, unknown> | null | undefined)
     categories: row.categories,
     only_when_alerts: row.only_when_alerts,
   })
-  return parsed.success ? parsed.data : { ...DEFAULT_DIGEST_SETTINGS }
+  if (!parsed.success) throw new Error("Saved notification settings are invalid")
+  return parsed.data
 }
 
 /** Riyadh weekday (0 = Sunday) for an ISO business date. */

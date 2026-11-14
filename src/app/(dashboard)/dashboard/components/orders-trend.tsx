@@ -99,13 +99,13 @@ export function OrdersTrend({
             }
           />
           {series.completed && (
-            <Area dataKey="completed" type="monotone" fill="var(--color-completed)" fillOpacity={0.15} stroke="var(--color-completed)" strokeWidth={2} dot={false} />
+            <Area dataKey="completed" type="linear" fill="var(--color-completed)" fillOpacity={0.15} stroke="var(--color-completed)" strokeWidth={2} dot={false} />
           )}
           {series.cancelled && (
-            <Area dataKey="cancelled" type="monotone" fill="var(--color-cancelled)" fillOpacity={0.1} stroke="var(--color-cancelled)" strokeWidth={2} dot={false} />
+            <Area dataKey="cancelled" type="linear" fill="var(--color-cancelled)" fillOpacity={0.1} stroke="var(--color-cancelled)" strokeWidth={2} dot={false} />
           )}
           {series.failed && (
-            <Area dataKey="failed" type="monotone" fill="var(--color-failed)" fillOpacity={0.1} stroke="var(--color-failed)" strokeWidth={2} dot={false} />
+            <Area dataKey="failed" type="linear" fill="var(--color-failed)" fillOpacity={0.1} stroke="var(--color-failed)" strokeWidth={2} dot={false} />
           )}
         </AreaChart>
       </ChartContainer>

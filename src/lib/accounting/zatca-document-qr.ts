@@ -2,7 +2,8 @@
 // invoice to come from the accepted CLEARED invoice, and that of a simplified
 // invoice from the EGS-stamped (signed) document that was reported. This
 // module selects that artifact from the immutable submission evidence; the
-// caller falls back to the internal (unvalidated) QR when none exists.
+// caller uses the disclosed internal QR only after confirming none exists.
+// Lookup failures must never substitute a different QR for retained evidence.
 // Compliance-check attempts are never used: they are not legal issuance.
 
 export type AuthorityQr = {
@@ -56,15 +57,19 @@ export async function loadAuthorityQr(admin: AdminLike, tenantId: string, invoic
     .eq("tenant_id", tenantId)
     .eq("source_type", "invoice")
     .eq("source_id", invoiceId)
-  if (error || !Array.isArray(issuances) || issuances.length === 0) return null
+  if (error || !Array.isArray(issuances)) throw new Error("Unable to verify retained ZATCA issuance evidence.")
+  if (issuances.length === 0) return null
   const { data: attempts, error: attemptsError } = await admin
     .from("zatca_submission_attempts")
     .select("pipeline,status,environment,signed_xml,cleared_xml,created_at")
     .eq("tenant_id", tenantId)
     .in("issuance_id", issuances.map((i: { id: string }) => i.id))
+    .in("pipeline", ["clearance", "reporting"])
     .in("status", ["cleared", "reported"])
     .order("created_at", { ascending: false })
     .limit(10)
-  if (attemptsError || !Array.isArray(attempts)) return null
-  return selectAuthorityQr(attempts as AttemptRow[])
+  if (attemptsError || !Array.isArray(attempts)) throw new Error("Unable to verify retained ZATCA submission evidence.")
+  const selected = selectAuthorityQr(attempts as AttemptRow[])
+  if (attempts.length > 0 && !selected) throw new Error("Retained ZATCA QR evidence is incomplete.")
+  return selected
 }

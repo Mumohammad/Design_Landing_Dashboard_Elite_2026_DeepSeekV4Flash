@@ -16,6 +16,7 @@ export interface CardProfileSource {
   secondary_mobile: string | null
   iqama_number: string | null
   rider_id?: string | null
+  photo_url?: string | null
 }
 
 export interface CardAccountSource { platform_code: string; platform_driver_id: string; status: string; is_primary: boolean }
@@ -38,8 +39,8 @@ export const emptyDraft = (): CardDraft => ({ platform: DEFAULT_CARD_PLATFORM, c
 
 /**
  * Card fields from a profile. Platform preference: explicit → primary active
- * account → any active account → default design. Rider ID follows the chosen
- * platform's account, else the mirrored primary rider ID, else driver code.
+ * account → any active account → default design. Only an active account for
+ * that exact platform supplies an ID; otherwise it must be entered manually.
  */
 export function draftFromProfile(driver: CardProfileSource, photoUrl: string | null, accounts: CardAccountSource[] = [], platform?: string): CardDraft {
   const active = accounts.filter((a) => a.status === "active")
@@ -50,16 +51,31 @@ export function draftFromProfile(driver: CardProfileSource, photoUrl: string | n
     name: driver.full_name_en?.trim() || driver.full_name_ar?.trim() || "",
     phone: (driver.primary_mobile || driver.secondary_mobile || "").trim(),
     idNumber: (driver.iqama_number ?? "").trim(),
-    riderId: riderIdFor(chosen, accounts, driver),
+    riderId: riderIdFor(chosen, accounts),
     photoUrl,
     driverId: driver.id,
     footerRef: driver.driver_code ?? null,
   }
 }
 
-export function riderIdFor(platform: string, accounts: CardAccountSource[], driver: Pick<CardProfileSource, "rider_id" | "driver_code"> | null): string {
-  const acc = accounts.find((a) => a.platform_code === platform && a.status === "active") ?? accounts.find((a) => a.platform_code === platform)
-  return (acc?.platform_driver_id ?? driver?.rider_id ?? driver?.driver_code ?? "").trim()
+export function riderIdFor(platform: string, accounts: CardAccountSource[]): string {
+  return (accounts.find(account => account.platform_code === platform && account.status === "active")?.platform_driver_id ?? "").trim()
+}
+
+export interface BoundCardProfile { driver: CardProfileSource; photoUrl: string | null; accounts: CardAccountSource[] }
+
+/** Commit a profile and its dependencies together, only for the current selection. */
+export async function loadProfileCardDraft(
+  driver: CardProfileSource,
+  readAccounts: () => Promise<CardAccountSource[]>,
+  readPhoto: () => Promise<string | null>,
+  isCurrent: () => boolean,
+  platform?: string,
+): Promise<{ profile: BoundCardProfile; draft: CardDraft } | null> {
+  const [accounts, photoUrl] = await Promise.all([readAccounts(), readPhoto()])
+  if (!isCurrent()) return null
+  if (driver.photo_url && !photoUrl) throw new Error("Configured driver photo is unavailable")
+  return { profile: { driver, photoUrl, accounts }, draft: draftFromProfile(driver, photoUrl, accounts, platform) }
 }
 
 export type DraftIssue = "name" | "riderId" | "riderIdFormat" | "customName"

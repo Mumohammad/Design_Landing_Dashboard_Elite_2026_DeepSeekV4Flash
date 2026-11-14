@@ -236,7 +236,7 @@ export default function PaymentsPage() {
   ]
 
   return (
-    <div className="px-4 py-4 lg:px-6">
+    <div className="py-4">
       <EnterpriseModulePage
         title={isAr ? "المدفوعات" : "Payments"}
         subtitle={

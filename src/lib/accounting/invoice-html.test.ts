@@ -24,14 +24,17 @@ describe('reference invoice print template',()=>{
   expect(html).toContain('E-invoice QR (Phase 1) · not submitted to ZATCA')
   expect(html).not.toContain('Internal QR · unvalidated')
  })
- it('uses A4 and concise bilingual RTL headings',()=>{
+ it('uses the supplied Letter page, reference typography and eight separate bilingual columns',()=>{
   const html=buildInvoiceHtml(BASE)
   expect(html).toContain('<html lang="ar" dir="rtl">')
-  expect(html).toContain('@page { size: A4;')
+  expect(html).toContain('@page { size: Letter; margin: 30pt 62.25pt; }')
+  expect(html).toContain('width: 487.5pt')
+  expect(html).toContain('Tahoma')
+  expect(html.match(/<col style=/g)).toHaveLength(8)
   expect(html).toContain('TAX Invoice')
   expect(html).toContain('08/09/2026')
-  for (const heading of ['Item','Description','Price','Qty','Total Before Tax','VAT 15%','VAT Amount','Total With VAT']) expect(html).toContain(`<span lang="en">${heading}</span>`)
-  for (const label of ['Client','Invoice NO','Invoice Date','Total Before VAT','Total After VAT','Paid','Due Amount']) expect(html).toContain(label)
+  expect(html).toContain('Total Before Tax')
+  expect(html).toContain('Total With VAT')
  })
  it('prints gross line totals and the actual paid/outstanding balances',()=>{
   const html=buildInvoiceHtml(BASE)
@@ -41,33 +44,55 @@ describe('reference invoice print template',()=>{
  })
  it('does not subtract an already included line discount twice',()=>{
   const html=buildInvoiceHtml(BASE)
-  expect(html).toContain('Total Before Discount')
-  expect(html).toContain('aria-label="SAR 100.00"')
+  expect(html).toContain('Line discount (included)')
   expect(html).toContain('aria-label="SAR -10.00"')
+  expect(html).toContain('<tr class="included-discount">')
   expect(html).not.toContain('خصم من إجمالي الفاتورة')
   expect(html).toContain('aria-label="SAR 103.50"')
  })
  it('labels an imported post-tax adjustment separately',()=>{
   const html=buildInvoiceHtml({...BASE,total:100,discount:3.5})
   expect(html).toContain('خصم من إجمالي الفاتورة')
-  expect(html).not.toContain('Total Before Discount')
   expect(html).toContain('aria-label="SAR -3.50"')
  })
  it('does not mislabel mixed VAT rates as a single rate',()=>{
   const html=buildInvoiceHtml({...BASE,lines:[BASE.lines[0],{...BASE.lines[0],vat_rate:0}]})
-  expect(html).not.toContain('VAT 15%')
+  expect(html).not.toContain('>VAT 15%</span>')
   expect(html).toContain('<td class="number">0%</td>')
- })
- it('splits the first description line into the Item column',()=>{
-  const html=buildInvoiceHtml({...BASE,lines:[{...BASE.lines[0],itemName:'',description:'توصيل طلبات\nعمولة توصيل طلبات شهر سبتمبر 2026'}]})
-  expect(html).toContain('<td class="text" dir="auto">توصيل طلبات</td>')
-  expect(html).toContain('عمولة توصيل طلبات شهر سبتمبر 2026')
  })
  it('preserves non-SAR currency and imported price precision',()=>{
   const html=buildInvoiceHtml({...BASE,currency:'USD',lines:[{...BASE.lines[0],unit_price:72.2082}]})
   expect(html).toContain('72.2082')
   expect(html).toContain('USD 103.50')
   expect(html).not.toContain('<svg class="riyal"')
+ })
+ it('keeps the item name independent of multiline descriptions and leaves unnamed items blank',()=>{
+  const description='First description line\nSecond description line'
+  const named=buildInvoiceHtml({...BASE,lines:[{...BASE.lines[0],itemName:'Separate item',description}]})
+  expect(named).toContain('<td class="item" dir="auto">Separate item</td>')
+  expect(named).toContain(`<td class="description" dir="auto">${description}</td>`)
+  const unnamed=buildInvoiceHtml({...BASE,lines:[{...BASE.lines[0],discount:0,description}]})
+  expect(unnamed).toContain('<td class="item" dir="auto"></td>')
+  expect(unnamed).toContain(`<td class="description" dir="auto">${description}</td>`)
+ })
+ it('keeps narrow item cells free of discount annotations and places an included discount in the summary',()=>{
+  const html=buildInvoiceHtml({...BASE,lines:[{...BASE.lines[0],itemName:'1',unit_price:45000,discount:4000,amount:41000,vat_amount:6150}],subtotal:41000,discount:4000,vatAmount:6150,total:47150,paidAmount:0})
+  expect(html).toContain('<td class="item" dir="auto">1</td>')
+  expect(html).not.toContain('خصم / Discount:')
+  const summary=html.slice(html.indexOf('<section class="summary">'),html.indexOf('</section>',html.indexOf('<section class="summary">')))
+  expect(summary).toContain('Line discount (included)')
+  expect(summary).toContain('aria-label="SAR -4,000.00"')
+  expect(summary).toContain('aria-label="SAR 41,000.00"')
+  expect(summary).toContain('aria-label="SAR 6,150.00"')
+  expect(summary.match(/aria-label="SAR 47,150.00"/g)).toHaveLength(2)
+ })
+ it('embeds safe inline business logos and omits absent or remote logo sources',()=>{
+  expect(buildInvoiceHtml({...BASE,logoDataUrl:'data:image/png;base64,BBBB'})).toContain('<img class="logo" src="data:image/png;base64,BBBB"')
+  for(const logoDataUrl of [undefined,'https://untrusted.test/logo.png','javascript:alert(1)','data:image/png;base64,AAAA" onerror="alert(1)']) {
+   const html=buildInvoiceHtml({...BASE,logoDataUrl})
+   expect(html).not.toContain('<img class="logo"')
+   expect(html).not.toContain('untrusted.test')
+  }
  })
  it('escapes all customer-controlled markup and rejects executable image URLs',()=>{
   const html=buildInvoiceHtml({...BASE,companyNameAr:'A&B',notes:'<img src=x onerror=alert(1)>',
@@ -104,10 +129,11 @@ describe('reference invoice print template',()=>{
   expect(html).toContain('format("woff2"); font-weight: 700')
   expect(buildInvoiceHtml({...BASE,referenceFontDataUrl:'file:///private/font.ttf',referenceBoldFontDataUrl:'https://untrusted.test/font.woff2'})).not.toContain('@font-face')
  })
- it('prints Paid 0.00 and the full Due Amount like the reference invoice, and omits absent bank/notes',()=>{
+ it('preserves the reference zero-payment and outstanding rows without inventing bank details',()=>{
   const html=buildInvoiceHtml({...BASE,paidAmount:0})
+  expect(html).toContain('Due Amount')
   expect(html).toContain('aria-label="SAR 0.00"')
-  expect(html.match(/aria-label="SAR 103.50"/g)?.length).toBe(2)
+  expect(html).toContain('aria-label="SAR 103.50"')
   expect(html).not.toContain('<section class="bank">')
   expect(html).not.toContain('<section class="notes">')
  })

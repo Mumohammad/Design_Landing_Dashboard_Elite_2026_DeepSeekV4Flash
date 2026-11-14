@@ -18,33 +18,48 @@ const COMPONENTS: { key: string; ar: string; en: string }[] = [
 
 const REFRESH_MS = 60_000
 
+function isHealth(body: unknown): body is Health {
+  if (!body || typeof body !== "object") return false
+  const value = body as Partial<Health>
+  return typeof value.status === "string" && typeof value.timestamp === "string"
+    && !!value.checks && typeof value.checks === "object" && !Array.isArray(value.checks)
+    && COMPONENTS.every(({ key }) => typeof value.checks?.[key]?.status === "string")
+}
+
 function tone(status: string | undefined) {
+  if (!status) return { icon: Activity, cls: "text-muted-foreground", ar: "جارٍ الفحص", en: "Checking" }
   if (status === "ok" || status === "healthy") return { icon: CheckCircle2, cls: "text-emerald-600", ar: "يعمل", en: "Operational" }
   if (status === "degraded") return { icon: AlertTriangle, cls: "text-amber-600", ar: "أداء منخفض", en: "Degraded" }
   return { icon: XCircle, cls: "text-red-600", ar: "متوقف", en: "Outage" }
 }
 
 export default function StatusPage() {
-  const [health, setHealth] = React.useState<Health | null>(null)
-  const [error, setError] = React.useState(false)
-  const [loading, setLoading] = React.useState(true)
+  const [attempt, setAttempt] = React.useState(0)
+  const [read, setRead] = React.useState<{ attempt: number; health: Health | null; error: boolean } | null>(null)
+  const health = read?.health ?? null
+  const error = read?.error ?? false
+  const loading = read?.attempt !== attempt
 
-  const probe = React.useCallback(async () => {
-    setLoading(true)
-    try {
-      const res = await fetch("/api/health", { cache: "no-store" })
-      const body = (await res.json()) as Health
-      setHealth(body)
-      setError(false)
-    } catch {
-      setError(true)
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+  const probe = React.useCallback(() => setAttempt(value => value + 1), [])
 
   React.useEffect(() => {
-    void probe()
+    const controller = new AbortController()
+    void fetch("/api/health", { cache: "no-store", signal: controller.signal })
+      .then(async res => {
+        const body: unknown = await res.json()
+        if (!isHealth(body) || (!res.ok && (body.status === "healthy" || body.status === "ok"))) throw new Error("Invalid health response")
+        return body
+      })
+      .then(body => {
+        if (!controller.signal.aborted) setRead({ attempt, health: body, error: false })
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setRead({ attempt, health: null, error: true })
+      })
+    return () => controller.abort()
+  }, [attempt])
+
+  React.useEffect(() => {
     const t = window.setInterval(() => void probe(), REFRESH_MS)
     return () => window.clearInterval(t)
   }, [probe])

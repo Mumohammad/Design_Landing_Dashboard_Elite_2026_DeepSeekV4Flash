@@ -6,7 +6,7 @@
 // financial managers. Rendered from the /invoices page.
 
 import { LocalizedText } from "@/components/localized-text"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {useInvoicePage} from "@/hooks/use-invoice-page"
 import {formatInvoiceSummary,type InvoiceListRow} from "@/lib/accounting/invoice-pages"
 import {InvoicePartyPicker} from "@/components/accounting/invoice-party-picker"
@@ -33,6 +33,7 @@ import {
   type InvoiceType,
 } from "@/lib/accounting/invoices"
 import { applyInvoiceDiscount, computeInvoiceTotals, lineGrossCents, percentDiscount } from "@/lib/accounting/invoice-math"
+import { isMasterDate, isMasterId } from "@/lib/accounting/master-contract"
 import { sendDocumentToZatca } from "@/lib/accounting/zatca"
 import { getZatcaStatus } from "@/lib/accounting/zatca-management"
 import { requestInvoicePdf } from "@/lib/invoice-pdf-download"
@@ -68,9 +69,51 @@ interface InvoiceLineRow {
   vat_amount: number
 }
 
+type InvoiceNoteRow = { id: string; kind: "credit" | "debit"; number: string; total: number; reason: string; issue_date: string }
+
+const detailRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === "object" && !Array.isArray(value)
+
+function detailNumber(value: unknown): number {
+  if ((typeof value !== "number" && typeof value !== "string") || (typeof value === "string" && !value.trim()) || !Number.isFinite(Number(value)) || Number(value) < 0) {
+    throw new Error("Invalid invoice detail amount")
+  }
+  return Number(value)
+}
+
+function parseDetailLines(value: unknown, count: number | null): InvoiceLineRow[] {
+  if (!Array.isArray(value) || !value.length || value.length > 200 || count !== value.length) throw new Error("Incomplete invoice lines")
+  const seen = new Set<number>()
+  return value.map((line) => {
+    if (!detailRecord(line) || !Number.isSafeInteger(line.line_no) || Number(line.line_no) < 1 || seen.has(Number(line.line_no))
+      || !(line.item_name === null || typeof line.item_name === "string") || typeof line.description !== "string" || !line.description.trim()) {
+      throw new Error("Invalid invoice line")
+    }
+    seen.add(Number(line.line_no))
+    const parsed = { line_no: Number(line.line_no), item_name: line.item_name, description: line.description,
+      quantity: detailNumber(line.quantity), unit_price: detailNumber(line.unit_price), discount: detailNumber(line.discount),
+      amount: detailNumber(line.amount), vat_rate: detailNumber(line.vat_rate), vat_amount: detailNumber(line.vat_amount) }
+    if (parsed.quantity <= 0 || parsed.vat_rate > 100) throw new Error("Invalid invoice line")
+    return parsed
+  })
+}
+
+function parseDetailNotes(value: unknown, count: number | null, kind: "credit" | "debit"): InvoiceNoteRow[] {
+  if (!Array.isArray(value) || value.length > 1000 || count !== value.length) throw new Error("Incomplete invoice notes")
+  const seen = new Set<string>()
+  return value.map((note) => {
+    if (!detailRecord(note) || !isMasterId(note.id) || seen.has(note.id) || !isMasterDate(note.issue_date)
+      || typeof note.reason !== "string" || typeof note[`${kind}_note_number`] !== "string" || !note[`${kind}_note_number`]) {
+      throw new Error("Invalid invoice note")
+    }
+    seen.add(note.id)
+    return { id: note.id, kind, number: note[`${kind}_note_number`] as string, total: detailNumber(note.total), reason: note.reason, issue_date: note.issue_date }
+  })
+}
+
 // Electronic invoice status (Daftra-style). Phase 1 documents are generated
 // locally with the simplified QR and never sent; Phase 2 states only appear
-// once the tenant is connected to a ZATCA gateway.
+// once the tenant is connected to a (non-production) ZATCA gateway.
 const EINVOICE_META: Record<string, { ar: string; en: string; className: string }> = {
   local: { ar: "محلية · المرحلة 1", en: "Local · Phase 1", className: "bg-slate-500/10 text-slate-600 border-slate-500/20" },
   not_transmitted: { ar: "لم تُرسل", en: "Not submitted", className: "bg-amber-500/10 text-amber-700 border-amber-500/20" },
@@ -207,19 +250,25 @@ export function InvoicesManager() {
   const [createOpen, setCreateOpen] = useState(false)
   const [detailTarget, setDetailTarget] = useState<InvoiceRow | null>(null)
   const [detailLines, setDetailLines] = useState<InvoiceLineRow[]>([])
-  const [detailNotes, setDetailNotes] = useState<{ id: string; kind: "credit" | "debit"; number: string; total: number; reason: string; issue_date: string }[]>([])
+  const [detailNotes, setDetailNotes] = useState<InvoiceNoteRow[]>([])
+  const detailRequest = useRef<AbortController | null>(null)
+  const [detailError, setDetailError] = useState(false)
   const [cancelTarget, setCancelTarget] = useState<InvoiceRow | null>(null)
   const [creditTarget, setCreditTarget] = useState<InvoiceRow | null>(null)
   const [debitTarget, setDebitTarget] = useState<InvoiceRow | null>(null)
 
   // E-invoicing mode: "connected" only once an EGS unit is onboarded on the
-  // configured ZATCA gateway; otherwise Phase 1 (local generation).
+  // configured non-production gateway; otherwise Phase 1 (local generation).
   const [zatcaMode, setZatcaMode] = useState<{ connected: boolean; environment: string | null }>({ connected: false, environment: null })
   useEffect(() => {
+    let cancelled = false
     void getZatcaStatus().then((res) => {
-      if (res.success && res.status) setZatcaMode({ connected: res.status.mode === "connected", environment: res.status.environment })
+      if (!cancelled && res.success && res.status) setZatcaMode({ connected: res.status.mode === "connected", environment: res.status.environment })
     }).catch(() => { /* Accounting access is optional; default to Phase 1. */ })
+    return () => { cancelled = true }
   }, [])
+
+  useEffect(() => () => detailRequest.current?.abort(), [])
 
   const flash = (type: "ok" | "err", text: string) => {
     setFeedback({ type, text })
@@ -231,7 +280,7 @@ export function InvoicesManager() {
    {label:ar?"إجمالي الفواتير":"Total invoices",value:summary?.total??"—",icon:FileText,color:"#1E5A99"},
    {label:ar?"مسودات":"Drafts",value:summary?.drafts??"—",icon:ReceiptText,color:"#64748B"},
    {label:ar?"معتمدة":"Finalized",value:summary?.finalized??"—",icon:CheckCircle2,color:"#10B981"},
-   {label:ar?"قيمة الفواتير (ر.س)":"Invoice value (SAR)",value:formatInvoiceSummary(summary?.value_sar),icon:CircleDollarSign,color:"#8B5CF6"},
+   {label:ar?"قيمة الفواتير (ر.س)":"Invoice value (SAR)",value:formatInvoiceSummary(summary?.value_sar),icon:CircleDollarSign,color:"#0F766E"},
   ]
 
   const columns: TableColumn<InvoiceRow>[] = [
@@ -474,46 +523,38 @@ export function InvoicesManager() {
   // ── Detail ──────────────────────────────────────────────────────────────
   const [isDetailLoading, setIsDetailLoading] = useState(false)
   async function openDetail(r: InvoiceRow) {
+    detailRequest.current?.abort()
+    const controller = new AbortController()
+    detailRequest.current = controller
     setDetailTarget(r)
     setDetailLines([])
     setDetailNotes([])
+    setDetailError(false)
     setIsDetailLoading(true)
-    const supabase = createClient()
-    const [linesRes, cnRes, dnRes] = await Promise.all([
-      supabase
-        .from("invoice_lines")
-        .select("line_no,item_name,description,quantity,unit_price,discount,amount,vat_rate,vat_amount")
-        .eq("invoice_id", r.id)
-        .order("line_no", { ascending: true }),
-      supabase
-        .from("credit_notes")
-        .select("id,credit_note_number,total,reason,issue_date")
-        .eq("reference_invoice_id", r.id),
-      supabase
-        .from("debit_notes")
-        .select("id,debit_note_number,total,reason,issue_date")
-        .eq("reference_invoice_id", r.id),
-    ])
-    if (linesRes.data) setDetailLines(linesRes.data as InvoiceLineRow[])
-    setDetailNotes([
-      ...((cnRes.data ?? []).map((n) => ({
-        id: n.id,
-        kind: "credit" as const,
-        number: n.credit_note_number,
-        total: Number(n.total),
-        reason: n.reason,
-        issue_date: n.issue_date,
-      }))),
-      ...((dnRes.data ?? []).map((n) => ({
-        id: n.id,
-        kind: "debit" as const,
-        number: n.debit_note_number,
-        total: Number(n.total),
-        reason: n.reason,
-        issue_date: n.issue_date,
-      }))),
-    ])
-    setIsDetailLoading(false)
+    try {
+      const supabase = createClient()
+      const [linesRes, cnRes, dnRes] = await Promise.all([
+        supabase.from("invoice_lines")
+          .select("line_no,item_name,description,quantity,unit_price,discount,amount,vat_rate,vat_amount", { count: "exact" })
+          .eq("invoice_id", r.id).order("line_no", { ascending: true }).limit(200).abortSignal(controller.signal),
+        supabase.from("credit_notes")
+          .select("id,credit_note_number,total,reason,issue_date", { count: "exact" })
+          .eq("reference_invoice_id", r.id).order("id").limit(1000).abortSignal(controller.signal),
+        supabase.from("debit_notes")
+          .select("id,debit_note_number,total,reason,issue_date", { count: "exact" })
+          .eq("reference_invoice_id", r.id).order("id").limit(1000).abortSignal(controller.signal),
+      ])
+      if (controller.signal.aborted) return
+      if (linesRes.error || cnRes.error || dnRes.error) throw new Error("Could not load invoice detail")
+      const parsedLines = parseDetailLines(linesRes.data, linesRes.count)
+      const parsedNotes = [...parseDetailNotes(cnRes.data, cnRes.count, "credit"), ...parseDetailNotes(dnRes.data, dnRes.count, "debit")]
+      setDetailLines(parsedLines)
+      setDetailNotes(parsedNotes)
+    } catch {
+      if (!controller.signal.aborted) setDetailError(true)
+    } finally {
+      if (!controller.signal.aborted) setIsDetailLoading(false)
+    }
   }
 
   // ── Print / PDF (Phase 6) ───────────────────────────────────────────────
@@ -605,6 +646,7 @@ export function InvoicesManager() {
 
   // Per-document "Send to ZATCA" (Phase 2, non-production gateway only).
   async function sendToZatca(r: InvoiceRow) {
+    if (busyId || !canSendToZatca(r)) return
     setBusyId(r.id)
     try {
       const res = await sendDocumentToZatca(r.id)
@@ -616,6 +658,12 @@ export function InvoicesManager() {
     } catch {
       flash("err", ar ? "تعذر الإرسال إلى ZATCA." : "Unable to send to ZATCA.")
     } finally { setBusyId(null) }
+  }
+
+  function canSendToZatca(r: InvoiceRow) {
+    return zatcaMode.connected && r.invoice_type === "sales"
+      && ["finalized", "paid", "partially_paid", "overdue"].includes(r.status)
+      && SENDABLE_ZATCA.has(r.zatca_status ?? "not_transmitted")
   }
 
   // Unposted cancellation preserves the reviewed version/reason on failure.
@@ -703,7 +751,8 @@ export function InvoicesManager() {
       )}
 
       <EnterpriseModulePage
-        title={ar ? "الفواتير" : "Invoices"}
+        headingLevel="h2"
+        title={ar ? "فواتير العملاء والموردين" : "Customer and supplier invoices"}
         subtitle={ar
           ? "دورة حياة الفاتورة: مسودة ← صادرة ← معتمدة (نهائية)، مع الإشعارات الدائنة والمدينة"
           : "Invoice lifecycle: draft → issued → finalized (immutable), plus credit & debit notes"}
@@ -738,8 +787,7 @@ export function InvoicesManager() {
           const canCancel = r.status === "draft" || r.status === "issued"
           const canCredit = r.status === "finalized" && r.invoice_type === "sales"
           const canDebit = r.status === "finalized" && r.invoice_type === "sales"
-          const canSendZatca = zatcaMode.connected && r.invoice_type === "sales"
-            && !["draft", "issued", "cancelled"].includes(r.status) && SENDABLE_ZATCA.has(r.zatca_status ?? "not_transmitted")
+          const canSendZatca = canSendToZatca(r)
           return (
             <DropdownMenu dir={ar ? "rtl" : "ltr"}>
               <DropdownMenuTrigger asChild>
@@ -1038,7 +1086,7 @@ export function InvoicesManager() {
       </Dialog>
 
       {/* ── Detail dialog ─────────────────────────────────────────────── */}
-      <Dialog open={!!detailTarget} onOpenChange={(o) => { if (!o) setDetailTarget(null) }}>
+      <Dialog open={!!detailTarget} onOpenChange={(o) => { if (!o) { detailRequest.current?.abort(); setDetailTarget(null) } }}>
         <DialogContent className="sm:max-w-2xl rounded-2xl max-h-[85dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
@@ -1061,7 +1109,12 @@ export function InvoicesManager() {
           </DialogHeader>
 
           {isDetailLoading ? (
-            <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-elite-blue-600" /></div>
+            <div role="status" aria-label={ar ? "جارٍ تحميل التفاصيل" : "Loading invoice detail"} className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-foreground" /></div>
+          ) : detailError ? (
+            <div className="space-y-3 py-4">
+              <p role="alert" className="text-sm text-destructive">{ar ? "تعذر تحميل تفاصيل الفاتورة كاملة. أعد المحاولة." : "Could not load the complete invoice detail. Retry."}</p>
+              <Button variant="outline" onClick={() => { if (detailTarget) void openDetail(detailTarget) }}>{ar ? "إعادة المحاولة" : "Retry"}</Button>
+            </div>
           ) : (
             <div className="space-y-4">
               <div className="overflow-x-auto rounded-xl border border-border/50">
@@ -1082,7 +1135,7 @@ export function InvoicesManager() {
                       <tr key={l.line_no} className="border-b border-border/40 last:border-0">
                         <td className="px-3 py-2 text-xs text-muted-foreground">{l.line_no}</td>
                         <td className="px-3 py-2" dir="auto">{l.item_name || "—"}</td>
-                        <td className="px-3 py-2">{l.description}</td>
+                        <td className="whitespace-pre-line px-3 py-2" dir="auto">{l.description}</td>
                         <td className="px-3 py-2 text-xs tabular-nums" dir="ltr">{l.quantity}</td>
                         <td className="px-3 py-2 text-xs tabular-nums" dir="ltr">{fmtUnitPrice(l.unit_price)}</td>
                         <td className="px-3 py-2 text-xs tabular-nums" dir="ltr">{fmtMoney(l.amount)}</td>
@@ -1122,7 +1175,7 @@ export function InvoicesManager() {
                   <Button
                     onClick={() => void runAction("finalize", detailTarget)}
                     disabled={busyId === detailTarget.id}
-                    className="bg-emerald-600 hover:bg-emerald-700"
+                    className="bg-foreground text-background"
                   >
                     {busyId === detailTarget.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                     {ar ? "اعتماد نهائي (إصدار حدث)" : "Finalize (emits event)"}
@@ -1159,7 +1212,7 @@ export function InvoicesManager() {
               <Button
                 onClick={() => void handleCancel()}
                 disabled={isCancelling || cancelReason.trim().length < 5}
-                className="bg-red-600 hover:bg-red-700"
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               >
                 {isCancelling ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}
                 {ar ? "إلغاء الفاتورة" : "Cancel invoice"}
@@ -1205,7 +1258,7 @@ export function InvoicesManager() {
               <Button
                 onClick={() => void handleCredit()}
                 disabled={isCrediting || creditReason.trim().length < 5 || !creditDate}
-                className="bg-teal-600 hover:bg-teal-700"
+                className="bg-foreground text-background"
               >
                 {isCrediting ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
                 {ar ? "إصدار الإشعار الدائن" : "Issue credit note"}
@@ -1273,7 +1326,7 @@ export function InvoicesManager() {
               <Button
                 onClick={() => void handleDebit()}
                 disabled={isDebiting || debitReason.trim().length < 5 || !debitDate || !debitPreview}
-                className="bg-orange-600 hover:bg-orange-700"
+                className="bg-foreground text-background"
               >
                 {isDebiting ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeDollarSign className="h-4 w-4" />}
                 {ar ? "إصدار الإشعار المدين" : "Issue debit note"}

@@ -5,6 +5,7 @@ import {randomUUID} from 'node:crypto'
 import {StringDecoder} from 'node:string_decoder'
 import {createClient} from '@supabase/supabase-js'
 import {writeReleaseEvidence} from './write-release-evidence.mjs'
+import {verificationFetch,redactVerificationText} from './verification-access.mjs'
 import {readAcceptanceFixturePlans,assertAcceptanceFixturePlans,retireAcceptanceFixturePlans,mayRetireAcceptanceFixtureMember} from './acceptance-fixture-ledgers.mjs'
 
 export const MODULE_GROUPS = {
@@ -29,7 +30,7 @@ export function validateDeploymentEvidence(status,body,policy,sha) {
  const allowed=new Set(["'self'",'https://'+staging+'.supabase.co','wss://'+staging+'.supabase.co','https://api.resend.com','https://api.emailjs.com','https://zatca.gov.sa','https://*.ingest.sentry.io','https://*.ingest.de.sentry.io'])
  if(status!==200||body?.status!=='healthy'||body.version!==sha||!sources.includes('https://'+staging+'.supabase.co')||policy.includes(production)||sources.some(source=>!allowed.has(source)))throw Error('Healthy exact commit and exclusive staging CSP required')
 }
-export async function preflightAcceptanceTarget({backendUrl,appUrl,expectedCommit,fetchImpl=fetch}) {
+export async function preflightAcceptanceTarget({backendUrl,appUrl,expectedCommit,fetchImpl=(url,options)=>verificationFetch(url,options,appUrl)}) {
  const target=assertAcceptanceTarget(backendUrl,appUrl,expectedCommit)
  const [health,landing]=await Promise.all([
   fetchImpl(target.app+'/api/health',{redirect:'manual',signal:AbortSignal.timeout(30000)}),
@@ -50,7 +51,7 @@ export function validateGroupProof(proof,{group,runId,sha,target}) {
 }
 export function redactAcceptanceOutput(text,secrets=[]) {
  for(const secret of secrets.filter(x=>typeof x==='string'&&x.length>=8))text=text.replaceAll(secret,'[REDACTED]')
- return text.replace(/Bearer\s+[^\s"']+/gi,'Bearer [REDACTED]').replace(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,'[REDACTED_JWT]')
+ return redactVerificationText(text).replace(/Bearer\s+[^\s"']+/gi,'Bearer [REDACTED]')
 }
 export function createAcceptanceLogScrubber(secrets,onLine,{maxLineBytes=131072}={}) {
  const decoder=new StringDecoder('utf8');let pending='',ended=false

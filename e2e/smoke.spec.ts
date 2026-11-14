@@ -5,7 +5,7 @@
 // No authentication required for public pages; auth fixture used for
 // dashboard pages.
 
-import { test as base, expect, type Page } from "@playwright/test"
+import { test as base, expect, type Page } from "./preview-test"
 import { assertStagingTarget } from "./staging-target"
 
 // ── Auth fixture ─────────────────────────────────────────────────────────────
@@ -69,7 +69,9 @@ test.describe("Dashboard Smoke Tests", () => {
   for (const { path, name } of DASHBOARD_PAGES) {
     test(`${name} page loads (${path})`, async ({ authed: page }) => {
       await page.goto(path)
-      await page.waitForLoadState("networkidle", { timeout: 30_000 })
+      await expect(page.locator("main")).toBeVisible()
+      await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible()
+      await expect(page.locator("main").locator('[aria-busy="true"], .animate-pulse')).toHaveCount(0, { timeout: 20_000 })
 
       // Page should have a heading or not show a 404/error
       const is404 = await page

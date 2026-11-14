@@ -1,13 +1,13 @@
 import "server-only"
+import { readCompleteRows } from "@/lib/analytics/complete-read"
 
 // Shared draft-run recalculation. Used by the explicit "Recalculate" action
 // and automatically after bonuses, deductions, fines or rules change, so draft
 // payslips always reflect the latest inputs without a manual step.
-import { writeAuditLog } from "@/lib/auth/sessions"
 import { computePayrollRun, type ComputedRun, type PayrollException } from "../run"
 import type { RawDriverData } from "../salary-engine"
 import { payslipBreakdown } from "../payslip"
-import { failure, loadActiveRules, loadDriversByRider, loadSources, type DriverLink, type EngineContext, type EngineResult } from "./data"
+import { failure, loadActiveRules, loadDriversByRider, loadSources, payrollSourceVersion, saveReviewedPayroll, type DriverLink, type EngineContext, type EngineResult } from "./data"
 
 /** Adapter-level notes added on top of the upstream exceptions. */
 export function adapterExceptions(raw: readonly RawDriverData[], drivers: Map<string, DriverLink>, computed?: ComputedRun): PayrollException[] {
@@ -31,7 +31,7 @@ export function adapterExceptions(raw: readonly RawDriverData[], drivers: Map<st
   return out
 }
 
-export function runPayload(computed: ComputedRun, drivers: Map<string, DriverLink>, bankByRider: Record<string, { beneficiaryName: string; iban: string; bankName: string }>, fallbackBank: { beneficiaryName: string; iban: string; bankName: string; source: string } | null, rawInputs: readonly RawDriverData[]) {
+export function runPayload(computed: ComputedRun, drivers: Map<string, DriverLink>, bankByRider: Record<string, { beneficiaryName: string; iban: string; bankName: string }>, _fallbackBank: { beneficiaryName: string; iban: string; bankName: string; source: string } | null, rawInputs: readonly RawDriverData[]) {
   const rawByRider = new Map(rawInputs.map(r => [r.riderId, r]))
   const results = computed.riders.map(({ result }) => {
     const link = drivers.get(result.riderId)
@@ -42,7 +42,7 @@ export function runPayload(computed: ComputedRun, drivers: Map<string, DriverLin
       driver_name: result.driverName || link?.name || `Rider ${result.riderId}`,
       result,
       raw_input: rawByRider.get(result.riderId),
-      bank: wb ?? (link?.iban ? { beneficiaryName: link.name, iban: link.iban, bankName: link.bankName ?? "" } : fallbackBank && fallbackBank.source !== "none" ? fallbackBank : null),
+      bank: wb ?? (link?.iban ? { beneficiaryName: link.name, iban: link.iban, bankName: link.bankName ?? "" } : null),
     }
   })
   const income = computed.incomeRows.map(i => ({ ...i, driverId: drivers.get(i.riderId)?.id ?? null, driverName: results.find(r => r.rider_id === i.riderId)?.driver_name ?? "" }))
@@ -50,31 +50,40 @@ export function runPayload(computed: ComputedRun, drivers: Map<string, DriverLin
 }
 
 export async function loadDraftInputs(ctx: EngineContext, runId: string) {
-  const run = await ctx.admin.from("payroll_engine_runs").select("id,status,version,month_key,payroll_month,platform_name").eq("id", runId).eq("tenant_id", ctx.tenantId).single()
+  const run = await ctx.admin.from("payroll_engine_runs").select("id,status,version,month_key,payroll_month,platform_name,total_drivers").eq("id", runId).eq("tenant_id", ctx.tenantId).single()
   if (run.error) throw new Error("Payroll run not found")
-  const rows = await ctx.admin.from("payroll_engine_results").select("rider_id,raw_input,result,bank").eq("run_id", runId).eq("tenant_id", ctx.tenantId).order("id")
-  if (rows.error) throw new Error(rows.error.message)
+  const rows = await readCompleteRows(() => ctx.admin.from("payroll_engine_results").select("id,rider_id,driver_id,raw_input,result,bank", { count: "exact" }).eq("run_id", runId).eq("tenant_id", ctx.tenantId).order("id", { ascending: true }))
+  if (rows.error || !rows.data || rows.data.length !== run.data.total_drivers || rows.data.some(row => !row.raw_input || row.raw_input.riderId !== row.rider_id)) throw new Error("Complete payroll inputs unavailable; no recalculation was saved")
   return { run: run.data, rows: rows.data ?? [] }
 }
 
+export function hasChangedBeneficiary(rows: readonly { rider_id: string; driver_id: string | null; bank: unknown }[], drivers: ReadonlyMap<string, DriverLink>): boolean {
+  return rows.some(row => {
+    const previous = row.driver_id ?? null, current = drivers.get(row.rider_id)?.id ?? null
+    return previous !== current && (previous !== null || row.bank != null)
+  })
+}
+
 /** Recalculate one draft run from its stored workbook inputs with the CURRENT rules and adjustments. */
-export async function recalculateDraftRun(ctx: EngineContext, runId: string, expectedVersion?: number, automatic = false): Promise<EngineResult<{ totalNet: number }>> {
+export async function recalculateDraftRun(ctx: EngineContext, runId: string, expectedVersion?: number, _automatic = false): Promise<EngineResult<{ totalNet: number }>> {
+  const sourceVersion = await payrollSourceVersion()
   const { run, rows } = await loadDraftInputs(ctx, runId)
   if (run.status !== "draft") return { success: false, error: "Only draft payroll runs can be recalculated" }
   const rawInputs = rows.map(r => r.raw_input as RawDriverData)
-  const [rules, sources, drivers] = await Promise.all([loadActiveRules(ctx), loadSources(ctx), loadDriversByRider(ctx, rawInputs.map(r => r.riderId))])
+  const [rules, sources, drivers] = await Promise.all([loadActiveRules(ctx), loadSources(ctx), loadDriversByRider(ctx, rawInputs.map(r => r.riderId), run.platform_name)])
+  if (hasChangedBeneficiary(rows, drivers)) return { success: false, error: "PAYENG_BANK_CHANGED" }
   const warnings = await ctx.admin.from("payroll_engine_runs").select("parser_warnings").eq("id", run.id).single()
   const parserWarnings = (warnings.data?.parser_warnings as string[] | null) ?? []
   const computed = computePayrollRun({ rawDrivers: rawInputs.map(r => structuredClone(r)), parserWarnings, rules: rules.snapshot, ruleSetName: rules.name, payrollMonth: run.payroll_month, sources, advanceInstallments: false })
   const bankByRider = Object.fromEntries(rows.filter(r => r.bank).map(r => [r.rider_id, r.bank as { beneficiaryName: string; iban: string; bankName: string }]))
   const { results, income } = runPayload(computed, drivers, bankByRider, null, rawInputs)
-  const { error } = await ctx.admin.rpc("payroll_engine_save_run", {
-    p_tenant: ctx.tenantId, p_actor: ctx.userId,
+  const { data: savedId, error } = await saveReviewedPayroll(ctx, {
+    p_source_version: sourceVersion,
     p_run: { payroll_month: run.payroll_month, month_key: run.month_key, platform_name: run.platform_name, rule_set_id: rules.id, rule_set_name: rules.name, rule_snapshot: rules.snapshot, totals: computed.totals },
     p_results: results, p_exceptions: [...computed.exceptions, ...adapterExceptions(rawInputs, drivers, computed)], p_income: income, p_run_id: run.id, p_expected_version: expectedVersion ?? run.version,
   })
   if (error) return failure(error, "Recalculation failed")
-  await writeAuditLog({ tenantId: ctx.tenantId, actorId: ctx.userId, module: "payroll", action: automatic ? "platform_payroll_auto_recalculated" : "platform_payroll_recalculated", entityType: "payroll_engine_runs", entityId: run.id, newValues: { totalNet: computed.totals.totalNet, ruleSet: rules.name } })
+  if (savedId !== run.id) return { success: false, error: "Recalculation outcome could not be confirmed. Reload before retrying." }
   return { success: true, data: { totalNet: computed.totals.totalNet } }
 }
 

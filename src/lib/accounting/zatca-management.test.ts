@@ -4,18 +4,22 @@ const m = vi.hoisted(() => ({
   enabled: true,
   tables: {} as Record<string, { data: unknown }>,
   requirePermission: vi.fn(async () => undefined),
+  user: vi.fn(), caller: vi.fn(), rpc: vi.fn(), rate: vi.fn(), gatewayError: false, from: vi.fn(),
 }))
 
 vi.mock("@/lib/auth/authorization", () => ({
   requirePermission: m.requirePermission,
-  getCurrentUser: async () => ({ tenantId: "t1", authUserId: "u1" }),
+  getCurrentUser: m.user,
 }))
 vi.mock("@/lib/release/integrations", () => ({ integrationAvailable: () => m.enabled }))
-vi.mock("./zatca-config", () => ({ zatcaConfiguredEnvironment: () => (m.enabled ? "sandbox" : null), zatcaProductionAvailable: () => false, ZATCA_PRODUCTION_ACK: "ack" }))
+vi.mock("./zatca-config", () => ({ zatcaConfiguredEnvironment: () => (m.enabled ? "sandbox" : null), zatcaProductionAvailable: () => false, ZATCA_PRODUCTION_BLOCKED: "production-blocked", ZATCA_ENVIRONMENT_UNAVAILABLE: "ZATCA environment could not be verified. Reload before continuing.", getZatcaNetworkBase: () => { if (m.gatewayError) throw Error("private gateway detail"); return m.enabled ? "https://fixture.invalid" : null } }))
+vi.mock("@/lib/supabase/server", () => ({ createClient: m.caller }))
+vi.mock("@/lib/auth/rate-limit", () => ({ rateLimitAccounting: m.rate }))
 vi.mock("@/lib/auth/sessions", () => ({ writeAuditLog: vi.fn(async () => undefined) }))
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({
     from: (table: string) => {
+      m.from(table)
       const res = m.tables[table] ?? { data: [] }
       const q: Record<string, unknown> = {}
       for (const k of ["select", "eq", "in", "order", "limit"]) q[k] = () => q
@@ -25,7 +29,7 @@ vi.mock("@/lib/supabase/admin", () => ({
     },
   }),
 }))
-import { getZatcaStatus } from "./zatca-management"
+import { getZatcaStatus, setZatcaProductionMode } from "./zatca-management"
 
 const tenant = {
   name_ar: "شركة", name_en: "Co", legal_name: "Co LLC", vat_number: "399999999900003", cr_number: "1010010000",
@@ -37,7 +41,13 @@ const recent = new Date(Date.now() - 2 * 3600_000).toISOString()
 
 describe("getZatcaStatus", () => {
   beforeEach(() => {
-    m.enabled = true
+    vi.clearAllMocks()
+    m.enabled = true; m.gatewayError = false
+    m.requirePermission.mockResolvedValue(undefined)
+    m.user.mockResolvedValue({id:"profile",tenantId:"t1",authUserId:"u1"})
+    m.rate.mockResolvedValue({success:true})
+    m.caller.mockResolvedValue({rpc:m.rpc})
+    m.rpc.mockResolvedValue({data:{production_enabled:false,changed_at:null,configuration_version:7,can_manage:true},error:null})
     m.tables = {
       tenants: { data: tenant },
       zatca_issuance_streams: { data: [{ egs_serial: "1-EliteDev|2-Dashboard|3-x", environment: "sandbox", last_counter: 4, created_at: old }] },
@@ -79,4 +89,74 @@ describe("getZatcaStatus", () => {
     expect(s.profileMissing.length).toBeGreaterThan(0)
     expect(s.backlog).toEqual({ pending: 0, overdue: 0, items: [] })
   })
+  it("retains a stored ON flag but never labels it connected or routes it to a test gateway", async () => {
+    m.rpc.mockResolvedValue({data:{production_enabled:true,changed_at:old,configuration_version:8,can_manage:true},error:null})
+    const result=await getZatcaStatus()
+    expect(result.status).toMatchObject({productionEnabled:true,enabled:false,environment:null,mode:"local",productionAvailable:false,configurationVersion:8})
+  })
+  it("reports invalid gateway configuration without leaking its value",async()=>{
+    m.gatewayError=true
+    const result=await getZatcaStatus()
+    expect(result.status).toMatchObject({enabled:false,configurationError:"ZATCA gateway configuration is unavailable. Production remains blocked."})
+    expect(JSON.stringify(result)).not.toContain("private gateway")
+  })
+  it.each([null,{production_enabled:"false",changed_at:null,configuration_version:7,can_manage:true},{production_enabled:false,changed_at:null,configuration_version:0,can_manage:true},{production_enabled:false,changed_at:"not-a-time",configuration_version:7,can_manage:true}])("does not present unverified environment metadata as OFF",async data=>{
+    m.rpc.mockResolvedValue({data,error:null})
+    expect(await getZatcaStatus()).toEqual({success:false,error:"ZATCA environment could not be verified. Reload before continuing."})
+  })
+})
+
+const requestId="33333333-2222-4333-8444-555555555555"
+describe("guarded ZATCA preference recovery",()=>{
+ beforeEach(()=>{
+  vi.clearAllMocks();m.requirePermission.mockResolvedValue(undefined)
+  m.user.mockResolvedValue({id:"profile",tenantId:"t1",authUserId:"u1"})
+  m.rate.mockResolvedValue({success:true});m.caller.mockResolvedValue({rpc:m.rpc})
+  m.rpc.mockResolvedValue({data:{request_id:requestId,production_enabled:false,configuration_version:8,replayed:false},error:null})
+ })
+ it("commits only a caller-bound versioned OFF intent and validates its receipt",async()=>{
+  expect(await setZatcaProductionMode(false,7,requestId)).toEqual({success:true,configurationVersion:8,productionEnabled:false,requestId,replayed:false})
+  expect(m.requirePermission).toHaveBeenCalledWith("accounting","approve")
+  expect(m.rate).toHaveBeenCalledWith("profile")
+  expect(m.rpc).toHaveBeenCalledExactlyOnceWith("save_my_zatca_environment",{p_request_id:requestId,p_expected_version:7,p_enabled:false,p_acknowledgement:null})
+  expect(m.from).not.toHaveBeenCalled()
+ })
+ it("cannot open production even with an administrator acknowledgement",async()=>{
+  expect(await setZatcaProductionMode(true,7,requestId,"ack")).toMatchObject({success:false,code:"ZATCA_PRODUCTION_BLOCKED"})
+  expect(m.caller).not.toHaveBeenCalled();expect(m.rpc).not.toHaveBeenCalled()
+ })
+ it.each([0,NaN,Number.MAX_SAFE_INTEGER])("refuses unusable reviewed versions before requesting a save",async version=>{
+  expect(await setZatcaProductionMode(false,version,requestId)).toMatchObject({success:false,code:"ZATCA_SWITCH_INVALID"})
+  expect(m.caller).not.toHaveBeenCalled()
+ })
+ it("rejects altered request identities and acknowledgement data",async()=>{
+  expect(await setZatcaProductionMode(false,7,"bad")).toMatchObject({code:"ZATCA_SWITCH_INVALID"})
+  expect(await setZatcaProductionMode(false,7,requestId,"")).toMatchObject({code:"ZATCA_SWITCH_INVALID"})
+  expect(m.rpc).not.toHaveBeenCalled()
+ })
+ it.each(["permission","user","rate"])("fails before mutation when %s is unavailable",async guard=>{
+  if(guard==="permission")m.requirePermission.mockRejectedValue(Object.assign(Error("private"),{code:"AUTH007"}))
+  if(guard==="user")m.user.mockResolvedValue(null)
+  if(guard==="rate")m.rate.mockResolvedValue({success:false})
+  expect((await setZatcaProductionMode(false,7,requestId)).success).toBe(false)
+  expect(m.caller).not.toHaveBeenCalled();expect(m.rpc).not.toHaveBeenCalled()
+ })
+ it.each([null,{request_id:requestId,production_enabled:true,configuration_version:8,replayed:false},{request_id:requestId,production_enabled:false,configuration_version:7,replayed:false},{request_id:requestId,production_enabled:false,configuration_version:8},{request_id:"another",production_enabled:false,configuration_version:8,replayed:false}])("does not confirm missing, mismatching or nonadvancing receipts",async data=>{
+  m.rpc.mockResolvedValue({data,error:null})
+  expect(await setZatcaProductionMode(false,7,requestId)).toMatchObject({success:false,code:"ZATCA_SWITCH_UNAVAILABLE"})
+  expect(m.rpc).toHaveBeenCalledTimes(1)
+ })
+ it("preserves same-intent historical receipts without replaying a write",async()=>{
+  m.rpc.mockResolvedValue({data:{request_id:requestId,production_enabled:false,configuration_version:8,replayed:true},error:null})
+  expect(await setZatcaProductionMode(false,7,requestId)).toMatchObject({success:true,replayed:true,configurationVersion:8})
+  expect(m.rpc).toHaveBeenCalledTimes(1)
+ })
+ it("classifies stale and unknown outcomes without logging private errors or automatically retrying",async()=>{
+  m.rpc.mockResolvedValueOnce({data:null,error:{message:"ZATCA_SWITCH_STALE"}}).mockRejectedValueOnce(Error("private connection details"))
+  expect(await setZatcaProductionMode(false,7,requestId)).toMatchObject({success:false,code:"ZATCA_SWITCH_STALE"})
+  const unknown=await setZatcaProductionMode(false,7,requestId)
+  expect(unknown).toMatchObject({success:false,code:"ZATCA_SWITCH_UNAVAILABLE"})
+  if(unknown.success) throw Error("Unexpected confirmed result")
+  expect(unknown.error).not.toContain("private");expect(m.rpc).toHaveBeenCalledTimes(2)
+ })
 })

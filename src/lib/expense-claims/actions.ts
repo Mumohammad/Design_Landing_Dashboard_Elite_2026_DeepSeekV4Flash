@@ -14,6 +14,7 @@ import {
   type Bi, type ClaimAttachment, type ClaimSettings, type ExpenseClaim,
 } from "./constants"
 import { filterClaims, type ClaimFilters } from "./dashboard"
+import { readClaimDisplayNames, readCompleteAttachments, readCompleteClaims } from "./complete-reads"
 import { normalizeVatNumber } from "./zatca-check"
 import { exportFilename, writeExpenseWorkbook } from "./export-xlsx"
 import { getBotUsername, telegramConfigured, tg, webhookUrl } from "./telegram"
@@ -46,26 +47,26 @@ function touch(id?: string) {
 
 export async function getClaimSettings(): Promise<ClaimSettings> {
   const me = await getCurrentUser()
-  if (!me) return DEFAULT_SETTINGS
+  if (!me) throw Error("Expense settings are unavailable")
+  const checks = await Promise.all((["create", "read", "manage"] as const).map(action => can("expense_claims", action)))
+  if (!checks.some(check => check.allowed)) throw Error("Expense settings are unavailable")
   const supabase = await createClient()
-  let { data } = await supabase.from("expense_claim_settings").select("*").maybeSingle()
-  if (!data) {
-    // First use: create the tenant's default settings row (defaults live in SQL).
-    await createAdminClient().from("expense_claim_settings").upsert({ tenant_id: me.tenantId }, { onConflict: "tenant_id", ignoreDuplicates: true })
-    data = (await supabase.from("expense_claim_settings").select("*").maybeSingle()).data
-  }
+  const { data, error } = await supabase.from("expense_claim_settings").select("*").eq("tenant_id", me.tenantId).maybeSingle()
+  if (error) throw Error("Expense settings are unavailable")
+  // An authorized, successful empty read means SQL's initial defaults apply.
+  // Database writes initialize defaults transactionally when first required.
   return data ? { ...DEFAULT_SETTINGS, ...(data as Partial<ClaimSettings>) } : DEFAULT_SETTINGS
 }
 
-/** Display names for submitters/reviewers in the caller's tenant (name only). */
+/** Names of actors in claims visible to this authorized caller, never a directory. */
 export async function getTenantUserNames(): Promise<Record<string, string>> {
   const me = await getCurrentUser()
   if (!me) return {}
-  const { data } = await createAdminClient().from("users").select("auth_user_id,full_name_en,full_name_ar,preferred_name,email")
-    .eq("tenant_id", me.tenantId).is("deleted_at", null).limit(5000)
-  const out: Record<string, string> = {}
-  for (const u of data ?? []) if (u.auth_user_id) out[u.auth_user_id] = u.preferred_name || u.full_name_en || u.full_name_ar || u.email || "—"
-  return out
+  const allowed = await Promise.all((["create", "read", "approve", "export", "manage"] as const).map(action => can("expense_claims", action)))
+  if (!allowed.some(check => check.allowed)) return {}
+  const claims = await readCompleteClaims(await createClient())
+  const actors = claims.flatMap(claim => [claim.submitter_id, claim.reviewer_id, claim.verified_by]).filter((id): id is string => typeof id === "string")
+  return readClaimDisplayNames(createAdminClient(), me.tenantId, [me.authUserId, ...actors])
 }
 
 function cleanFields(input: Record<string, unknown>): Record<string, unknown> {
@@ -178,25 +179,11 @@ export async function getAttachmentDownloadUrl(attachmentId: string): Promise<Ac
 }
 
 async function readAllClaims(): Promise<ExpenseClaim[]> {
-  const supabase = await createClient()
-  const out: ExpenseClaim[] = []
-  for (let from = 0; from < 20000; from += 1000) {
-    const { data, error } = await supabase.from("expense_claims").select("*").order("expense_date", { ascending: false, nullsFirst: false }).order("created_at", { ascending: false }).range(from, from + 999)
-    if (error) throw error
-    out.push(...((data ?? []) as ExpenseClaim[]))
-    if (!data || data.length < 1000) break
-  }
-  return out
+  return readCompleteClaims(await createClient())
 }
 
 async function readAttachments(ids: string[]): Promise<ClaimAttachment[]> {
-  const supabase = await createClient()
-  const out: ClaimAttachment[] = []
-  for (let i = 0; i < ids.length; i += 200) {
-    const { data } = await supabase.from("expense_claim_attachments").select("id,claim_id,original_filename,mime_type,size_bytes,sha256,doc_kind,source,uploaded_at").in("claim_id", ids.slice(i, i + 200))
-    out.push(...((data ?? []) as ClaimAttachment[]))
-  }
-  return out
+  return readCompleteAttachments(await createClient(), ids)
 }
 
 function sanitizeFilters(f: ClaimFilters): ClaimFilters {

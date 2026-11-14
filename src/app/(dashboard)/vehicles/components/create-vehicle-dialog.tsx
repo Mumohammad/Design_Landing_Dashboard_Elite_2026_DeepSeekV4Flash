@@ -454,7 +454,7 @@ export function CreateVehicleDialog({
             <Textarea {...register("notes")} rows={3} />
           </FormSection>
 
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             {isAr ? "تلميح اللوحة:" : "Plate hint:"} {SAUDI_PLATE_HINT}
           </p>
 
@@ -470,7 +470,7 @@ export function CreateVehicleDialog({
             <Button
               type="submit"
               disabled={submitting}
-              className="rounded-xl bg-elite-blue-500 text-white hover:bg-elite-blue-600"
+              className="bg-foreground text-background hover:bg-foreground/90"
             >
               {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
               {initialVehicle ? (isAr?"حفظ التغييرات":"Save changes") : (isAr ? "إنشاء المركبة" : "Create vehicle")}

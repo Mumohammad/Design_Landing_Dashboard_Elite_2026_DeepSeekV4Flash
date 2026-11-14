@@ -1,4 +1,5 @@
 import {beforeEach,expect,it,vi} from "vitest"
+vi.mock("server-only",()=>({}))
 const m=vi.hoisted(()=>({permission:vi.fn(),user:vi.fn(),rate:vi.fn(),caller:vi.fn(),rpc:vi.fn(),revalidate:vi.fn()}))
 vi.mock("server-only",()=>({}))
 vi.mock("@/lib/supabase/admin",()=>({createAdminClient:()=>{throw Error("Unexpected service-role path")}}))
@@ -65,4 +66,30 @@ it("first-time payroll settings stay editable with empty values and a real versi
 })
 it("read failure is not a fabricated empty company",async()=>{
  m.rpc.mockResolvedValue({data:null,error:{message:"private provider error"}});await expect(fetchCompanyProfile()).rejects.toThrow("SETTINGS_UNAVAILABLE")
+})
+
+
+const nationalAddress={building_number:"0123",additional_number:"0456",district:"حي الاختبار",postal_code:"01234"}
+it("carries the complete National Address through the versioned caller save and read",async()=>{
+ expect(await updateCompanyProfile({...names,...nationalAddress},7)).toMatchObject({success:true,configuration_version:8})
+ expect(m.rpc).toHaveBeenLastCalledWith("save_my_settings",{p_surface:"company",p_payload:{...names,...nationalAddress},p_expected_version:7})
+ const bundle={...names,...nationalAddress,configuration_version:8,can_manage:true}
+ m.rpc.mockResolvedValueOnce({data:bundle,error:null})
+ expect(await fetchCompanyProfile()).toEqual(bundle)
+})
+for(const patch of [{building_number:"123"},{building_number:"12x4"},{additional_number:"12345"},{postal_code:"1234"},{district:"x".repeat(128)},{district:"line\u0001break"}])it("rejects invalid National Address without RPC: "+JSON.stringify(patch),async()=>{
+ expect(await updateCompanyProfile({...names,...patch},7)).toMatchObject({success:false,code:"SETTINGS_INVALID"})
+ expect(m.rpc).not.toHaveBeenCalled()
+})
+it("normalizes cleared address numbers without dropping other profile fields",async()=>{
+ expect((await updateCompanyProfile({...names,building_number:"  ",additional_number:null,postal_code:""},7)).success).toBe(true)
+ expect(m.rpc.mock.calls[0][1].p_payload).toEqual({...names,building_number:null,additional_number:null,postal_code:null})
+})
+it("keeps address edits denied and stale through the same guarded path",async()=>{
+ m.permission.mockRejectedValueOnce(Object.assign(new Error("private"),{code:"AUTH007"}))
+ expect(await updateCompanyProfile({...names,...nationalAddress},7)).toMatchObject({success:false,code:"SETTINGS_FORBIDDEN"})
+ expect(m.caller).not.toHaveBeenCalled()
+ m.rpc.mockResolvedValueOnce({data:null,error:{message:"SETTINGS_STALE"}})
+ expect(await updateCompanyProfile({...names,...nationalAddress},7)).toMatchObject({success:false,code:"SETTINGS_STALE"})
+ expect(m.rpc).toHaveBeenCalledTimes(1)
 })

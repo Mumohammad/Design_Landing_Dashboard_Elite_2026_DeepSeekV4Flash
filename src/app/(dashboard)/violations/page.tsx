@@ -94,9 +94,9 @@ export default function ViolationsPage() {
   ]
 
   return (
-    <div className="px-4 lg:px-6 py-4">
-      <Link href="/violations/fines" className="mb-4 flex items-center justify-between gap-3 rounded-2xl border bg-gradient-to-r from-rose-500/10 to-amber-500/10 p-4 transition hover:shadow-sm">
-        <span className="flex items-center gap-3"><Gavel className="size-5 text-rose-600" /><span><span className="block font-semibold">{locale === "ar" ? "المخالفات المرورية والمطابقة التلقائية" : "Traffic fines & auto-matching"}</span><span className="block text-xs text-muted-foreground">{locale === "ar" ? "استورد كشف المرور وطابقه تلقائياً مع السائق المسؤول" : "Import the Muroor statement and match each fine to the responsible driver"}</span></span></span>
+    <div className="py-4">
+      <Link href="/violations/fines" className="mx-4 mb-4 flex items-center justify-between gap-3 rounded-lg border border-border bg-card p-4 transition-colors hover:bg-muted/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring lg:mx-6">
+        <span className="flex items-center gap-3"><Gavel className="size-5 shrink-0 text-muted-foreground" /><span><span className="block font-semibold">{locale === "ar" ? "المخالفات المرورية والمطابقة التلقائية" : "Traffic fines & auto-matching"}</span><span className="block text-xs text-muted-foreground">{locale === "ar" ? "استورد كشف المرور وطابقه تلقائياً مع السائق المسؤول" : "Import the Muroor statement and match each fine to the responsible driver"}</span></span></span>
         <span className="text-sm font-medium text-primary">{locale === "ar" ? "فتح" : "Open"} →</span>
       </Link>
       <EnterpriseModulePage

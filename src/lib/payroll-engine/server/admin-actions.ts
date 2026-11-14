@@ -26,7 +26,7 @@ const now = () => new Date().toISOString()
 
 // ─── Rules ────────────────────────────────────────────────────────────────
 
-export async function getPayrollRules(): Promise<EngineResult<{ id: string; name: string; values: RuleValues }>> {
+export async function getPayrollRules(): Promise<EngineResult<{ id: string | null; name: string; values: RuleValues }>> {
   try {
     const ctx = await engineContext("read")
     const rules = await loadActiveRules(ctx)
@@ -45,10 +45,11 @@ export async function savePayrollRules(input: unknown): Promise<EngineResult<{ c
     const next = { ...current.values, ...checked.values }
     const changed = Object.keys(checked.values).filter(k => JSON.stringify(current.values[k]) !== JSON.stringify(next[k]))
     if (changed.length === 0) return { success: true, data: { changed: 0, refreshedRuns: 0 } }
-    const { error } = await ctx.admin.from("payroll_engine_rule_sets").update({ rule_values: next, updated_by: ctx.userId, updated_at: now() })
-      .eq("id", current.id).eq("tenant_id", ctx.tenantId)
-    if (error) return failure(error, "Could not save rules")
-    await writeAuditLog({ tenantId: ctx.tenantId, actorId: ctx.userId, module: "payroll", action: "platform_payroll_rules_updated", entityType: "payroll_engine_rule_sets", entityId: current.id,
+    const change = current.id
+      ? await ctx.admin.from("payroll_engine_rule_sets").update({ rule_values: next, updated_by: ctx.userId, updated_at: now() }).eq("id", current.id).eq("tenant_id", ctx.tenantId).eq("updated_at", current.updatedAt).select("id").single()
+      : await ctx.admin.from("payroll_engine_rule_sets").insert({ tenant_id: ctx.tenantId, name: current.name, status: "active", rule_values: next, created_by: ctx.userId, updated_by: ctx.userId, activated_by: ctx.userId, activated_at: now() }).select("id").single()
+    if (change.error || !change.data) return { success: false, error: "PAYENG011" }
+    await writeAuditLog({ tenantId: ctx.tenantId, actorId: ctx.userId, module: "payroll", action: "platform_payroll_rules_updated", entityType: "payroll_engine_rule_sets", entityId: change.data.id,
       oldValues: Object.fromEntries(changed.map(k => [k, current.values[k]])), newValues: Object.fromEntries(changed.map(k => [k, next[k]])) })
     const { refreshed } = await refreshDraftRuns(ctx, null)
     revalidateAll(refreshed)
@@ -83,6 +84,7 @@ const itemSchema = z.object({
 }).superRefine((v, c) => {
   if (!v.applyToAll && v.targetRiderIds.length === 0) c.addIssue({ code: "custom", message: "Choose at least one rider or apply to all riders" })
   if (v.installmentEnabled) {
+    if (v.applyToAll || v.targetRiderIds.length !== 1) c.addIssue({ code: "custom", message: "Installment deductions must belong to exactly one rider" })
     if (v.kind !== "deduction") c.addIssue({ code: "custom", message: "Installments apply to deductions only" })
     if (v.installmentMonthlyAmount <= 0) c.addIssue({ code: "custom", message: "Monthly installment must be greater than zero" })
     if (v.installmentMonthlyAmount > v.amount) c.addIssue({ code: "custom", message: "Monthly installment cannot exceed the total amount" })

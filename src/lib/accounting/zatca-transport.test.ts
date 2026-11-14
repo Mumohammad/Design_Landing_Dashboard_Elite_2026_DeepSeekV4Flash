@@ -106,12 +106,24 @@ describe("configuration fails closed", () => {
     expect(isSandboxTransport()).toBe(false)
   })
 
-  it("production mode needs the operator flag and still refuses unsigned documents", async () => {
+  it("keeps production blocked even with the operator flag", async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
     vi.stubEnv("ZATCA_MODE", "production")
     await expect(transmitToZatca({ ...input, environment: "production" })).rejects.toThrow("ZATCA_PRODUCTION_ENABLED")
     vi.stubEnv("ZATCA_PRODUCTION_ENABLED", "true")
-    await expect(transmitToZatca({ ...input, environment: "production" })).rejects.toThrow("NOT_SIGNED")
+    await expect(transmitToZatca({ ...input, environment: "production" })).rejects.toThrow("independent authority acceptance")
     expect(isSandboxTransport()).toBe(false)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("still rejects unsigned documents before contacting the simulation gateway", async () => {
+    vi.stubEnv("ZATCA_MODE", "simulation")
+    vi.stubEnv("ZATCA_API_BASE_URL", "https://gw-fatoora.zatca.gov.sa/e-invoicing/simulation")
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    await expect(transmitToZatca({ ...input, environment: "simulation" })).rejects.toThrow("NOT_SIGNED")
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it("missing sandbox configuration is an error, not an offline mock", async () => {

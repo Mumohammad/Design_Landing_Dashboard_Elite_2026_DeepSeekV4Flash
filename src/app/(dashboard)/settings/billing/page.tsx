@@ -42,44 +42,65 @@ function BillingSettings() {
   const [view, setView] = React.useState<BillingOverview | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [paying, setPaying] = React.useState<string | null>(null)
-  const [confirming, setConfirming] = React.useState(false)
-  const handledReturn = React.useRef(false)
+  const [confirmedReturn, setConfirmedReturn] = React.useState<string | null>(null)
+  const mounted = React.useRef(false)
+  const billingRequest = React.useRef(0)
+  const returnAttempt = params.get("attempt")
+  const returnCancelled = params.get("cancelled") === "1"
+  const confirming = !!returnAttempt && confirmedReturn !== returnAttempt
 
-  const load = React.useCallback(async () => {
-    try { setView(await getBillingOverview()) } catch { setView(null) } finally { setLoading(false) }
+  const load = React.useCallback(() => {
+    const request = ++billingRequest.current
+    return getBillingOverview().then(result => {
+      if (mounted.current && request === billingRequest.current) setView(result)
+    }).catch(() => {
+      if (mounted.current && request === billingRequest.current) setView(null)
+    }).finally(() => {
+      if (mounted.current && request === billingRequest.current) setLoading(false)
+    })
   }, [])
 
-  React.useEffect(() => { void load() }, [load])
+  React.useEffect(() => {
+    mounted.current = true
+    void load()
+    return () => { mounted.current = false }
+  }, [load])
 
   // Returning from Moyasar checkout: settle from the provider's API, then clean the URL.
   React.useEffect(() => {
-    const attempt = params.get("attempt")
-    if (!attempt || handledReturn.current) return
-    handledReturn.current = true
-    const cancelled = params.get("cancelled") === "1"
-    setConfirming(true)
+    if (!returnAttempt || confirmedReturn === returnAttempt) return
+    let cancelled = false
+    let retryTimer: ReturnType<typeof setTimeout> | undefined
     void (async () => {
       let outcome = "pending"
       for (let i = 0; i < 4; i++) {
-        const res = await confirmCardReturn(attempt).catch(() => null)
+        const res = await confirmCardReturn(returnAttempt).catch(() => null)
+        if (cancelled) return
         outcome = res && res.success ? res.data.outcome : "pending"
         if (outcome !== "pending") break
-        await new Promise((r) => setTimeout(r, 2500))
+        if (i < 3) await new Promise<void>((resolve) => { retryTimer = setTimeout(resolve, 2500) })
+        if (cancelled) return
       }
-      setConfirming(false)
+      setConfirmedReturn(returnAttempt)
       if (outcome === "settled" || outcome === "already_settled") toast.success(ar ? "تم الدفع بنجاح. شكراً لك!" : "Payment received. Thank you!")
       else if (outcome === "duplicate_payment") toast.warning(ar ? "الفاتورة كانت مدفوعة مسبقاً؛ سيتواصل فريقنا لاسترداد المبلغ." : "This invoice was already paid; our team will refund the duplicate charge.")
-      else if (cancelled) toast.info(ar ? "تم إلغاء الدفع. لم يتم خصم أي مبلغ." : "Payment cancelled. You weren't charged.")
+      else if (returnCancelled) toast.info(ar ? "أُلغيت عملية الدفع. ما زلنا نؤكد حالتها." : "Payment was cancelled. We are still confirming its status.")
       else if (outcome === "failed" || outcome === "expired" || outcome === "canceled") toast.error(ar ? "لم تكتمل عملية الدفع. حاول مرة أخرى." : "The payment didn't complete. Please try again.")
       else toast.info(ar ? "جارٍ تأكيد الدفع من البنك — سيتم التحديث تلقائياً خلال دقائق." : "Confirming with the bank — this updates automatically within minutes.")
       router.replace("/settings/billing")
+      setLoading(true)
       void load()
     })()
-  }, [params, ar, router, load])
+    return () => {
+      cancelled = true
+      if (retryTimer !== undefined) clearTimeout(retryTimer)
+    }
+  }, [returnAttempt, returnCancelled, confirmedReturn, ar, router, load])
 
   const pay = async (inv: BillingInvoice) => {
     setPaying(inv.id)
     const res = await payInvoiceByCard(inv.id).catch(() => null)
+    if (!mounted.current) return
     if (res && res.success) {
       window.location.assign(res.data.url)
       return
@@ -88,8 +109,27 @@ function BillingSettings() {
     toast.error(res && !res.success ? (ar ? res.errorAr : res.error) : ar ? "تعذر بدء الدفع." : "Couldn't start the payment.")
   }
 
-  if (loading) return <div className="flex items-center justify-center py-24"><LoadingSpinner className="h-6 w-6 text-elite-blue-600" /></div>
-  if (!view) return <div className="px-4 py-12 text-center text-sm text-muted-foreground lg:px-6">{ar ? "تعذر تحميل الفوترة أو لا تملك صلاحية عرضها." : "Couldn't load billing, or you don't have access."}</div>
+  const heading = (
+    <div className="flex items-center gap-3">
+      <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-border/50 bg-muted/50"><CreditCard className="h-5 w-5 text-muted-foreground" /></div>
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">{ar ? "الفوترة والاشتراك" : "Billing & subscription"}</h1>
+        <p className="mt-0.5 text-sm text-muted-foreground">{ar ? "فواتير اشتراكك في Elite والدفع الإلكتروني الآمن" : "Your Elite subscription invoices and secure online payment"}</p>
+      </div>
+    </div>
+  )
+
+  if (loading || !view) return (
+    <div className="space-y-6 px-4 py-4 lg:px-6" dir={ar ? "rtl" : "ltr"}>
+      {heading}
+      {loading ? <div className="flex items-center justify-center py-16" role="status" aria-label={ar ? "جارٍ تحميل الفوترة" : "Loading billing"}><LoadingSpinner className="h-6 w-6 text-elite-blue-600" /></div> : (
+        <div className="space-y-3 text-sm" role="alert">
+          <p className="text-muted-foreground">{ar ? "تعذر تحميل الفوترة أو لا تملك صلاحية عرضها." : "Couldn't load billing, or you don't have access."}</p>
+          <Button type="button" variant="outline" onClick={() => { setLoading(true); void load() }}>{ar ? "إعادة المحاولة" : "Try again"}</Button>
+        </div>
+      )}
+    </div>
+  )
 
   const open = view.invoices.filter((i) => i.status === "pending" || i.status === "overdue")
   const due = open.reduce((s, i) => s + i.amount, 0)
@@ -97,13 +137,7 @@ function BillingSettings() {
 
   return (
     <div className="space-y-6 px-4 py-4 lg:px-6 page-enter" dir={ar ? "rtl" : "ltr"}>
-      <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-border/50 bg-muted/50"><CreditCard className="h-5 w-5 text-muted-foreground" /></div>
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">{ar ? "الفوترة والاشتراك" : "Billing & subscription"}</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">{ar ? "فواتير اشتراكك في Elite والدفع الإلكتروني الآمن" : "Your Elite subscription invoices and secure online payment"}</p>
-        </div>
-      </div>
+      {heading}
 
       {confirming && (
         <div className="flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm dark:border-sky-900 dark:bg-sky-950" role="status">

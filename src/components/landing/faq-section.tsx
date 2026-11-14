@@ -1,76 +1,23 @@
 "use client"
 
-import * as React from "react"
-import { ChevronDown, HelpCircle } from "lucide-react"
-import { cn } from "@/lib/utils"
 import { landingContent } from "@/lib/landing-content"
 import { useTranslation } from "@/hooks/use-translation"
-import { Reveal, SectionHeading } from "./shared"
+import { Reveal } from "./shared"
 
 export function FaqSection() {
   const { locale } = useTranslation()
   const c = landingContent[locale as "en" | "ar"]
-  const [openIndex, setOpenIndex] = React.useState<number | null>(0)
-
   return (
-    <section id="faq" className="mx-auto max-w-3xl scroll-mt-24 px-4 py-20 lg:px-8">
-      <SectionHeading tag={c.faq.tag} title={c.faq.title} subtitle={c.faq.subtitle} />
-
-      <div className="mt-10 space-y-3">
-        {c.faq.items.map((faq, index) => {
-          const open = openIndex === index
-          return (
-            <Reveal key={faq.q} delay={Math.min(index * 40, 200)}>
-              <div
-                className={cn(
-                  "overflow-hidden rounded-2xl border transition-all duration-300",
-                  open
-                    ? "border-elite-blue-500/30 bg-card shadow-elite-blue-500/5 ring-1 ring-inset ring-elite-blue-500/10"
-                    : "border-border/50 bg-card hover:border-border hover:bg-card"
-                )}
-              >
-                <button
-                  onClick={() => setOpenIndex(open ? null : index)}
-                  aria-expanded={open}
-                  className="flex w-full items-center justify-between gap-4 px-5 py-4 text-start"
-                >
-                  <span className="flex items-center gap-3">
-                    <span className={cn(
-                      "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-all duration-300",
-                      open
-                        ? "bg-elite-blue-500/10 text-elite-blue-600 dark:text-elite-blue-300"
-                        : "bg-muted/50 text-muted-foreground"
-                    )}>
-                      <HelpCircle className="h-3.5 w-3.5" />
-                    </span>
-                    <span className="font-semibold text-foreground">{faq.q}</span>
-                  </span>
-                  <span
-                    className={cn(
-                      "flex h-7 w-7 shrink-0 items-center justify-center rounded-full border transition-all duration-300",
-                      open
-                        ? "rotate-180 border-elite-blue-500/40 bg-elite-blue-500/10 text-elite-blue-600 dark:text-elite-blue-300"
-                        : "border-border/60 text-muted-foreground"
-                    )}
-                  >
-                    <ChevronDown className="h-4 w-4" />
-                  </span>
-                </button>
-                <div
-                  className={cn(
-                    "grid transition-all duration-300 ease-out",
-                    open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
-                  )}
-                >
-                  <div className="overflow-hidden">
-                    <div className="mx-5 mb-5 h-px bg-elite-blue-500/20" />
-                    <p className="px-5 pb-5 text-base leading-relaxed text-foreground/75">{faq.a}</p>
-                  </div>
-                </div>
-              </div>
-            </Reveal>
-          )
-        })}
+    <section id="faq" className="scroll-mt-8 bg-muted py-24 lg:py-32">
+      <div className="mx-auto grid max-w-7xl items-start gap-10 px-5 lg:grid-cols-[.65fr_1.35fr] lg:gap-16 lg:px-8">
+        <Reveal>
+          <h2 className="text-[clamp(2rem,3.5vw,3.3rem)] font-semibold leading-tight tracking-tight">{c.faq.title}</h2>
+          <p className="mt-5 text-base leading-relaxed">{c.faq.subtitle}</p>
+        </Reveal>
+        <div className="columns-1 gap-10 md:columns-2">{c.faq.items.map((faq, index) => <Reveal key={faq.q} className="mb-7 break-inside-avoid" delay={index % 3 * 60}>
+          <p className="text-base leading-relaxed">
+            <strong className="font-semibold">{faq.q}</strong>{" "}{faq.a}</p>
+        </Reveal>)}</div>
       </div>
     </section>
   )

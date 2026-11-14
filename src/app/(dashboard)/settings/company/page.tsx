@@ -2,17 +2,17 @@
 
 import { friendlyError } from "@/lib/errors/friendly"
 import { LocalizedText } from "@/components/localized-text"
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useActionState } from "react"
 import { settingsMessage, companyFieldIssue, wpsFieldIssue } from "@/lib/settings/schema"
 import { useTranslation } from "@/hooks/use-translation"
 import { updateCompanyProfile, updateCompanyWpsSettings, fetchCompanyProfile, uploadCompanyLogo, removeCompanyLogo, type CompanyProfileInput, type CompanyProfile, type SettingsActionResult } from "@/lib/settings/actions"
-import { LOGO_ACCEPT, logoPrepMessage, prepareLogoFile } from "@/lib/branding/logo-client"
+import { LOGO_ACCEPT, prepareLogoFile, logoPrepMessage } from "@/lib/branding/logo-client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
-import { Building2, AlertTriangle, Save, CheckCircle2, Landmark, ImageIcon, Upload, Trash2 } from "lucide-react"
+import { Building2, AlertTriangle, Save, CheckCircle2, Landmark } from "lucide-react"
 import { LoadingSpinner } from "@/components/ui/loading-spinner"
 
 function FormField({
@@ -55,6 +55,11 @@ export default function CompanySettingsPage() {
   const [tenant, setTenant] = useState<CompanyProfile | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
+  const [needsReload, setNeedsReload] = useState(false)
+  const [logoBusy, setLogoBusy] = useState(false)
+  const [logoMessage, setLogoMessage] = useState("")
+  const operationBusy = useRef(false)
+  const logoInput = useRef<HTMLInputElement>(null)
 
   const [nameAr, setNameAr] = useState("")
   const [nameEn, setNameEn] = useState("")
@@ -75,55 +80,8 @@ export default function CompanySettingsPage() {
   const [defaultLocale, setDefaultLocale] = useState("ar")
   const [molReference, setMolReference] = useState("")
   const [wpsIban, setWpsIban] = useState("")
-  const [logoUrl, setLogoUrl] = useState<string | null>(null)
-  const [logoBusy, setLogoBusy] = useState(false)
-  const [logoMessage, setLogoMessage] = useState<{ ok: boolean; text: string } | null>(null)
-  const logoInput = useRef<HTMLInputElement>(null)
 
-  async function onLogoSelected(file: File | undefined) {
-    if (!file) return
-    setLogoMessage(null)
-    const prepared = await prepareLogoFile(file)
-    if (!prepared.ok) {
-      setLogoMessage({ ok: false, text: logoPrepMessage(prepared.error, ar) })
-      return
-    }
-    setLogoBusy(true)
-    const result = await uploadCompanyLogo(prepared.dataUrl)
-    setLogoBusy(false)
-    if (logoInput.current) logoInput.current.value = ""
-    if (result.success && result.logoUrl) {
-      setLogoUrl(result.logoUrl)
-      if (result.configuration_version) setTenant(previous => previous ? { ...previous, configuration_version: result.configuration_version! } : previous)
-      setLogoMessage({ ok: true, text: ar ? "تم حفظ الشعار." : "Logo saved." })
-    } else {
-      setLogoMessage({ ok: false, text: friendlyError(result.error, ar, ar ? "تعذر حفظ الشعار." : "Unable to save the logo.") })
-    }
-  }
-
-  async function onLogoRemove() {
-    setLogoMessage(null)
-    setLogoBusy(true)
-    const result = await removeCompanyLogo()
-    setLogoBusy(false)
-    if (result.success) {
-      setLogoUrl(null)
-      if (result.configuration_version) setTenant(previous => previous ? { ...previous, configuration_version: result.configuration_version! } : previous)
-      setLogoMessage({ ok: true, text: ar ? "تمت إزالة الشعار." : "Logo removed." })
-    } else {
-      setLogoMessage({ ok: false, text: friendlyError(result.error, ar, ar ? "تعذر إزالة الشعار." : "Unable to remove the logo.") })
-    }
-  }
-
-  useEffect(() => {
-    async function load() {
-      try {
-        const data = await fetchCompanyProfile()
-        if (!data) {
-          setLoadError(true)
-          setIsLoading(false)
-          return
-        }
+  const applyProfile = useCallback((data: CompanyProfile) => {
         setTenant(data)
         setNameAr(data.name_ar ?? "")
         setNameEn(data.name_en ?? "")
@@ -144,14 +102,48 @@ export default function CompanySettingsPage() {
         setDefaultLocale(data.default_locale ?? "ar")
         setMolReference(data.mol_reference ?? "")
         setWpsIban(data.wps_iban ?? "")
-        setLogoUrl(data.logo_url ?? null)
+  }, [])
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const data = await fetchCompanyProfile()
+        if (!data) {
+          setLoadError(true)
+          setIsLoading(false)
+          return
+        }
+        applyProfile(data)
       } catch {
         setLoadError(true)
       }
       setIsLoading(false)
     }
     load()
-  }, [])
+  }, [applyProfile])
+
+  async function runOperation(action: () => Promise<SettingsActionResult>): Promise<SettingsActionResult> {
+    if (operationBusy.current || needsReload || !tenant?.can_manage) return { success: false, code: "SETTINGS_FORBIDDEN", error: settingsMessage("SETTINGS_FORBIDDEN",locale) }
+    operationBusy.current = true
+    try {
+      const result = await action()
+      if (result.success && result.configuration_version) {
+        if (result.replayed) {
+          // A receipt can describe a historical version. Refresh every form.
+          const current = await fetchCompanyProfile()
+          if (!current) throw new Error("refresh failed")
+          applyProfile(current)
+        } else {
+          setTenant(previous => previous ? { ...previous, configuration_version: result.configuration_version!,
+            ...(result.request_id ? {logo_url: result.logo_url ?? null,logo_storage_path: result.logo_storage_path ?? null} : {}) } : previous)
+        }
+      } else if (result.code === "SETTINGS_STALE" || result.code === "SETTINGS_UNAVAILABLE") setNeedsReload(true)
+      return result
+    } catch {
+      setNeedsReload(true)
+      return {success:false,code:"SETTINGS_UNAVAILABLE",error:settingsMessage("SETTINGS_UNAVAILABLE",locale)}
+    } finally { operationBusy.current = false }
+  }
 
   const [state, formAction, isPending] = useActionState<(SettingsActionResult & { localMessage?: string }) | null, FormData>(
     async () => {
@@ -176,9 +168,7 @@ export default function CompanySettingsPage() {
       }
       const issue = companyFieldIssue(input, locale)
       if (issue) return { success: false, error: issue, localMessage: issue }
-      const result = await updateCompanyProfile(input, tenant?.configuration_version ?? 0)
-      if (result.success && result.configuration_version) setTenant(previous => previous ? { ...previous, configuration_version: result.configuration_version! } : previous)
-      return result
+      return runOperation(() => updateCompanyProfile(input, tenant?.configuration_version ?? 0))
     },
     null
   )
@@ -187,12 +177,30 @@ export default function CompanySettingsPage() {
     async () => {
       const issue = wpsFieldIssue({ molReference, wpsIban }, locale)
       if (issue) return { success: false, error: issue, localMessage: issue }
-      const result = await updateCompanyWpsSettings({ molReference, wpsIban }, tenant?.configuration_version ?? 0)
-      if (result.success && result.configuration_version) setTenant(previous => previous ? { ...previous, configuration_version: result.configuration_version! } : previous)
-      return result
+      return runOperation(() => updateCompanyWpsSettings({ molReference, wpsIban }, tenant?.configuration_version ?? 0))
     },
     null
   )
+
+  async function changeLogo(file?: File) {
+    if (logoBusy || isPending || isSavingWps || !tenant?.can_manage || needsReload) return
+    setLogoBusy(true)
+    setLogoMessage("")
+    let preparationFailed = false
+    try {
+      const result = await runOperation(async () => {
+        if (!file) return removeCompanyLogo(tenant.configuration_version,crypto.randomUUID())
+        const prepared = await prepareLogoFile(file)
+        if (!prepared.ok) { preparationFailed = true; setLogoMessage(logoPrepMessage(prepared.error,ar)); return {success:false,code:"SETTINGS_INVALID"} }
+        return uploadCompanyLogo(prepared.dataUrl,tenant.configuration_version,crypto.randomUUID())
+      })
+      if (result.success) setLogoMessage(ar ? "تم حفظ الشعار." : "Company logo saved.")
+      else if (result.code && !preparationFailed) setLogoMessage(settingsMessage(result.code,locale))
+    } finally {
+      setLogoBusy(false)
+      if (logoInput.current) logoInput.current.value = ""
+    }
+  }
 
   const hasPlaceholders = crNumber.includes("PLACEHOLDER") || vatNumber.includes("PLACEHOLDER")
 
@@ -222,7 +230,7 @@ export default function CompanySettingsPage() {
   }
 
   return (
-    <div className="page-enter px-4 lg:px-6 py-4 space-y-6">
+    <div className="page-enter py-4 space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-foreground">{t.settings.companyProfile}</h1>
         <p className="text-sm text-muted-foreground mt-1">
@@ -241,56 +249,26 @@ export default function CompanySettingsPage() {
         </div>
       )}
 
+      {needsReload && <div role="alert" className="flex flex-wrap items-center gap-3 rounded-xl border border-border p-4 text-sm">
+        <span>{settingsMessage("SETTINGS_UNAVAILABLE",locale)}</span>
+        <Button type="button" variant="outline" onClick={() => window.location.reload()}>{ar ? "إعادة تحميل الإعدادات" : "Reload settings"}</Button>
+      </div>}
       <Card className="rounded-2xl border border-border/50 bg-card shadow-sm">
-        <CardHeader className="pb-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl text-elite-blue-600 dark:text-elite-blue-300">
-              <ImageIcon className="h-5 w-5 text-elite-blue-600" />
-            </div>
-            <div>
-              <CardTitle className="text-base">{ar ? "شعار الشركة" : "Company logo"}</CardTitle>
-              <CardDescription className="text-xs">
-                {ar
-                  ? "يظهر في الفواتير وفي القائمة الجانبية. PNG أو JPEG أو WebP حتى 5 ميجابايت."
-                  : "Shown on invoices and in the sidebar. PNG, JPEG, or WebP up to 5 MB."}
-              </CardDescription>
-            </div>
+        <CardHeader><CardTitle className="text-base">{ar ? "شعار الشركة" : "Company logo"}</CardTitle>
+          <CardDescription>{ar ? "يظهر في مساحة العمل والفواتير. PNG أو JPEG أو WebP حتى 5 ميجابايت." : "Shown in your workspace and invoices. PNG, JPEG or WebP up to 5 MB."}</CardDescription></CardHeader>
+        <CardContent><fieldset disabled={!tenant.can_manage || isPending || isSavingWps || logoBusy || needsReload} className="flex flex-wrap items-center gap-4">
+          <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-xl border border-border bg-background">
+            {tenant.logo_url ? <img src={tenant.logo_url} alt={ar ? "شعار الشركة" : "Company logo"} className="h-full w-full object-contain" /> : <Building2 className="h-7 w-7 text-muted-foreground" />}
           </div>
-        </CardHeader>
-        <CardContent className="flex flex-wrap items-center gap-4">
-          <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-xl border border-dashed border-border bg-muted/30">
-            {logoUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={logoUrl} alt={ar ? "شعار الشركة" : "Company logo"} className="h-full w-full object-contain" data-testid="company-logo-preview" />
-            ) : (
-              <ImageIcon className="h-7 w-7 text-muted-foreground" />
-            )}
+          <div className="min-w-0 flex-1 space-y-2"><Label htmlFor="company-logo">{ar ? "اختيار شعار" : "Choose a logo"}</Label>
+            <Input ref={logoInput} id="company-logo" type="file" accept={LOGO_ACCEPT} onChange={event => { const file = event.target.files?.[0]; if (file) void changeLogo(file) }} />
+            <p className="text-sm text-muted-foreground" role="status">{logoBusy ? (ar ? "جارٍ تجهيز الشعار وحفظه…" : "Preparing and saving logo…") : logoMessage}</p>
           </div>
-          <input
-            ref={logoInput}
-            id="companyLogo"
-            type="file"
-            accept={LOGO_ACCEPT}
-            className="sr-only"
-            onChange={(e) => onLogoSelected(e.target.files?.[0])}
-          />
-          <Button type="button" variant="outline" disabled={logoBusy} onClick={() => logoInput.current?.click()}>
-            {logoBusy ? <LoadingSpinner className="h-4 w-4" /> : <Upload className="h-4 w-4" />}
-            {logoUrl ? (ar ? "تغيير الشعار" : "Change logo") : (ar ? "رفع الشعار" : "Upload logo")}
-          </Button>
-          {logoUrl && (
-            <Button type="button" variant="ghost" disabled={logoBusy} onClick={onLogoRemove} className="text-red-600 hover:text-red-700">
-              <Trash2 className="h-4 w-4" />
-              {ar ? "إزالة" : "Remove"}
-            </Button>
-          )}
-          {logoMessage && (
-            <span role="status" className={logoMessage.ok ? "text-sm text-emerald-600" : "text-sm text-red-500"}>{logoMessage.text}</span>
-          )}
-        </CardContent>
+          <Button type="button" variant="outline" disabled={!tenant.logo_url} onClick={() => void changeLogo()}>{ar ? "إزالة الشعار" : "Remove logo"}</Button>
+        </fieldset></CardContent>
       </Card>
 
-      <form action={formAction}><fieldset disabled={!tenant?.can_manage || isPending || loadError} className="min-w-0">
+      <form action={formAction}><fieldset disabled={!tenant?.can_manage || isPending || isSavingWps || logoBusy || needsReload || loadError} className="min-w-0">
         <Card className="rounded-2xl border border-border/50 bg-card shadow-sm">
           <CardHeader className="pb-4">
             <div className="flex items-center gap-3">
@@ -357,7 +335,7 @@ export default function CompanySettingsPage() {
         </Card>
 
         <div className="mt-5 flex items-center gap-3">
-          <Button type="submit" disabled={isPending || !nameAr.trim() || !nameEn.trim()} className="bg-elite-blue-600 hover:bg-elite-blue-700">
+          <Button type="submit" disabled={isPending || !nameAr.trim() || !nameEn.trim()} className="hover:from-elite-blue-700 hover:to-elite-blue-800 bg-foreground text-background">
             {isPending ? (
               <LoadingSpinner className="h-4 w-4" />
             ) : (
@@ -376,7 +354,7 @@ export default function CompanySettingsPage() {
         </div>
       </fieldset></form>
 
-      <form action={wpsAction}><fieldset disabled={!tenant?.can_manage || isSavingWps || loadError} className="min-w-0">
+      <form action={wpsAction}><fieldset disabled={!tenant?.can_manage || isPending || isSavingWps || logoBusy || needsReload || loadError} className="min-w-0">
         <Card className="rounded-2xl border border-border/50 bg-card shadow-sm">
           <CardHeader className="pb-4">
             <div className="flex items-center gap-3">
@@ -422,7 +400,7 @@ export default function CompanySettingsPage() {
               <Button
                 type="submit"
                 disabled={isSavingWps || !molReference.trim() || !wpsIban.trim()}
-                className="bg-elite-blue-600 hover:bg-elite-blue-700"
+                className="hover:from-elite-blue-700 hover:to-elite-blue-800 bg-foreground text-background"
               >
                 {isSavingWps ? <LoadingSpinner className="h-4 w-4" /> : <Save className="h-4 w-4" />}
                 {t.common.saveChanges}

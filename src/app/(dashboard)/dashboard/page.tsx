@@ -49,9 +49,11 @@ const DEFAULT_FILTERS: DashboardFilters = { period: "30d", platform: "all", cate
 
 function SectionHeader({ title, subtitle }: { icon?: React.ElementType; title: string; subtitle?: string }) {
   return (
-    <div>
-      <h2 className="text-base font-semibold text-foreground">{title}</h2>
-      {subtitle && <p className="mt-0.5 text-sm text-muted-foreground">{subtitle}</p>}
+    <div className="flex items-center gap-3">
+      <div>
+        <h2 className="text-sm font-bold text-foreground">{title}</h2>
+        {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
+      </div>
     </div>
   )
 }
@@ -67,19 +69,14 @@ export default function DashboardPage() {
   const [settledRequest, setSettledRequest] = React.useState<typeof request | null>(null)
   const [loadFailed, setLoadFailed] = React.useState(false)
   const requestId = React.useRef(0)
+  const visitedFresh = React.useRef(false)
   const initialLoading = settledRequest !== request && (!request.isRefresh || result?.filters !== filters)
   const refreshing = settledRequest !== request && request.isRefresh
   const loadError = settledRequest === request && loadFailed
-  // The first load of every dashboard visit is computed fresh (and refreshes
-  // the cache): many writes go straight to Supabase, so there is no complete
-  // mutation hook to invalidate on. Only filter switches within the 60-second
-  // window are served from the server cache.
-  const visitedFresh = React.useRef(false)
 
   const requestLoad = (filters: DashboardFilters, isRefresh = false) => setRequest({ filters, isRefresh })
   const load = React.useCallback(() => {
     const id = ++requestId.current
-    // An explicit refresh and the first load of a visit bypass the cache.
     const fresh = request.isRefresh || !visitedFresh.current
     visitedFresh.current = true
     return getDashboardSnapshot(request.filters, { fresh }).then(
@@ -127,10 +124,10 @@ export default function DashboardPage() {
   )
 
   return (
-    <div className="page-enter space-y-8 px-4 lg:px-6">
+    <div className="page-enter space-y-5 sm:space-y-8">
       {/* ── Page header ── */}
-      <ScrollReveal direction="fade" duration={400}>
-        <div className="flex flex-col gap-4">
+      <ScrollReveal disabled direction="fade" duration={400}>
+        <div className="flex flex-col gap-3 sm:gap-4">
           <DashboardHeader snapshot={snapshot} onRefresh={() => requestLoad(filters, true)} refreshing={refreshing} />
           <SetupChecklist />
           <QuickActions />
@@ -138,7 +135,7 @@ export default function DashboardPage() {
       </ScrollReveal>
 
       {/* ── Global filters ── */}
-      <ScrollReveal direction="up" delay={50} duration={400}>
+      <ScrollReveal disabled direction="up" delay={50} duration={400}>
         <FilterBar
           filters={filters}
           onChange={filters => requestLoad(filters)}
@@ -150,9 +147,9 @@ export default function DashboardPage() {
       </ScrollReveal>
 
       {loadError ? (
-        <ScrollReveal direction="scale" delay={100}>
+        <ScrollReveal disabled direction="scale" delay={100}>
           <div className="rounded-2xl border border-red-500/30 bg-red-500/5 p-8 text-center">
-            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl text-elite-blue-600 dark:text-elite-blue-300">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-red-500/10">
               <TriangleAlert className="h-6 w-6 text-red-500" />
             </div>
             <p className="text-sm font-semibold text-red-600 dark:text-red-400">{t.dashboard.unableToLoad}</p>
@@ -166,7 +163,7 @@ export default function DashboardPage() {
         </ScrollReveal>
       ) : initialLoading || !snapshot || !k ? (
         <div className="space-y-8">
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border md:grid-cols-4">
             {Array.from({ length: 8 }).map((_, i) => (
               <KpiSkeleton key={i} />
             ))}
@@ -184,15 +181,15 @@ export default function DashboardPage() {
         <>
           {/* ── Executive KPI row ── */}
           <section aria-label={ui("Executive KPIs")} className="space-y-3">
-            <ScrollReveal direction="up" delay={80}>
+            <ScrollReveal disabled direction="up" delay={80}>
               <SectionHeader
                 icon={LayoutDashboard}
                 title={locale === "ar" ? "مؤشرات الأداء الرئيسية" : "Executive Overview"}
                 subtitle={locale === "ar" ? "نظرة عامة على أداء المؤسسة" : "At-a-glance performance metrics"}
               />
             </ScrollReveal>
-            <StaggerContainer staggerDelay={60} direction="up">
-              <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            <StaggerContainer disabled staggerDelay={60} direction="up">
+              <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border md:grid-cols-4">
                 <KpiCard label={t.dashboard.totalDrivers} metric={k.totalDrivers} icon={UsersRound} color="#1E5A99" href="/drivers" />
                 <KpiCard label={t.dashboard.activeDrivers} metric={k.activeDrivers} icon={CheckCircle2} color="#10B981" href="/drivers" />
                 <KpiCard label={t.dashboard.totalVehicles} metric={k.totalVehicles} icon={CarFront} color="#2F7BC4" href="/vehicles" />
@@ -203,15 +200,15 @@ export default function DashboardPage() {
 
           {/* ── Financial KPI row ── */}
           <section aria-label={ui("Financial KPIs")} className="space-y-3">
-            <ScrollReveal direction="up" delay={80}>
+            <ScrollReveal disabled direction="up" delay={80}>
               <SectionHeader
                 icon={WalletCards}
                 title={locale === "ar" ? "المؤشرات المالية" : "Financial Performance"}
                 subtitle={locale === "ar" ? "الإيرادات والمصروفات" : "Revenue and payroll at a glance"}
               />
             </ScrollReveal>
-            <StaggerContainer staggerDelay={60} direction="up">
-              <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            <StaggerContainer disabled staggerDelay={60} direction="up">
+              <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border md:grid-cols-4">
                 <KpiCard label={t.dashboard.totalOrders} metric={k.totalOrders} icon={PackageCheck} color="#1E5A99" href="/platforms" spark={ordersSpark} />
                 <KpiCard label={t.dashboard.completionRate} metric={k.completionRate} icon={Gauge} color="#10B981" href="/platforms" spark={completionSpark} deltaUnit="pp" />
                 <KpiCard label={t.dashboard.revenue} metric={k.revenue} icon={Banknote} color="#2F7BC4" href="/reports" spark={revenueSpark} currency />
@@ -222,15 +219,15 @@ export default function DashboardPage() {
 
           {/* ── Accounting KPI row (Prompt I) ── */}
           <section aria-label={ui("Accounting KPIs")} className="space-y-3">
-            <ScrollReveal direction="up" delay={80}>
+            <ScrollReveal disabled direction="up" delay={80}>
               <SectionHeader
                 icon={Landmark}
                 title={locale === "ar" ? "المحاسبة" : "Accounting"}
                 subtitle={locale === "ar" ? "قيود دفتر الأستاذ المرحلة والرصيد المتبقي للفواتير والإشعارات المدينة" : "Posted general ledger and outstanding invoice/debit-note receivables"}
               />
             </ScrollReveal>
-            <StaggerContainer staggerDelay={60} direction="up">
-              <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            <StaggerContainer disabled staggerDelay={60} direction="up">
+              <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border md:grid-cols-4">
                 <KpiCard
                   label={t.dashboard.finInvoiceRevenue}
                   metric={buildMetric(snapshot.accounting.revenue, snapshot.accounting.revenuePrevious, snapshot.accounting.available)}
@@ -273,15 +270,15 @@ export default function DashboardPage() {
 
           {/* ── Operational Alerts ── */}
           <section aria-label={ui("Operations")} className="space-y-3">
-            <ScrollReveal direction="up" delay={80}>
+            <ScrollReveal disabled direction="up" delay={80}>
               <SectionHeader
                 icon={ShieldAlert}
                 title={locale === "ar" ? "تنبيهات التشغيل" : "Operational Alerts"}
                 subtitle={locale === "ar" ? "الانتهاكات والمستندات" : "Violations and document expiry"}
               />
             </ScrollReveal>
-            <StaggerContainer staggerDelay={60} direction="up">
-              <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            <StaggerContainer disabled staggerDelay={60} direction="up">
+              <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border md:grid-cols-4">
                 <KpiCard label={t.dashboard.openViolations} metric={k.openViolations} icon={TriangleAlert} color="#EF4444" href="/violations" />
                 <KpiCard label={t.dashboard.pendingApplications} metric={k.pendingApplications} icon={FileClock} color="#0F766E" href="/applications" />
                 <KpiCard label={t.dashboard.expiringDocuments} metric={k.expiringDocuments} icon={CalendarClock} color="#F59E0B" href="/drivers" />
@@ -292,7 +289,7 @@ export default function DashboardPage() {
 
           {/* ── Cross-module operations (fleet / approvals / COD / audit) ── */}
           <section aria-label={ui("Cross-module operations")} className="space-y-3">
-            <ScrollReveal direction="up" delay={80}>
+            <ScrollReveal disabled direction="up" delay={80}>
               <SectionHeader
                 icon={ShieldAlert}
                 title={locale === "ar" ? "العمليات عبر الوحدات" : "Cross-Module Operations"}
@@ -303,61 +300,61 @@ export default function DashboardPage() {
                 }
               />
             </ScrollReveal>
-            <ScrollReveal direction="up" delay={120}>
+            <ScrollReveal disabled direction="up" delay={120}>
               <OpsPanel kpis={snapshot.kpis} approvals={snapshot.approvals} cod={snapshot.cod} />
             </ScrollReveal>
           </section>
 
           {/* ── Primary analytics ── */}
           <section aria-label={ui("Trends")} className="grid gap-4 xl:grid-cols-2">
-            <ScrollReveal direction="up" delay={100}>
+            <ScrollReveal disabled direction="up" delay={100}>
               <OrdersTrend data={snapshot.trends.orders} available={snapshot.availability.orders} onRetry={() => requestLoad(filters, true)} />
             </ScrollReveal>
-            <ScrollReveal direction="up" delay={160}>
+            <ScrollReveal disabled direction="up" delay={160}>
               <RevenueTrend data={snapshot.trends.revenue} available={snapshot.availability.orders} onRetry={() => requestLoad(filters, true)} />
             </ScrollReveal>
           </section>
 
           {/* ── Secondary analytics ── */}
           <section aria-label={ui("Performance")} className="grid gap-4 xl:grid-cols-2">
-            <ScrollReveal direction="left" delay={100}>
+            <ScrollReveal disabled direction="left" delay={100}>
               <PlatformPerformance data={snapshot.platforms} available={snapshot.availability.orders} onRetry={() => requestLoad(filters, true)} />
             </ScrollReveal>
-            <ScrollReveal direction="right" delay={160}>
+            <ScrollReveal disabled direction="right" delay={160}>
               <DriverTargets data={snapshot.driverTargets} buckets={snapshot.targetBuckets} available={snapshot.availability.payroll} onRetry={() => requestLoad(filters, true)} />
             </ScrollReveal>
           </section>
 
           {/* ── Financial ── */}
-          <ScrollReveal direction="up" delay={100}>
+          <ScrollReveal disabled direction="up" delay={100}>
             <PayrollSummary payroll={snapshot.payroll} />
           </ScrollReveal>
 
           {/* ── Compliance + violations ── */}
           <section aria-label={ui("Compliance")} className="grid gap-4 xl:grid-cols-2">
-            <ScrollReveal direction="left" delay={100}>
-              <ComplianceRadar compliance={snapshot.compliance} available={snapshot.availability.drivers || snapshot.availability.vehicles} onRetry={() => requestLoad(filters, true)} />
+            <ScrollReveal disabled direction="left" delay={100}>
+              <ComplianceRadar compliance={snapshot.compliance} available={snapshot.availability.drivers && snapshot.availability.vehicles} onRetry={() => requestLoad(filters, true)} />
             </ScrollReveal>
-            <ScrollReveal direction="right" delay={160}>
+            <ScrollReveal disabled direction="right" delay={160}>
               <ViolationsTrend data={snapshot.trends.violations} available={snapshot.availability.violations} onRetry={() => requestLoad(filters, true)} />
             </ScrollReveal>
           </section>
 
           {/* ── Action center + insights + activity ── */}
           <section aria-label={ui("Actions and insights")} className="grid gap-4 xl:grid-cols-3">
-            <ScrollReveal direction="up" delay={80}>
+            <ScrollReveal disabled direction="up" delay={80}>
               <ActionCenter actions={snapshot.actions} />
             </ScrollReveal>
-            <ScrollReveal direction="up" delay={140}>
+            <ScrollReveal disabled direction="up" delay={140}>
               <Insights insights={snapshot.insights} />
             </ScrollReveal>
-            <ScrollReveal direction="up" delay={200}>
+            <ScrollReveal disabled direction="up" delay={200}>
               <RecentActivity activity={snapshot.activity} />
             </ScrollReveal>
           </section>
 
           {/* ── Drill-down table ── */}
-          <ScrollReveal direction="up" delay={100}>
+          <ScrollReveal disabled direction="up" delay={100}>
             <DriverTable data={snapshot.driverTargets} available={snapshot.availability.payroll} onRetry={() => requestLoad(filters, true)} />
           </ScrollReveal>
         </>

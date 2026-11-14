@@ -127,7 +127,7 @@ const CATEGORY_META: Record<DriverCategory, { ar: string; en: string; className:
     ar: "كفيل نوع ٢",
     en: "Sponsored T2",
     className:
-      "bg-teal-500/15 text-teal-700 dark:text-teal-400 border border-teal-500/20",
+      "bg-purple-500/15 text-purple-700 dark:text-purple-400 border border-purple-500/20",
   },
   freelancer: {
     ar: "مستقل",
@@ -197,7 +197,7 @@ function DriverAvatarImage({ name, initial }: { name: string | null; initial: st
         />
       ) : null}
       {!photoUrl || imgFailed ? (
-        <span className="flex h-full w-full items-center justify-center bg-elite-blue-500 text-xs font-semibold text-white">
+        <span className="flex h-full w-full items-center justify-center text-xs font-semibold text-background bg-foreground">
           {initial}
         </span>
       ) : null}
@@ -469,7 +469,7 @@ export default function DriversPage() {
 
   return (
     <div
-      className="px-4 py-4 lg:px-6"
+      className="py-4"
       onDoubleClick={(e) => {
         const target = e.target as HTMLElement
         if (target.closest("[data-row-actions]")) return
@@ -481,12 +481,12 @@ export default function DriversPage() {
       }}
     >
       {/* Filter + export toolbar */}
-      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-border/50 bg-card/60 px-4 py-3">
+      <div className="mb-4 flex min-w-0 flex-wrap items-center gap-3 rounded-2xl border border-border/50 bg-card px-4 py-3">
         <Select
           value={statusFilter}
           onValueChange={(v) => { setStatusFilter(v as "all" | DriverStatus); pagination.onPageChange(1) }}
         >
-          <SelectTrigger className="h-9 w-36 rounded-xl bg-muted/30 text-xs">
+          <SelectTrigger className="min-h-11 w-36 rounded-xl bg-muted/30 text-xs">
             <SelectValue placeholder={isAr ? "الحالة" : "Status"} />
           </SelectTrigger>
           <SelectContent>
@@ -502,7 +502,7 @@ export default function DriversPage() {
           value={categoryFilter}
           onValueChange={(v) => { setCategoryFilter(v as "all" | DriverCategory); pagination.onPageChange(1) }}
         >
-          <SelectTrigger className="h-9 w-40 rounded-xl bg-muted/30 text-xs">
+          <SelectTrigger className="min-h-11 w-40 rounded-xl bg-muted/30 text-xs">
             <SelectValue placeholder={isAr ? "الفئة" : "Category"} />
           </SelectTrigger>
           <SelectContent>
@@ -514,38 +514,38 @@ export default function DriversPage() {
             ))}
           </SelectContent>
         </Select>
-        <div className="flex items-center gap-2">
+        <div className="flex min-h-11 items-center gap-2">
           <Switch
             id="expiring-only"
             checked={expiringOnly}
             onCheckedChange={(value) => { setExpiringOnly(value); pagination.onPageChange(1) }}
           />
-          <Label htmlFor="expiring-only" className="text-xs text-muted-foreground">
+          <Label htmlFor="expiring-only" className="flex min-h-11 items-center text-xs text-muted-foreground">
             {isAr ? `تنتهي خلال ${EXPIRY_WINDOW_DAYS} يوم` : `Expiring ≤ ${EXPIRY_WINDOW_DAYS}d`}
           </Label>
         </div>
-        <div className="ms-auto flex items-center gap-3">
-          <span className="text-xs tabular-nums text-muted-foreground">
+        <div className="flex w-full min-w-0 flex-wrap items-center justify-end gap-2 sm:ms-auto sm:w-auto">
+          <span className="me-auto shrink-0 whitespace-nowrap text-xs tabular-nums text-muted-foreground">
             {isAr
               ? `${filtered.length} من ${pagination.totalRecords}`
               : `${filtered.length} of ${pagination.totalRecords}`}
           </span>
-          <Button variant="outline" size="sm" className="h-9 gap-1.5 rounded-xl" onClick={() => setImportOpen(true)}>
+          <Button variant="outline" size="sm" className="h-11 shrink-0 gap-1.5 rounded-xl" onClick={() => setImportOpen(true)}>
             <Upload className="h-3.5 w-3.5" />
             {isAr ? "استيراد Excel" : "Import Excel"}
           </Button>
-          <Button variant="outline" size="sm" className="h-9 gap-1.5 rounded-xl" onClick={() => setDocUploadOpen(true)} data-testid="open-document-upload">
+          <Button variant="outline" size="sm" className="h-11 shrink-0 gap-1.5 rounded-xl" onClick={() => setDocUploadOpen(true)} data-testid="open-document-upload">
             <FileUp className="h-3.5 w-3.5" />
             {isAr ? "رفع مستند" : "Upload document"}
           </Button>
-          <Button variant="outline" size="sm" className="h-9 gap-1.5 rounded-xl" onClick={() => setCardDesignerOpen(true)} data-testid="open-card-designer">
+          <Button variant="outline" size="sm" className="h-11 shrink-0 gap-1.5 rounded-xl" onClick={() => setCardDesignerOpen(true)} data-testid="open-card-designer">
             <Palette className="h-3.5 w-3.5" />
             {isAr ? "بطاقة المندوب" : "Rider card"}
           </Button>
           <Button
             variant="outline"
             size="sm"
-            className="h-9 gap-1.5 rounded-xl"
+            className="h-11 shrink-0 gap-1.5 rounded-xl"
             onClick={exportCsv}
             disabled={isLoading || exporting || !!error || pagination.totalRecords === 0}
           >

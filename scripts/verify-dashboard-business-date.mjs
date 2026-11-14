@@ -1,14 +1,15 @@
+import {verificationFetch,verificationRequest,installVerificationAccess} from './lib/verification-access.mjs'
 import { expect as baseExpect } from '@playwright/test'
 const expect = baseExpect.configure({ timeout: 20_000 })
 
 export async function verifyDashboardBusinessDate(page, appUrl) {
   const origin = new URL(appUrl).origin
-  const policy = (await fetch(origin + '/landing')).headers.get('content-security-policy') ?? ''
+  const policy = (await verificationFetch(origin + '/landing',{},appUrl)).headers.get('content-security-policy') ?? ''
   const local = ['http://localhost:3107', 'http://localhost:3108'].includes(origin) && policy.includes('http://127.0.0.1:58321')
   if ((!local && !policy.includes('https://viowrovartosrkqukjxy.supabase.co')) || policy.includes('https://wwfnsbilmyxeawgzicmv.supabase.co')) throw Error('Isolated date verification required')
   // Never write authenticated storage state or page bodies to disk/logs.
   const state = await page.context().storageState()
-  const response = await page.request.get(origin + '/dashboard')
+  const response = await verificationRequest(page.request,origin + '/dashboard',{},appUrl)
   if (!response.ok()) throw Error('Dashboard SSR unavailable')
   const html = await response.text()
   const initial = await page.evaluate(html => {
@@ -18,6 +19,7 @@ export async function verifyDashboardBusinessDate(page, appUrl) {
   expect(initial).toEqual({ text: '—', date: null })
   for (const timeZone of ['UTC', 'Asia/Riyadh', 'America/Los_Angeles']) {
     const context = await page.context().browser().newContext({ storageState: state, timezoneId: timeZone })
+    await installVerificationAccess(context,appUrl)
     try {
       const probe = await context.newPage(), errors = []
       probe.on('pageerror', error => errors.push({ name: error.name, code: /Minified React error #(\d+)/.exec(error.message)?.[1] }))

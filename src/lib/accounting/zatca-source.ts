@@ -43,6 +43,7 @@ export async function loadZatcaSourceDocument(
   tenantId: string,
   docType: "invoice" | "credit_note" | "debit_note",
   sourceId: string,
+  options: { existingPreparationEnvironment?: "sandbox" | "simulation" | "production" | null } = {},
 ): Promise<ZatcaSourceDocument | "skipped" | "failed"> {
   // Load the source document. InvoiceFinalizedEvent → invoices;
   // Credit/DebitNoteIssuedEvent → the note table (its JSONB lines snapshot).
@@ -66,10 +67,21 @@ export async function loadZatcaSourceDocument(
       .eq("id", sourceId)
       .eq("tenant_id", tenantId)
       .maybeSingle<InvoiceRow>()
-    if (invErr || !inv) return "skipped"
+    if (invErr) return "failed"
+    if (!inv) return "skipped"
     // Only finalized SALES invoices are transmitted (ZATCA reports output-tax
     // documents). Purchases and non-finalized states are skipped.
-    if (inv.invoice_type !== "sales" || inv.status !== "finalized") return "skipped"
+    if (inv.invoice_type !== "sales" || !["finalized", "paid", "partially_paid", "overdue"].includes(inv.status)) return "skipped"
+    // Payment must never allocate a new tax identity. The live adapter may
+    // retry a retained preparation in its exact environment; dry runs cannot.
+    if (inv.status !== "finalized") {
+      if (!options.existingPreparationEnvironment) return "skipped"
+      const { data: prepared, error: preparedError } = await admin.from("zatca_document_issuances")
+        .select("id").eq("tenant_id", tenantId).eq("environment", options.existingPreparationEnvironment)
+        .eq("source_type", "invoice").eq("source_id", inv.id).maybeSingle()
+      if (preparedError) return "failed"
+      if (!prepared) return "skipped"
+    }
 
     const { data: lineRows, error: linesErr } = await admin
       .from("invoice_lines")
@@ -119,14 +131,16 @@ export async function loadZatcaSourceDocument(
         reason: string | null
         lines: unknown
       }>()
-    if (noteErr || !note) return "skipped"
-    const { data: refInv } = await admin
+    if (noteErr) return "failed"
+    if (!note) return "skipped"
+    const { data: refInv, error: refError } = await admin
       .from("invoices")
       .select("invoice_number")
       .eq("id", note.reference_invoice_id)
       .eq("tenant_id", tenantId)
       .maybeSingle<{ invoice_number: string }>()
-    referenceInvoiceNumber = refInv?.invoice_number
+    if (refError || !refInv) return "failed"
+    referenceInvoiceNumber = refInv.invoice_number
     noteReason = note.reason?.trim() || (docType === "credit_note" ? "Adjustment" : "Additional charge")
 
     invoiceId = note.reference_invoice_id

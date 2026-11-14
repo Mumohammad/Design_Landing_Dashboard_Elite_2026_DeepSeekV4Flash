@@ -222,9 +222,9 @@ function Section({ id, isAr, children, cols = 3 }: { id: (typeof SECTIONS)[numbe
   const meta = SECTIONS.find((x) => x.id === id)!
   const Icon = meta.icon
   return (
-    <section id={`create-driver-section-${id}`} aria-labelledby={`create-driver-section-${id}-title`} className="scroll-mt-28 rounded-2xl border border-border/60 bg-card p-4 shadow-xs sm:p-5">
+    <section id={`create-driver-section-${id}`} aria-labelledby={`create-driver-section-${id}-title`} className="min-w-0 scroll-mt-28 rounded-lg bg-card p-4 sm:p-5">
       <div className="mb-4 flex items-start gap-3">
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-elite-blue-500/10 text-elite-blue-600 dark:text-elite-blue-300"><Icon className="size-4" /></span>
+        <Icon aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0">
           <h3 id={`create-driver-section-${id}-title`} className="text-sm font-semibold">{isAr ? meta.ar : meta.en}</h3>
           <p className="text-xs text-muted-foreground">{isAr ? meta.hintAr : meta.hintEn}</p>
@@ -327,7 +327,7 @@ export function CreateDriverDialog({
     const platformError = platformRowsError(platformRows, isAr)
     if (platformError) {
       toast.error(platformError)
-      document.getElementById("create-driver-section-platforms")?.scrollIntoView({ behavior: "smooth", block: "start" })
+      document.getElementById("create-driver-section-platforms")?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start" })
       return
     }
     setSubmitting(true)
@@ -407,8 +407,8 @@ export function CreateDriverDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92dvh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] gap-0 overflow-y-auto overflow-x-hidden rounded-2xl p-0 sm:max-w-5xl [&>[data-slot=dialog-close]]:z-20">
-        <div className="sticky top-0 z-10 min-w-0 border-b border-border/60 bg-background/95 pb-3 pl-4 pr-12 pt-4 backdrop-blur sm:pl-6">
+      <DialogContent className="max-h-[92dvh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] gap-0 overflow-y-auto overflow-x-hidden rounded-lg p-0 sm:max-w-5xl [&>[data-slot=dialog-close]]:z-20">
+        <div className="sticky top-0 z-10 min-w-0 border-b border-border bg-background pb-3 ps-4 pe-12 pt-4 sm:ps-6">
           <DialogHeader className="text-start">
             <DialogTitle className="text-lg">
               {isAr ? "إنشاء سائق جديد" : "Create New Driver"}
@@ -419,11 +419,11 @@ export function CreateDriverDialog({
                 : "Fields marked * are required; the rest can be completed later from the driver profile."}
             </DialogDescription>
           </DialogHeader>
-          <nav aria-label={isAr ? "أقسام النموذج" : "Form sections"} className="-mx-1 mt-3 flex gap-1.5 overflow-x-auto px-1 pb-0.5">
+          <nav aria-label={isAr ? "أقسام النموذج" : "Form sections"} className="-mx-1 mt-3 flex min-w-0 gap-1.5 overflow-x-auto px-1 pb-0.5">
             {SECTIONS.map((sec) => (
-              <a key={sec.id} href={`#create-driver-section-${sec.id}`} onClick={(e) => { e.preventDefault(); document.getElementById(`create-driver-section-${sec.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" }) }}
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border/60 bg-muted/30 px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:border-elite-blue-500/40 hover:bg-elite-blue-500/10 hover:text-elite-blue-700 dark:hover:text-elite-blue-300">
-                <sec.icon className="size-3.5" />{isAr ? sec.ar : sec.en}
+              <a key={sec.id} href={`#create-driver-section-${sec.id}`} onClick={(e) => { e.preventDefault(); document.getElementById(`create-driver-section-${sec.id}`)?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start" }) }}
+                className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-md px-3 text-sm font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring">
+                <sec.icon aria-hidden="true" className="size-3.5" />{isAr ? sec.ar : sec.en}
               </a>
             ))}
           </nav>
@@ -655,8 +655,8 @@ export function CreateDriverDialog({
           {/* Platforms */}
           <Section id="platforms" isAr={isAr} cols={1}>
             <PlatformIdsEditor rows={platformRows} onChange={setPlatformRows} isAr={isAr} idPrefix="create-driver" />
-            <div className="mt-2 flex flex-col items-center gap-4 rounded-xl border border-border/50 bg-gradient-to-br from-elite-blue-500/5 via-transparent to-violet-500/5 p-4 sm:flex-row sm:items-start" data-testid="create-driver-card-preview">
-              <div className="flex gap-3">{(["front", "back"] as const).map((side) => (<div key={side} className="rounded-[14px] shadow-[0_14px_32px_-16px_rgba(15,30,51,0.5)]">
+            <div className="mt-2 flex min-w-0 flex-col items-center gap-4 rounded-lg bg-muted p-4 sm:flex-row sm:items-start" data-testid="create-driver-card-preview">
+              <div className="flex min-w-0 max-w-full flex-wrap justify-center gap-3">{(["front", "back"] as const).map((side) => (<div key={side} className="rounded-[14px] shadow-[0_14px_32px_-16px_rgba(15,30,51,0.5)]">
                 <RiderCardFace side={side} scale={0.5}
                   theme={platformTheme(cardPlatform?.code ?? platformRows.find((r) => r.code)?.code ?? DEFAULT_CARD_PLATFORM)}
                   riderId={cardPlatform?.riderId.trim() || "—"}
@@ -698,7 +698,7 @@ export function CreateDriverDialog({
           {Object.keys(errors).length > 0 && (
             <p role="alert" className="flex items-center gap-2 rounded-xl bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive"><CircleAlert className="size-4 shrink-0" />{isAr ? `يرجى تصحيح ${Object.keys(errors).length} حقل قبل الحفظ.` : `Please fix ${Object.keys(errors).length} field(s) before saving.`}</p>
           )}
-          <div className="sticky bottom-0 z-10 -mx-4 flex items-center justify-end gap-3 border-t border-border/60 bg-background/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6">
+          <div className="sticky bottom-0 z-10 -mx-4 flex flex-wrap items-center justify-end gap-3 border-t border-border bg-background px-4 py-3 sm:-mx-6 sm:px-6">
             <Button
               type="button"
               variant="ghost"
@@ -710,7 +710,7 @@ export function CreateDriverDialog({
             <Button
               type="submit"
               disabled={submitting}
-              className="rounded-xl bg-elite-blue-500 text-white hover:bg-elite-blue-600"
+              className="bg-foreground text-background hover:bg-foreground/90"
             >
               {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
               {isAr ? "إنشاء السائق" : "Create driver"}

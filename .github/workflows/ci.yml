@@ -50,10 +50,19 @@ jobs:
 
     - name: Preview isolation and historical archive checks
       run: |
-        node --test scripts/preview-safety.test.mjs scripts/verify-staging-history.test.mjs scripts/assert-module-test-target.test.mjs scripts/verify-driver-evidence.test.mjs scripts/verify-driver-leave-lifecycle.test.mjs scripts/verify-platform-admin-users.test.mjs scripts/coordinated-acceptance.test.mjs scripts/verify-accounting-master-crud.test.mjs scripts/verify-invoice-reference-and-pages.test.mjs scripts/retire-release-acceptance.test.mjs scripts/write-release-evidence.test.mjs scripts/acceptance-fixture-ledgers.test.mjs scripts/finance-verification-contracts.test.mjs
+        node --test scripts/preview-safety.test.mjs scripts/staging-preview-manifest.test.mjs scripts/verify-e2e-application-fixture.test.mjs scripts/verification-access.test.mjs scripts/verification-failure.test.mjs scripts/verify-staging-history.test.mjs scripts/assert-module-test-target.test.mjs scripts/verify-driver-evidence.test.mjs scripts/verify-driver-leave-lifecycle.test.mjs scripts/verify-platform-admin-users.test.mjs scripts/coordinated-acceptance.test.mjs scripts/verify-accounting-master-crud.test.mjs scripts/verify-invoice-reference-and-pages.test.mjs scripts/retire-release-acceptance.test.mjs scripts/write-release-evidence.test.mjs scripts/acceptance-fixture-ledgers.test.mjs scripts/finance-verification-contracts.test.mjs scripts/verify-local-expenses.test.mjs scripts/verify-local-receivables.test.mjs scripts/verify-vat-position.test.mjs
         node scripts/verify-staging-history.mjs
+        node --test scripts/verify-migration-versions.test.mjs
+        node scripts/verify-migration-versions.mjs
 
     # ── FX-10: every API route must self-guard or be explicitly allowlisted ──
+
+    - name: Install Chromium for native verification transport tests
+      run: pnpm exec playwright install --with-deps chromium
+
+    - name: Native Preview verification transport
+      timeout-minutes: 3
+      run: node --test scripts/verification-proxy.test.mjs
 
     - name: API route guard check
       run: node scripts/verify-api-guards.mjs
@@ -346,7 +355,10 @@ jobs:
           sleep 2
         done
         test "$ready" = "1" || { echo "Local app dependencies are not ready"; exit 1; }
-        VERIFY_PASSWORD_FLOWS=1 VERIFY_APPROVALS=1 VERIFY_EXPENSES=1 VERIFY_RECEIVABLE_CRUD=1 VERIFY_INVOICE_CRUD=1 VERIFY_JOURNAL_CRUD=1 VERIFY_BANK_CRUD=1 VERIFY_OPERATIONS_CRUD=1 VERIFY_DRIVERS_CRUD=1 VERIFY_PLATFORM_PAYROLL=1 VERIFY_VEHICLES_CRUD=1 VERIFY_ORDERS_CRUD=1 VERIFY_USERS_INVITES=1 VERIFY_VIOLATIONS_CRUD=1 VERIFY_APPLICATIONS_REVIEW=1 VERIFY_LEAVE_FLOW=1 VERIFY_REPORTS=1 VERIFY_SETTINGS=1 VERIFY_OVERVIEWS=1 node scripts/verify-local-mfa.mjs
+        # Approval fixtures retain immutable source/audit history. Keep the
+        # pristine expense assertions in a separately provisioned owner/company.
+        VERIFY_PASSWORD_FLOWS=1 VERIFY_APPROVALS=1 VERIFY_EXPENSES=0 VERIFY_RECEIVABLE_CRUD=1 VERIFY_INVOICE_CRUD=1 VERIFY_JOURNAL_CRUD=1 VERIFY_BANK_CRUD=1 VERIFY_OPERATIONS_CRUD=1 VERIFY_DRIVERS_CRUD=1 VERIFY_PLATFORM_PAYROLL=1 VERIFY_VEHICLES_CRUD=1 VERIFY_ORDERS_CRUD=1 VERIFY_USERS_INVITES=1 VERIFY_VIOLATIONS_CRUD=1 VERIFY_APPLICATIONS_REVIEW=1 VERIFY_LEAVE_FLOW=1 VERIFY_REPORTS=1 VERIFY_SETTINGS=1 VERIFY_OVERVIEWS=1 node scripts/verify-local-mfa.mjs
+        VERIFY_EXPENSES=1 node scripts/verify-local-mfa.mjs
         node scripts/verify-invoice-print.mjs
 
     - name: Upload browser verification failure evidence
@@ -366,18 +378,21 @@ jobs:
   # ── E2E tests (independent PR release gate, needs staging env) ────────────
   e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    # Hosted staging E2E needs a per-commit staging preview (deploy.yml
-    # `preview`, currently on release hold). Until that is switched on, the
-    # same browser flows run against the disposable local stack in the pgtap
-    # job; set repository variable STAGING_E2E_ENABLED=true to re-enable.
-    if: github.event_name == 'pull_request' && vars.STAGING_E2E_ENABLED == 'true'
+    permissions:
+      contents: read
+      id-token: write
+    timeout-minutes: 25
+    # The release branch must run this gate even if optional E2E is disabled
+    # for other PRs. Missing/stale staging or Preview access must fail visibly.
+    # Forks never receive this credential-bearing hosted job.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (vars.STAGING_E2E_ENABLED == 'true' || github.event.pull_request.head.ref == 'codex/production-modules-completion')
     env:
-      BASE_URL: ${{ secrets.STAGING_URL }}
+      BASE_URL: ${{ vars.STAGING_APP_URL || secrets.STAGING_URL }}
       TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
       TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
       STAGING_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
       STAGING_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+      E2E_TENANT_SLUG: ${{ vars.E2E_TENANT_SLUG }}
 
     steps:
     - name: Checkout
@@ -400,10 +415,17 @@ jobs:
     - name: Install Playwright browsers
       run: pnpm exec playwright install --with-deps chromium
 
+    - name: Select exact-commit staging Preview
+      if: github.event.pull_request.head.ref == 'codex/production-modules-completion'
+      env:
+        GH_TOKEN: ${{ github.token }}
+        STAGING_MANIFEST_COMMIT: ${{ github.event.pull_request.head.sha }}
+      run: node scripts/resolve-staging-preview.mjs
+
     - name: Verify E2E configuration
       run: |
         missing=0
-        for var in BASE_URL TEST_USER_EMAIL TEST_USER_PASSWORD STAGING_SUPABASE_URL; do
+        for var in BASE_URL TEST_USER_EMAIL TEST_USER_PASSWORD STAGING_SUPABASE_URL E2E_TENANT_SLUG; do
           if [ -z "${!var}" ]; then
             echo "MISSING: $var is required for authenticated staging E2E"
             missing=1
@@ -420,12 +442,15 @@ jobs:
         STAGING_EXPECTED_COMMIT: ${{ github.event.pull_request.head.sha }}
       run: |
         node scripts/wait-for-staging.mjs
-        pnpm exec playwright test e2e/smoke.spec.ts e2e/locale-session.spec.ts e2e/public-surface.spec.ts --reporter=github
+        pnpm exec playwright test e2e/smoke.spec.ts e2e/locale-session.spec.ts e2e/public-surface.spec.ts e2e/driver-document-quick-upload.spec.ts --reporter=github
 
 
   # Full synthetic acceptance is a separate, serialized staging mutation gate.
   staging_acceptance:
     needs: [ci, pgtap]
+    permissions:
+      contents: read
+      id-token: write
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/production-modules-completion'
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -433,7 +458,7 @@ jobs:
       group: staging-full-acceptance-production-modules-completion
       cancel-in-progress: false
     env:
-      VERIFY_APP_URL: ${{ secrets.STAGING_URL }}
+      VERIFY_APP_URL: ${{ vars.STAGING_APP_URL || secrets.STAGING_URL }}
       VERIFY_COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
@@ -460,6 +485,13 @@ jobs:
 
     - name: Install Playwright Chromium
       run: pnpm exec playwright install --with-deps chromium
+
+    - name: Select exact-commit staging Preview
+      if: github.event.pull_request.head.ref == 'codex/production-modules-completion'
+      env:
+        GH_TOKEN: ${{ github.token }}
+        STAGING_MANIFEST_COMMIT: ${{ github.event.pull_request.head.sha }}
+      run: node scripts/resolve-staging-preview.mjs
 
     - name: Validate isolated configuration and allocate owned run
       id: acceptance_config

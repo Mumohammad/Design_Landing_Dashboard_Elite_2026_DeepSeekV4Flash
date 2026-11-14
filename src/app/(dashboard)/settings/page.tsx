@@ -11,18 +11,16 @@ import {
   FileText,
   Users,
   Globe,
-  ArrowLeft,
+  ArrowRight,
   BellRing,
   Wallet,
 } from "lucide-react"
-import { ScrollReveal, StaggerContainer } from "@/components/ui/scroll-reveal"
 
 interface SettingCard {
   title: string
   description: string
   href: string
   icon: typeof Building2
-  color: string
 }
 
 export default function SettingsPage() {
@@ -34,111 +32,92 @@ export default function SettingsPage() {
       description: t.common.status === "الحالة" ? "معلومات الشركة، السجل التجاري، الرقم الضريبي" : "Company info, CR, VAT number",
       href: "/settings/company",
       icon: Building2,
-      color: "#1E5A99",
     },
     {
       title: t.settings.securitySettings,
       description: t.common.status === "الحالة" ? "كلمة المرور، التحقق الثنائي، الجلسات" : "Password, 2FA, sessions",
       href: "/settings/security",
       icon: Shield,
-      color: "#EF4444",
     },
     {
       title: t.nav.users,
       description: t.common.status === "الحالة" ? "إدارة المستخدمين والدعوات" : "User management and invites",
       href: "/settings/users",
       icon: Users,
-      color: "#0F766E",
     },
     {
       title: t.settings.language,
       description: t.common.status === "الحالة" ? "اللغة، المنطقة الزمنية، صيغة التاريخ" : "Language, timezone, date format",
       href: "/settings/language",
       icon: Globe,
-      color: "#0EA5E9",
     },
     {
       title: t.settings.payrollDefaults,
       description: t.common.status === "الحالة" ? "الحد الأدنى للراتب، GOSI، البدلات" : "Minimum wage, GOSI, allowances",
       href: "/settings/payroll-defaults",
       icon: CreditCard,
-      color: "#10B981",
     },
     {
       title: t.nav.auditLog,
       description: t.common.status === "الحالة" ? "سجل التدقيق غير القابل للتغيير" : "Immutable audit trail",
       href: "/audit-log",
       icon: FileText,
-      color: "#F59E0B",
     },
     {
       title: t.common.status === "الحالة" ? "التحقق الثنائي (MFA)" : "Two-Factor Auth",
       description: t.common.status === "الحالة" ? "تطبيق المصادقة، QR، إدارة العوامل" : "Authenticator app, QR, factor management",
       href: "/settings/mfa",
       icon: ShieldCheck,
-      color: "#10B981",
     },
     {
       title: t.common.status === "الحالة" ? "الإشعارات والتنبيهات" : "Notifications",
       description: t.common.status === "الحالة" ? "ملخص بريدي دوري للإدارة بانتهاء الوثائق والفواتير المتأخرة" : "Periodic email digest of expiring documents and overdue invoices",
       href: "/settings/notifications",
       icon: BellRing,
-      color: "#EF4444",
     },
     {
       title: t.common.status === "الحالة" ? "الفوترة والاشتراك" : "Billing & subscription",
       description: t.common.status === "الحالة" ? "فواتير الاشتراك والدفع بمدى وفيزا وApple Pay" : "Subscription invoices, pay by mada, Visa or Apple Pay",
       href: "/settings/billing",
       icon: Wallet,
-      color: "#0EA5E9",
     },
   ]
 
   return (
-    <div className="px-4 lg:px-6 py-4 space-y-6 page-enter">
-      <ScrollReveal direction="fade" duration={400}>
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted/50 border border-border/50">
-            <KeyRound className="h-5 w-5 text-muted-foreground" />
-          </div>
+    <div className="space-y-6 py-4">
+        <div className="flex items-start gap-3">
+          <KeyRound className="mt-1 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-foreground">{t.nav.settings}</h1>
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground">{t.nav.settings}</h1>
             <p className="text-sm text-muted-foreground mt-0.5">
               {t.common.status === "الحالة" ? "إدارة إعدادات النظام والشركة والأمان" : "Manage system, company, and security settings"}
             </p>
           </div>
         </div>
-      </ScrollReveal>
-
-      <StaggerContainer staggerDelay={60} direction="up">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid gap-3 md:grid-cols-2">
           {cards.map((card) => {
             const Icon = card.icon
             return (
               <Link
                 key={card.href}
                 href={card.href}
-                className="group relative overflow-hidden rounded-2xl border border-border/50 bg-card p-6 shadow-sm hover:shadow-black/[0.04] transition-all duration-300 hover:-translate-y-0.5 hover:border-border/80"
+                className="group rounded-lg border border-border bg-card p-5 transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring md:last:col-span-2"
               >
-                <div className="relative">
-                  <div
-                    className="flex h-12 w-12 items-center justify-center rounded-xl mb-4 transition-transform duration-300 group-hover:scale-110"
-                    style={{ backgroundColor: `${card.color}12` }}
-                  >
-                    <Icon className="h-6 w-6" style={{ color: card.color }} />
+                <div className="flex items-start gap-3">
+                  <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                  <div className="min-w-0">
+                    <h2 className="text-base font-medium text-foreground">{card.title}</h2>
+                    <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{card.description}</p>
                   </div>
-                  <h3 className="text-sm font-semibold text-foreground mb-1 group-hover:text-foreground transition-colors">{card.title}</h3>
-                  <p className="text-xs text-muted-foreground leading-relaxed">{card.description}</p>
-                  <div className="mt-4 flex items-center gap-1 text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity duration-200" style={{ color: card.color }}>
-                    <span>{t.common.status === "الحالة" ? "الإعدادات" : "Settings"}</span>
-                    <ArrowLeft className="h-3 w-3 rtl:rotate-180" />
-                  </div>
+                </div>
+                <div className="mt-4 flex items-center gap-2 text-sm font-medium text-foreground">
+                  <span>{t.common.status === "الحالة" ? "الإعدادات" : "Settings"}</span>
+                  <ArrowRight className="h-4 w-4 rtl:rotate-180" aria-hidden="true" />
                 </div>
               </Link>
             )
           })}
         </div>
-      </StaggerContainer>
     </div>
   )
 }

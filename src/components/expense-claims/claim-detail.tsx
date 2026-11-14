@@ -1,5 +1,5 @@
 "use client"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
@@ -21,6 +21,7 @@ import {
 import { ClaimEditor } from "./claim-editor"
 import { Notice, StatusBadge, UnverifiedTag, ZatcaCheckPanel, useBi } from "./shared"
 import { zatcaPurchaseCheck } from "@/lib/expense-claims/zatca-check"
+import { readCompleteAttachments } from "@/lib/expense-claims/complete-reads"
 
 interface ClaimEvent { id: number; actor_id: string | null; action: string; from_status: string | null; to_status: string | null; changes: Record<string, unknown>; comment: string | null; source: string; created_at: string }
 
@@ -47,33 +48,48 @@ export function ClaimDetail({ id }: { id: string }) {
   const [reference, setReference] = useState("")
   const [busy, setBusy] = useState<string | null>(null)
   const [checklist, setChecklist] = useState<Record<string, "yes" | "no" | "na">>({})
+  const [loadError, setLoadError] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const readEpoch = useRef({ value: 0 })
 
   const load = useCallback(async () => {
+    const epoch = ++readEpoch.current.value
+    try {
+    setLoadError(false); setLoading(true)
     const supabase = createClient()
-    const [c, a, e] = await Promise.all([
+    const [c, attachments, e, permissions, policy, actors] = await Promise.all([
       supabase.from("expense_claims").select("*").eq("id", id).maybeSingle(),
-      supabase.from("expense_claim_attachments").select("id,claim_id,original_filename,mime_type,size_bytes,sha256,doc_kind,source,uploaded_at").eq("claim_id", id).order("uploaded_at"),
+      readCompleteAttachments(supabase, [id]),
       supabase.from("expense_claim_events").select("id,actor_id,action,from_status,to_status,changes,comment,source,created_at").eq("claim_id", id).order("created_at", { ascending: false }).limit(200),
+      getExpenseAccess(), getClaimSettings(), getTenantUserNames(),
     ])
+    if (epoch !== readEpoch.current.value) return
+    if (c.error || e.error) throw Error("Claim evidence unavailable")
     if (!c.data) { setMissing(true); return }
     const cl = c.data as ExpenseClaim
-    setClaim(cl); setAtts((a.data ?? []) as ClaimAttachment[]); setEvents((e.data ?? []) as ClaimEvent[])
-    setChecklist((cl.review_checklist ?? {}) as Record<string, "yes" | "no" | "na">)
+    let related: typeof dupes = []
     if (cl.duplicate_of?.length) {
       const d = await supabase.from("expense_claims").select("id,claim_no,status,supplier_name,total_amount,currency,expense_date").in("id", cl.duplicate_of)
-      setDupes((d.data ?? []) as typeof dupes)
-    } else setDupes([])
+      if (d.error) throw Error("Duplicate evidence unavailable")
+      related = (d.data ?? []) as typeof dupes
+    }
+    if (epoch !== readEpoch.current.value) return
+    setMissing(false); setClaim(cl); setAtts(attachments); setEvents((e.data ?? []) as ClaimEvent[])
+    setChecklist((cl.review_checklist ?? {}) as Record<string, "yes" | "no" | "na">)
+    setDupes(related); setAccess(permissions); setSettings(policy); setNames(actors)
+    } catch { if (epoch === readEpoch.current.value) setLoadError(true) }
+    finally { if (epoch === readEpoch.current.value) setLoading(false) }
   }, [id])
 
   useEffect(() => {
+    const epoch = readEpoch.current
     void Promise.resolve().then(load)
-    void getExpenseAccess().then(setAccess)
-    void getClaimSettings().then(setSettings)
-    void getTenantUserNames().then(setNames)
+    return () => { epoch.value++ }
   }, [load])
 
-  if (missing) return <div className="space-y-3 p-6"><p>{t("This claim was not found or you do not have access.", "المطالبة غير موجودة أو ليس لديك صلاحية الوصول.")}</p><Button asChild variant="outline"><Link href="/expenses/claims">{t("Back to claims", "العودة للمطالبات")}</Link></Button></div>
-  if (!claim || !access || !settings) return <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("Loading…", "جارٍ التحميل…")}</div>
+  if (loadError) return <div role="alert" className="space-y-3 p-6"><p>{t("Could not load the claim and its evidence. Try again before reviewing it.", "تعذر تحميل المطالبة وأدلتها. أعد المحاولة قبل مراجعتها.")}</p><Button variant="outline" onClick={() => void load()}>{t("Try again", "أعد المحاولة")}</Button></div>
+  if (!loading && missing) return <div className="space-y-3 p-6"><p>{t("This claim was not found or you do not have access.", "المطالبة غير موجودة أو ليس لديك صلاحية الوصول.")}</p><Button asChild variant="outline"><Link href="/expenses/claims">{t("Back to claims", "العودة للمطالبات")}</Link></Button></div>
+  if (loading || !claim || !access || !settings) return <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("Loading…", "جارٍ التحميل…")}</div>
 
   const mine = claim.submitter_id === access.userId
   const reviewer = access.approve

@@ -1,5 +1,5 @@
 "use client"
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { toast } from "sonner"
 import { ArrowLeft, Loader2, Plus, Save, ShieldCheck, Trash2, Webhook } from "lucide-react"
@@ -26,17 +26,29 @@ export function ClaimSettingsPage() {
   const [tg, setTg] = useState<TelegramStatus | null>(null)
   const [hook, setHook] = useState<{ expectedUrl: string | null; registered: boolean; pending: number; lastError: string | null } | null>(null)
   const [links, setLinks] = useState<Array<{ userId: string; name: string; username: string | null; linkedAt: string }>>([])
+  const [loadError, setLoadError] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const readEpoch = useRef({ value: 0 })
 
-  const load = () => {
-    void getClaimSettings().then(setS)
-    void getTelegramStatus().then(setTg)
-    void listTelegramLinks().then(setLinks)
-    void getTelegramWebhookInfo().then((r) => setHook(r.ok ? r : null))
-  }
-  useEffect(() => { void getExpenseAccess().then(setAccess); load() }, [])
+  const load = useCallback(async () => {
+    const epoch = ++readEpoch.current.value
+    try {
+      setLoading(true)
+      const permissions = await getExpenseAccess()
+      if (epoch !== readEpoch.current.value) return
+      setAccess(permissions)
+      if (!permissions?.manage) { setLoadError(false); return }
+      const [settings, telegram, accounts, webhook] = await Promise.all([getClaimSettings(), getTelegramStatus(), listTelegramLinks(), getTelegramWebhookInfo()])
+      if (epoch !== readEpoch.current.value) return
+      setS(settings); setTg(telegram); setLinks(accounts); setHook(webhook.ok ? webhook : null); setLoadError(false)
+    } catch { if (epoch === readEpoch.current.value) setLoadError(true) }
+    finally { if (epoch === readEpoch.current.value) setLoading(false) }
+  }, [])
+  useEffect(() => { const epoch = readEpoch.current; void Promise.resolve().then(load); return () => { epoch.value++ } }, [load])
 
-  if (access === undefined || !s) return <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("Loading…", "جارٍ التحميل…")}</div>
-  if (!access?.manage) return <div className="p-6"><Notice tone="warn">{t("Only administrators can change expense claim settings.", "يمكن للمسؤولين فقط تغيير إعدادات مطالبات المصروفات.")}</Notice></div>
+  if (loadError) return <div role="alert" className="space-y-3 p-6"><p>{t("Could not load expense settings. Retry before making changes.", "تعذر تحميل إعدادات المصروفات. أعد المحاولة قبل إجراء التغييرات.")}</p><Button variant="outline" onClick={load}>{t("Try again", "أعد المحاولة")}</Button></div>
+  if (!loading && !access?.manage) return <div className="p-6"><Notice tone="warn">{t("Only administrators can change expense claim settings.", "يمكن للمسؤولين فقط تغيير إعدادات مطالبات المصروفات.")}</Notice></div>
+  if (loading || !access || !s) return <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("Loading…", "جارٍ التحميل…")}</div>
 
   const upd = (p: Partial<ClaimSettings>) => setS((x) => (x ? { ...x, ...p } : x))
   const updItem = (i: number, p: Partial<ChecklistItem>) => upd({ checklist: s.checklist.map((c, n) => (n === i ? { ...c, ...p } : c)) })

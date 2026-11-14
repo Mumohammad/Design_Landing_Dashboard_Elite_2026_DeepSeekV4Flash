@@ -21,7 +21,7 @@ export interface InvoiceDocData {
   qrNote?: { ar: string; en: string } | null
   /** B2C sales (buyer without a VAT number) print as a Simplified Tax Invoice. */
   simplified?: boolean
-  /** Embedded licensed font keeps Arabic shaping consistent in saved PDFs. */
+  /** Licensed Arabic fallback for hosts without the reference Tahoma font. */
   fontDataUrl?: string
   /** Operator-licensed reference fonts, supplied only by the server renderer. */
   referenceFontDataUrl?: string; referenceBoldFontDataUrl?: string
@@ -39,149 +39,128 @@ function date(value: string): string {
 function imageSource(value: string | undefined): string {
   return value && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(value) ? value : ""
 }
-/** Item column = explicit item name, else the first line of the description. */
-function splitItem(line: InvoiceDocLine): { item: string; description: string } {
-  if (line.itemName) return { item: line.itemName, description: line.description }
-  const [first, ...rest] = line.description.split(/\r?\n/)
-  return rest.length ? { item: first.trim(), description: rest.join("\n").trim() } : { item: line.description, description: "" }
-}
 
-// Layout mirrors the owner's reference tax invoice (Daftra template): logo,
-// seller block and title + QR across the top, a double rule, customer and
-// invoice meta, a fully bordered 8-column line table, a totals box on the
-// left and the bank details at the foot.
+/** Reference geometry is measured in PDF points: Letter, a 487.5pt content
+ * width and eight separate item columns. All business data remains dynamic. */
 export function buildInvoiceHtml(d: InvoiceDocData): string {
   const rates = [...new Set(d.lines.map((line) => line.vat_rate))]
   const vatLabel = rates.length === 1 ? `${rates[0]}%` : ""
   const notesHtml = richTextToSafeHtml(d.notes)
   const money = (value: number) => `<span class="money" aria-label="${esc(d.currency)} ${number(value)}">${d.currency === "SAR" ? RIYAL_SYMBOL : esc(d.currency)} ${number(value)}</span>`
-  const head = (ar: string, en: string) => `<span>${ar}</span><span lang="en">${en}</span>`
-  const rows = d.lines.map((line) => {
-    const { item, description } = splitItem(line)
-    return `<tr>
-    <td class="text" dir="auto">${esc(item)}</td>
-    <td class="text" dir="auto">${esc(description)}${line.discount > 0 ? `<small>خصم / Discount: <bdi>${number(line.discount)}</bdi></small>` : ""}</td>
-    <td class="number">${line.unit_price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</td>
+  const label = (ar: string, en: string) => `<span>${ar}</span><span lang="en" dir="ltr">${en}</span>`
+  const rows = d.lines.map((line) => `<tr>
+    <td class="item" dir="auto">${esc(line.itemName)}</td>
+    <td class="description" dir="auto">${esc(line.description)}</td>
+    <td class="number">${line.unit_price.toLocaleString("en-US", { maximumFractionDigits: 4 })}</td>
     <td class="number">${line.quantity.toLocaleString("en-US", { maximumFractionDigits: 3 })}</td>
     <td class="number">${number(line.amount)}</td>
     <td class="number">${line.vat_rate}%</td>
     <td class="number">${number(line.vat_amount)}</td>
     <td class="number">${number(line.amount + line.vat_amount)}</td>
-  </tr>`
-  }).join("")
-  // Imported invoices may carry a post-tax adjustment (e.g. Daftra's
-  // "discount from invoice total"). Canonical invoices apply line discounts
-  // before VAT, so they are already inside the subtotal — never twice.
+  </tr>`).join("")
+  // Stored line amounts already include line discounts. Imported post-tax
+  // adjustments are a separate row; never subtract a line discount twice.
   const adjustment = Math.round((d.subtotal + d.vatAmount - d.total) * 100) / 100
   const exceptionalStatus = /draft|cancelled/i.test(d.statusLabelEn)
   const font = d.fontDataUrl && /^data:font\/woff2;base64,[A-Za-z0-9+/=]+$/.test(d.fontDataUrl) ? d.fontDataUrl : ""
   const referenceFace = (value: string | undefined, weight: number) => value && /^data:font\/(ttf|woff2);base64,[A-Za-z0-9+/=]+$/.test(value)
     ? `@font-face { font-family: "Invoice Reference"; src: url("${value}") format("${value.startsWith("data:font/ttf;") ? "truetype" : "woff2"}"); font-weight: ${weight}; font-style: normal; font-display: block; }` : ""
   const qr = imageSource(d.qrDataUrl)
-  const logo = imageSource(d.logoDataUrl)
-  const title = d.kind === "invoice"
-    ? (d.simplified ? head("فاتورة ضريبية مبسطة", "Simplified Tax Invoice") : head("فاتورة ضريبية", "TAX Invoice"))
-    : head(esc(d.docTypeAr), esc(d.docTypeEn))
-  const paid = d.paidAmount
-  const sellerLines = [
-    d.companyVatNumber ? `الرقم الضريبي : <bdi dir="ltr">${esc(d.companyVatNumber)}</bdi>` : "",
-    d.companyCrNumber ? `السجل التجاري : <bdi dir="ltr">${esc(d.companyCrNumber)}</bdi>` : "",
-    d.companyPhone ? `هاتف : <bdi dir="ltr">${esc(d.companyPhone)}</bdi>` : "",
-    esc(d.companyAddress),
-    esc(d.companyCity),
-  ].filter(Boolean).map((line) => `<div>${line}</div>`).join("")
-  const meta = [
-    [head("رقم الفاتورة", "Invoice NO"), esc(d.invoiceNumber)],
-    [head("تاريخ الفاتورة", "Invoice Date"), esc(date(d.issueDate))],
-    ...(d.dueDate ? [[head("تاريخ الاستحقاق", "Due Date"), esc(date(d.dueDate))]] : []),
-    ...(d.referenceNumber ? [[head("مرجع المستند", "Reference"), esc(d.referenceNumber)]] : []),
-  ].map(([k, v]) => `<tr><th>${k}</th><td><bdi dir="ltr">${v}</bdi></td></tr>`).join("")
-  const totalRow = (ar: string, en: string | null, value: number, cls = "") =>
-    `<tr${cls ? ` class="${cls}"` : ""}><th>${en ? head(ar, en) : `<span>${ar}</span>`}</th><td>${money(value)}</td></tr>`
+  const paid = d.paidAmount ?? 0
   return `<!DOCTYPE html>
 <html lang="ar" dir="rtl"><head><meta charset="utf-8" />
 <title>فاتورة رقم ${esc(d.invoiceNumber)} - ${esc(d.companyNameAr)}</title>
 <style>
-@page { size: A4; margin: 14mm 16mm; }
-${font ? `@font-face { font-family: "Invoice Cairo"; src: url("${font}") format("woff2"); font-weight: 200 1000; font-style: normal; font-display: block; }` : ""}
+@page { size: Letter; margin: 30pt 62.25pt; }
+${font ? `@font-face { font-family: "Invoice Arabic"; src: url("${font}") format("woff2"); font-weight: 200 1000; font-style: normal; font-display: block; }` : ""}
 ${referenceFace(d.referenceFontDataUrl, 400)}
 ${referenceFace(d.referenceBoldFontDataUrl, 700)}
 * { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; background: white; color: #000; }
-body { font-family: "Invoice Reference", "Invoice Cairo", Tahoma, Arial, sans-serif; font-size: 9.5pt; line-height: 1.35; }
-.doc { width: 100%; margin: 0 auto; }
-small { display: block; font-size: 7pt; color: #444; }
-span[lang="en"] { display: block; }
-.header { display: grid; grid-template-columns: 112pt 1fr auto; gap: 16pt; align-items: start; break-inside: avoid; }
-.logo-box { width: 112pt; height: 112pt; display: flex; align-items: center; justify-content: center; }
-.logo { max-width: 112pt; max-height: 112pt; object-fit: contain; }
-.seller { color: #222; }
-.seller h1 { margin: 0 0 2pt; font-size: 12.5pt; font-weight: 700; color: #000; overflow-wrap: anywhere; }
-.identity { text-align: left; min-width: 120pt; }
-.title { margin: 0 0 6pt; font-size: 18pt; font-weight: 700; line-height: 1.2; }
-.qr { display: block; width: 88pt; height: 88pt; margin-right: auto; image-rendering: pixelated; }
-.qr-note { max-width: 120pt; margin-top: 3pt; font-size: 6.5pt; }
-.status { display: inline-block; margin-top: 4pt; border: .75pt solid #72501b; color: #72501b; padding: 1pt 6pt; font-size: 8pt; font-weight: 700; }
-.rule { border: 0; border-top: 3pt double #000; margin: 26pt 0 18pt; }
-.parties { display: grid; grid-template-columns: 1fr auto; gap: 24pt; align-items: start; break-inside: avoid; }
-.client { display: flex; gap: 16pt; }
-.client .label { font-weight: 700; }
-.client .name { font-weight: 700; overflow-wrap: anywhere; }
-.client .detail { color: #222; white-space: pre-line; overflow-wrap: anywhere; }
-.meta { border-collapse: collapse; }
-.meta th { text-align: right; font-weight: 700; padding: 0 0 4pt 16pt; vertical-align: top; }
-.meta td { text-align: left; padding: 0 0 4pt; vertical-align: middle; }
-.items { width: 100%; margin-top: 22pt; border-collapse: collapse; table-layout: fixed; border: .75pt solid #000; }
-.items th { background: #e6e6e6; border: .5pt solid #000; padding: 5pt 3pt; text-align: center; vertical-align: middle; font-weight: 700; font-size: 9pt; }
-.items td { border-inline: .5pt solid #000; padding: 6pt 4pt 16pt; vertical-align: top; font-size: 9.5pt; }
+html, body { margin: 0; padding: 0; background: #fff; color: #000; }
+body { font-family: "Invoice Reference", Tahoma, "Invoice Arabic", Arial, sans-serif; font-size: 9pt; line-height: 10.5pt; }
+.doc { width: 487.5pt; max-width: 100%; margin: 0 auto; }
+h1, h2, p { margin: 0; }
+small { display: block; font-size: 7pt; line-height: 9pt; }
+.header { display: grid; grid-template-columns: 128.25pt minmax(0, 214.95pt) 31.8pt 112.5pt; direction: ltr; min-height: 154.5pt; border-bottom: 2.25pt double #000; align-items: start; break-inside: avoid; }
+.identity { direction: rtl; text-align: left; }
+.title { font-size: 16.5pt; line-height: 20.25pt; font-weight: 700; }
+.title span { display: block; }
+.qr-block { width: 94pt; margin: 7.5pt auto 0 0; direction: ltr; }
+.qr { display: block; width: 67.5pt; height: 67.5pt; image-rendering: pixelated; }
+.qr-block small { text-align: left; margin-top: 3pt; font-size: 6pt; line-height: 8pt; }
+.brand { direction: rtl; text-align: right; overflow-wrap: anywhere; line-height: 12.75pt; }
+.brand h1 { font-size: 12pt; line-height: 18pt; font-weight: 700; }
+.brand .english { font-size: 8pt; }
+.company-address { white-space: pre-line; }
+.logo { grid-column: 4; width: 112.5pt; height: 112.5pt; object-fit: contain; }
+.parties { display: flex; direction: ltr; justify-content: space-between; gap: 12pt; min-height: 87pt; padding: 18.75pt 0 21pt; break-inside: avoid; }
+.metadata { border-collapse: collapse; direction: rtl; width: 150pt; flex-shrink: 0; align-self: start; table-layout: fixed; }
+.metadata th { width: 88.805pt; padding: 0; text-align: left; font-weight: 700; }
+.metadata td { width: 61.195pt; text-align: right; padding: 0 15pt 0 0; direction: ltr; overflow-wrap: anywhere; }
+.metadata th, .metadata td { padding-top: 0; padding-bottom: 0; vertical-align: middle; line-height: 10.5pt; }
+.metadata th span { display: block; }
+.metadata .date { white-space: nowrap; }
+.party { display: flex; direction: rtl; gap: 7.5pt; min-width: 0; text-align: right; }
+.party-title { font-size: 9pt; line-height: 10.5pt; width: 35.25pt; flex-shrink: 0; }
+.party-title span { display: block; }
+.party-details { padding-top: 5.25pt; min-width: 0; overflow-wrap: anywhere; }
+.party-name { font-weight: 700; }
+.party-address { white-space: pre-line; }
+.status { margin: 0 0 8pt; font-weight: 700; border: .75pt solid #000; padding: 4pt 6pt; break-inside: avoid; }
+.items { width: 100%; border-collapse: collapse; table-layout: fixed; direction: rtl; }
 .items thead { display: table-header-group; }
-.items tbody tr { break-inside: avoid; }
-.items tbody tr + tr td { border-top: .5pt solid #000; }
-.items .text { text-align: right; white-space: pre-line; overflow-wrap: break-word; }
-.number { text-align: center; direction: ltr; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.totals { width: 230pt; margin-inline-start: auto; border-collapse: collapse; break-inside: avoid; }
-.totals th { text-align: right; font-weight: 700; padding: 5pt 6pt; border-bottom: 1pt solid #000; }
-.totals td { text-align: left; padding: 5pt 6pt; border-bottom: 1pt solid #000; vertical-align: top; }
-.totals .grand th, .totals .grand td { background: #e6e6e6; font-size: 10pt; }
-.totals td .money { font-weight: 400; }
-.totals .grand td .money { font-weight: 700; }
+.items th { height: 51.75pt; border-top: .75pt solid #000; border-bottom: .75pt solid #000; padding: 4.5pt 2.25pt; text-align: center; vertical-align: middle; font-size: 9pt; line-height: 10.5pt; font-weight: 700; }
+.items th span { display: block; }
+.items th:first-child { border-right: .75pt solid #000; }
+.items th:last-child { border-left: .75pt solid #000; }
+.items .description { text-align: right; }
+.items td { border: .75pt solid #000; padding: 3.75pt 4.5pt 3.75pt; vertical-align: top; font-size: 9pt; line-height: 10.5pt; }
+.items tbody tr { break-inside: avoid; page-break-inside: avoid; }
+.items .item, .items .description { white-space: pre-line; overflow-wrap: anywhere; }
+.items .item { text-align: center; }
+.number { text-align: center; direction: ltr; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.summary { margin-top: -.75pt; direction: ltr; break-inside: avoid; page-break-inside: avoid; }
+.totals { width: 195pt; border-collapse: collapse; table-layout: fixed; direction: rtl; }
+.totals th { width: 126pt; text-align: right; font-weight: 700; }
+.totals td { width: 69pt; text-align: right; }
+.totals th, .totals td { border-bottom: .75pt solid #000; padding: 4.5pt 4.5pt 3pt; vertical-align: top; line-height: 10.5pt; }
+.totals th span { display: block; }
+.totals .grand th, .totals .grand td { border-top: .75pt solid #000; font-weight: 700; }
+.totals tr:last-child th, .totals tr:last-child td { border-bottom: .75pt solid #000; }
 .money { white-space: nowrap; direction: ltr; display: inline-block; font-variant-numeric: tabular-nums; }
 .riyal { display: inline-block; width: .8em; height: .95em; vertical-align: -.05em; }
-.bank { margin-top: 30pt; width: fit-content; min-width: 55%; max-width: 100%; border: 1pt dotted #555; padding: 8pt 12pt; font-style: italic; line-height: 1.6; break-inside: avoid; }
-.bank .bank-title { font-weight: 700; margin-bottom: 2pt; }
-.bank div { overflow-wrap: anywhere; }
-.notes { margin-top: 18pt; overflow-wrap: anywhere; break-inside: avoid; }
+.bank { margin-top: 40.912pt; text-align: right; font-style: italic; line-height: 10.5pt; overflow-wrap: anywhere; break-inside: avoid; page-break-inside: avoid; }
+.bank h2 { font-size: 9pt; font-weight: 400; }
+.notes { margin-top: 15pt; white-space: pre-line; overflow-wrap: anywhere; }
+.notes h2 { font-size: 9pt; }
 .notes .rich p, .notes .rich div { margin: 0; }
 .notes .rich ul { list-style: disc; padding-inline-start: 16pt; margin: 2pt 0; }
 .notes .rich ol { list-style: decimal; padding-inline-start: 16pt; margin: 2pt 0; }
 .notes .rich hr { border: 0; border-top: .75pt solid #999; margin: 4pt 0; }
 .notes .rich a { color: inherit; text-decoration: underline; }
-.notes h2 { margin: 0 0 4pt; font-size: 9pt; }
-@media screen { body { padding: 32px; } .doc { max-width: 186mm; } }
+@media screen { body { padding: 30pt 20pt; } }
 @media print { body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
 </style></head><body><main class="doc">
 <header class="header">
-  <div class="logo-box">${logo ? `<img class="logo" src="${logo}" alt="${esc(d.companyNameAr)}" />` : ""}</div>
-  <div class="seller"><h1>${esc(d.companyNameAr || d.companyNameEn)}</h1>${sellerLines}</div>
-  <div class="identity"><h2 class="title">${title}</h2>${qr ? `<img src="${qr}" class="qr" alt="${d.internalQr ? "Internal invoice QR" : "Invoice QR"}" />${d.internalQr ? '<small class="qr-note" role="note">رمز داخلي · غير معتمد<br>Internal QR · unvalidated</small>' : d.qrNote ? `<small class="qr-note" role="note">${esc(d.qrNote.ar)}<br>${esc(d.qrNote.en)}</small>` : ""}` : ""}${exceptionalStatus ? `<div class="status">${esc(d.statusLabelAr)} / ${esc(d.statusLabelEn)}</div>` : ""}</div>
+ <div class="identity"><h2 class="title">${d.kind === "invoice" ? (d.simplified ? label("فاتورة ضريبية مبسطة", "Simplified Tax Invoice") : label("فاتورة ضريبية", "TAX Invoice")) : label(esc(d.docTypeAr), esc(d.docTypeEn))}</h2>${qr ? `<div class="qr-block"><img src="${qr}" class="qr" alt="${d.internalQr ? "Internal invoice QR" : "Invoice QR"}" />${d.internalQr ? '<small role="note">رمز داخلي · غير معتمد<br>Internal QR · unvalidated</small>' : d.qrNote ? `<small role="note">${esc(d.qrNote.ar)}<br>${esc(d.qrNote.en)}</small>` : ""}</div>` : ""}</div>
+ <div class="brand"><h1>${esc(d.companyNameAr || d.companyNameEn)}</h1>${d.companyNameEn && d.companyNameAr ? `<div class="english" lang="en" dir="ltr">${esc(d.companyNameEn)}</div>` : ""}${d.companyVatNumber ? `<div>الرقم الضريبي : <bdi dir="ltr">${esc(d.companyVatNumber)}</bdi></div>` : ""}${d.companyPhone ? `<div>هاتف : <bdi dir="ltr">${esc(d.companyPhone)}</bdi></div>` : ""}<div class="company-address" dir="auto">${esc([d.companyAddress, d.companyCity].filter(Boolean).join("\n"))}</div>${d.companyCrNumber ? `<div>س.ت / CR: <bdi dir="ltr">${esc(d.companyCrNumber)}</bdi></div>` : ""}</div>
+ ${imageSource(d.logoDataUrl) ? `<img class="logo" src="${imageSource(d.logoDataUrl)}" alt="${esc(d.companyNameAr)}" />` : ""}
 </header>
-<hr class="rule" />
-<section class="parties">
-  <div class="client"><div class="label">${head("العميل", "Client")}</div><div><div class="name" dir="auto">${esc(d.partyNameAr || d.partyNameEn)}</div>${d.partyTaxNumber ? `<div>الرقم الضريبي <bdi dir="ltr">${esc(d.partyTaxNumber)}</bdi></div>` : ""}${d.partyAddress ? `<div class="detail" dir="auto">${esc(d.partyAddress)}</div>` : ""}${d.partyPhone ? `<div><bdi dir="ltr">${esc(d.partyPhone)}</bdi></div>` : ""}</div></div>
-  <table class="meta"><tbody>${meta}</tbody></table>
+<section class="parties"><table class="metadata"><tbody><tr><th>${label("رقم الفاتورة", "Invoice NO")}</th><td><bdi>${esc(d.invoiceNumber)}</bdi></td></tr><tr><th>${label("تاريخ الفاتورة", "Invoice Date")}</th><td><bdi class="date">${esc(date(d.issueDate))}</bdi></td></tr>${d.dueDate ? `<tr><th>${label("تاريخ الاستحقاق", "Due Date")}</th><td><bdi class="date">${esc(date(d.dueDate))}</bdi></td></tr>` : ""}${d.currency !== "SAR" ? `<tr><th>${label("العملة", "Currency")}</th><td><bdi>${esc(d.currency)}</bdi></td></tr>` : ""}${d.referenceNumber ? `<tr><th>${label("مرجع المستند", "Document reference")}</th><td><bdi>${esc(d.referenceNumber)}</bdi></td></tr>` : ""}</tbody></table>
+<div class="party"><h2 class="party-title">${label("العميل", "Client")}</h2><div class="party-details"><p class="party-name" dir="auto">${esc(d.partyNameAr || d.partyNameEn)}</p>${d.partyNameEn && d.partyNameAr && d.partyNameEn !== d.partyNameAr ? `<div lang="en" dir="ltr">${esc(d.partyNameEn)}</div>` : ""}${d.partyTaxNumber ? `<div>الرقم الضريبي <bdi dir="ltr">${esc(d.partyTaxNumber)}</bdi></div>` : ""}<div class="party-address" dir="auto">${esc(d.partyAddress)}</div>${d.partyPhone ? `<div><bdi dir="ltr">${esc(d.partyPhone)}</bdi></div>` : ""}</div></div>
 </section>
-<table class="items"><colgroup><col style="width:12%"><col style="width:16%"><col style="width:12%"><col style="width:12%"><col style="width:12%"><col style="width:12%"><col style="width:12%"><col style="width:12%"></colgroup>
-<thead><tr><th>${head("البند", "Item")}</th><th>${head("الوصف", "Description")}</th><th>${head("السعر", "Price")}</th><th>${head("الكمية", "Qty")}</th><th>${head("المجموع قبل الضريبة", "Total Before Tax")}</th><th>${head("نسبة الضريبة", `VAT${vatLabel ? ` ${esc(vatLabel)}` : ""}`)}</th><th>${head("قيمة الضريبة", "VAT Amount")}</th><th>${head("المجموع مع الضريبة", "Total With VAT")}</th></tr></thead>
-<tbody>${rows}</tbody></table>
-<table class="totals"><tbody>
-${d.discount > 0 && adjustment === 0 ? `${totalRow("الإجمالي قبل الخصم", "Total Before Discount", d.subtotal + d.discount)}${totalRow("الخصم", "Discount", -d.discount)}` : ""}
-${totalRow("الإجمالي قبل الضريبة", "Total Before VAT", d.subtotal)}
-${totalRow(`القيمة المضافة${vatLabel ? ` (${esc(vatLabel)})` : ""}`, null, d.vatAmount)}
-${adjustment !== 0 ? totalRow(adjustment > 0 ? "خصم من إجمالي الفاتورة" : "تعديل على إجمالي الفاتورة", null, -adjustment) : ""}
-${totalRow("الإجمالي بعد الضريبة", "Total After VAT", d.total, "grand")}
-${paid !== undefined ? `${totalRow("مدفوع", "Paid", paid)}${totalRow("الرصيد المستحق", "Due Amount", Math.max(0, Math.round((d.total - paid) * 100) / 100))}` : ""}
-</tbody></table>
-${d.bankIban ? `<section class="bank" aria-label="Bank account details"><div class="bank-title">معلومات الحساب البنكي:</div>${d.bankName ? `<div>اسم البنك : ${esc(d.bankName)}</div>` : ""}${d.bankBeneficiary ? `<div>اسم المستفيد : ${esc(d.bankBeneficiary)}</div>` : ""}<div>رقم الايبان : <bdi dir="ltr">${esc(d.bankIban)}</bdi></div></section>` : ""}
-${notesHtml ? `<section class="notes"><h2>الملاحظات / الشروط</h2><div class="rich" dir="auto">${notesHtml}</div></section>` : ""}
+${exceptionalStatus ? `<div class="status">${esc(d.statusLabelAr)} / ${esc(d.statusLabelEn)}</div>` : ""}
+<table class="items"><colgroup><col style="width:35.25pt"><col style="width:66.75pt"><col style="width:66pt"><col style="width:66pt"><col style="width:66pt"><col style="width:66pt"><col style="width:66pt"><col style="width:54.75pt"></colgroup>
+<thead><tr><th>${label("البند", "Item")}</th><th class="description">${label("الوصف", "Description")}</th><th>${label("السعر", "Price")}</th><th>${label("الكمية", "Qty")}</th><th>${label("المجموع قبل الضريبة", "Total Before Tax")}</th><th>${label("نسبة الضريبة", `VAT${vatLabel ? ` ${esc(vatLabel)}` : ""}`)}</th><th>${label("قيمة الضريبة", "VAT Amount")}</th><th>${label("المجموع<br>مع الضريبة", "Total With VAT")}</th></tr></thead><tbody>${rows}</tbody></table>
+<section class="summary"><table class="totals"><tbody>
+<tr><th>${label("الإجمالي قبل الضريبة", "Total Before VAT")}</th><td>${money(d.subtotal)}</td></tr>
+<tr><th>القيمة المضافة${vatLabel ? ` (${esc(vatLabel)})` : ""}</th><td>${money(d.vatAmount)}</td></tr>
+${adjustment !== 0 ? `<tr><th>${adjustment > 0 ? "خصم من إجمالي الفاتورة" : "تعديل إجمالي الفاتورة"}</th><td>${money(-adjustment)}</td></tr>` : ""}
+${adjustment === 0 && d.discount > 0 ? `<tr class="included-discount"><th>${label("خصم البنود (مضمن)", "Line discount (included)")}</th><td>${money(-d.discount)}</td></tr>` : ""}
+<tr class="grand"><th>${label("الإجمالي بعد الضريبة", "Total After VAT")}</th><td>${money(d.total)}</td></tr>
+<tr><th>${label("مدفوع", "Paid")}</th><td>${money(paid)}</td></tr><tr><th>${label("الرصيد المستحق", "Due Amount")}</th><td>${money(Math.max(0, d.total - paid))}</td></tr>
+</tbody></table></section>
+${d.bankIban ? `<section class="bank"><h2>معلومات الحساب البنكي:</h2>${d.bankName ? `<div>اسم البنك : ${esc(d.bankName)}</div>` : ""}${d.bankBeneficiary ? `<div>اسم المستفيد : ${esc(d.bankBeneficiary)}</div>` : ""}<div>رقم الآيبان : <bdi dir="ltr">${esc(d.bankIban)}</bdi></div></section>` : ""}
+${notesHtml ? `<section class="notes"><h2>${label("ملاحظات", "Notes")}</h2><div class="rich" dir="auto">${notesHtml}</div></section>` : ""}
 </main></body></html>`
 }

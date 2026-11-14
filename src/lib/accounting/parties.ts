@@ -17,27 +17,14 @@ export type PartyKind = "customers" | "suppliers"
 export type PartyInput = {
   code?: string | null; name_ar: string; name_en?: string | null; phone?: string | null
   email?: string | null; tax_number?: string | null; address?: string | null
-  credit_limit?: number | null; is_active?: boolean
-  /** Saudi National Address (ZATCA Phase 2 buyer/seller address). */
   city?: string | null; district?: string | null; building_number?: string | null
   additional_number?: string | null; postal_code?: string | null; country_code?: string | null
-}
-type NationalAddress = { city: string | null; district: string | null; building_number: string | null
-  additional_number: string | null; postal_code: string | null; country_code: string }
-const ADDRESS_KEYS = ["city", "district", "building_number", "additional_number", "postal_code", "country_code"] as const
-function normalizeAddress(input: PartyInput): NationalAddress | MasterActionFailure | null {
-  if (!ADDRESS_KEYS.some(key => key in input)) return null
-  const city = normalizedText(input.city, 127), district = normalizedText(input.district, 127)
-  const building = normalizedText(input.building_number, 4), additional = normalizedText(input.additional_number, 4)
-  const postal = normalizedText(input.postal_code, 5), country = normalizedText(input.country_code, 2)
-  if ([city, district, building, additional, postal, country].includes(false)) return masterFailure("MASTER_INVALID")
-  if ((building && !/^\d{4}$/.test(building)) || (additional && !/^\d{4}$/.test(additional))
-    || (postal && !/^\d{5}$/.test(postal)) || (country && !/^[A-Za-z]{2}$/.test(country))) return masterFailure("MASTER_INVALID")
-  return { city: city || null, district: district || null, building_number: building || null,
-    additional_number: additional || null, postal_code: postal || null, country_code: ((country || "SA") as string).toUpperCase() }
+  credit_limit?: number | null; is_active?: boolean
 }
 type NormalizedParty = { code: string | null; name_ar: string; name_en: string | null; phone: string | null
-  email: string | null; tax_number: string | null; address: string | null; credit_limit: number | null; is_active?: boolean }
+  email: string | null; tax_number: string | null; address: string | null; credit_limit: number | null; is_active?: boolean
+  city?: string | null; district?: string | null; building_number?: string | null
+  additional_number?: string | null; postal_code?: string | null; country_code?: string }
 function normalizedText(value: unknown, maximum: number): string | null | false {
   if (value == null) return null
   if (typeof value !== "string") return false
@@ -59,10 +46,26 @@ function normalizeParty(input: PartyInput): NormalizedParty | MasterActionFailur
     try { if (round2(credit) !== credit) return masterFailure("MASTER_CREDIT_INVALID") }
     catch { return masterFailure("MASTER_CREDIT_INVALID") }
   }
+  // Omitted address keys stay omitted so retries from before the address release
+  // retain the same normalized receipt identity and edits preserve stored values.
+  const national: Pick<NormalizedParty, "city" | "district" | "building_number" | "additional_number" | "postal_code" | "country_code"> = {}
+  for (const [key, maximum] of [["city", 100], ["district", 127], ["building_number", 4], ["additional_number", 4], ["postal_code", 5], ["country_code", 2]] as const) {
+    if (!Object.prototype.hasOwnProperty.call(input, key)) continue
+    const value = normalizedText(input[key], maximum)
+    if (value === false || (value && /[\u0000-\u001f\u007f]/.test(value))) return masterFailure("MASTER_INVALID")
+    if (key === "country_code") {
+      const country = (value || "SA").toUpperCase()
+      if (!/^[A-Z]{2}$/.test(country)) return masterFailure("MASTER_INVALID")
+      national.country_code = country
+    } else {
+      if (value && ((key === "building_number" || key === "additional_number") ? !/^[0-9]{4}$/.test(value) : key === "postal_code" && !/^[0-9]{5}$/.test(value))) return masterFailure("MASTER_INVALID")
+      national[key] = value
+    }
+  }
   if (input.is_active !== undefined && typeof input.is_active !== "boolean") return masterFailure("MASTER_INVALID")
   return { code: code ? code.toUpperCase() : null, name_ar: nameAr, name_en: nameEn as string | null,
     phone: phone as string | null, email: email as string | null, tax_number: tax || null,
-    address: address as string | null, credit_limit: credit,
+    address: address as string | null, credit_limit: credit, ...national,
     ...(input.is_active === undefined ? {} : { is_active: input.is_active }) }
 }
 async function refreshParties(kind: PartyKind, tenantId: string): Promise<void> {
@@ -81,14 +84,10 @@ async function mutateParty(kind: PartyKind, action: "create" | "update" | "set_a
     if (!isMasterIntent(intent)) return masterFailure("MASTER_REQUEST_REQUIRED")
     if (action !== "create" && (!isMasterId(id) || !isMasterReview(intent))) return masterFailure("MASTER_STALE")
     let payload: NormalizedParty | { is_active: boolean } | Record<string, never>
-    let address: NationalAddress | null = null
     if (action === "create" || action === "update") {
       const normalized = normalizeParty(input as PartyInput)
       if ("success" in normalized) return normalized
       payload = normalized
-      const normalizedAddress = normalizeAddress(input as PartyInput)
-      if (normalizedAddress && "success" in normalizedAddress) return normalizedAddress
-      address = normalizedAddress
     } else if (action === "set_active") {
       if (typeof (input as { is_active?: unknown }).is_active !== "boolean") return masterFailure("MASTER_INVALID")
       payload = { is_active: (input as { is_active: boolean }).is_active }
@@ -105,12 +104,6 @@ async function mutateParty(kind: PartyKind, action: "create" | "update" | "set_a
     if ((id && receipt.id.toLowerCase() !== id.toLowerCase()) || ("code" in payload && payload.code && receipt.code !== payload.code)
       || ("is_active" in payload && receipt.is_active !== payload.is_active) || receipt.archived !== (action === "archive")
       || (action === "set_active" && receipt.is_active !== (payload as { is_active: boolean }).is_active)) return masterFailure("MASTER_UNAVAILABLE")
-    if (address) {
-      const saved = await caller.rpc("set_my_party_national_address", { p_kind: kind, p_id: receipt.id, p_input: address })
-      if (saved.error) { await refreshParties(kind, user.tenantId); return masterFailure(classifyMasterError(saved.error)) }
-      const stamp = (saved.data as { updated_at?: unknown } | null)?.updated_at
-      if (typeof stamp === "string") receipt.updated_at = stamp
-    }
     await refreshParties(kind, user.tenantId)
     return { success: true, ...receipt }
   } catch (error) { return masterFailure(classifyMasterError(error)) }
@@ -134,8 +127,8 @@ async function exportParties(kind: PartyKind, search = ""): Promise<PartyExportR
     const caller = await createClient()
     const result = await readMasterPage<PartyMasterRow>(caller, kind, { search, exporting: true })
     const csv = "\uFEFF" + toCsv(
-      ["code", "name_ar", "name_en", "phone", "email", "tax_number", "address", "building_number", "district", "city", "postal_code", "additional_number", "country_code", "credit_limit", "is_active"],
-      result.rows.map(row => [row.code, row.name_ar, row.name_en, row.phone, row.email, row.tax_number, row.address, row.building_number ?? null, row.district ?? null, row.city ?? null, row.postal_code ?? null, row.additional_number ?? null, row.country_code ?? "SA", row.credit_limit, row.is_active ? "true" : "false"]),
+      ["code", "name_ar", "name_en", "phone", "email", "tax_number", "address", "city", "district", "building_number", "additional_number", "postal_code", "country_code", "credit_limit", "is_active"],
+      result.rows.map(row => [row.code, row.name_ar, row.name_en, row.phone, row.email, row.tax_number, row.address, row.city, row.district, row.building_number, row.additional_number, row.postal_code, row.country_code, row.credit_limit, row.is_active ? "true" : "false"]),
     )
     if (utf8ByteLength(csv) > MASTER_EXPORT_MAX_BYTES) return masterFailure("MASTER_EXPORT_LIMIT")
     return { success: true, csv }

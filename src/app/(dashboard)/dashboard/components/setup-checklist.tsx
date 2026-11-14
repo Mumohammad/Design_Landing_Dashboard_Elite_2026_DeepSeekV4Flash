@@ -22,13 +22,16 @@ export function SetupChecklist() {
 
   React.useEffect(() => {
     let alive = true
-    try {
-      setDismissed(window.localStorage.getItem(DISMISS_KEY) === "1")
-    } catch {
-      setDismissed(false)
-    }
     getSetupProgress()
-      .then((p) => alive && setProgress(p))
+      .then((p) => {
+        if (!alive) return
+        setProgress(p)
+        try {
+          setDismissed(window.localStorage.getItem(DISMISS_KEY) === "1")
+        } catch {
+          setDismissed(false)
+        }
+      })
       .catch(() => alive && setProgress(null))
     return () => {
       alive = false
@@ -44,12 +47,12 @@ export function SetupChecklist() {
   return (
     <section
       data-testid="setup-checklist"
-      className="rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-sky-50/60 p-5 shadow-sm dark:border-slate-800 dark:from-slate-950 dark:to-sky-950/20"
+      className="rounded-lg border border-border bg-card p-5"
       aria-labelledby="setup-checklist-title"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3">
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-600 text-white">
+          <span className="flex h-10 w-10 items-center justify-center text-muted-foreground">
             <Rocket className="h-5 w-5" />
           </span>
           <div>

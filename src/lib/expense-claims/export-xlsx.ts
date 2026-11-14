@@ -298,4 +298,3 @@ export function writeExpenseWorkbook(input: ExportInput): Uint8Array {
 export function exportFilename(at: Date): string {
   return `expense-claims-${riyadhTimestamp(at).replace(/[: ]/g, "").replace(/-/g, "").slice(0, 12)}.xlsx`
 }
-

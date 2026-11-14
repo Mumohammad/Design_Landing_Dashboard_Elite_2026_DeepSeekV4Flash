@@ -9,11 +9,11 @@ export default function Page() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="stagger-1 flex justify-center">
+      <div className="flex justify-center">
         <LogoMark size={56} showIndicator />
       </div>
       <LoginForm1 />
-      <div className="stagger-5 text-center text-xs text-muted-foreground">
+      <div className="text-center text-xs text-muted-foreground">
         <a href="/privacy" className="underline underline-offset-4 hover:text-foreground transition-colors">
           {t.footer.privacyPolicy}
         </a>

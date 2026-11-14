@@ -227,7 +227,7 @@ function DriverCardPanelContent({ driverId, isAr }: { driverId: string; isAr: bo
                   {card.card_serial}
                 </span>
                 {statusLbl && (
-                  <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold", cardStatusCls[effectiveStatus??card.status])}>
+                  <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold", cardStatusCls[effectiveStatus??card.status])}>
                     {isAr ? statusLbl.ar : statusLbl.en}
                   </span>
                 )}

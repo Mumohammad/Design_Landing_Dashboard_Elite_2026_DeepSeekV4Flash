@@ -6,7 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 export default function Loading() {
   const ui = useUiText()
   return (
-    <div className="space-y-6 p-6" aria-busy="true" aria-label={ui("جارٍ التحميل")}>
+    <div className="space-y-6 py-6" aria-busy="true" aria-label={ui("جارٍ التحميل")}>
       <div className="flex items-center gap-4">
         <Skeleton className="h-10 w-10 rounded-xl" />
         <div className="space-y-2">

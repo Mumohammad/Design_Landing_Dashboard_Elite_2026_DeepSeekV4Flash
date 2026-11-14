@@ -83,12 +83,21 @@ const blobToDataUrl = (b: Blob) => new Promise<string>((resolve, reject) => { co
 /** Inline a remote (signed) photo so the SVG can be rasterised offline. */
 export async function photoAsDataUrl(url: string | null): Promise<string | null> {
   if (!url) return null
-  if (url.startsWith("data:")) return url
+  let dataUrl: string
   try {
-    const res = await fetch(url, { mode: "cors", credentials: "omit" })
-    if (!res.ok) return null
-    return await blobToDataUrl(await res.blob())
-  } catch { return null }
+    if (url.startsWith("data:")) dataUrl = url
+    else {
+      const res = await fetch(url, { mode: "cors", credentials: "omit" })
+      if (!res.ok) throw Error("Photo request failed")
+      const blob = await res.blob()
+      if (!blob.type.startsWith("image/")) throw Error("Photo is not an image")
+      dataUrl = await blobToDataUrl(blob)
+    }
+    const image = new Image()
+    image.src = dataUrl
+    await image.decode()
+    return dataUrl
+  } catch { throw Error("The configured card photo could not be loaded. Retry or explicitly remove the photo before exporting.") }
 }
 
 const PX_W = 638, PX_H = 1011 // 54×85.6 mm @ 300 dpi

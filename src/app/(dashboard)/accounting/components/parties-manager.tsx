@@ -71,6 +71,7 @@ interface PartyFormState {
   building_number: string
   additional_number: string
   postal_code: string
+  country_code: string
   credit_limit: string
   is_active: boolean
 }
@@ -84,11 +85,7 @@ function emptyForm(): PartyFormState {
     email: "",
     tax_number: "",
     address: "",
-    city: "",
-    district: "",
-    building_number: "",
-    additional_number: "",
-    postal_code: "",
+    city: "", district: "", building_number: "", additional_number: "", postal_code: "", country_code: "SA",
     credit_limit: "",
     is_active: true,
   }
@@ -226,11 +223,8 @@ export function PartiesManager({ kind }: { kind: PartyKind }) {
       email: r.email ?? "",
       tax_number: r.tax_number ?? "",
       address: r.address ?? "",
-      city: r.city ?? "",
-      district: r.district ?? "",
-      building_number: r.building_number ?? "",
-      additional_number: r.additional_number ?? "",
-      postal_code: r.postal_code ?? "",
+      city: r.city ?? "", district: r.district ?? "", building_number: r.building_number ?? "",
+      additional_number: r.additional_number ?? "", postal_code: r.postal_code ?? "", country_code: r.country_code,
       credit_limit: r.credit_limit != null ? String(r.credit_limit) : "",
       is_active: r.is_active,
     })
@@ -248,7 +242,7 @@ export function PartiesManager({ kind }: { kind: PartyKind }) {
       phone: form.phone || null, email: form.email || null, tax_number: form.tax_number || null,
       address: form.address || null, city: form.city || null, district: form.district || null,
       building_number: form.building_number || null, additional_number: form.additional_number || null,
-      postal_code: form.postal_code || null, credit_limit: form.credit_limit !== "" ? Number(form.credit_limit) : null }
+      postal_code: form.postal_code || null, country_code: form.country_code, credit_limit: form.credit_limit !== "" ? Number(form.credit_limit) : null }
     try {
       const review = { request_id: formRequest, expected_updated_at: editTarget?.updated_at ?? "" }
       const res = editTarget
@@ -306,6 +300,7 @@ export function PartiesManager({ kind }: { kind: PartyKind }) {
       )}
 
       <EnterpriseModulePage
+      headingLevel="h2"
         title={entityAr}
         subtitle={
           isCustomer
@@ -463,6 +458,7 @@ export function PartiesManager({ kind }: { kind: PartyKind }) {
               <Label htmlFor="party-address">{ar ? "العنوان" : "Address"}</Label>
               <Input id="party-address" maxLength={2000} value={form.address} onChange={(e) => setField("address", e.target.value)} className="h-10" />
             </div>
+
             <fieldset className="space-y-3">
               <legend className="text-xs text-muted-foreground">
                 {ar ? "العنوان الوطني (مطلوب لفواتير ZATCA الضريبية)" : "National Address (required for ZATCA standard invoices)"}
@@ -470,11 +466,11 @@ export function PartiesManager({ kind }: { kind: PartyKind }) {
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label htmlFor="party-city">{ar ? "المدينة" : "City"}</Label>
-                  <Input id="party-city" value={form.city} onChange={(e) => setField("city", e.target.value)} className="h-10" />
+                  <Input id="party-city" maxLength={100} value={form.city} onChange={(e) => setField("city", e.target.value)} className="h-10" />
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="party-district">{ar ? "الحي" : "District"}</Label>
-                  <Input id="party-district" value={form.district} onChange={(e) => setField("district", e.target.value)} className="h-10" />
+                  <Input id="party-district" maxLength={127} value={form.district} onChange={(e) => setField("district", e.target.value)} className="h-10" />
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="party-building">{ar ? "رقم المبنى" : "Building no."}</Label>
@@ -487,6 +483,10 @@ export function PartiesManager({ kind }: { kind: PartyKind }) {
                 <div className="space-y-1.5">
                   <Label htmlFor="party-postal">{ar ? "الرمز البريدي" : "Postal code"}</Label>
                   <Input id="party-postal" dir="ltr" inputMode="numeric" value={form.postal_code} onChange={(e) => setField("postal_code", e.target.value.replace(/\D/g, "").slice(0, 5))} placeholder="12345" className="h-10 tabular-nums" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="party-country">{ar ? "رمز الدولة" : "Country code"}</Label>
+                  <Input id="party-country" dir="ltr" maxLength={2} value={form.country_code} onChange={(e) => setField("country_code", e.target.value.toUpperCase())} placeholder="SA" className="h-9" />
                 </div>
               </div>
             </fieldset>
@@ -522,7 +522,7 @@ export function PartiesManager({ kind }: { kind: PartyKind }) {
               <Button
                 onClick={() => void handleSubmitForm()}
                 disabled={isSavingForm || !form.name_ar.trim()}
-                className="bg-elite-blue-600 hover:bg-elite-blue-700"
+                className="hover:from-elite-blue-700 hover:to-elite-blue-800 bg-foreground text-background"
               >
                 {isSavingForm ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 {t.common.save}
@@ -552,7 +552,7 @@ export function PartiesManager({ kind }: { kind: PartyKind }) {
             <Button
               onClick={() => void handleDelete()}
               disabled={isDeleting}
-              className="bg-red-600 hover:bg-red-700"
+              className="hover:from-red-700 hover:to-red-800 bg-red-600"
             >
               {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
               {ar ? "أرشفة" : "Archive"}

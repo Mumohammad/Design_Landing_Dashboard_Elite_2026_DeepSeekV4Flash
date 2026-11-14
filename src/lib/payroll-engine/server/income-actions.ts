@@ -1,4 +1,6 @@
 "use server"
+import { readCompleteRows } from "@/lib/analytics/complete-read"
+import { createClient } from "@/lib/supabase/server"
 
 // Income vs Expenses: monthly income records (synced from payroll runs or
 // imported from a delivery company sheet), expense categories, monthly
@@ -47,17 +49,20 @@ export interface IncomeDashboardData extends IncomeDashboard {
 }
 
 async function loadMonth(ctx: EngineContext, month: string, company: string, rider: string) {
-  let q = ctx.admin.from("payroll_income_records").select("*").eq("tenant_id", ctx.tenantId).eq("month_key", month).order("rider_id").limit(5000)
-  if (company) q = q.eq("company_name", company)
-  if (rider) q = q.eq("rider_id", rider)
+  const recordsQuery = () => {
+    let q = ctx.admin.from("payroll_income_records").select("*", { count: "exact" }).eq("tenant_id", ctx.tenantId).eq("month_key", month)
+    if (company) q = q.eq("company_name", company)
+    if (rider) q = q.eq("rider_id", rider)
+    return q.order("rider_id").order("id", { ascending: true })
+  }
   const [records, allIncome, expenses, count, latestRun, categories, customFields] = await Promise.all([
-    q,
-    ctx.admin.from("payroll_income_records").select("month_key,company_name,rider_id").eq("tenant_id", ctx.tenantId).limit(50000),
-    ctx.admin.from("payroll_monthly_expenses").select("*").eq("tenant_id", ctx.tenantId).eq("month_key", month).order("created_at"),
+    readCompleteRows(recordsQuery),
+    readCompleteRows(() => ctx.admin.from("payroll_income_records").select("id,month_key,company_name,rider_id", { count: "exact" }).eq("tenant_id", ctx.tenantId).order("id", { ascending: true })),
+    readCompleteRows(() => ctx.admin.from("payroll_monthly_expenses").select("*", { count: "exact" }).eq("tenant_id", ctx.tenantId).eq("month_key", month).order("created_at").order("id", { ascending: true })),
     ctx.admin.from("payroll_driver_counts").select("active_driver_count,notes").eq("tenant_id", ctx.tenantId).eq("month_key", month).maybeSingle(),
-    ctx.admin.from("payroll_engine_runs").select("total_drivers").eq("tenant_id", ctx.tenantId).neq("status", "cancelled").order("created_at", { ascending: false }).limit(1).maybeSingle(),
-    ctx.admin.from("payroll_expense_categories").select("*").eq("tenant_id", ctx.tenantId).order("name"),
-    ctx.admin.from("payroll_custom_income_fields").select("*").eq("tenant_id", ctx.tenantId).order("name"),
+    company ? ctx.admin.from("payroll_engine_runs").select("total_drivers").eq("tenant_id", ctx.tenantId).eq("month_key", month).eq("platform_name", company).eq("status", "approved").maybeSingle() : Promise.resolve({ data: null, error: null }),
+    readCompleteRows(() => ctx.admin.from("payroll_expense_categories").select("*", { count: "exact" }).eq("tenant_id", ctx.tenantId).order("name").order("id", { ascending: true })),
+    readCompleteRows(() => ctx.admin.from("payroll_custom_income_fields").select("*", { count: "exact" }).eq("tenant_id", ctx.tenantId).order("name").order("id", { ascending: true })),
   ])
   for (const r of [records, allIncome, expenses, count, latestRun, categories, customFields]) if (r.error) throw new Error(r.error.message)
   return { records: records.data ?? [], allIncome: allIncome.data ?? [], expenses: expenses.data ?? [], count: count.data, latestRun: latestRun.data,
@@ -93,6 +98,7 @@ export async function getIncomeDashboard(input: unknown): Promise<EngineResult<I
 // ─── Income import (mapped rows from a delivery-company sheet) ────────────
 
 const importSchema = z.object({
+  requestId: z.string().uuid().optional(),
   month: monthKey,
   companyName: z.string().trim().min(1).max(80),
   rows: z.array(z.record(z.string(), z.unknown())).min(1).max(5000),
@@ -145,12 +151,12 @@ export async function importIncomeRows(input: unknown): Promise<EngineResult<Inc
       clean.push(row)
     })
 
-    const existing = await ctx.admin.from("payroll_income_records").select("rider_id,run_id").eq("tenant_id", ctx.tenantId).eq("month_key", month).eq("company_name", companyName)
+    const existing = await readCompleteRows(() => ctx.admin.from("payroll_income_records").select("id,rider_id,run_id", { count: "exact" }).eq("tenant_id", ctx.tenantId).eq("month_key", month).eq("company_name", companyName).order("id", { ascending: true }))
     if (existing.error) return failure(existing.error, "Could not check existing records")
     const existingIds = new Set((existing.data ?? []).map(r => r.rider_id as string))
     const payrollManaged = (existing.data ?? []).some(r => r.run_id)
     const duplicateRiderIds = clean.filter(r => existingIds.has(r.riderId)).map(r => r.riderId)
-    const drivers = await loadDriversByRider(ctx, clean.map(r => r.riderId))
+    const drivers = await loadDriversByRider(ctx, clean.map(r => r.riderId), companyName)
     const calcs = clean.map(r => ({ r, calc: calculateIncome({ ...r, customFieldsJson: r.customFields.length ? JSON.stringify(r.customFields) : null }) }))
     const summary = {
       rowCount: clean.length, errors, duplicateRiderIds, payrollManaged,
@@ -158,24 +164,23 @@ export async function importIncomeRows(input: unknown): Promise<EngineResult<Inc
       rows: calcs.map(({ r, calc }) => ({ riderId: r.riderId, driverName: r.driverName, totalIncome: calc.totalIncome, totalPenalties: calc.totalPenalties, linked: drivers.has(r.riderId) })),
     }
     if (preview) return { success: true, data: { preview: true, imported: 0, updated: 0, ...summary } }
+    if (!p.data.requestId) return { success: false, error: "Reload the import form before saving." }
+    if (errors.length > 0) return { success: false, error: "Correct every invalid input row before importing. No rows were saved." }
     if (clean.length === 0) return { success: false, error: errors[0] ?? "No valid rows" }
-    if (duplicateRiderIds.length > 0 && !forceUpdate) return { success: false, error: `${duplicateRiderIds.length} record(s) already exist for ${companyName} in ${month}. Enable “Overwrite existing” to update them.` }
 
-    const payload = calcs.map(({ r, calc }) => ({
-      tenant_id: ctx.tenantId, month_key: month, rider_id: r.riderId, company_name: companyName, driver_id: drivers.get(r.riderId)?.id ?? null, driver_name: r.driverName,
+    const payload = calcs.map(({ r }) => ({
+      rider_id: r.riderId, driver_id: drivers.get(r.riderId)?.id ?? null, driver_name: r.driverName,
       ...Object.fromEntries(INCOME_NUMERIC_FIELDS.map(f => [COLUMN[f], r[f]])),
-      custom_fields: r.customFields.length ? r.customFields : null, total_income: calc.totalIncome, total_penalties: calc.totalPenalties,
-      source_file: sourceFile, run_id: null, created_by: ctx.userId, updated_at: now(),
+      custom_fields: r.customFields.length ? r.customFields : null,
+      source_file: sourceFile,
     }))
-    for (let i = 0; i < payload.length; i += 500) {
-      const { error } = await ctx.admin.from("payroll_income_records").upsert(payload.slice(i, i + 500), { onConflict: "tenant_id,month_key,rider_id,company_name" })
-      if (error) return failure(error, "Import failed")
-    }
-    const updated = duplicateRiderIds.length
-    await writeAuditLog({ tenantId: ctx.tenantId, actorId: ctx.userId, module: "payroll", action: "income_import", entityType: "payroll_income_records",
-      newValues: { month, companyName, imported: clean.length - updated, updated, sourceFile, totalIncome: summary.totalIncome } })
+    const caller = await createClient()
+    const saved = await caller.rpc("import_my_platform_income", { p_request_id: p.data.requestId, p_month: month, p_company: companyName, p_rows: payload, p_overwrite: forceUpdate })
+    if (saved.error) return failure(saved.error, "Import outcome could not be confirmed. Reload before changing this request.")
+    const receipt = z.object({ imported: z.number().int().nonnegative(), updated: z.number().int().nonnegative(), replayed: z.boolean() }).safeParse(saved.data)
+    if (!receipt.success || receipt.data.imported + receipt.data.updated !== clean.length) return { success: false, error: "Import outcome could not be confirmed. Reload before changing this request." }
     revalidatePath(PATH)
-    return { success: true, data: { preview: false, imported: clean.length - updated, updated, ...summary } }
+    return { success: true, data: { preview: false, imported: receipt.data.imported, updated: receipt.data.updated, ...summary } }
   } catch (e) { return failure(e, "Import failed") }
 }
 
@@ -279,8 +284,8 @@ export async function applyDefaultExpenses(input: unknown): Promise<EngineResult
     if (!p.success) return { success: false, error: "Invalid month" }
     const ctx = await engineContext("create")
     const [cats, existing] = await Promise.all([
-      ctx.admin.from("payroll_expense_categories").select("id,name,default_amount,allocation_type").eq("tenant_id", ctx.tenantId).eq("is_active", true),
-      ctx.admin.from("payroll_monthly_expenses").select("category_id").eq("tenant_id", ctx.tenantId).eq("month_key", p.data.month),
+      readCompleteRows(() => ctx.admin.from("payroll_expense_categories").select("id,name,default_amount,allocation_type", { count: "exact" }).eq("tenant_id", ctx.tenantId).eq("is_active", true).order("id", { ascending: true })),
+      readCompleteRows(() => ctx.admin.from("payroll_monthly_expenses").select("id,category_id", { count: "exact" }).eq("tenant_id", ctx.tenantId).eq("month_key", p.data.month).order("id", { ascending: true })),
     ])
     if (cats.error || existing.error) return failure(cats.error ?? existing.error, "Could not apply defaults")
     const have = new Set((existing.data ?? []).map(e => e.category_id))

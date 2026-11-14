@@ -5,6 +5,7 @@
 // The server re-validates and re-encodes; this is only a UX/bandwidth step.
 
 export const LOGO_ACCEPT = "image/png,image/jpeg,image/webp"
+import { LOGO_MAX_PAYLOAD_CHARS } from "./logo-core"
 const MAX_FILE_BYTES = 5 * 1024 * 1024
 const MAX_EDGE = 512
 
@@ -13,21 +14,29 @@ export type LogoPrepError = "type" | "size" | "decode"
 export async function prepareLogoFile(file: File): Promise<{ ok: true; dataUrl: string } | { ok: false; error: LogoPrepError }> {
   if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) return { ok: false, error: "type" }
   if (file.size > MAX_FILE_BYTES) return { ok: false, error: "size" }
+  let bitmap: ImageBitmap | undefined
   try {
-    const bitmap = await createImageBitmap(file)
+    bitmap = await createImageBitmap(file)
+    if (bitmap.width * bitmap.height > 40_000_000) return { ok: false, error: "size" }
     const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height))
-    const w = Math.max(1, Math.round(bitmap.width * scale))
-    const h = Math.max(1, Math.round(bitmap.height * scale))
+    let w = Math.max(1, Math.round(bitmap.width * scale))
+    let h = Math.max(1, Math.round(bitmap.height * scale))
     const canvas = document.createElement("canvas")
-    canvas.width = w
-    canvas.height = h
-    const ctx = canvas.getContext("2d")
-    if (!ctx) return { ok: false, error: "decode" }
-    ctx.drawImage(bitmap, 0, 0, w, h)
-    bitmap.close()
-    return { ok: true, dataUrl: canvas.toDataURL("image/png") }
+    for (let attempt = 0; attempt < 10; attempt++) {
+      canvas.width = w
+      canvas.height = h
+      const ctx = canvas.getContext("2d")
+      if (!ctx) return { ok: false, error: "decode" }
+      ctx.drawImage(bitmap, 0, 0, w, h)
+      const dataUrl = canvas.toDataURL("image/png")
+      if (dataUrl.length <= LOGO_MAX_PAYLOAD_CHARS) return { ok: true, dataUrl }
+      w = Math.max(1,Math.floor(w * .75)); h = Math.max(1,Math.floor(h * .75))
+    }
+    return { ok: false, error: "size" }
   } catch {
     return { ok: false, error: "decode" }
+  } finally {
+    bitmap?.close()
   }
 }
 

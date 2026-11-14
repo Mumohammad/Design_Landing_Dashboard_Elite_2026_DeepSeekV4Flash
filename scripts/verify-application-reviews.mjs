@@ -1,3 +1,4 @@
+import {continueVerificationRoute} from './lib/verification-access.mjs'
 import { expect as baseExpect } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 import { assertModuleTestTarget } from './assert-module-test-target.mjs'
@@ -23,7 +24,7 @@ export async function verifyApplicationReviews(page,admin,tenantId,appUrl){
   if(document.error)throw Error('Synthetic document metadata fixture failed')
   stage='complete pages and literal search'
   await page.goto(appUrl+'/applications?lang=en')
-  const rows=page.locator('tbody tr'),search=page.getByRole('textbox').first(),metrics=page.locator('main div.text-2xl.font-bold')
+  const rows=page.locator('tbody tr'),search=page.getByRole('textbox').first(),metrics=page.getByTestId('module-kpi-value')
   await expect(rows).toHaveCount(25);await expect(page.getByText('208 records · Page 1 of 9',{exact:true})).toBeVisible()
   await expect(metrics.nth(0)).toHaveText('208');await expect(metrics.nth(1)).toHaveText('208')
   await page.getByRole('button',{name:'Next page',exact:true}).click();await expect(page.getByText('208 records · Page 2 of 9',{exact:true})).toBeVisible()
@@ -32,7 +33,7 @@ export async function verifyApplicationReviews(page,admin,tenantId,appUrl){
   stage='list failure and retry'
   const pattern='**/applications*'
   const failList=route=>route.request().method()==='POST'&&route.request().headers()['next-action']&&new URL(route.request().url()).pathname==='/applications'
-   ?route.fulfill({status:503,contentType:'text/plain',body:'Synthetic application page unavailable'}):route.continue()
+   ?route.fulfill({status:503,contentType:'text/plain',body:'Synthetic application page unavailable'}):continueVerificationRoute(route)
   await page.route(pattern,failList);await search.fill('Read fault '+tag)
   await expect(page.getByText('Could not load applications and their totals. Try again.',{exact:true})).toBeVisible()
   await expect(page.getByTestId('module-empty-state')).toHaveCount(0);await expect(metrics.nth(0)).toHaveText('—')

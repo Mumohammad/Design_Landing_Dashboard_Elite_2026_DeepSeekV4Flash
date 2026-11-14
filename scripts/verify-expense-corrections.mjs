@@ -1,3 +1,4 @@
+import {continueVerificationRoute,forwardVerificationRoute} from './lib/verification-access.mjs'
 import { expect as baseExpect } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 import { assertModuleTestTarget } from './assert-module-test-target.mjs'
@@ -27,7 +28,7 @@ export async function verifyExpenseCorrections(page,admin,tenantId,appUrl){
   await expect(dialog.locator('#exp-amount')).toHaveValue('10');await dialog.locator('#exp-amount').fill('12.34')
   await dialog.locator('#exp-vat').fill('0');await dialog.locator('#exp-change-reason').fill('Corrected the synthetic receipt amount')
   let lost=false
-  const lose=async route=>{const req=route.request();if(!lost&&req.method()==='POST'&&req.headers()['next-action']&&req.postData()?.includes(id)){lost=true;const res=await route.fetch();if(!res.ok())throw Error('Correction action failed before simulated response loss');await route.abort('failed')}else await route.continue()}
+  const lose=async route=>{const req=route.request();if(!lost&&req.method()==='POST'&&req.headers()['next-action']&&req.postData()?.includes(id)){lost=true;const res=await forwardVerificationRoute(route);if(!res.ok())throw Error('Correction action failed before simulated response loss');await route.abort('failed')}else await continueVerificationRoute(route)}
   await page.route('**/expenses*',lose)
   await write(dialog.getByRole('button',{name:'Save expense',exact:true}));await expect(dialog.getByRole('alert')).toContainText('Retry with unchanged details')
   await page.unroute('**/expenses*',lose);if(!lost)throw Error('Correction response loss was not exercised')

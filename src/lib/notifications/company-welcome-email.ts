@@ -93,12 +93,15 @@ export async function sendCompanyConfirmationEmail(params: {
     })
 
     if (!res.ok) {
-      const body = await res.text().catch(() => "")
+      // Provider responses can echo recipients, confirmation links or credentials.
+      // Release the unread stream without collecting or logging its contents.
+      await res.body?.cancel().catch(() => {})
       console.error(
-        `[company-welcome-email] Resend send failed (${res.status}) — account stays unconfirmed until the user uses the link. ${body.slice(0, 200)}`
+        "[company-welcome-email] Confirmation delivery rejected",
+        { status: res.status }
       )
     }
-  } catch (err) {
-    console.error("[company-welcome-email] Resend exception — non-blocking.", err)
+  } catch {
+    console.error("[company-welcome-email] Confirmation delivery failed — non-blocking.")
   }
 }

@@ -14,13 +14,11 @@ export default async function DashboardLayout({
   return (
     <SidebarProvider defaultOpen>
       <AppSidebar collapsible="offcanvas" branding={branding} />
-
-      <SidebarInset className="min-h-svh bg-slate-50 dark:bg-slate-950">
+      <SidebarInset className="min-h-svh min-w-0 bg-background">
         <AppTopbar />
-
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6 lg:px-8">
+        <main id="main-content" className="workspace-canvas min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6 lg:px-8">
           {children}
-        </div>
+        </main>
       </SidebarInset>
     </SidebarProvider>
   )

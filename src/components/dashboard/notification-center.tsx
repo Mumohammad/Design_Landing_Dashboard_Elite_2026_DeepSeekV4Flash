@@ -60,36 +60,53 @@ export function NotificationCenter() {
   const ar = lang === "ar"
   const [open, setOpen] = React.useState(false)
   const [feed, setFeed] = React.useState<NotificationFeed | null>(null)
-  const [loading, setLoading] = React.useState(false)
+  const [loading, setLoading] = React.useState(true)
   const [failed, setFailed] = React.useState(false)
   const [read, setRead] = React.useState<Set<string>>(() => new Set())
   const [filter, setFilter] = React.useState<"all" | "unread">("all")
+  const mounted = React.useRef(false)
+  const feedRequest = React.useRef(0)
+  const readLoaded = React.useRef(false)
 
-  const refresh = React.useCallback(async () => {
-    setLoading(true)
-    try {
-      setFeed(await getNotificationFeed())
+  const refresh = React.useCallback(() => {
+    const request = ++feedRequest.current
+    return getNotificationFeed().then(result => {
+      if (!mounted.current || request !== feedRequest.current) return
+      setFeed(result)
       setFailed(false)
-    } catch {
+    }).catch(() => {
+      if (!mounted.current || request !== feedRequest.current) return
+      setFeed(null)
       setFailed(true)
-    } finally {
+    }).finally(() => {
+      if (!mounted.current || request !== feedRequest.current) return
+      if (!readLoaded.current) {
+        setRead(loadRead())
+        readLoaded.current = true
+      }
       setLoading(false)
-    }
+    })
   }, [])
 
-  React.useEffect(() => {
-    setRead(loadRead())
+  const startRefresh = React.useCallback(() => {
+    setLoading(true)
     void refresh()
-    const timer = window.setInterval(() => void refresh(), REFRESH_MS)
+  }, [refresh])
+
+  React.useEffect(() => {
+    mounted.current = true
+    void refresh()
+    const timer = window.setInterval(startRefresh, REFRESH_MS)
     const onFocus = () => {
-      if (document.visibilityState === "visible") void refresh()
+      if (document.visibilityState === "visible") startRefresh()
     }
     document.addEventListener("visibilitychange", onFocus)
     return () => {
+      mounted.current = false
       window.clearInterval(timer)
       document.removeEventListener("visibilitychange", onFocus)
     }
-  }, [refresh])
+  }, [refresh, startRefresh])
 
   const items = feed?.items ?? []
   const unread = items.filter((i) => !read.has(i.id))
@@ -146,7 +163,7 @@ export function NotificationCenter() {
               variant="ghost"
               size="icon"
               className="h-8 w-8"
-              onClick={() => void refresh()}
+              onClick={startRefresh}
               aria-label={ar ? "تحديث" : "Refresh"}
               disabled={loading}
             >

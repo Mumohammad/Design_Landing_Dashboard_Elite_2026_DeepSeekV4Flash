@@ -56,7 +56,7 @@ function fmtMoney(n: DecimalInput | null | undefined): string {
   return Number(n ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-const dialogBtn = "inline-flex h-8 items-center gap-1.5 rounded-xl bg-elite-blue-600 px-3 text-xs font-medium text-white shadow-sm transition-all hover:bg-elite-blue-700"
+const dialogBtn = "inline-flex h-8 items-center gap-1.5 rounded-xl bg-gradient-to-r from-elite-blue-600 to-elite-blue-700 px-3 text-xs font-medium text-white shadow-sm transition-all hover:from-elite-blue-700 hover:to-elite-blue-800"
 
 function Th({ children, className = "" }: { children?: React.ReactNode; className?: string }) {
   return <th className={`px-4 py-2 text-start text-[11px] font-medium text-muted-foreground ${className}`}>{children}</th>
@@ -271,7 +271,7 @@ export function StatementsManager() {
               )}
               {pl.map((r) => (
                 <tr key={r.account_code} className="border-b border-border/40 last:border-0 hover:bg-muted/40">
-                  <Td>{ar ? r.name_ar : (r.name_en || r.name_ar)} <span dir="ltr" className="font-mono text-[11px] text-muted-foreground">{r.account_code === "__UNCLOSED_RESULT__" ? (ar ? "محسوب" : "Calculated") : r.account_code}</span></Td>
+                  <Td>{ar ? r.name_ar : (r.name_en || r.name_ar)} <span dir="ltr" className="font-mono text-xs text-muted-foreground">{r.account_code === "__UNCLOSED_RESULT__" ? (ar ? "محسوب" : "Calculated") : r.account_code}</span></Td>
                   <Td>{ar ? (r.account_type === "income" ? "إيراد" : "مصروف") : r.account_type}</Td>
                   <Td dir="ltr" className={`text-end font-medium tabular-nums ${r.account_type === "income" ? "text-emerald-600" : "text-red-600"}`}>
                     {fmtMoney(r.net_balance)}
@@ -293,7 +293,7 @@ export function StatementsManager() {
                 </tr>
               )}
               {pl.length > 0 && (
-                <tr className="bg-elite-blue-600/10">
+                <tr className="bg-card">
                   <Td className="font-extrabold">{ar ? "صافي الربح / الخسارة" : "Net Profit / Loss"}</Td>
                   <Td />
                   <Td dir="ltr" className={`text-end font-extrabold tabular-nums ${netProfit >= 0 ? "text-emerald-600" : "text-red-600"}`}>{fmtMoney(netProfit)}</Td>
@@ -339,7 +339,7 @@ export function StatementsManager() {
               )}
               {bs.map((r) => (
                 <tr key={r.account_code} className="border-b border-border/40 last:border-0 hover:bg-muted/40">
-                  <Td>{ar ? r.name_ar : (r.name_en || r.name_ar)} <span dir="ltr" className="font-mono text-[11px] text-muted-foreground">{r.account_code === "__UNCLOSED_RESULT__" ? (ar ? "محسوب" : "Calculated") : r.account_code}</span></Td>
+                  <Td>{ar ? r.name_ar : (r.name_en || r.name_ar)} <span dir="ltr" className="font-mono text-xs text-muted-foreground">{r.account_code === "__UNCLOSED_RESULT__" ? (ar ? "محسوب" : "Calculated") : r.account_code}</span></Td>
                   <Td>{ar ? (r.account_type === "asset" ? "أصل" : r.account_type === "liability" ? "التزام" : "حقوق ملكية") : r.account_type}</Td>
                   <Td dir="ltr" className={`text-end font-medium tabular-nums ${r.account_type === "asset" ? "text-emerald-600" : "text-foreground"}`}>
                     {fmtMoney(r.balance)}
@@ -363,7 +363,7 @@ export function StatementsManager() {
                     <Td />
                     <Td dir="ltr" className="text-end font-bold tabular-nums">{fmtMoney(equity)}</Td>
                   </tr>
-                  <tr className="bg-elite-blue-600/10">
+                  <tr className="bg-card">
                     <Td className="font-extrabold">{ar ? "فرق التوازن" : "Balance Check"}</Td>
                     <Td />
                     <Td dir="ltr" className={`text-end font-extrabold tabular-nums ${balanced ? "text-emerald-600" : "text-red-600"}`}>
@@ -420,7 +420,7 @@ export function StatementsManager() {
                 </tr>
               ))}
               {cf.length > 0 && (
-                <tr className="bg-elite-blue-600/10">
+                <tr className="bg-card">
                   <Td className="font-extrabold">{ar ? "صافي التدفق" : "Net Cash Flow"}</Td>
                   <Td />
                   <Td />

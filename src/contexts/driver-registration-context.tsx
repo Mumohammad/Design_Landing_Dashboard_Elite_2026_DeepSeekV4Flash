@@ -139,7 +139,7 @@ export function DriverRegistrationProvider({ children }: { children: React.React
       hydrate,
       reset,
     }),
-    [locale, setLocale, data, patch, hydrate, reset]
+    [locale, data, patch, hydrate, reset]
   )
 
   return (

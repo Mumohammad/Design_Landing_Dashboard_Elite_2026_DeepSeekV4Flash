@@ -1,11 +1,12 @@
+import {continueVerificationRoute} from './lib/verification-access.mjs'
 import {expect as baseExpect} from "@playwright/test"
 import {randomUUID} from "node:crypto"
 import {assertModuleTestTarget} from "./assert-module-test-target.mjs"
 const expect=baseExpect.configure({timeout:25_000})
 
 /** Creates only synthetic records in the caller-owned test tenant; keeps audit evidence. */
-export async function verifyDriverLeaveLifecycle(page,admin,tenantId,appUrl){
- await assertModuleTestTarget(page,admin.supabaseUrl,appUrl)
+export async function verifyDriverLeaveLifecycle(page,admin,tenantId,appUrl,{targetRequest}={}){
+ await assertModuleTestTarget(page,admin.supabaseUrl,appUrl,targetRequest)
  if(!/^[0-9a-f-]{36}$/i.test(tenantId??""))throw Error("Synthetic leave tenant required")
  const driverId=randomUUID(),typeId=randomUUID(),tag=randomUUID().slice(0,8),viewport=page.viewportSize(),locale=await page.locator("html").getAttribute("lang")
  let stage="synthetic fixtures",stale=null,lastWrite=0,failedRead=null
@@ -71,7 +72,7 @@ export async function verifyDriverLeaveLifecycle(page,admin,tenantId,appUrl){
   await panel.getByRole("button",{name:"Next page",exact:true}).click();await expect(card(page,fixtures[0].id)).toBeVisible();await expect(panel.getByTestId("driver-leave-record")).toHaveCount(9)
   const search=panel.getByRole("searchbox",{name:"Search history",exact:true});await search.pressSequentially(needle,{delay:40});await expect(search).toBeFocused();await expect(panel.getByTestId("driver-leave-record")).toHaveCount(1);await expect(card(page,fixtures[0].id)).toBeVisible()
   stage="history read failure and retry"
-  failedRead=route=>route.request().method()==="GET"?route.fulfill({status:503,contentType:"application/json",body:'{"message":"Synthetic leave history unavailable"}'}):route.continue()
+  failedRead=route=>route.request().method()==="GET"?route.fulfill({status:503,contentType:"application/json",body:'{"message":"Synthetic leave history unavailable"}'}):continueVerificationRoute(route)
   await page.route(pattern,failedRead);await panel.getByRole("button",{name:"Refresh",exact:true}).click();await expect(panel.getByRole("alert")).toContainText("Could not load leave history. Try again.");await expect(panel.getByText("No leave requests",{exact:true})).toHaveCount(0)
   await page.unroute(pattern,failedRead);failedRead=null;await panel.getByRole("button",{name:"Try again",exact:true}).click();await expect(card(page,fixtures[0].id)).toBeVisible()
   stage="decision and status audit evidence"

@@ -1,7 +1,7 @@
 BEGIN;
 SELECT no_plan();
 -- Privileges: the engine RPCs are server-only.
-SELECT ok(has_function_privilege('service_role','public.payroll_engine_save_run(uuid,uuid,jsonb,jsonb,jsonb,jsonb,uuid,integer)','EXECUTE'),'service role saves payroll runs');
+SELECT ok(NOT has_function_privilege('service_role','public.payroll_engine_save_run(uuid,uuid,jsonb,jsonb,jsonb,jsonb,uuid,integer)','EXECUTE'),'legacy helper is owner-only; the caller wrapper saves reviewed payroll runs');
 SELECT ok(NOT has_function_privilege('authenticated','public.payroll_engine_save_run(uuid,uuid,jsonb,jsonb,jsonb,jsonb,uuid,integer)','EXECUTE'),'browser role cannot save runs');
 SELECT ok(NOT has_function_privilege('authenticated','public.payroll_engine_approve_run(uuid,uuid,uuid,integer,jsonb)','EXECUTE'),'browser role cannot approve runs');
 SELECT ok(NOT has_function_privilege('anon','public.payroll_engine_cancel_run(uuid,uuid,uuid,text)','EXECUTE'),'anonymous cannot cancel runs');

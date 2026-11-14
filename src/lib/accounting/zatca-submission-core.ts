@@ -43,12 +43,14 @@ export async function submitPreparedZatcaDocumentAs(
     if (!UUID.test(issuanceId) || (mode !== "compliance" && mode !== "submit")) return { success: false, error: "Invalid request." }
 
     const admin = createAdminClient()
-    // Tenant-resolved: production only when the deployment allows it AND the
-    // tenant's administrator switched production ON (zatca-environment.ts).
+    const { data: authorized, error: authorizationError } = await admin.rpc("zatca_operator_authorized", {
+      p_tenant: user.tenantId, p_user: user.authUserId,
+    })
+    if (authorizationError || authorized !== true) return { success: false, error: "The ZATCA operator is no longer authorized." }
     const environment = await resolveTenantZatcaEnvironment(admin, user.tenantId)
+    if (environment === "production") return { success: false, error: "ZATCA production submission is disabled." }
     const base = environment ? getZatcaNetworkBase(environment) : null
     if (!base || !environment) return { success: false, error: "ZATCA gateway is not configured (offline mock mode)." }
-
     const { data: issuance, error } = await admin
       .from("zatca_document_issuances")
       .select("id,tenant_id,environment,doc_ref,invoice_hash,unsigned_xml")
@@ -111,7 +113,7 @@ export async function submitPreparedZatcaDocumentAs(
       error_code: errorCode,
       created_by: user.authUserId,
     })
-    if (evidenceError) console.error("[zatca] failed to persist submission evidence")
+    if (evidenceError) return { success: false, pipeline, error: "Unable to retain the ZATCA submission evidence. Retry with the same prepared document." }
 
     await writeAuditLog({
       tenantId: user.tenantId,

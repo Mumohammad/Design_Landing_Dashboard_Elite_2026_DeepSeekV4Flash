@@ -16,6 +16,7 @@ import {
 import { breakdown, buildDashboard, filterClaims, formatMoney, type ClaimFilters, type GroupKey } from "@/lib/expense-claims/dashboard"
 import { exportExpenseClaims, getClaimSettings, getExpenseAccess, getTenantUserNames, type ExpenseAccess } from "@/lib/expense-claims/actions"
 import { TelegramLinkDialog } from "./telegram-link-dialog"
+import { readCompleteAttachments, readCompleteClaims } from "@/lib/expense-claims/complete-reads"
 import { Notice, StatusBadge, UnverifiedTag, downloadBase64, selectClass, useBi } from "./shared"
 
 type AlertKey = "missingDocuments" | "possibleDuplicates" | "needsInfo" | "unverifiedFields" | "amountsMismatch"
@@ -41,27 +42,29 @@ export function ClaimsDashboard() {
   const [markExported, setMarkExported] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [reload, setReload] = useState(0)
+  const [loadError, setLoadError] = useState(false)
 
   useEffect(() => {
-    void getExpenseAccess().then(setAccess)
-    void getClaimSettings().then(setSettings)
-    void getTenantUserNames().then(setNames)
+    let cancelled = false
     const supabase = createClient()
     void (async () => {
-      const all: ExpenseClaim[] = []
-      for (let from = 0; from < 10000; from += 1000) {
-        const { data } = await supabase.from("expense_claims").select("*").order("created_at", { ascending: false }).range(from, from + 999)
-        all.push(...((data ?? []) as ExpenseClaim[]))
-        if (!data || data.length < 1000) break
+      try {
+        setLoadError(false)
+        const permissions = await getExpenseAccess()
+        if (cancelled) return
+        setAccess(permissions)
+        if (!permissions || (!permissions.create && !permissions.read && !permissions.approve)) return
+        const [all, policy, actors] = await Promise.all([readCompleteClaims(supabase), getClaimSettings(), getTenantUserNames()])
+        const attachments = await readCompleteAttachments(supabase, all.map(claim => claim.id))
+        if (cancelled) return
+        const counts: Record<string, number> = {}
+        for (const attachment of attachments) counts[attachment.claim_id] = (counts[attachment.claim_id] ?? 0) + 1
+        setClaims(all); setAttCount(counts); setSettings(policy); setNames(actors)
+      } catch {
+        if (!cancelled) setLoadError(true)
       }
-      setClaims(all)
-      const counts: Record<string, number> = {}
-      for (let i = 0; i < all.length; i += 300) {
-        const { data } = await supabase.from("expense_claim_attachments").select("claim_id").in("claim_id", all.slice(i, i + 300).map((c) => c.id))
-        for (const a of data ?? []) counts[a.claim_id] = (counts[a.claim_id] ?? 0) + 1
-      }
-      setAttCount(counts)
     })()
+    return () => { cancelled = true }
   }, [reload])
 
   const filtered = useMemo(() => filterClaims(claims ?? [], filters, names), [claims, filters, names])
@@ -74,8 +77,9 @@ export function ClaimsDashboard() {
     return { department: uniq(cs.map((c) => c.department)), currency: uniq(cs.map((c) => c.currency)), submitter: uniq(cs.map((c) => c.submitter_id)), category: uniq([...(settings?.categories ?? []), ...cs.map((c) => c.category)]) }
   }, [claims, settings])
 
-  if (access === undefined || !settings) return <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("Loading…", "جارٍ التحميل…")}</div>
-  if (!access || (!access.create && !access.read && !access.approve)) return <div className="p-6"><Notice tone="warn">{t("You do not have access to expense claims.", "ليس لديك صلاحية الوصول إلى مطالبات المصروفات.")}</Notice></div>
+  if (loadError) return <div role="alert" className="space-y-3 p-6"><p>{t("Could not load complete claims and receipt evidence. Try again.", "تعذر تحميل المطالبات وأدلة الإيصالات كاملة. أعد المحاولة.")}</p><Button variant="outline" onClick={() => setReload(value => value + 1)}>{t("Try again", "أعد المحاولة")}</Button></div>
+  if (access !== undefined && (!access || (!access.create && !access.read && !access.approve))) return <div className="p-6"><Notice tone="warn">{t("You do not have access to expense claims.", "ليس لديك صلاحية الوصول إلى مطالبات المصروفات.")}</Notice></div>
+  if (!access || !settings || claims === null) return <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("Loading…", "جارٍ التحميل…")}</div>
 
   const teamView = access.read || access.approve
   const loc = settings.amount_locale

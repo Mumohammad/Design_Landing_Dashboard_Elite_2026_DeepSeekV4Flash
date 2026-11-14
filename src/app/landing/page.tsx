@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import LandingPageContent from './landing-page-content';
+import { LocaleProvider } from '@/contexts/locale-context';
 
 // Reads from env so previews and the future custom domain stay correct without code changes.
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://elite-dashboard-blush.vercel.app';
@@ -137,11 +138,13 @@ const jsonLd = {
   ],
 };
 
-export default function LandingPage() {
+export default async function LandingPage({ searchParams }: { searchParams: Promise<{ lang?: string | string[] }> }) {
+  const requested = (await searchParams).lang;
+  const initialLocale = requested === 'en' ? 'en' : 'ar';
   return (
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
-      <LandingPageContent />
+      <LocaleProvider initialLocale={initialLocale}><LandingPageContent /></LocaleProvider>
     </>
   );
 }

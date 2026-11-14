@@ -7,20 +7,17 @@ import { useTranslation } from "@/hooks/use-translation"
 
 export function KpiSkeleton({ className }: { className?: string }) {
   return (
-    <div className={cn("rounded-xl border bg-card p-5 shadow-sm", className)}>
-      <div className="flex items-center justify-between">
-        <div className="h-4 w-24 animate-pulse rounded-md bg-muted" />
-        <div className="h-8 w-8 animate-pulse rounded-xl bg-muted" />
-      </div>
-      <div className="mt-4 h-8 w-28 animate-pulse rounded-md bg-muted" />
-      <div className="mt-3 h-3 w-20 animate-pulse rounded-md bg-muted" />
+    <div className={cn("h-full bg-card p-4", className)}>
+      <div className="h-6 w-24 animate-pulse rounded-sm bg-muted" />
+      <div className="mt-2 h-8 w-20 animate-pulse rounded-sm bg-muted" />
+      <div className="mt-2 h-5 w-28 animate-pulse rounded-sm bg-muted" />
     </div>
   )
 }
 
 export function ChartSkeleton({ className }: { className?: string }) {
   return (
-    <div className={cn("rounded-xl border bg-card p-5 shadow-sm", className)}>
+    <div className={cn("rounded-lg border border-border bg-card p-5", className)}>
       <div className="flex items-center justify-between">
         <div className="space-y-2">
           <div className="h-4 w-36 animate-pulse rounded-md bg-muted" />
@@ -43,10 +40,8 @@ export function ChartSkeleton({ className }: { className?: string }) {
 
 export function EmptyState({ title, description }: { title: string; description?: string }) {
   return (
-    <div className="flex h-48 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border/70 text-center">
-      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
-        <DatabaseZap className="h-5 w-5" />
-      </span>
+    <div className="flex min-h-32 flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border px-4 py-6 text-center">
+      <DatabaseZap className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
       <p className="text-sm font-semibold text-foreground">{title}</p>
       {description && <p className="max-w-xs text-xs text-muted-foreground">{description}</p>}
     </div>
@@ -56,10 +51,8 @@ export function EmptyState({ title, description }: { title: string; description?
 export function OfflineState({ onRetry }: { onRetry?: () => void }) {
   const { t } = useTranslation()
   return (
-    <div className="flex h-48 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border/70 text-center">
-      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400">
-        <TriangleAlert className="h-5 w-5" />
-      </span>
+    <div className="flex min-h-32 flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border px-4 py-6 text-center">
+      <TriangleAlert className="h-4 w-4 text-amber-700 dark:text-amber-400" aria-hidden="true" />
       <p className="text-sm font-semibold text-foreground">{t.dashboard.unableToLoad}</p>
       <p className="max-w-xs text-xs text-muted-foreground">{t.dashboard.moduleOffline}</p>
       {onRetry && (

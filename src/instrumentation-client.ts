@@ -5,6 +5,7 @@
 // See: https://docs.sentry.io/platforms/javascript/guides/nextjs/
 
 import * as Sentry from "@sentry/nextjs"
+import { scrubSentryTelemetry, scrubTelemetrySpan } from "@/lib/telemetry-privacy"
 
 Sentry.init({
   dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
@@ -42,34 +43,11 @@ Sentry.init({
 
   // ── PII scrubbing ──────────────────────────────────────────
   // Never send sensitive data to Sentry
-  beforeSend(event) {
-    // Scrub any accidental password/token leaks
-    if (event.request?.data) {
-      const data = event.request.data as Record<string, unknown>
-      for (const key of Object.keys(data)) {
-        if (/password|token|secret|key|credential/i.test(key)) {
-          data[key] = "[Filtered]"
-        }
-      }
-    }
-
-    // Scrub breadcrumbs for sensitive operations
-    if (event.breadcrumbs) {
-      event.breadcrumbs = event.breadcrumbs.map((crumb) => {
-        if (crumb.data && typeof crumb.data === "object") {
-          const data = crumb.data as Record<string, unknown>
-          for (const key of Object.keys(data)) {
-            if (/password|token|secret|key|credential/i.test(key)) {
-              data[key] = "[Filtered]"
-            }
-          }
-        }
-        return crumb
-      })
-    }
-
-    return event
-  },
+  beforeSend: scrubSentryTelemetry,
+  beforeSendTransaction: scrubSentryTelemetry,
+  beforeSendSpan: scrubTelemetrySpan,
+  beforeBreadcrumb: scrubSentryTelemetry,
+  beforeSendLog: scrubSentryTelemetry,
 
   // ── Ignore common non-actionable errors ─────────────────────
   ignoreErrors: [

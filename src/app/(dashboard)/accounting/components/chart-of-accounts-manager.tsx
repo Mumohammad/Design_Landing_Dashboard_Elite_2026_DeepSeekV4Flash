@@ -74,7 +74,7 @@ const TYPE_AR: Record<AccountType, string> = {
 const TYPE_CLASS: Record<AccountType, string> = {
   asset: "bg-blue-500/15 text-blue-600 border-blue-500/20",
   liability: "bg-amber-500/15 text-amber-600 border-amber-500/20",
-  equity: "bg-teal-500/15 text-teal-600 border-teal-500/20",
+  equity: "bg-purple-500/15 text-purple-600 border-purple-500/20",
   income: "bg-emerald-500/15 text-emerald-600 border-emerald-500/20",
   expense: "bg-red-500/15 text-red-600 border-red-500/20",
 }
@@ -194,7 +194,7 @@ export function ChartOfAccountsManager() {
           <span data-testid="chart-primary-name" className="font-medium">{ar ? (r.name_ar || r.name_en) : (r.name_en || r.name_ar)}</span>
           <span className="text-xs text-muted-foreground" dir={ar ? "ltr" : "rtl"}>{ar ? r.name_en : r.name_ar}</span>
           {r.is_contra && (
-            <Badge className="bg-teal-500/15 text-teal-600 border-teal-500/20" title={ui("Contra account")}>
+            <Badge className="bg-purple-500/15 text-purple-600 border-purple-500/20" title={ui("Contra account")}>
               {ar ? "مقابل" : "Contra"}
             </Badge>
           )}
@@ -465,6 +465,7 @@ export function ChartOfAccountsManager() {
       )}
 
       <EnterpriseModulePage
+        headingLevel="h2"
         title={ar ? "دليل الحسابات" : "Chart of Accounts"}
         subtitle={
           ar
@@ -507,7 +508,7 @@ export function ChartOfAccountsManager() {
             </button>
             <button
               onClick={openOpening}
-              className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-elite-blue-600 px-3.5 text-xs font-medium text-white shadow-sm transition-all hover:bg-elite-blue-700"
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl px-3.5 text-xs font-medium shadow-sm transition-all hover:from-elite-blue-700 hover:to-elite-blue-800 bg-foreground text-background"
             >
               <Scale className="h-3.5 w-3.5" />
               {ar ? "أرصدة افتتاحية" : "Opening balances"}
@@ -678,7 +679,7 @@ export function ChartOfAccountsManager() {
               <Button
                 onClick={() => void handleSubmitForm()}
                 disabled={isSavingForm || !form.account_code.trim() || !form.name_ar.trim() || !form.name_en.trim()}
-                className="bg-elite-blue-600 hover:bg-elite-blue-700"
+                className="hover:from-elite-blue-700 hover:to-elite-blue-800 bg-foreground text-background"
               >
                 {isSavingForm ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 {t.common.save}
@@ -754,7 +755,7 @@ export function ChartOfAccountsManager() {
               <Button
                 onClick={() => void handleImport()}
                 disabled={isImporting || !csvText.trim()}
-                className="bg-elite-blue-600 hover:bg-elite-blue-700"
+                className="hover:from-elite-blue-700 hover:to-elite-blue-800 bg-foreground text-background"
               >
                 {isImporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
                 {ar ? "استيراد" : "Import"}
@@ -786,7 +787,7 @@ export function ChartOfAccountsManager() {
             </div>
 
             <div className="rounded-xl border border-border/50">
-              <div className="hidden gap-2 border-b sm:grid sm:grid-cols-[minmax(0,1fr)_90px_90px_32px] border-border/50 bg-muted/30 px-3 py-2 text-[11px] font-medium text-muted-foreground">
+              <div className="hidden gap-2 border-b sm:grid sm:grid-cols-[minmax(0,1fr)_90px_90px_32px] border-border/50 bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground">
                 <span>{ar ? "الحساب" : "Account"}</span>
                 <span>{ar ? "مدين" : "Debit"}</span>
                 <span>{ar ? "دائن" : "Credit"}</span>
@@ -863,7 +864,7 @@ export function ChartOfAccountsManager() {
               <Button
                 onClick={() => void handlePostOpening()}
                 disabled={isPostingOb || !obBalanced || obLines.some((l) => !l.account_id)}
-                className="bg-elite-blue-600 hover:bg-elite-blue-700"
+                className="hover:from-elite-blue-700 hover:to-elite-blue-800 bg-foreground text-background"
               >
                 {isPostingOb ? <Loader2 className="h-4 w-4 animate-spin" /> : <Scale className="h-4 w-4" />}
                 {ar ? "ترحيل الأرصدة" : "Post balances"}

@@ -121,7 +121,7 @@ export function ViolationsTab({ driverId, isAr }: ViolationsTabProps) {
       {loadError ? <p role="alert" className="text-sm text-destructive">{isAr ? "تعذر تحميل المخالفات." : "Could not load violations."} <Button variant="link" onClick={() => void load()}>{isAr ? "إعادة المحاولة" : "Retry"}</Button></p> : null}
       {archiveError ? <p role="alert" className="text-sm text-destructive">{friendlyError(archiveError, isAr)}</p> : null}
       <div className="flex flex-wrap items-center gap-3">
-        <div className="rounded-2xl border border-border/50 bg-card/60 px-4 py-3">
+        <div className="rounded-2xl border border-border/50 bg-card/60 px-4 py-3 backdrop-blur-sm">
           <span className="text-xs text-muted-foreground">
             {isAr ? "إجمالي الخصومات" : "Total deductions"}
           </span>
@@ -129,7 +129,7 @@ export function ViolationsTab({ driverId, isAr }: ViolationsTabProps) {
             {totals?Number(totals.deductions).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}):"—"} {isAr ? "ر.س" : "SAR"}
           </div>
         </div>
-        <div className="rounded-2xl border border-border/50 bg-card/60 px-4 py-3">
+        <div className="rounded-2xl border border-border/50 bg-card/60 px-4 py-3 backdrop-blur-sm">
           <span className="text-xs text-muted-foreground">
             {isAr ? "عدد المخالفات" : "Violations"}
           </span>
@@ -146,16 +146,16 @@ export function ViolationsTab({ driverId, isAr }: ViolationsTabProps) {
       </div>
 
       {rows.length === 0 ? (
-        <div className="rounded-2xl border border-border/50 bg-card/60 p-8 text-center">
+        <div className="rounded-2xl border border-border/50 bg-card/60 p-8 text-center backdrop-blur-sm">
           <p className="text-sm text-muted-foreground">
             {isAr ? "لا توجد مخالفات مسجلة" : "No violations recorded"}
           </p>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60">
+        <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card/60 backdrop-blur-sm">
           <table className="w-full min-w-[780px] text-start text-sm">
             <thead>
-              <tr className="border-b border-border/50 text-[11px] text-muted-foreground">
+              <tr className="border-b border-border/50 text-[10px] uppercase tracking-wide text-muted-foreground">
                 <th className="px-4 py-3 text-start font-semibold">{isAr ? "المرجع" : "Ref"}</th>
                 <th className="px-4 py-3 text-start font-semibold">{isAr ? "النوع" : "Type"}</th>
                 <th className="px-4 py-3 text-start font-semibold">{isAr ? "التاريخ" : "Date"}</th>

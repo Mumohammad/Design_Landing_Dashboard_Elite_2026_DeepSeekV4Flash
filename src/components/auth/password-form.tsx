@@ -89,19 +89,19 @@ export function PasswordForm({ mode = "recovery" }: { mode?: "recovery" | "requi
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="stagger-1 flex justify-center">
+      <div className="flex justify-center">
         <LogoMark size={56} showIndicator />
       </div>
 
-      <div className="rounded-2xl border border-border/50 shadow-modern-lg bg-card dark:bg-card/60 p-6 md:p-8">
-        <div className="stagger-2 flex flex-col gap-1.5 text-center mb-6">
-          <h1 className="text-2xl font-bold tracking-tight">{mode === "recovery" ? t.pages.resetPassword : t.pages.changePassword}</h1>
+      <div className="rounded-lg border border-border bg-card shadow-none p-6 md:p-8">
+        <div className="flex flex-col gap-2 text-start mb-6">
+          <h1 className="text-2xl font-semibold tracking-tight">{mode === "recovery" ? t.pages.resetPassword : t.pages.changePassword}</h1>
           <p className="text-sm text-muted-foreground">{mode === "required"
             ? isAr ? "يجب تغيير كلمة المرور قبل متابعة استخدام حسابك." : "Change your password before continuing to your account."
             : t.auth.resetPasswordSubtitle}</p>
         </div>
 
-        <form onSubmit={onSubmit} className="stagger-3 grid gap-4">
+        <form onSubmit={onSubmit} className="grid gap-4">
           {error && (
             <div id="password-form-error" role="alert" className="flex items-center gap-2 rounded-lg border border-red-700/30 bg-red-700/10 px-3 py-2 text-sm text-red-700 dark:text-red-400">
               <AlertCircle className="size-4 shrink-0" />
@@ -132,7 +132,7 @@ export function PasswordForm({ mode = "recovery" }: { mode?: "recovery" | "requi
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder={t.auth.passwordPlaceholder}
-                className="flex h-11 w-full rounded-md border border-input bg-transparent ps-10 pe-10 py-2 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring placeholder:text-muted-foreground"
+                className="flex h-11 w-full rounded-md border border-input bg-background ps-10 pe-10 py-2 text-sm shadow-none transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring placeholder:text-muted-foreground"
               />
               <button
                 type="button"
@@ -169,7 +169,7 @@ export function PasswordForm({ mode = "recovery" }: { mode?: "recovery" | "requi
                   setMismatch(false)
                 }}
                 placeholder={t.auth.passwordPlaceholder}
-                className={`flex h-11 w-full rounded-md border bg-transparent ps-10 pe-3 py-2 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 placeholder:text-muted-foreground ${
+                className={`flex h-11 w-full rounded-md border bg-background ps-10 pe-3 py-2 text-sm shadow-none transition-colors focus-visible:outline-none focus-visible:ring-1 placeholder:text-muted-foreground ${
                   mismatch
                     ? "border-destructive focus-visible:ring-destructive"
                     : "border-input focus-visible:ring-ring"
@@ -186,26 +186,26 @@ export function PasswordForm({ mode = "recovery" }: { mode?: "recovery" | "requi
             <button type="button" onClick={() => void sendCode()} disabled={loading || done} className="text-start text-sm font-medium underline underline-offset-4 disabled:opacity-50">{isAr ? "إرسال رمز التحقق" : "Send verification code"}</button>
             {codeSent && <p role="status" className="text-sm">{isAr ? "تم إرسال رمز التحقق إلى بريدك." : "Verification code sent to your email."}</p>}
             <label htmlFor="password-nonce" className="text-sm font-medium">{isAr ? "رمز التحقق من البريد" : "Email verification code"}</label>
-            <input id="password-nonce" value={nonce} onChange={e => setNonce(e.target.value)} maxLength={128} autoComplete="one-time-code" inputMode="numeric" disabled={loading || done} className="h-11 rounded-md border border-input bg-transparent px-3 text-sm" />
+            <input id="password-nonce" value={nonce} onChange={e => setNonce(e.target.value)} maxLength={128} autoComplete="one-time-code" inputMode="numeric" disabled={loading || done} className="h-11 rounded-md border border-input bg-background px-3 text-sm" />
           </div>}
           <button
             type="submit"
             disabled={loading || done}
-            className="mt-2 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-elite-blue-500 hover:bg-elite-blue-600 text-base font-semibold text-white shadow-elite-blue-500/20 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60 cursor-pointer"
+            className="mt-2 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-foreground hover:bg-foreground/90 text-base font-medium text-background transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60 cursor-pointer"
           >
             {loading && <Loader2 className="size-4 animate-spin" />}
             {t.auth.setPasswordButton}
           </button>
           </>}
-          {done && <button type="button" onClick={() => router.replace(withLocale(DASHBOARD_PATH, locale))} className="h-11 rounded-xl bg-primary px-4 font-medium text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          {done && <button type="button" onClick={() => router.replace(withLocale(DASHBOARD_PATH, locale))} className="h-11 rounded-md bg-foreground px-4 font-medium text-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
             {isAr ? "متابعة إلى حسابي" : "Continue to my account"}
           </button>}
         </form>
       </div>
 
-      <div className="stagger-4 text-center text-sm">
-        {mode === "recovery" ? <Link href="/auth/sign-in" className="font-medium text-primary underline underline-offset-4">{t.auth.backToSignIn}</Link>
-          : <a href="/auth/sign-out" className="font-medium text-primary underline underline-offset-4">{isAr ? "تسجيل الخروج واستخدام حساب آخر" : "Sign out and use another account"}</a>}
+      <div className="text-center text-sm">
+        {mode === "recovery" ? <Link href="/auth/sign-in" className="font-medium text-foreground underline underline-offset-4">{t.auth.backToSignIn}</Link>
+          : <a href="/auth/sign-out" className="font-medium text-foreground underline underline-offset-4">{isAr ? "تسجيل الخروج واستخدام حساب آخر" : "Sign out and use another account"}</a>}
       </div>
     </div>
   )

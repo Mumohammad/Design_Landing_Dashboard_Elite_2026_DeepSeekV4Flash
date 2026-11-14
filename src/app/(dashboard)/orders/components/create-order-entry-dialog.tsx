@@ -112,7 +112,7 @@ function Field({
         {required && <span className="text-destructive"> *</span>}
       </Label>
       {children}
-      {error && <p className="text-[11px] font-medium text-destructive">{error}</p>}
+      {error && <p className="text-xs font-medium text-destructive">{error}</p>}
     </div>
   )
 }
@@ -262,7 +262,7 @@ export function CreateOrderEntryDialog({
           <form onSubmit={handleSubmit(onSubmit)} className="grid gap-6" noValidate>
             {saveError && <p role="alert" className="text-sm text-destructive">{saveError}</p>}
             <fieldset className="grid gap-4 rounded-2xl border border-border/50 bg-muted/20 p-4 sm:grid-cols-2">
-              <legend className="px-2 text-xs font-bold text-elite-blue-600 dark:text-elite-blue-300">
+              <legend className="px-2 text-xs font-bold uppercase tracking-wide text-elite-blue-600 dark:text-elite-blue-300">
                 {isAr ? "السائق والمنصة" : "Driver & platform"}
               </legend>
               <Field htmlFor="driver_id" label={isAr ? "السائق" : "Driver"} required error={errors.driver_id?.message}>
@@ -331,7 +331,7 @@ export function CreateOrderEntryDialog({
             </fieldset>
 
             <fieldset className="grid gap-4 rounded-2xl border border-border/50 bg-muted/20 p-4 sm:grid-cols-2">
-              <legend className="px-2 text-xs font-bold text-elite-blue-600 dark:text-elite-blue-300">
+              <legend className="px-2 text-xs font-bold uppercase tracking-wide text-elite-blue-600 dark:text-elite-blue-300">
                 {isAr ? "أعداد الطلبات" : "Order counts"}
               </legend>
               <Field htmlFor="orders_delivered" label={isAr ? "طلبات مُسلّمة" : "Delivered"}>
@@ -349,7 +349,7 @@ export function CreateOrderEntryDialog({
             </fieldset>
 
             <fieldset className="grid gap-4 rounded-2xl border border-border/50 bg-muted/20 p-4 sm:grid-cols-2">
-              <legend className="px-2 text-xs font-bold text-elite-blue-600 dark:text-elite-blue-300">
+              <legend className="px-2 text-xs font-bold uppercase tracking-wide text-elite-blue-600 dark:text-elite-blue-300">
                 {isAr ? "المسافة والإيرادات" : "Distance & revenue"}
               </legend>
               <Field htmlFor="total_distance_km" label={isAr ? "المسافة الإجمالية (كم)" : "Total distance (km)"}>
@@ -370,7 +370,7 @@ export function CreateOrderEntryDialog({
             </fieldset>
 
             <fieldset className="grid gap-2 rounded-2xl border border-border/50 bg-muted/20 p-4">
-              <legend className="px-2 text-xs font-bold text-elite-blue-600 dark:text-elite-blue-300">
+              <legend className="px-2 text-xs font-bold uppercase tracking-wide text-elite-blue-600 dark:text-elite-blue-300">
                 {isAr ? "ملاحظات" : "Notes"}
               </legend>
               <Textarea id="notes" {...register("notes")} rows={2} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30" />
@@ -383,7 +383,7 @@ export function CreateOrderEntryDialog({
               <Button
                 type="submit"
                 disabled={submitting}
-                className="bg-elite-blue-500 text-white hover:bg-elite-blue-600"
+                className="hover:from-elite-blue-600 hover:to-elite-blue-800 bg-foreground text-background"
               >
                 {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
                 {isAr ? "حفظ الطلبات" : "Save orders"}

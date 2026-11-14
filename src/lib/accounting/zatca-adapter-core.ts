@@ -34,7 +34,7 @@ import { mapFinancialError } from "@/lib/accounting/csv-utils"
 import { buildZatcaUblInvoice, type ZatcaInvoiceData } from "./zatca-ubl"
 import { transmitToZatca } from "./zatca-transport"
 import { getZatcaCsidCredential } from "./zatca-credentials"
-import { getZatcaNetworkBase, zatcaConfiguredEnvironment } from "./zatca-config"
+import { getZatcaNetworkBase } from "./zatca-config"
 import { resolveTenantZatcaEnvironment } from "./zatca-environment"
 import { prepareZatcaDocumentAs, type ZatcaActor } from "./zatca-issuance"
 import { loadZatcaSourceDocument } from "./zatca-source"
@@ -101,14 +101,20 @@ export async function runZatcaAdapterAs(
   try {
 
     const admin = createAdminClient()
+    const { data: authorized, error: authorizationError } = await admin.rpc("zatca_operator_authorized", {
+      p_tenant: currentUser.tenantId, p_user: currentUser.authUserId,
+    })
+    if (authorizationError || authorized !== true) return { success: false, error: "The ZATCA operator is no longer authorized." }
     // Effective sandbox mode. The transport performs a REAL POST only when a
     // gateway base URL is configured AND credentials resolve (stored tenant
     // CSID first, env fallback — see zatca-transport.ts resolveCredentials).
     // Mirror that decision here so the audit log / UI flash can never report
     // "not sandbox" while the transport is actually returning the mock.
     const tenantEnvironment = await resolveTenantZatcaEnvironment(admin, currentUser.tenantId)
+    if (tenantEnvironment === "production") return { success: false, error: "ZATCA production submission is disabled." }
     const networkBase = getZatcaNetworkBase(tenantEnvironment ?? undefined)
-    const environment = tenantEnvironment ?? zatcaConfiguredEnvironment() ?? "sandbox"
+    if (networkBase && !tenantEnvironment) return { success: false, error: "Unable to resolve the tenant's ZATCA environment." }
+    const environment = tenantEnvironment ?? "sandbox"
     const storedCsid = networkBase ? await getZatcaCsidCredential(environment, "production", currentUser.tenantId) : null
     const sandbox = !networkBase
 
@@ -202,9 +208,9 @@ async function processEvent(
     : ev.event_type === "CreditNoteIssuedEvent" ? "credit_note"
     : "debit_note"
 
-  const source = await loadZatcaSourceDocument(admin, tenantId, docType, ev.source_id)
+  const source = await loadZatcaSourceDocument(admin, tenantId, docType, ev.source_id, { existingPreparationEnvironment: networkEnvironment })
   if (source === "skipped" || source === "failed") return source
-  const { invoiceId, docRef, issueDate, currency, subtotal, discount, vatAmount, total, lines, customerId, referenceInvoiceNumber, noteReason } = source
+  const { docRef, issueDate, currency, subtotal, discount, vatAmount, total, lines, customerId, referenceInvoiceNumber, noteReason } = source
 
   // Idempotency: one transmission per source document (an invoice or the
   // specific credit/debit note — several notes may reference one invoice).
@@ -218,7 +224,7 @@ async function processEvent(
   // Accepted in THIS environment = done. A mock or other-environment
   // acceptance is not evidence for the configured gateway.
   if (existing && (existing.status === "reported" || existing.status === "cleared")
-    && (!networkEnvironment || existing.environment === networkEnvironment || existing.environment === undefined)) {
+    && (!networkEnvironment || existing.environment === networkEnvironment)) {
     return "skipped"
   }
 
@@ -347,38 +353,16 @@ async function processEvent(
     transmittedAt = response.receivedAt
   }
 
-  // Record the transmission (update in place so retries refresh the same row).
-  const record: Record<string, unknown> = {
-    tenant_id: tenantId,
-    invoice_id: invoiceId,
-    source_id: ev.source_id,
-    doc_type: docType,
-    doc_ref: docRef,
-    payload_xml: xml,
-    status,
-    zatca_uuid: zatcaUuid,
-    response: raw,
-    error_message: failure,
-    transmitted_at: transmittedAt,
-    updated_by: authUserId,
-  }
-  if (existing) {
-    await admin.from("zatca_transmissions").update(record).eq("id", existing.id).eq("tenant_id", tenantId)
-  } else {
-    record.created_by = authUserId
-    const { error: insErr } = await admin.from("zatca_transmissions").insert(record)
-    if (insErr) throw new Error(mapFinancialError(insErr.message))
-  }
-
-  // Reflect the status on the invoice itself (status fields only — financial
-  // columns untouched; protect_finalized_invoice allows this).
-  if (docType === "invoice") {
-    await admin
-      .from("invoices")
-      .update({ zatca_status: status, zatca_uuid: zatcaUuid, updated_by: authUserId })
-      .eq("id", invoiceId)
-      .eq("tenant_id", tenantId)
-  }
+  // One authorized transaction records the source transmission and updates
+  // only the invoice's ZATCA fields. Direct service-role finance writes stay
+  // blocked; a persistence failure is never counted as a processed document.
+  const { data: recorded, error: recordError } = await admin.rpc("record_zatca_transmission", {
+    p_tenant: tenantId, p_actor: authUserId, p_source_type: docType,
+    p_source_id: ev.source_id, p_payload_xml: xml, p_status: status,
+    p_zatca_uuid: zatcaUuid, p_response: raw,
+    p_error_message: failure, p_transmitted_at: transmittedAt,
+  })
+  if (recordError || recorded !== true) throw new Error("Unable to persist the ZATCA transmission result.")
 
   return status === "failed" || status === "rejected" ? "failed" : "processed"
 }

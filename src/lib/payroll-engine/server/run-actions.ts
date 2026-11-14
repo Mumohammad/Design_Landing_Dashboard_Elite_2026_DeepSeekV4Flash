@@ -3,16 +3,17 @@
 // Platform payroll runs: import → calculate (vendored engine) → review →
 // approve (installments advance) → optional accounting journal draft.
 import { createHash, randomUUID } from "node:crypto"
+import { isDeepStrictEqual } from "node:util"
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { createClient } from "@/lib/supabase/server"
-import { writeAuditLog } from "@/lib/auth/sessions"
 import { rateLimitImports, rateLimitPayroll } from "@/lib/auth/rate-limit"
 import { parseWorkbook } from "../excel-parser"
 import { computePayrollRun } from "../run"
+import { payslipBreakdown } from "../payslip"
 import type { RawDriverData } from "../salary-engine"
-import { MONTH_KEY_RE, monthEndDate, monthLabel, toHalalas } from "../month"
-import { engineContext, failure, loadActiveRules, loadDriversByRider, loadSources, type EngineResult } from "./data"
+import { MONTH_KEY_RE, monthLabel } from "../month"
+import { engineContext, failure, loadActiveRules, loadDriversByRider, loadSources, payrollSourceVersion, saveReviewedPayroll, attestPayrollCalculation, type EngineResult } from "./data"
 import { adapterExceptions, loadDraftInputs, recalculateDraftRun, runPayload } from "./recalc"
 
 const MAX_WORKBOOK_BYTES = 10 * 1024 * 1024
@@ -40,10 +41,7 @@ export async function importPayrollWorkbook(input: unknown): Promise<EngineResul
     if (!(await rateLimitImports(ctx.userId)).success) return { success: false, error: "Rate limit exceeded. Try again later." }
     const { path, fileName, monthKey, platformName, platformId } = parsed.data
     if (!path.startsWith(`${ctx.tenantId}/`) || !/\.(xlsx|xls)$/i.test(path)) return { success: false, error: "Invalid workbook location." }
-    // Archived workbooks are only kept when a run references them; any failed
-    // import removes its upload so storage never accumulates orphan files.
-    let saved = false
-    try {
+    // Failed/unknown imports retain immutable uploads for safe retry/review.
     const file = await ctx.admin.storage.from(BUCKET).download(path)
     if (file.error || !file.data) return { success: false, error: "Uploaded workbook not found. Upload it again." }
     const bytes = new Uint8Array(await file.data.arrayBuffer())
@@ -54,29 +52,25 @@ export async function importPayrollWorkbook(input: unknown): Promise<EngineResul
     try { workbook = parseWorkbook(bytes) } catch (e) { return { success: false, error: `Workbook parsing failed: ${e instanceof Error ? e.message : "unknown error"}` } }
     if (workbook.drivers.length === 0) return { success: false, error: "The RLVL sheet contains no rider rows with a rider_id. Check the workbook before importing." }
 
-    const [rules, sources, drivers] = await Promise.all([loadActiveRules(ctx), loadSources(ctx), loadDriversByRider(ctx, workbook.drivers.map(d => d.riderId))])
+    const sourceVersion = await payrollSourceVersion()
+    const [rules, sources, drivers] = await Promise.all([loadActiveRules(ctx), loadSources(ctx), loadDriversByRider(ctx, workbook.drivers.map(d => d.riderId), platformName)])
     const payrollMonth = monthLabel(monthKey)
     const rawInputs = workbook.drivers.map(d => structuredClone(d))
     const computed = computePayrollRun({ rawDrivers: workbook.drivers, parserWarnings: workbook.warnings, rules: rules.snapshot, ruleSetName: rules.name, payrollMonth, sources, advanceInstallments: false })
     const exceptions = [...computed.exceptions, ...adapterExceptions(rawInputs, drivers, computed)]
     const { results, income } = runPayload(computed, drivers, workbook.driverBanking, workbook.banking, rawInputs)
 
-    const { data: runId, error } = await ctx.admin.rpc("payroll_engine_save_run", {
-      p_tenant: ctx.tenantId, p_actor: ctx.userId,
+    const { data: runId, error } = await saveReviewedPayroll(ctx, {
+      p_source_version: sourceVersion,
       p_run: { payroll_month: payrollMonth, month_key: monthKey, platform_name: platformName, platform_id: platformId ?? null, file_name: fileName, file_path: path,
         file_sha256: createHash("sha256").update(bytes).digest("hex"), file_size: bytes.byteLength, rule_set_id: rules.id, rule_set_name: rules.name,
         rule_snapshot: rules.snapshot, banking: workbook.banking, parser_warnings: workbook.warnings, totals: computed.totals },
       p_results: results, p_exceptions: exceptions, p_income: income,
     })
     if (error) return failure(error, "Could not save the payroll run")
-    saved = true
-    await writeAuditLog({ tenantId: ctx.tenantId, actorId: ctx.userId, module: "payroll", action: "platform_payroll_imported", entityType: "payroll_engine_runs", entityId: runId as string,
-      newValues: { fileName, monthKey, platformName, drivers: results.length, totalNet: computed.totals.totalNet, ruleSet: rules.name } })
+    if (!z.string().uuid().safeParse(runId).success) return { success: false, error: "Import outcome could not be confirmed. Reload before retrying." }
     revalidate(runId as string)
     return { success: true, data: { runId: runId as string, drivers: results.length, totalNet: computed.totals.totalNet, warnings: exceptions.length } }
-    } finally {
-      if (!saved) await ctx.admin.storage.from(BUCKET).remove([path]).catch(() => undefined)
-    }
   } catch (e) { return failure(e, "Import failed") }
 }
 
@@ -115,17 +109,28 @@ export async function approvePayrollRun(input: unknown): Promise<EngineResult<{ 
     const p = z.object({ runId: z.string().uuid(), version: z.number().int().positive() }).safeParse(input)
     if (!p.success) return { success: false, error: "Invalid request" }
     const ctx = await engineContext("approve")
+    const caller = await createClient()
+    const recovered = await caller.rpc("read_my_platform_payroll_approval", { p_run_id: p.data.runId, p_expected_version: p.data.version })
+    if (recovered.error) return failure(recovered.error, "Approval recovery unavailable")
+    if (recovered.data !== null) {
+      const receipt = z.object({ run_id: z.literal(p.data.runId), advanced: z.number().int().nonnegative(), settled: z.number().int().nonnegative(), replayed: z.literal(true) }).safeParse(recovered.data)
+      if (!receipt.success) return { success: false, error: "PAYENG_UNAVAILABLE" }
+      revalidate(p.data.runId)
+      return { success: true, data: { advanced: receipt.data.advanced, settled: receipt.data.settled } }
+    }
+    const sourceVersion = await payrollSourceVersion()
     const { run, rows } = await loadDraftInputs(ctx, p.data.runId)
     if (run.status !== "draft") return { success: false, error: "Only draft payroll runs can be approved" }
     const rawInputs = rows.map(r => r.raw_input as RawDriverData)
     const [rules, sources] = await Promise.all([loadActiveRules(ctx), loadSources(ctx)])
     const fresh = computePayrollRun({ rawDrivers: rawInputs.map(r => structuredClone(r)), rules: rules.snapshot, ruleSetName: rules.name, payrollMonth: run.payroll_month, sources, advanceInstallments: true })
-    const stored = new Map(rows.map(r => [r.rider_id, r.result as { finalNetSalary: number; grossSalaryBeforePenalties: number }]))
+    if (fresh.riders.some(({ result }) => payslipBreakdown(result).capFloorAdjustment < -0.005)) return { success: false, error: "PAYENG_UNRECOVERED" }
+    const stored = new Map(rows.map(r => [r.rider_id, r.result]))
     const stale = fresh.riders.some(({ result }) => {
       const s = stored.get(result.riderId)
-      return !s || s.finalNetSalary !== result.finalNetSalary || s.grossSalaryBeforePenalties !== result.grossSalaryBeforePenalties
+      return !s || !isDeepStrictEqual(s, JSON.parse(JSON.stringify(result)))
     })
-    if (stale) return { success: false, error: "Rules or adjustments changed since this run was calculated. Recalculate, review, then approve." }
+    if (stale) return { success: false, error: "PAYENG011" }
     const byRider = new Map(fresh.riders.map(({ result }) => [result.riderId, result]))
     const changes = [
       ...fresh.installments.customDeductions.map(c => ({ table: "items", ...c })),
@@ -134,12 +139,13 @@ export async function approvePayrollRun(input: unknown): Promise<EngineResult<{ 
       ...sources.trafficViolations.filter(v => !v.installmentEnabled && (byRider.get(v.riderId)?.trafficViolationsDeduction ?? 0) > 0).map(v => ({ table: "traffic_status", id: v.id })),
       ...sources.manualAdjustments.filter(a => byRider.has(a.riderId)).map(a => ({ table: "adjustment_status", id: a.id })),
     ]
-    const { data, error } = await ctx.admin.rpc("payroll_engine_approve_run", { p_tenant: ctx.tenantId, p_actor: ctx.userId, p_run_id: run.id, p_expected_version: p.data.version, p_changes: changes })
+    await attestPayrollCalculation(ctx, "approve", { changes, source: sourceVersion, run_id: run.id, expected_version: p.data.version, results: fresh.riders.map(r => r.result).sort((a, b) => a.riderId < b.riderId ? -1 : a.riderId > b.riderId ? 1 : 0) }, sourceVersion)
+    const { data, error } = await caller.rpc("approve_my_platform_payroll", { p_run_id: run.id, p_expected_version: p.data.version, p_changes: changes, p_source_version: sourceVersion })
     if (error) return failure(error, "Approval failed")
-    await writeAuditLog({ tenantId: ctx.tenantId, actorId: ctx.userId, module: "payroll", action: "platform_payroll_approved", entityType: "payroll_engine_runs", entityId: run.id, newValues: data as Record<string, unknown> })
     revalidate(run.id)
-    const out = data as { advanced: number; settled: number }
-    return { success: true, data: { advanced: Number(out.advanced) || 0, settled: Number(out.settled) || 0 } }
+    const out = z.object({ advanced: z.number().int().nonnegative(), settled: z.number().int().nonnegative() }).safeParse(data)
+    if (!out.success) return { success: false, error: "Approval outcome could not be confirmed. Reload before retrying." }
+    return { success: true, data: out.data }
   } catch (e) { return failure(e, "Approval failed") }
 }
 
@@ -147,10 +153,10 @@ export async function cancelPayrollRun(input: unknown): Promise<EngineResult> {
   try {
     const p = z.object({ runId: z.string().uuid(), reason: z.string().trim().min(3).max(500) }).safeParse(input)
     if (!p.success) return { success: false, error: "A cancellation reason (3–500 characters) is required" }
-    const ctx = await engineContext("update")
-    const { error } = await ctx.admin.rpc("payroll_engine_cancel_run", { p_tenant: ctx.tenantId, p_actor: ctx.userId, p_run_id: p.data.runId, p_reason: p.data.reason })
+    await engineContext("update")
+    const caller = await createClient()
+    const { error } = await caller.rpc("cancel_my_platform_payroll", { p_run_id: p.data.runId, p_reason: p.data.reason })
     if (error) return failure(error, "Cancellation failed")
-    await writeAuditLog({ tenantId: ctx.tenantId, actorId: ctx.userId, module: "payroll", action: "platform_payroll_cancelled", entityType: "payroll_engine_runs", entityId: p.data.runId, newValues: { reason: p.data.reason } })
     revalidate(p.data.runId)
     return { success: true, data: undefined }
   } catch (e) { return failure(e, "Cancellation failed") }
@@ -191,30 +197,14 @@ export async function createPayrollJournalDraft(input: unknown): Promise<EngineR
     const p = z.object({ runId: z.string().uuid(), expenseAccountId: z.string().uuid(), payableAccountId: z.string().uuid() }).safeParse(input)
     if (!p.success) return { success: false, error: "Choose the expense and payable accounts" }
     if (p.data.expenseAccountId === p.data.payableAccountId) return { success: false, error: "Expense and payable accounts must differ" }
-    const ctx = await engineContext("approve")
-    const run = await ctx.admin.from("payroll_engine_runs").select("id,status,month_key,payroll_month,platform_name,total_net,total_drivers,journal_entry_id").eq("id", p.data.runId).eq("tenant_id", ctx.tenantId).single()
-    if (run.error) return { success: false, error: "Payroll run not found" }
-    if (run.data.status !== "approved") return { success: false, error: "Approve the payroll run first" }
-    if (run.data.journal_entry_id) return { success: false, error: "A journal draft already exists for this run" }
-    const rows = await ctx.admin.from("payroll_engine_results").select("final_net_salary").eq("run_id", run.data.id).eq("tenant_id", ctx.tenantId)
-    if (rows.error) return failure(rows.error, "Could not read results")
-    // Sum of per-rider payable amounts (each rounded to halalas) = what is actually paid.
-    const amount = toHalalas((rows.data ?? []).reduce((s, r) => s + toHalalas(Number(r.final_net_salary)), 0))
-    if (amount <= 0) return { success: false, error: "Net payroll is zero — nothing to post" }
-    const client = await createClient()
-    const description = `Rider payroll ${run.data.payroll_month} — ${run.data.platform_name} (${run.data.total_drivers} riders)`
-    const { data, error } = await client.rpc("save_journal_draft", { p_input: {
-      entry_date: monthEndDate(run.data.month_key), description_ar: `رواتب المناديب ${run.data.month_key} — ${run.data.platform_name}`, description_en: description,
-      lines: [
-        { account_id: p.data.expenseAccountId, debit: amount, credit: 0, description },
-        { account_id: p.data.payableAccountId, debit: 0, credit: amount, description },
-      ] } })
+    await engineContext("approve")
+    const caller = await createClient()
+    const { data, error } = await caller.rpc("create_my_platform_payroll_journal", { p_run_id: p.data.runId, p_expense_account: p.data.expenseAccountId, p_payable_account: p.data.payableAccountId })
     if (error) return failure(error, "Could not create the journal draft")
-    const journalId = (data as { id: string }).id
-    const link = await ctx.admin.from("payroll_engine_runs").update({ journal_entry_id: journalId, updated_at: new Date().toISOString() }).eq("id", run.data.id).eq("tenant_id", ctx.tenantId).is("journal_entry_id", null)
-    if (link.error) return failure(link.error, "Journal created but could not be linked")
-    await writeAuditLog({ tenantId: ctx.tenantId, actorId: ctx.userId, module: "payroll", action: "platform_payroll_journal_draft", entityType: "payroll_engine_runs", entityId: run.data.id, newValues: { journalId, amount } })
-    revalidate(run.data.id)
+    const result = z.object({ id: z.string().uuid() }).safeParse(data)
+    if (!result.success) return { success: false, error: "Journal outcome could not be confirmed. Reload before retrying." }
+    const journalId = result.data.id
+    revalidate(p.data.runId)
     revalidatePath("/accounting")
     return { success: true, data: { journalId } }
   } catch (e) { return failure(e, "Could not create the journal draft") }

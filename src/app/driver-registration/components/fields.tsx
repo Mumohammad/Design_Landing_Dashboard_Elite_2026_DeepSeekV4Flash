@@ -32,13 +32,13 @@ export function RegistrationHeader() {
   const [langOpen, setLangOpen] = React.useState(false)
 
   return (
-    <header className="sticky top-0 z-40 border-b border-border/60 bg-background">
+    <header className="sticky top-0 z-40 border-b border-border bg-background">
       <div className="mx-auto flex h-16 max-w-5xl items-center justify-between gap-3 px-4 lg:px-8">
         <div className="flex items-center gap-3">
           <LogoMark size={38} />
           <div className="leading-tight">
             <p className="text-sm font-bold text-foreground">{dict.header.brand}</p>
-            <p className="text-[11px] text-muted-foreground">{dict.header.tagline}</p>
+            <p className="text-xs text-muted-foreground">{dict.header.tagline}</p>
           </div>
         </div>
 
@@ -64,7 +64,7 @@ export function RegistrationHeader() {
               <ul
                 role="listbox"
                 aria-label={dict.language.label}
-                className="absolute end-0 z-20 mt-2 w-44 overflow-hidden rounded-xl border border-border bg-popover p-1.5"
+                className="absolute end-0 z-20 mt-2 w-44 overflow-hidden rounded-md border border-border bg-popover p-1.5 shadow-lg"
               >
                 {(Object.keys(registrationLocaleMeta) as RegistrationLocale[]).map((code) => (
                   <li key={code}>
@@ -78,7 +78,7 @@ export function RegistrationHeader() {
                       className={cn(
                         "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors",
                         code === locale
-                          ? "bg-elite-blue-500/10 font-bold text-elite-blue-600 dark:text-elite-blue-300"
+                          ? "bg-muted font-medium text-foreground"
                           : "text-foreground hover:bg-accent"
                       )}
                     >
@@ -123,9 +123,9 @@ export function Field({
         id={id}
         aria-invalid={!!error}
         className={cn(
-          "h-12 rounded-2xl border-border/70 bg-card/60 shadow-sm transition-all duration-200",
-          "hover:border-elite-blue-500/40 hover:shadow",
-          "focus-visible:border-elite-blue-500/60 focus-visible:ring-4 focus-visible:ring-elite-blue-500/15",
+          "h-11 rounded-md border-input bg-background transition-colors",
+          "hover:border-ring",
+          "focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20",
           error && "border-destructive focus-visible:ring-destructive/30"
         )}
         {...props}
@@ -191,21 +191,21 @@ export function DateField({
             id={id}
             variant="outline"
             className={cn(
-              "h-12 w-full justify-start rounded-2xl border-border/70 bg-card/60 px-4 text-start font-normal shadow-sm transition-all duration-200",
-              "hover:border-elite-blue-500/40 hover:shadow",
-              "focus-visible:border-elite-blue-500/60 focus-visible:ring-4 focus-visible:ring-elite-blue-500/15",
+              "h-11 w-full justify-start rounded-md border-input bg-background px-3 text-start font-normal transition-colors",
+              "hover:border-ring",
+              "focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20",
               !value && "text-muted-foreground",
               error && "border-destructive focus-visible:ring-destructive/30"
             )}
           >
-            <CalendarIcon className="h-4 w-4 shrink-0 text-elite-blue-500" />
+            <CalendarIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
             {value ? format(parsed!, "dd/MM/yyyy") : dict.common.select}
             {validity && (
               <span
                 className={cn(
-                  "ms-auto rounded-full px-2 py-0.5 text-[11px] font-bold",
-                  validity === "valid" && "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-                  validity === "expiring" && "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+                  "ms-auto rounded-full px-2 py-0.5 text-xs font-bold",
+                  validity === "valid" && "bg-emerald-500/10 text-emerald-800 dark:text-emerald-300",
+                  validity === "expiring" && "bg-amber-500/10 text-amber-800 dark:text-amber-300",
                   validity === "expired" && "bg-destructive/10 text-destructive"
                 )}
               >
@@ -219,7 +219,7 @@ export function DateField({
           </Button>
         </PopoverTrigger>
         <PopoverContent
-          className="w-auto rounded-2xl border-border/70 p-2 shadow-elite-blue-900/10"
+          className="w-auto rounded-lg border-border p-2 shadow-lg"
           align="start"
         >
           <Calendar
@@ -242,7 +242,7 @@ export function DateField({
                 "flex w-full items-center justify-center gap-2 pb-1",
               dropdown_root: "relative inline-flex items-center",
               dropdown:
-                "h-9 cursor-pointer appearance-none rounded-lg border border-border/70 bg-card px-2.5 text-[13px] font-bold text-foreground shadow-sm transition-colors hover:border-elite-blue-500/50 hover:bg-elite-blue-500/5 focus:outline-none focus:ring-2 focus:ring-elite-blue-500/30",
+                "h-9 cursor-pointer appearance-none rounded-lg border border-input bg-card px-2.5 text-[13px] font-bold text-foreground transition-colors hover:border-ring hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring/20",
             }}
           />
         </PopoverContent>
@@ -272,18 +272,18 @@ export function SelectionCard({
       onClick={onSelect}
       aria-pressed={selected}
       className={cn(
-        "group relative flex w-full flex-col items-start gap-1 rounded-2xl border p-5 text-start transition-all duration-200",
-        "focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-elite-blue-500/20",
+        "group relative flex w-full flex-col items-start gap-1 rounded-lg border p-5 text-start transition-all duration-200",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20",
         "active:scale-[0.99]",
         selected
-          ? "border-elite-blue-500 bg-elite-blue-500/5 shadow-elite-blue-500/10"
-          : "border-border bg-card hover:-translate-y-0.5 hover:border-elite-blue-500/40"
+          ? "border-foreground bg-muted"
+          : "border-border bg-card hover:border-ring"
       )}
     >
       <span className="absolute end-4 top-4 flex h-5 w-5 items-center justify-center rounded-full border-2 transition-colors"
-        style={selected ? { borderColor: "var(--elite-blue-500, #1E5A99)", background: "#1E5A99" } : undefined}
+        style={selected ? { borderColor: "var(--foreground)", background: "var(--foreground)" } : undefined}
       >
-        {selected && <Check className="h-3 w-3 text-white" />}
+        {selected && <Check className="h-3 w-3 text-background" />}
       </span>
       {icon && <span className="text-2xl" aria-hidden>{icon}</span>}
       <span className="mt-1 text-sm font-bold text-foreground">{title}</span>
@@ -376,13 +376,13 @@ export function UploadCard({
         <Label className="text-sm font-semibold">
           {label}
           {required && (
-            <span className="ms-1.5 rounded-full bg-elite-orange-500/10 px-2 py-0.5 text-[11px] font-bold text-elite-orange-600 dark:text-elite-orange-400">
+            <span className="ms-1.5 rounded-full bg-muted px-2 py-0.5 text-xs font-bold text-muted-foreground">
               {dict.documents.requiredLabel}
             </span>
           )}
         </Label>
         {file && (
-          <span className="flex items-center gap-1 text-xs font-bold text-emerald-600 dark:text-emerald-400">
+          <span className="flex items-center gap-1 text-xs font-bold text-emerald-800 dark:text-emerald-300">
             <Check className="h-3.5 w-3.5" /> {dict.common.uploaded}
           </span>
         )}
@@ -400,26 +400,26 @@ export function UploadCard({
           void handleFiles(e.dataTransfer.files)
         }}
         className={cn(
-          "relative flex min-h-28 flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed p-4 text-center transition-all duration-200",
+          "relative flex min-h-28 flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-4 text-center transition-all duration-200",
           dragOver &&
-            "scale-[1.01] border-elite-blue-500 bg-elite-blue-500/10 shadow-elite-blue-500/10",
+            "border-foreground bg-muted",
           !dragOver &&
             (file
               ? "border-emerald-500/50 bg-emerald-500/5"
-              : "border-border bg-card/60 hover:border-elite-blue-500/50 hover:bg-elite-blue-500/[0.03]")
+              : "border-border bg-card hover:border-foreground/50 hover:bg-muted")
         )}
       >
         {busy ? (
           <div className="flex w-full flex-col items-center gap-3 py-4">
-            <UploadCloud className="h-6 w-6 animate-pulse text-elite-blue-500" />
+            <UploadCloud className="h-6 w-6 animate-pulse text-muted-foreground" />
             <div className="h-1.5 w-40 overflow-hidden rounded-full bg-muted">
-              <div className="h-full w-1/2 animate-[marquee-x_1.2s_linear_infinite] rounded-full bg-elite-blue-500" />
+              <div className="h-full w-1/2 animate-[marquee-x_1.2s_linear_infinite] rounded-full bg-foreground" />
             </div>
             <span className="text-xs font-medium text-muted-foreground">{dict.common.uploading}</span>
           </div>
         ) : file ? (
           <div className="flex items-center gap-3 py-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl text-elite-blue-600 dark:text-elite-blue-300">
+            <span className="flex h-10 w-10 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-800 dark:text-emerald-300">
               <FileText className="h-5 w-5" />
             </span>
             <div className="min-w-0 text-start">
@@ -445,7 +445,7 @@ export function UploadCard({
           </div>
         ) : (
           <>
-            <span className="flex h-12 w-12 items-center justify-center rounded-2xl transition-transform duration-200 text-elite-blue-600 dark:text-elite-blue-300">
+            <span className="flex h-12 w-12 items-center justify-center rounded-lg text-muted-foreground">
               <UploadCloud className="h-6 w-6" />
             </span>
             <div>
@@ -494,7 +494,7 @@ export function ProfilePhotoAvatar({ previewUrl }: { previewUrl: string | null }
     <img
       src={previewUrl}
       alt=""
-      className="h-24 w-24 rounded-2xl border border-border object-cover shadow-sm"
+      className="h-24 w-24 rounded-lg border border-border object-cover"
     />
   )
 }

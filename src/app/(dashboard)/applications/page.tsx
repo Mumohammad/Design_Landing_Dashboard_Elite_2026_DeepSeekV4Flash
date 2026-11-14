@@ -198,13 +198,13 @@ export default function ApplicationsPage() {
             {codes.slice(0, 3).map((c) => (
               <span
                 key={c}
-                className="inline-flex items-center rounded-full bg-muted/50 px-1.5 py-0.5 text-[11px] text-foreground/70"
+                className="inline-flex items-center rounded-full bg-muted/50 px-1.5 py-0.5 text-xs text-foreground/70"
               >
                 {c}
               </span>
             ))}
             {codes.length > 3 && (
-              <span className="text-[11px] text-muted-foreground">
+              <span className="text-xs text-muted-foreground">
                 +{codes.length - 3}
               </span>
             )}
@@ -250,7 +250,7 @@ export default function ApplicationsPage() {
   ]
 
   return (
-    <div className="px-4 py-4 lg:px-6">
+    <div className="py-4">
       <EnterpriseModulePage<ApplicationListItem>
         title={t.nav.applications}
         subtitle={

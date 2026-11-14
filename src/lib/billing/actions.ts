@@ -7,6 +7,7 @@ import { z } from "zod"
 import { can, getCurrentUser, requirePermission } from "@/lib/auth/authorization"
 import { rateLimit } from "@/lib/auth/rate-limit"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { readCompleteRows } from "@/lib/analytics/complete-read"
 import { moyasarConfigured, moyasarMode } from "./moyasar"
 import { reconcileAttempt, startCardCheckout, type SettleOutcome } from "./card-payments"
 
@@ -42,17 +43,18 @@ export async function getBillingOverview(): Promise<BillingOverview | null> {
   const user = await getCurrentUser()
   if (!user) return null
   const admin = createAdminClient()
-  const [{ data: tenant }, { data: invoices }, manage] = await Promise.all([
+  const [tenantRead, invoiceRead, manage] = await Promise.all([
     admin.from("tenants").select("name_ar, name_en, billing_status, trial_ends_at").eq("id", user.tenantId).maybeSingle(),
-    admin
+    readCompleteRows(() => admin
       .from("platform_invoices")
-      .select("id, invoice_number, period_label, amount, currency, status, due_date, paid_at, payment_method, created_at")
+      .select("id, invoice_number, period_label, amount, currency, status, due_date, paid_at, payment_method, created_at", { count: "exact" })
       .eq("tenant_id", user.tenantId)
       .neq("status", "void")
-      .order("created_at", { ascending: false })
-      .limit(60),
+      .order("created_at", { ascending: false }).order("id", { ascending: true })),
     can("settings", "update").then((r) => r.allowed, () => false),
   ])
+  if (tenantRead.error || !tenantRead.data || invoiceRead.error || !invoiceRead.data) throw new Error("Billing data unavailable")
+  const tenant = tenantRead.data, invoices = invoiceRead.data
   return {
     companyName: (tenant?.name_en || tenant?.name_ar || "") as string,
     billingStatus: (tenant?.billing_status as string | null) ?? null,

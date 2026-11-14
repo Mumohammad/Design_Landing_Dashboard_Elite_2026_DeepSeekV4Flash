@@ -2,7 +2,8 @@
 
 import Link from "next/link"
 import { useParams } from "next/navigation"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { approvePayrollRun, cancelPayrollRun, createPayrollJournalDraft, payrollWorkbookDownloadUrl, recalculatePayrollRun, updatePayrollException } from "@/lib/payroll-engine/server/run-actions"
 import { getPayrollRunDetail, getPayslipCompany, listJournalAccounts, type RunDetail } from "@/lib/payroll-engine/server/read-actions"
 import { payrollResultsSheets } from "@/lib/payroll-engine/exports"
@@ -12,29 +13,53 @@ import { PayslipViewer } from "@/components/payroll-engine/payslip-viewer"
 import { FileText } from "lucide-react"
 import { Field, Kpi, Notice, PageShell, StatusBadge, buttonClass, dangerButtonClass, downloadSheets, inputClass, int, primaryButtonClass, sar, useLang } from "@/components/payroll-engine/shared"
 
-type Row = RunDetail["results"][number]
-
 export default function PlatformPayrollRunPage() {
   const { id } = useParams<{ id: string }>()
+  return <PlatformPayrollRunDetail key={id} id={id} />
+}
+
+function PlatformPayrollRunDetail({ id }: { id: string }) {
   const { ar, tx } = useLang()
+  const mounted = useRef(true)
+  const detailRequest = useRef(0)
+  useEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false }
+  }, [])
   const [detail, setDetail] = useState<RunDetail | null>(null)
   const [error, setError] = useState("")
   const [busy, setBusy] = useState("")
   const [message, setMessage] = useState<{ kind: "ok" | "err"; text: string } | null>(null)
   const [tab, setTab] = useState<"results" | "payslips" | "exceptions" | "rules">("results")
-  const [company, setCompany] = useState<PayslipCompany | null>(null)
-  useEffect(() => { void getPayslipCompany().then(r => { if (r.success) setCompany(r.data) }) }, [])
+  const [companyAttempt, setCompanyAttempt] = useState(0)
+  const [companyRead, setCompanyRead] = useState<{ attempt: number; data: PayslipCompany | null } | null>(null)
+  const companyLoading = companyRead?.attempt !== companyAttempt
+  const company = !companyLoading ? companyRead?.data ?? null : null
+  useEffect(() => {
+    let cancelled = false
+    void getPayslipCompany().then(result => {
+      if (cancelled) return
+      const data = result.success && (result.data.nameAr?.trim() || result.data.nameEn?.trim()) ? result.data : null
+      setCompanyRead({ attempt: companyAttempt, data })
+    }).catch(() => { if (!cancelled) setCompanyRead({ attempt: companyAttempt, data: null }) })
+    return () => { cancelled = true }
+  }, [companyAttempt])
   const [search, setSearch] = useState("")
-  const [selected, setSelected] = useState<Row | null>(null)
+  const [selected, setSelected] = useState<string | null>(null)
   const [cancelOpen, setCancelOpen] = useState(false)
   const [reason, setReason] = useState("")
   const [journalOpen, setJournalOpen] = useState(false)
   const [accounts, setAccounts] = useState<Array<{ id: string; code: string; name: string; type: string }>>([])
   const [journal, setJournal] = useState({ expenseAccountId: "", payableAccountId: "" })
 
-  const load = useCallback(async () => {
-    const r = await getPayrollRunDetail(id)
-    if (r.success) { setDetail(r.data); setError("") } else setError(r.error)
+  const load = useCallback(() => {
+    const request = ++detailRequest.current
+    return getPayrollRunDetail(id).then(r => {
+      if (!mounted.current || request !== detailRequest.current) return
+      if (r.success) { setDetail(r.data); setError("") } else setError(r.error)
+    }).catch(() => {
+      if (mounted.current && request === detailRequest.current) setError("PAYROLL_DETAIL_READ_UNAVAILABLE")
+    })
   }, [id])
   useEffect(() => { void load() }, [load])
 
@@ -48,18 +73,23 @@ export default function PlatformPayrollRunPage() {
     setBusy(label); setMessage(null)
     try {
       const r = await fn()
-      if (!r.success) setMessage({ kind: "err", text: r.error ?? tx("Action failed", "تعذّر تنفيذ الإجراء") })
-      else { setMessage({ kind: "ok", text: ok }); await load() }
-    } finally { setBusy("") }
+      if (!mounted.current) return false
+      if (!r.success) { setMessage({ kind: "err", text: r.error ?? tx("Action failed", "تعذّر تنفيذ الإجراء") }); return false }
+      setMessage({ kind: "ok", text: ok }); await load(); return mounted.current
+    } catch {
+      if (mounted.current) setMessage({ kind: "err", text: tx("The result could not be confirmed. Refresh the run before trying again.", "تعذر تأكيد النتيجة. أعد تحميل المسير قبل إعادة المحاولة.") })
+      return false
+    } finally { if (mounted.current) setBusy("") }
   }
 
-  if (error) return <PageShell title={tx("Payroll run", "مسير الرواتب")}><Notice kind="err">{error}</Notice></PageShell>
+  if (error) return <PageShell title={tx("Payroll run", "مسير الرواتب")}><Notice kind="err">{error === "PAYROLL_DETAIL_READ_UNAVAILABLE" ? tx("Could not load this payroll run. Try again.", "تعذر تحميل مسير الرواتب. أعد المحاولة.") : error}</Notice><button type="button" className={buttonClass} onClick={() => void load()}>{tx("Try again", "إعادة المحاولة")}</button></PageShell>
   if (!detail || !run) return <PageShell title={tx("Payroll run", "مسير الرواتب")}><p className="text-sm text-muted-foreground">{tx("Loading…", "جارٍ التحميل…")}</p></PageShell>
 
   const month = ar ? monthLabelAr(run.monthKey) : monthLabel(run.monthKey)
   const payable = toHalalas(detail.results.reduce((s, r) => s + toHalalas(r.result.finalNetSalary), 0))
   const meta = { month, platform: run.platformName, status: run.status, company }
   const exportRows = detail.results.map(r => ({ result: r.result, bank: r.bank }))
+  const selectedRow = detail.results.find(row => row.id === selected)
 
   return (
     <PageShell
@@ -76,6 +106,12 @@ export default function PlatformPayrollRunPage() {
       </>}
     >
       {message && <Notice kind={message.kind}>{message.text}</Notice>}
+      {(companyLoading || !company) && <Notice kind={companyLoading ? "info" : "err"}>
+        <div className="flex flex-wrap items-center gap-3">
+          <span>{companyLoading ? tx("Loading company details for payslip preview and printing…", "جارٍ تحميل بيانات الشركة لمعاينة القسائم وطباعتها…") : tx("Company details could not be loaded. Reload them before previewing or printing payslips.", "تعذر تحميل بيانات الشركة. أعد تحميلها قبل معاينة القسائم أو طباعتها.")}</span>
+          {!companyLoading && <button type="button" className={buttonClass} onClick={() => { setSelected(null); setCompanyAttempt(value => value + 1) }}>{tx("Try again", "إعادة المحاولة")}</button>}
+        </div>
+      </Notice>}
       {run.status === "cancelled" && <Notice kind="err">{tx("Cancelled", "ملغى")}: {run.cancelReason}</Notice>}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
@@ -88,18 +124,29 @@ export default function PlatformPayrollRunPage() {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <button className={buttonClass} onClick={() => downloadSheets(payrollResultsSheets({ payrollMonth: run.payrollMonth, platformName: run.platformName, ruleSetName: run.ruleSetName, status: run.status, fileName: run.fileName }, exportRows), `payroll_${run.monthKey}_${run.platformName.replace(/\W+/g, "_")}.xlsx`)}>{tx("Export Excel", "تصدير Excel")}</button>
-        <button className={buttonClass} onClick={() => { if (!openPayslips(exportRows, meta, ar)) setMessage({ kind: "err", text: tx("Allow pop-ups to print payslips", "اسمح بالنوافذ المنبثقة لطباعة القسائم") }) }}>{tx("Print all payslips", "طباعة جميع القسائم")}</button>
-        <button className={buttonClass} onClick={async () => { const r = await payrollWorkbookDownloadUrl(run.id); if (r.success) window.location.href = r.data.url; else setMessage({ kind: "err", text: r.error }) }}>{tx("Original workbook", "الملف الأصلي")}</button>
+        <button className={buttonClass} onClick={async () => {
+          try { await downloadSheets(payrollResultsSheets({ payrollMonth: run.payrollMonth, platformName: run.platformName, ruleSetName: run.ruleSetName, status: run.status, fileName: run.fileName }, exportRows), `payroll_${run.monthKey}_${run.platformName.replace(/\W+/g, "_")}.xlsx`) }
+          catch { if (mounted.current) setMessage({ kind: "err", text: tx("Could not export the workbook. Try again.", "تعذر تصدير الملف. أعد المحاولة.") }) }
+        }}>{tx("Export Excel", "تصدير Excel")}</button>
+        <button className={buttonClass} disabled={!company} onClick={() => {
+          if (!company) return
+          try { if (openPayslips(exportRows, meta, ar)) return } catch { /* Report failed browser printing without losing the run. */ }
+          setMessage({ kind: "err", text: tx("Allow pop-ups to print payslips", "اسمح بالنوافذ المنبثقة لطباعة القسائم") })
+        }}>{tx("Print all payslips", "طباعة جميع القسائم")}</button>
+        <button className={buttonClass} onClick={async () => {
+          try { const r = await payrollWorkbookDownloadUrl(run.id); if (!mounted.current) return; if (r.success) window.location.href = r.data.url; else setMessage({ kind: "err", text: r.error }) }
+          catch { if (mounted.current) setMessage({ kind: "err", text: tx("Could not download the original workbook. Try again.", "تعذر تنزيل الملف الأصلي. أعد المحاولة.") }) }
+        }}>{tx("Original workbook", "الملف الأصلي")}</button>
         {run.status === "approved" && !run.journalEntryId && <button className={buttonClass} onClick={async () => {
           setJournalOpen(true)
-          const r = await listJournalAccounts()
-          if (r.success) setAccounts(r.data); else setMessage({ kind: "err", text: r.error })
+          setAccounts([])
+          try { const r = await listJournalAccounts(); if (!mounted.current) return; if (r.success) setAccounts(r.data); else setMessage({ kind: "err", text: r.error }) }
+          catch { if (mounted.current) setMessage({ kind: "err", text: tx("Could not load journal accounts. Close the dialog and try again.", "تعذر تحميل حسابات القيد. أغلق النافذة وأعد المحاولة.") }) }
         }}>{tx("Create journal draft", "إنشاء قيد يومية (مسودة)")}</button>}
         {run.journalEntryId && <Link className={buttonClass} href="/accounting">{tx("Journal draft created — open accounting", "تم إنشاء القيد — فتح المحاسبة")}</Link>}
       </div>
 
-      <div role="tablist" className="flex gap-2">
+      <div role="tablist" className="flex flex-wrap gap-2">
         {([["results", tx("Riders", "المناديب")], ["payslips", tx("Payslips", "القسائم")], ["exceptions", `${tx("Exceptions", "الملاحظات")} (${detail.exceptions.length})`], ["rules", tx("Applied rules", "القواعد المطبقة")]] as const).map(([k, l]) => (
           <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? primaryButtonClass : buttonClass} onClick={() => setTab(k)}>{l}</button>
         ))}
@@ -128,7 +175,7 @@ export default function PlatformPayrollRunPage() {
                     <td className="px-3 py-2 tabular-nums">{sar(x.uploadedBasicPayment)}</td>
                     <td className="px-3 py-2 tabular-nums">{sar(x.varianceAmount)} <StatusBadge status={x.varianceStatus} /></td>
                     <td className="px-3 py-2"><StatusBadge status={x.reviewStatus} /></td>
-                    <td className="px-3 py-2"><button className={buttonClass} onClick={() => setSelected(r)}>{tx("Payslip", "القسيمة")}</button></td>
+                    <td className="px-3 py-2"><button className={buttonClass} disabled={!company} onClick={() => { if (company) setSelected(r.id) }}>{tx("Payslip", "القسيمة")}</button></td>
                   </tr>
                 )
               })}
@@ -144,9 +191,9 @@ export default function PlatformPayrollRunPage() {
             const x = r.result
             const attain = x.selectedTargetThreshold > 0 ? Math.round((x.completedOrders / x.selectedTargetThreshold) * 100) : 0
             return (
-              <div key={r.id} className="rounded-2xl border border-border/60 bg-card p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+              <div key={r.id} className="rounded-lg border border-border bg-card p-4">
                 <div className="flex items-start justify-between gap-2">
-                  <span className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"><FileText className="h-5 w-5" /></span>
+                  <FileText aria-hidden="true" className="h-4 w-4 text-muted-foreground" />
                   <StatusBadge status={x.performanceBand} />
                 </div>
                 <div className="mt-3 font-bold">{r.driverName}</div>
@@ -156,8 +203,8 @@ export default function PlatformPayrollRunPage() {
                   <div><div className="text-muted-foreground">{tx("Orders", "الطلبات")}</div><div className="font-semibold tabular-nums">{int(x.completedOrders)}</div></div>
                   <div><div className="text-muted-foreground">{tx("Attainment", "الإنجاز")}</div><div className="font-semibold tabular-nums">{attain}%</div></div>
                 </div>
-                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-emerald-500/10"><div className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-emerald-700" style={{ width: `${Math.min(100, attain)}%` }} /></div>
-                <button type="button" className={`${buttonClass} mt-4 w-full`} onClick={() => setSelected(r)}><FileText className="h-4 w-4" />{tx("View payslip", "عرض القسيمة")}</button>
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-emerald-600" style={{ width: `${Math.min(100, attain)}%` }} /></div>
+                <button type="button" className={`${buttonClass} mt-4 w-full`} disabled={!company} onClick={() => { if (company) setSelected(r.id) }}><FileText aria-hidden="true" className="h-4 w-4" />{tx("View payslip", "عرض القسيمة")}</button>
               </div>
             )
           })}
@@ -194,7 +241,7 @@ export default function PlatformPayrollRunPage() {
         </div>
       )}
 
-      {selected && <PayslipViewer ar={ar} rows={[{ result: selected.result, bank: selected.bank }]} meta={meta} title={`${selected.driverName} · ${selected.riderId}`} onClose={() => setSelected(null)}
+      {selectedRow && company && <PayslipViewer ar={ar} rows={[{ result: selectedRow.result, bank: selectedRow.bank }]} meta={meta} title={`${selectedRow.driverName} · ${selectedRow.riderId}`} onClose={() => setSelected(null)}
         onPrintBlocked={() => setMessage({ kind: "err", text: tx("Allow pop-ups to print payslips", "اسمح بالنوافذ المنبثقة لطباعة القسائم") })} />}
 
       {cancelOpen && (
@@ -203,7 +250,7 @@ export default function PlatformPayrollRunPage() {
           <Field label={tx("Reason", "السبب")}><textarea className={inputClass} rows={3} value={reason} onChange={e => setReason(e.target.value)} /></Field>
           <div className="flex justify-end gap-2">
             <button className={buttonClass} onClick={() => setCancelOpen(false)}>{tx("Back", "رجوع")}</button>
-            <button className={dangerButtonClass} disabled={!!busy || reason.trim().length < 3} onClick={async () => { await act("cancel", () => cancelPayrollRun({ runId: run.id, reason }), tx("Payroll run cancelled", "تم إلغاء المسير")); setCancelOpen(false) }}>{tx("Cancel run", "إلغاء المسير")}</button>
+            <button className={dangerButtonClass} disabled={!!busy || reason.trim().length < 3} onClick={async () => { if (await act("cancel", () => cancelPayrollRun({ runId: run.id, reason }), tx("Payroll run cancelled", "تم إلغاء المسير"))) setCancelOpen(false) }}>{tx("Cancel run", "إلغاء المسير")}</button>
           </div>
         </Modal>
       )}
@@ -223,7 +270,7 @@ export default function PlatformPayrollRunPage() {
           </Field>
           <div className="flex justify-end gap-2">
             <button className={buttonClass} onClick={() => setJournalOpen(false)}>{tx("Close", "إغلاق")}</button>
-            <button className={primaryButtonClass} disabled={!!busy || !journal.expenseAccountId || !journal.payableAccountId} onClick={async () => { await act("journal", () => createPayrollJournalDraft({ runId: run.id, ...journal }), tx("Journal draft created", "تم إنشاء القيد")); setJournalOpen(false) }}>{tx("Create draft", "إنشاء المسودة")}</button>
+            <button className={primaryButtonClass} disabled={!!busy || !journal.expenseAccountId || !journal.payableAccountId} onClick={async () => { if (await act("journal", () => createPayrollJournalDraft({ runId: run.id, ...journal }), tx("Journal draft created", "تم إنشاء القيد"))) setJournalOpen(false) }}>{tx("Create draft", "إنشاء المسودة")}</button>
           </div>
         </Modal>
       )}
@@ -232,17 +279,13 @@ export default function PlatformPayrollRunPage() {
 }
 
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
-  useEffect(() => {
-    const k = (e: KeyboardEvent) => { if (e.key === "Escape") onClose() }
-    window.addEventListener("keydown", k)
-    return () => window.removeEventListener("keydown", k)
-  }, [onClose])
+  const [opener] = useState(() => typeof document !== "undefined" && document.activeElement instanceof HTMLElement ? document.activeElement : null)
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div role="dialog" aria-modal="true" aria-label={title} className="max-h-[90vh] w-full max-w-2xl space-y-4 overflow-y-auto rounded-xl border border-border bg-background p-5 shadow-xl" onClick={e => e.stopPropagation()}>
-        <h2 className="text-lg font-semibold">{title}</h2>
+    <Dialog open onOpenChange={open => { if (!open) onClose() }}>
+      <DialogContent aria-describedby={undefined} className="sm:max-w-2xl" onCloseAutoFocus={event => { event.preventDefault(); if (opener?.isConnected) opener.focus() }}>
+        <DialogTitle className="pe-10">{title}</DialogTitle>
         {children}
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }

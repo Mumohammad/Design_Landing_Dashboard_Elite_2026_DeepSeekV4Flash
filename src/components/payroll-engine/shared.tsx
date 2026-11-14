@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { friendlyError } from "@/lib/errors/friendly"
 import type { ReactNode } from "react"
 import { useTranslation } from "@/hooks/use-translation"
 import type { SheetSpec } from "@/lib/payroll-engine/exports"
@@ -12,10 +13,10 @@ export function useLang() {
   return { ar, tx: (en: string, arabic: string) => (ar ? arabic : en) }
 }
 
-export const inputClass = "w-full rounded-xl border border-input bg-background shadow-xs px-3 py-2 text-sm focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-60"
-export const buttonClass = "inline-flex items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50"
-export const primaryButtonClass = "inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50"
-export const dangerButtonClass = "inline-flex items-center justify-center gap-1.5 rounded-lg border border-destructive/50 px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50"
+export const inputClass = "min-h-11 w-full rounded-md border border-input bg-card px-3 py-2 text-sm focus-visible:outline-2 focus-visible:outline-ring disabled:bg-muted disabled:text-muted-foreground"
+export const buttonClass = "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50"
+export const primaryButtonClass = "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50"
+export const dangerButtonClass = "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md border border-destructive/50 px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50"
 
 export function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
   return <label className="grid gap-1.5 text-sm font-medium">{label}{children}{hint && <span className="text-xs font-normal text-muted-foreground">{hint}</span>}</label>
@@ -69,11 +70,11 @@ export function PlatformPayrollNav() {
     { href: "/payroll/platform/income-expenses", label: tx("Income vs expenses", "الإيرادات مقابل المصروفات") },
   ]
   return (
-    <nav aria-label={tx("Platform payroll", "رواتب المنصات")} className="flex flex-wrap items-center gap-1 rounded-2xl border border-border/60 bg-card/70 p-1.5 shadow-sm backdrop-blur">
+    <nav aria-label={tx("Platform payroll", "رواتب المنصات")} className="flex flex-wrap items-center gap-1 rounded-lg border border-border bg-card p-1.5 [&_a]:min-h-11 [&_a]:content-center">
       <Link href="/payroll" className="rounded-xl px-3 py-1.5 text-sm text-muted-foreground transition hover:bg-muted">← {tx("Payroll", "الرواتب")}</Link>
       {tabs.map(t => {
         const active = t.exact ? path === t.href || path.startsWith("/payroll/platform/runs") : path.startsWith(t.href)
-        return <Link key={t.href} href={t.href} aria-current={active ? "page" : undefined} className={`rounded-xl px-3 py-1.5 text-sm font-medium transition ${active ? "bg-gradient-to-r from-emerald-600 to-emerald-500 text-white shadow-md shadow-emerald-600/20" : "text-foreground/80 hover:bg-muted"}`}>{t.label}</Link>
+        return <Link key={t.href} href={t.href} aria-current={active ? "page" : undefined} className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${active ? "bg-primary text-primary-foreground" : "text-foreground hover:bg-muted"}`}>{t.label}</Link>
       })}
     </nav>
   )
@@ -82,12 +83,10 @@ export function PlatformPayrollNav() {
 export function PageShell({ title, subtitle, actions, children }: { title: string; subtitle?: string; actions?: ReactNode; children: ReactNode }) {
   return (
     <div className="space-y-5 p-4 md:p-6">
-      <div className="relative overflow-hidden rounded-3xl border border-emerald-500/20 bg-gradient-to-br from-emerald-700 via-emerald-600 to-teal-500 p-5 text-white shadow-lg shadow-emerald-900/10 md:p-6">
-        <div aria-hidden className="pointer-events-none absolute -end-16 -top-20 h-56 w-56 rounded-full bg-white/10 blur-2xl" />
-        <div aria-hidden className="pointer-events-none absolute -bottom-24 start-1/3 h-48 w-48 rounded-full bg-teal-300/20 blur-3xl" />
+      <div className="min-w-0 py-2 text-foreground">
         <div className="relative flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0"><h1 className="text-2xl font-bold tracking-tight md:text-3xl">{title}</h1>{subtitle && <p className="mt-1 text-sm text-white/80">{subtitle}</p>}</div>
-          {actions && <div className="flex flex-wrap items-center gap-2 [&_button]:border-white/30 [&_button]:bg-white/10 [&_button]:text-white [&_button]:backdrop-blur [&_button:hover]:bg-white/20 [&_a]:border-white/30 [&_a]:text-white">{actions}</div>}
+          <div className="min-w-0"><h1 className="text-2xl font-semibold tracking-tight">{title}</h1>{subtitle && <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>}</div>
+          {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
         </div>
       </div>
       <PlatformPayrollNav />
@@ -98,14 +97,14 @@ export function PageShell({ title, subtitle, actions, children }: { title: strin
 
 export function Kpi({ label, value, tone }: { label: string; value: string; tone?: "good" | "bad" | "warn" }) {
   const color = tone === "good" ? "text-emerald-600 dark:text-emerald-400" : tone === "bad" ? "text-destructive" : tone === "warn" ? "text-amber-600 dark:text-amber-400" : ""
-  const accent = tone === "good" ? "from-emerald-500/15" : tone === "bad" ? "from-red-500/10" : tone === "warn" ? "from-amber-500/15" : "from-slate-500/5"
-  return <div className={`rounded-2xl border border-border/60 bg-gradient-to-br ${accent} to-card p-4 shadow-sm transition hover:shadow-md`}><div className="text-xs font-medium text-muted-foreground">{label}</div><div className={`mt-1 text-xl font-bold tabular-nums ${color}`}>{value}</div></div>
+  return <div className="min-w-0 rounded-lg border border-border bg-card p-4"><div className="text-sm text-muted-foreground">{label}</div><div className={`mt-2 text-2xl font-medium tabular-nums ${color}`}>{value}</div></div>
 }
 
 export function Notice({ kind, children }: { kind: "ok" | "err" | "info"; children: ReactNode }) {
+  const { ar } = useLang()
   const cls = kind === "ok" ? "border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-100"
     : kind === "err" ? "border-destructive/40 bg-destructive/5 text-destructive" : "border-border bg-muted/50"
-  return <div role={kind === "err" ? "alert" : "status"} className={`rounded-lg border px-3 py-2 text-sm ${cls}`}>{children}</div>
+  return <div role={kind === "err" ? "alert" : "status"} className={`rounded-lg border px-3 py-2 text-sm ${cls}`}>{kind === "err" && typeof children === "string" ? friendlyError(children, ar) : children}</div>
 }
 
 /** Write SheetSpecs to an .xlsx download (xlsx is loaded on demand). */

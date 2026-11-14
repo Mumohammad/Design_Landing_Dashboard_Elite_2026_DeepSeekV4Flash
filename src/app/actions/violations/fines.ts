@@ -68,45 +68,21 @@ export async function resolveTrafficFine(input: unknown): Promise<FineActionResu
   } catch (e) { return fail(e instanceof Error ? e.message : undefined) }
 }
 
-/** Creates an open violation (deduction = fine amount) for the matched driver
- *  through the standard driver-operations RPC, then links it to the fine. */
+/** The caller-bound transaction creates and links once; exact retries recover
+ * the original violation even when the first response was lost. */
 export async function createViolationFromFine(fineId: unknown): Promise<FineActionResult<{ violationId: string }>> {
   try {
     await requirePermission("violations", "create")
+    await requirePermission("violations", "update")
     if (!(await getCurrentUser())) return fail("permission")
     const id = z.uuid().parse(fineId)
     const db = await createClient()
-    const { data: fine, error: readError } = await db.from("external_fine_imports")
-      .select("id, external_ref, vehicle_plate, violation_date, violation_location, violation_type_code, fine_amount, matched_driver_id, status")
-      .eq("id", id).maybeSingle()
-    if (readError || !fine) return fail(readError?.message)
-    if (fine.status === "violation_created") return fail("FIN011")
-    if (!fine.matched_driver_id) return { ok: false, error: "Assign a driver to this fine first.", errorAr: "عيّن سائقاً لهذه المخالفة أولاً." }
-    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Riyadh" }).format(new Date())
-    const description = [
-      `Traffic fine ${fine.external_ref}`,
-      fine.violation_type_code ? `type ${fine.violation_type_code}` : null,
-      fine.vehicle_plate ? `plate ${fine.vehicle_plate}` : null,
-    ].filter(Boolean).join(" · ")
-    const { data: created, error } = await db.rpc("save_driver_profile_operation", {
-      p_surface: "violations",
-      p_driver_id: fine.matched_driver_id,
-      p_input: {
-        violation_type_id: null,
-        incident_date: fine.violation_date ?? today,
-        incident_location: fine.violation_location,
-        incident_description: description,
-        deduction_amount: Number(fine.fine_amount ?? 0),
-        status: "open",
-      },
-      p_id: null,
-      p_expected_updated_at: null,
-    })
-    if (error || !created?.id) return fail(error?.message)
-    const { error: linkError } = await db.rpc("resolve_external_fine", { p_id: id, p_action: "link_violation", p_driver_id: null, p_violation_id: created.id, p_note: null })
-    if (linkError) return fail(linkError.message)
-    revalidatePath(`/drivers/${fine.matched_driver_id}`)
+    const { data, error } = await db.rpc("convert_my_external_fine", { p_id: id })
+    const converted = z.object({ violation_id: z.uuid(), replayed: z.boolean() }).safeParse(data)
+    if (error || !converted.success) return fail(error?.message)
+    revalidatePath("/drivers", "layout")
     revalidatePath("/violations")
-    return { ok: true, data: { violationId: created.id as string } }
+    revalidatePath("/violations/fines")
+    return { ok: true, data: { violationId: converted.data.violation_id } }
   } catch (e) { return fail(e instanceof Error ? e.message : undefined) }
 }

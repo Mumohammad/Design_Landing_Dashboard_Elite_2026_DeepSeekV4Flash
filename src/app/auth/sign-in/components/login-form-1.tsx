@@ -1,5 +1,3 @@
-// NOTE: Uses CSS keyframe stagger (stagger-1..5) as fallback for framer-motion.
-// When framer-motion is installed, replace with <motion.div> + containerVariants/itemVariants per Design DNA.
 "use client"
 
 import { useEffect, useState, useSyncExternalStore } from "react"
@@ -145,10 +143,10 @@ export function LoginForm1({
 
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
-      <Card className="stagger-2 border-border/50 shadow-modern-lg bg-card dark:bg-card/60 rounded-2xl">
-        <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-semibold">
-            {t.auth.welcomeBack}
+      <Card className="border-border bg-card shadow-none rounded-lg">
+        <CardHeader className="text-start">
+          <CardTitle className="text-2xl font-semibold"><h1>
+            {t.auth.welcomeBack}</h1>
           </CardTitle>
           <CardDescription>
             {t.auth.signInSubtitle}
@@ -164,15 +162,15 @@ export function LoginForm1({
                     control={form.control}
                     name="email"
                     render={({ field }) => (
-                      <FormItem className="stagger-3">
+                      <FormItem className="">
                         <FormLabel>{t.auth.email}</FormLabel>
                         <div className="relative">
-                            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Mail className="absolute start-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                             <FormControl>
                             <Input
                               type="email"
                               placeholder={t.auth.emailPlaceholder}
-                              className="h-11 pl-10"
+                              className="h-11 ps-10"
                               disabled={isLoading}
                               {...field}
                             />
@@ -187,7 +185,7 @@ export function LoginForm1({
                     control={form.control}
                     name="password"
                     render={({ field }) => (
-                      <FormItem className="stagger-4">
+                      <FormItem className="">
                         <div className="flex items-center justify-between">
                           <FormLabel>{t.auth.password}</FormLabel>
                           <a
@@ -198,12 +196,12 @@ export function LoginForm1({
                           </a>
                         </div>
                         <div className="relative">
-                            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Lock className="absolute start-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                             <FormControl>
                             <Input
                               type={showPassword ? "text" : "password"}
                               placeholder={t.auth.passwordPlaceholder}
-                              className="h-11 pl-10 pr-10"
+                              className="h-11 ps-10 pe-10"
                               disabled={isLoading}
                               {...field}
                             />
@@ -211,7 +209,7 @@ export function LoginForm1({
                             <button
                               type="button"
                               onClick={() => setShowPassword(!showPassword)}
-                              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                              className="absolute end-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                               tabIndex={-1}
                               aria-label={showPassword ? t.auth.hidePassword : t.auth.showPassword}
                             >
@@ -235,8 +233,8 @@ export function LoginForm1({
                       role="status"
                       className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3 py-2.5 text-sm"
                     >
-                      <p className="font-semibold text-emerald-600">{t.auth.registrationSuccessTitle}</p>
-                      <p className="mt-0.5 text-xs text-emerald-600/80">{t.auth.registrationSuccessBody}</p>
+                      <p className="font-semibold text-emerald-800 dark:text-emerald-300">{t.auth.registrationSuccessTitle}</p>
+                      <p className="mt-0.5 text-xs text-emerald-800 dark:text-emerald-300">{t.auth.registrationSuccessBody}</p>
                     </div>
                   )}
                   {/* Error message */}
@@ -248,15 +246,15 @@ export function LoginForm1({
                       {errorMessage}
                     </div>
                   )}
-                  {/* Submit button — elite-blue gradient CTA */}
+                  {/* Submit button */}
                   <Button
                     type="submit"
                     disabled={isLoading}
-                    className="stagger-5 w-full h-11 text-base font-semibold bg-elite-blue-500 hover:bg-elite-blue-600 text-white shadow-elite-blue-500/20 rounded-xl transition-all"
+                    className="w-full h-11 text-base font-semibold bg-foreground text-background hover:bg-foreground/90 rounded-md transition-all"
                   >
                     {isLoading ? (
                       <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        <Loader2 className="me-2 h-4 w-4 animate-spin" />
                         {t.auth.signingIn}
                       </>
                     ) : (

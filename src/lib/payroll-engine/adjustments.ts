@@ -157,9 +157,10 @@ export function groupTrafficDeductions(rows: readonly TrafficViolationRecord[], 
 export interface InstallmentProgress { id: string; installmentTotalPaid: number; installmentStatus: string }
 
 /** processCustomDeductionInstallments(): advances every active installment deduction by one month. */
-export function advanceCustomDeductionInstallments(rows: readonly CustomDeductionRecord[]): InstallmentProgress[] {
+export function advanceCustomDeductionInstallments(rows: readonly CustomDeductionRecord[], riderIds?: readonly string[]): InstallmentProgress[] {
   const changes: InstallmentProgress[] = []
   for (const d of rows) {
+    if (riderIds && (!riderIds.length || !d.applyToAll && !d.targetRiderIds.some(id => riderIds.includes(id)))) continue
     if (!(d.installmentEnabled && d.installmentStatus === 'active' && d.status === 'active')) continue
     const remaining = Math.max(0, d.amount - d.installmentTotalPaid)
     if (remaining <= 0) { changes.push({ id: d.id, installmentTotalPaid: d.installmentTotalPaid, installmentStatus: 'completed' }); continue }

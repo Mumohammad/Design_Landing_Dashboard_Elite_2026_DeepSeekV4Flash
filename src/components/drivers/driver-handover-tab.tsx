@@ -8,57 +8,47 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { HANDOVER_CONDITIONS, HANDOVER_ITEMS, HandoverEditor, type HandoverAssignment, type HandoverRow } from "@/components/vehicles/fleet-history-panels"
+import { HANDOVER_CONDITIONS, HANDOVER_ITEMS, HandoverEditor, type HandoverRow } from "@/components/vehicles/fleet-history-panels"
 import { SignaturePad } from "@/components/drivers/signature-pad"
 import { attachHandoverEvidence } from "@/app/actions/drivers/handover-evidence"
 import { buildHandoverReportHtml } from "@/lib/drivers/handover-report"
 import { printDocument } from "@/lib/print-document"
 import { emitDriverChanged } from "@/lib/drivers/driver-events"
 import type { Driver } from "@/types/drivers"
+import { useDriverPanelRead } from "@/hooks/use-driver-panel-read"
+import { readDriverHandovers, readHandoverEvidenceUrls, type DriverHandoverForm as Form } from "@/lib/drivers/profile-operational-reads"
 
 const BUCKET = "handover-evidence"
 const MAX_PHOTO = 10 * 1024 * 1024
-type Vehicle = { plate_number: string | null; make: string | null; model: string | null; year: number | null }
-type Form = HandoverRow & { tenant_id: string; photos: string[] | null; driver_signature_url: string | null; supervisor_signature_url: string | null; vehicle_assignments: { driver_id: string; vehicles: Vehicle | null } | null }
 
 function issues(f: Form): number {
   return HANDOVER_CONDITIONS.filter(([k]) => f[k] && f[k] !== "ok").length + HANDOVER_ITEMS.filter(([k]) => f[k] === false).length
 }
 
 export function DriverHandoverTab({ driver, isAr }: { driver: Driver; isAr: boolean }) {
-  const [forms, setForms] = useState<Form[] | null>(null)
-  const [assignments, setAssignments] = useState<HandoverAssignment[]>([])
-  const [thumbs, setThumbs] = useState<Record<string, string>>({})
+  return <HandoverTab key={driver.id} driver={driver} isAr={isAr} />
+}
+
+function HandoverTab({ driver, isAr }: { driver: Driver; isAr: boolean }) {
   const [editor, setEditor] = useState<{ row?: HandoverRow } | null>(null)
   const [signFor, setSignFor] = useState<Form | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
 
-  const fetchAll = useCallback(async () => {
-    const db = createClient()
-    const [f, a] = await Promise.all([
-      db.from("vehicle_handover_forms").select("*, vehicle_assignments!inner(driver_id, deleted_at, vehicles(plate_number, make, model, year))")
-        .eq("vehicle_assignments.driver_id", driver.id).is("vehicle_assignments.deleted_at", null).is("deleted_at", null)
-        .order("form_date", { ascending: false }).order("created_at", { ascending: false }).limit(30),
-      db.from("vehicle_assignments").select("id, driver_id, is_current, assigned_at").eq("driver_id", driver.id).is("deleted_at", null).order("assigned_at", { ascending: false }).limit(20),
-    ])
-    const list = (f.error ? [] : (f.data ?? [])) as unknown as Form[]
-    const paths = list.flatMap((x) => [...(x.photos ?? []).slice(0, 6), x.driver_signature_url, x.supervisor_signature_url]).filter((p): p is string => !!p)
-    let urls: Record<string, string> = {}
-    if (paths.length) {
-      const { data } = await db.storage.from(BUCKET).createSignedUrls(paths, 900)
-      urls = Object.fromEntries((data ?? []).filter((d) => d.signedUrl && d.path).map((d) => [d.path as string, d.signedUrl as string]))
-    }
-    return { list, assignments: (a.data ?? []) as HandoverAssignment[], urls }
-  }, [driver.id])
-
-  const reload = useCallback(async () => { const r = await fetchAll(); setForms(r.list); setAssignments(r.assignments); setThumbs(r.urls) }, [fetchAll])
+  const fetchAll = useCallback((signal: AbortSignal) => readDriverHandovers(createClient(), driver.id, signal), [driver.id])
+  const { data, error: loadError, reload } = useDriverPanelRead(fetchAll)
+  const forms = data?.list ?? null
+  const assignments = data?.assignments ?? []
+  const thumbs = data?.urls ?? {}
+  const scope = useRef<AbortController | null>(null)
   useEffect(() => {
-    let cancelled = false
-    void fetchAll().then((r) => { if (!cancelled) { setForms(r.list); setAssignments(r.assignments); setThumbs(r.urls) } })
-    return () => { cancelled = true }
-  }, [fetchAll])
+    const controller = new AbortController()
+    scope.current = controller
+    return () => controller.abort()
+  }, [])
 
   const uploadPhotos = async (form: Form, files: FileList) => {
+    const currentScope = scope.current
+    if (busy || !currentScope || currentScope.signal.aborted) return
     const list = Array.from(files).slice(0, 24 - (form.photos?.length ?? 0))
     if (!list.length) return void toast.error(isAr ? "تم بلوغ الحد الأقصى للصور" : "Photo limit reached")
     setBusy(form.id)
@@ -70,29 +60,35 @@ export function DriverHandoverTab({ driver, isAr }: { driver: Driver; isAr: bool
         const ext = (file.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 5) || "jpg"
         const path = `${form.tenant_id}/${form.id}/${crypto.randomUUID()}.${ext}`
         const { error } = await db.storage.from(BUCKET).upload(path, file, { contentType: file.type, upsert: false })
+        if (currentScope.signal.aborted) return
         if (error) { toast.error(isAr ? "فشل رفع صورة" : `Upload failed: ${error.message}`); continue }
         paths.push(path)
       }
       if (!paths.length) return
       const res = await attachHandoverEvidence({ formId: form.id, photos: paths })
+      if (currentScope.signal.aborted) return
       if (!res.ok) return void toast.error(isAr ? res.errorAr : res.error)
       toast.success(isAr ? `تمت إضافة ${paths.length} صورة` : `${paths.length} photo(s) added`)
-      await reload()
-    } finally { setBusy(null) }
+      reload()
+    } catch { if (!currentScope.signal.aborted) toast.error(isAr ? "تعذر تأكيد إضافة الصور. أعد تحميل المحاضر قبل المحاولة مجدداً." : "Could not confirm the photos. Reload the reports before retrying.") }
+    finally { if (!currentScope.signal.aborted) setBusy(null) }
   }
 
   const print = async (form: Form) => {
+    const currentScope = scope.current
+    if (!currentScope || currentScope.signal.aborted) return
     const win = window.open("", "_blank", "width=900,height=1100")
     if (!win) return void toast.error(isAr ? "اسمح بالنوافذ المنبثقة ثم أعد المحاولة." : "Allow popups and try again.")
     try {
       const db = createClient()
       const all = [...(form.photos ?? []), form.driver_signature_url, form.supervisor_signature_url].filter((p): p is string => !!p)
-      const { data } = all.length ? await db.storage.from(BUCKET).createSignedUrls(all, 900) : { data: [] }
-      const map = Object.fromEntries((data ?? []).filter((d) => d.signedUrl && d.path).map((d) => [d.path as string, d.signedUrl as string]))
-      const { data: tenant } = await db.from("tenants").select("name_ar, name_en").eq("id", form.tenant_id).maybeSingle()
+      const map = await readHandoverEvidenceUrls(db, all, currentScope.signal)
+      const { data: tenant, error } = await db.from("tenants").select("name_ar, name_en").eq("id", form.tenant_id).abortSignal(currentScope.signal).maybeSingle()
+      if (currentScope.signal.aborted) { win.close(); return }
+      if (error || !tenant || !(tenant.name_en || tenant.name_ar)) throw new Error("Company details are unavailable")
       const v = form.vehicle_assignments?.vehicles ?? null
       await printDocument(win, buildHandoverReportHtml({
-        company: (tenant?.name_en || tenant?.name_ar || "EliteDev") as string,
+        company: (tenant.name_en || tenant.name_ar) as string,
         form,
         driver: { name: [driver.full_name_ar, driver.full_name_en].filter(Boolean).join(" · "), code: driver.driver_code ?? null, iqama: driver.iqama_number ?? null },
         vehicle: { plate: v?.plate_number ?? null, make: v?.make ?? null, model: v?.model ?? null, year: v?.year ?? null },
@@ -101,16 +97,21 @@ export function DriverHandoverTab({ driver, isAr }: { driver: Driver; isAr: bool
         driverSignatureUrl: form.driver_signature_url ? map[form.driver_signature_url] ?? null : null,
         supervisorSignatureUrl: form.supervisor_signature_url ? map[form.supervisor_signature_url] ?? null : null,
       }))
-    } catch (e) { toast.error(e instanceof Error ? e.message : "Print failed") }
+    } catch { win.close(); if (!currentScope.signal.aborted) toast.error(isAr ? "تعذر تحميل المحضر ومرفقاته كاملة للطباعة. أعد المحاولة." : "Could not load the complete report and evidence for printing. Try again.") }
   }
 
-  if (!forms) return <div className="space-y-3"><Skeleton className="h-32 w-full rounded-2xl" /><Skeleton className="h-32 w-full rounded-2xl" /></div>
+  if (loadError) return <section className="space-y-3 rounded-lg border bg-card p-4" role="alert">
+    <h3 className="text-sm font-semibold">{isAr ? "محاضر التسليم والاستلام" : "Handover & return reports"}</h3>
+    <p className="text-sm text-muted-foreground">{isAr ? "تعذر تحميل المحاضر والتكليفات ومرفقاتها كاملة. أعد المحاولة." : "Could not load complete reports, assignments, and evidence. Try again."}</p>
+    <Button variant="outline" size="sm" onClick={reload}>{isAr ? "أعد المحاولة" : "Retry"}</Button>
+  </section>
+  if (!forms) return <div className="space-y-3"><Skeleton className="h-32 w-full rounded-lg" /><Skeleton className="h-32 w-full rounded-lg" /></div>
 
   return (
     <div className="space-y-4" data-testid="driver-handover-tab">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-gradient-to-r from-sky-500/10 via-background to-emerald-500/10 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card p-4">
         <div>
-          <h3 className="flex items-center gap-2 font-semibold"><ClipboardCheck className="size-5 text-sky-600" />{isAr ? "محاضر التسليم والاستلام الرقمية" : "Digital handover & return reports"}</h3>
+          <h3 className="flex items-center gap-2 font-semibold"><ClipboardCheck className="size-4 text-muted-foreground" />{isAr ? "محاضر التسليم والاستلام الرقمية" : "Digital handover & return reports"}</h3>
           <p className="text-xs text-muted-foreground">{isAr ? "فحص كامل للمركبة، صور، توقيع السائق والمشرف، وتقرير PDF جاهز للطباعة." : "Full vehicle inspection, photos, driver & supervisor signatures and a print-ready PDF report."}</p>
         </div>
         <Button disabled={!assignments.length} onClick={() => setEditor({})}><Plus className="me-1.5 size-4" />{isAr ? "محضر جديد" : "New inspection"}</Button>
@@ -126,8 +127,8 @@ export function DriverHandoverTab({ driver, isAr }: { driver: Driver; isAr: bool
         const signedBoth = !!f.driver_acknowledged_at && !!f.supervisor_acknowledged_at
         const editable = !f.finalized_at && !f.driver_acknowledged_at && !f.supervisor_acknowledged_at
         return (
-          <article key={f.id} className="overflow-hidden rounded-2xl border bg-card shadow-sm" data-testid="handover-report-card">
-            <div className={cn("flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3", f.form_type === "return" ? "bg-amber-500/5" : "bg-sky-500/5")}>
+          <article key={f.id} className="overflow-hidden rounded-lg border bg-card" data-testid="handover-report-card">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
               <div className="flex items-center gap-3">
                 <span className={cn("rounded-full px-2.5 py-1 text-xs font-semibold", f.form_type === "return" ? "bg-amber-500/15 text-amber-700 dark:text-amber-300" : "bg-sky-500/15 text-sky-700 dark:text-sky-300")}>{f.form_type === "return" ? (isAr ? "استلام" : "Return") : (isAr ? "تسليم" : "Handover")}</span>
                 <span className="font-semibold tabular-nums">{f.form_date}</span>
@@ -161,7 +162,7 @@ export function DriverHandoverTab({ driver, isAr }: { driver: Driver; isAr: bool
               </div>
               <div className="flex flex-wrap content-start gap-2 lg:w-48 lg:flex-col">
                 <Button size="sm" variant="outline" onClick={() => void print(f)}><Printer className="me-1.5 size-4" />{isAr ? "طباعة / PDF" : "Print / PDF"}</Button>
-                {!signedBoth && <Button size="sm" onClick={() => setSignFor(f)}><PenLine className="me-1.5 size-4" />{isAr ? "توقيع" : "Sign"}</Button>}
+                {!signedBoth && <Button size="sm" variant="outline" onClick={() => setSignFor(f)}><PenLine className="me-1.5 size-4" />{isAr ? "توقيع" : "Sign"}</Button>}
                 {!signedBoth && (
                   <label className={cn("inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-md border px-3 text-sm font-medium hover:bg-muted", busy === f.id && "pointer-events-none opacity-60")}>
                     {busy === f.id ? <Loader2 className="size-4 animate-spin" /> : <ImagePlus className="size-4" />}{isAr ? "إضافة صور" : "Add photos"}
@@ -182,7 +183,7 @@ export function DriverHandoverTab({ driver, isAr }: { driver: Driver; isAr: bool
 }
 
 function Stat({ icon: Icon, label, value, tone }: { icon: React.ComponentType<{ className?: string }>; label: string; value: string; tone?: string }) {
-  return <div className="rounded-xl border p-2.5"><p className="flex items-center gap-1.5 text-[11px] text-muted-foreground"><Icon className="size-3.5" />{label}</p><p className={cn("mt-0.5 font-semibold tabular-nums", tone)}>{value}</p></div>
+  return <div className="rounded-md border p-2.5"><p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Icon className="size-3.5" />{label}</p><p className={cn("mt-0.5 font-semibold tabular-nums", tone)}>{value}</p></div>
 }
 
 function SignDialog({ form, isAr, driverName, onClose, onSigned }: { form: Form; isAr: boolean; driverName: string; onClose: () => void; onSigned: () => void }) {

@@ -1,3 +1,4 @@
+import {continueVerificationRoute,forwardVerificationRoute,verificationFetch} from './lib/verification-access.mjs'
 import { expect as baseExpect } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 const expect=baseExpect.configure({timeout:30_000})
@@ -5,10 +6,12 @@ const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const minor=value=>{const text=String(value);if(!/^\d+(?:\.\d{1,2})?$/.test(text))throw Error('Exact synthetic amount unavailable');const[a,b='']=text.split('.');return BigInt(a)*100n+BigInt(b.padEnd(2,'0'))}
 
 /** Pure guard, also tested without browser/database credentials. */
-export async function assertAccountingMasterTestTarget(databaseUrl,appUrl,expectedCommit,fetcher=fetch){
+export async function assertAccountingMasterTestTarget(databaseUrl,appUrl,expectedCommit,fetcher=(input,options)=>verificationFetch(input,options,appUrl)){
  const database=new URL(databaseUrl),target=new URL(appUrl)
  if(database.origin!=='https://viowrovartosrkqukjxy.supabase.co'||database.pathname!=='/'||database.username||database.password||database.search||database.hash||target.protocol!=='https:'||!/^elite-dashboard-[a-z0-9]+-elitesaasc-5643\.vercel\.app$/.test(target.hostname)||target.port||target.pathname!=='/'||target.username||target.password||target.search||target.hash||!/^[0-9a-f]{40}$/.test(expectedCommit??''))throw Error('Exact isolated master acceptance target required')
- const response=await fetcher(target.origin+'/api/health',{redirect:'manual',signal:AbortSignal.timeout(20_000)}),health=await response.json()
+ const response=await fetcher(target.origin+'/api/health',{redirect:'manual',signal:AbortSignal.timeout(20_000)})
+ if(response.status!==200)throw Error('Healthy exact-commit staging isolation required')
+ let health;try{health=await response.json()}catch{throw Error('Valid staging health JSON required')}
  const landing=await fetcher(target.origin+'/landing',{redirect:'manual',signal:AbortSignal.timeout(20_000)}),policy=landing.headers.get('content-security-policy')??''
  const connect=(policy.split(';').map(value=>value.trim()).find(value=>value.startsWith('connect-src '))??'').split(/\s+/).slice(1)
  if(!response.ok||health.version!==expectedCommit||health.status!=='healthy'||landing.status!==200||!connect.includes(database.origin)||policy.includes('wwfnsbilmyxeawgzicmv')||connect.includes('*')||connect.includes('https://*.supabase.co'))throw Error('Healthy exact-commit staging isolation required')
@@ -29,17 +32,17 @@ export async function verifyAccountingMasters(page,admin,tenantId,appUrl){
  const row=(master,text)=>master.locator('tbody tr').filter({hasText:text})
  const save=dialog=>dialog.getByRole('button',{name:/^(Save|حفظ)$/,exact:true}).click()
  const downloadCsv=async(master)=>{const waiting=page.waitForEvent('download');await master.getByRole('button',{name:'Export CSV',exact:true}).click();const download=await waiting,stream=await download.createReadStream();if(!stream)throw Error('Master export stream unavailable');const chunks=[];for await(const chunk of stream)chunks.push(Buffer.from(chunk));return Buffer.concat(chunks).toString('utf8').replace(/^\uFEFF/,'')}
- const loss=async(marker)=>{let lost=false,failed=false;const ids=[];const pattern='**/accounting*';const handler=async route=>{const request=route.request(),body=request.postData()??'';if(request.method()!=='POST'||!request.headers()['next-action']||!body.includes(marker))return route.continue();const id=/request_id[\\"\s:]{1,12}([0-9a-f-]{36})/i.exec(body)?.[1];ids.push(id);if(lost)return route.continue();lost=true;try{const response=await route.fetch({timeout:60_000});if(!response.ok())failed=true;await route.abort('failed')}catch{failed=true;await route.abort('failed').catch(()=>{})}};routes.push([pattern,handler]);await page.route(pattern,handler);return{assert:()=>{expect(lost).toBe(true);expect(failed).toBe(false);expect(ids.length).toBe(2);expect(ids[0]).toMatch(uuid);expect(ids[1]).toBe(ids[0])},close:()=>page.unroute(pattern,handler)}}
+ const loss=async(marker)=>{let lost=false,failed=false;const ids=[];const pattern='**/accounting*';const handler=async route=>{const request=route.request(),body=request.postData()??'';if(request.method()!=='POST'||!request.headers()['next-action']||!body.includes(marker))return continueVerificationRoute(route);const id=/request_id[\\"\s:]{1,12}([0-9a-f-]{36})/i.exec(body)?.[1];ids.push(id);if(lost)return continueVerificationRoute(route);lost=true;try{const response=await forwardVerificationRoute(route,{timeout:60_000});if(!response.ok())failed=true;await route.abort('failed')}catch{failed=true;await route.abort('failed').catch(()=>{})}};routes.push([pattern,handler]);await page.route(pattern,handler);return{assert:()=>{expect(lost).toBe(true);expect(failed).toBe(false);expect(ids.length).toBe(2);expect(ids[0]).toMatch(uuid);expect(ids[1]).toBe(ids[0])},close:()=>page.unroute(pattern,handler)}}
  try{
   const customerIds=await seed('customers',Array.from({length:1201},(_,index)=>({tenant_id:tenantId,customer_code:'M'+tag+String(index).padStart(4,'0'),name_ar:'عميل اختبار '+index,name_en:index===1200?needle:'Master fixture '+tag+' '+index,credit_limit:'12.34',is_active:index!==1200,tax_number:index===0?'300000000000003':null})))
   const accountIds=await seed('chart_of_accounts',Array.from({length:60},(_,index)=>({tenant_id:tenantId,account_code:String(870000+index),name_ar:'أصل اختبار '+index,name_en:'Master asset '+tag+' '+index,account_type:'asset',normal_balance:'debit'})))
   stage='complete master pages, literal search, global metrics and truthful retry'
-  let master=await go('Customers'),metrics=master.locator('div.text-2xl.font-bold')
+  let master=await go('Customers'),metrics=master.getByTestId('module-kpi-value')
   await expect(master.locator('tbody tr')).toHaveCount(25);await expect(metrics.nth(0)).toHaveText('1201');await expect(metrics.nth(1)).toHaveText('1200');await expect(metrics.nth(2)).toHaveText('1');await expect(metrics.nth(3)).toHaveText('12.34')
   await master.getByRole('button',{name:'Next page',exact:true}).click();await expect(master).toContainText('Page 2 of 49')
   await search(master).fill(needle);await expect(master.locator('tbody tr')).toHaveCount(1);await expect(metrics.nth(0)).toHaveText('1201')
   const pattern='**/rest/v1/rpc/read_my_accounting_master_page';let intercepted=0
-  const unavailable=async route=>{if(route.request().postDataJSON()?.p_kind!=='customers')return route.continue();intercepted++;await route.fulfill({status:503,contentType:'application/json',body:'{"message":"Synthetic master unavailable"}'})}
+  const unavailable=async route=>{if(route.request().postDataJSON()?.p_kind!=='customers')return continueVerificationRoute(route);intercepted++;await route.fulfill({status:503,contentType:'application/json',body:'{"message":"Synthetic master unavailable"}'})}
   routes.push([pattern,unavailable]);await page.route(pattern,unavailable);await search(master).fill('unavailable-'+tag)
   const error=master.getByRole('alert').filter({hasText:'Could not load records and their totals'})
   await expect(error).toBeVisible();expect(intercepted).toBeGreaterThan(0);await expect(master.getByTestId('module-empty-state')).toHaveCount(0);await expect(metrics.nth(0)).toHaveText('—')
@@ -70,7 +73,7 @@ export async function verifyAccountingMasters(page,admin,tenantId,appUrl){
    const audit=await admin.from('audit_log').select('id').eq('tenant_id',tenantId).eq('entity_id',record.id);if(audit.error||audit.data.length!==5)throw Error('Master CRUD audit was missing or duplicated')
   }
   stage='account create/edit, complete parents and joined labels, cycle exclusion'
-  master=await go('Accounts');await expect(master.locator('div.text-2xl.font-bold').nth(0)).toHaveText('88');await master.getByRole('button',{name:'Add account',exact:true}).click();let dialog=page.getByRole('dialog',{name:'Add account',exact:true})
+  master=await go('Accounts');await expect(master.getByTestId('module-kpi-value').nth(0)).toHaveText('88');await master.getByRole('button',{name:'Add account',exact:true}).click();let dialog=page.getByRole('dialog',{name:'Add account',exact:true})
   await dialog.locator('#coa-code').fill('886001');await dialog.locator('#coa-ar').fill('حساب واجهة اختبار');await dialog.locator('#coa-en').fill('UI chart '+tag)
   let picker=dialog.getByTestId('coa-parent-picker');await picker.getByRole('searchbox').fill('870059');await expect(picker.getByRole('option',{name:/870059/})).toHaveAttribute('value',accountIds[59]);await picker.getByRole('combobox').selectOption(accountIds[59])
   const chartTransport=await loss('UI chart '+tag);await save(dialog);await expect(dialog.getByRole('alert')).toContainText('Retry with unchanged details');await save(dialog);await expect(dialog).toBeHidden();chartTransport.assert();await chartTransport.close()

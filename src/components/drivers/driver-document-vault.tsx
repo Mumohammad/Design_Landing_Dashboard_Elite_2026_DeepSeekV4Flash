@@ -7,31 +7,17 @@ import { createClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { DOC_CATALOG, DOC_CATEGORIES, type DocCategory, type DocTypeMeta } from "@/lib/drivers/documents"
+import { DOC_CATALOG, DOC_CATEGORIES, type DocCategory } from "@/lib/drivers/documents"
+import { documentHealth, type DocumentHealth } from "@/lib/drivers/document-health"
+import { businessDateKey } from "@/lib/formatting/business-date"
 import { subscribeDriverChanged } from "@/lib/drivers/driver-events"
 
 type Row = { id: string; doc_type: string; doc_number: string | null; expiry_date: string | null; is_verified: boolean; file_url: string | null; created_at: string }
-type Health = "missing" | "valid" | "expiring" | "expired" | "no_expiry"
-
 const ICONS: Record<DocCategory, LucideIcon> = { identity: IdCard, driving: BadgeCheck, health: HeartPulse, vehicle: Car, employment: Briefcase }
-const TONE: Record<DocCategory, string> = {
-  identity: "from-elite-blue-500/15 text-elite-blue-600 dark:text-elite-blue-300",
-  driving: "from-violet-500/15 text-violet-600 dark:text-violet-300",
-  health: "from-rose-500/15 text-rose-600 dark:text-rose-300",
-  vehicle: "from-amber-500/15 text-amber-600 dark:text-amber-300",
-  employment: "from-emerald-500/15 text-emerald-600 dark:text-emerald-300",
-}
 
-const today = () => new Date(new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Riyadh" }).format(new Date()) + "T00:00:00Z")
-function health(meta: DocTypeMeta, row: Row | undefined): { state: Health; days: number | null } {
-  if (!row) return { state: "missing", days: null }
-  if (!row.expiry_date) return { state: meta.expires ? "no_expiry" : "valid", days: null }
-  const days = Math.round((new Date(row.expiry_date + "T00:00:00Z").getTime() - today().getTime()) / 86400000)
-  return { state: days < 0 ? "expired" : days <= 30 ? "expiring" : "valid", days }
-}
-
-const BADGE: Record<Health, string> = {
+const BADGE: Record<DocumentHealth, string> = {
   missing: "bg-muted text-muted-foreground",
+  unverified: "bg-muted text-foreground",
   valid: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
   expiring: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
   expired: "bg-red-500/15 text-red-700 dark:text-red-400",
@@ -62,17 +48,18 @@ export function DriverDocumentVault({ driverId, isAr, canUpload, onUpload, onVie
     return m
   }, [rows])
 
-  const slots = DOC_CATALOG.map((meta) => ({ meta, row: byType.get(meta.type), ...health(meta, byType.get(meta.type)) }))
+  const slots = DOC_CATALOG.map((meta) => ({ meta, row: byType.get(meta.type), ...documentHealth(meta.expires, byType.get(meta.type), businessDateKey(new Date())) }))
   const core = slots.filter((s) => s.meta.core)
-  const coreDone = core.filter((s) => s.state !== "missing" && s.state !== "expired").length
+  const coreDone = core.filter((s) => s.state === "valid" || s.state === "expiring").length
   const expired = slots.filter((s) => s.state === "expired").length
   const expiring = slots.filter((s) => s.state === "expiring").length
   const uploaded = slots.filter((s) => s.state !== "missing").length
   const pct = Math.round((coreDone / core.length) * 100)
-  const visible = slots.filter((s) => filter === "all" ? true : filter === "attention" ? (s.state === "expired" || s.state === "expiring" || (s.meta.core && s.state === "missing")) : s.meta.category === filter)
+  const visible = slots.filter((s) => filter === "all" ? true : filter === "attention" ? (s.state === "expired" || s.state === "expiring" || (s.meta.core && ["missing", "unverified", "no_expiry"].includes(s.state))) : s.meta.category === filter)
 
   const stateLabel = (s: (typeof slots)[number]) => {
     switch (s.state) {
+      case "unverified": return isAr ? "بانتظار التحقق" : "Awaiting verification"
       case "missing": return isAr ? "غير مرفوع" : "Missing"
       case "expired": return isAr ? `منتهي منذ ${Math.abs(s.days ?? 0)} يوم` : `Expired ${Math.abs(s.days ?? 0)}d ago`
       case "expiring": return isAr ? `ينتهي خلال ${s.days} يوم` : `Expires in ${s.days}d`
@@ -82,17 +69,16 @@ export function DriverDocumentVault({ driverId, isAr, canUpload, onUpload, onVie
   }
 
   if (failed) return (
-    <div role="alert" className="rounded-2xl border border-destructive/30 bg-destructive/5 p-4 text-sm">
+    <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
       <p className="text-destructive">{isAr ? "تعذر تحميل خزنة المستندات." : "Could not load the document vault."}</p>
       <Button size="sm" variant="outline" className="mt-2" onClick={() => void load()}>{isAr ? "أعد المحاولة" : "Try again"}</Button>
     </div>
   )
-  if (!rows) return <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{Array.from({ length: 8 }, (_, i) => <Skeleton key={i} className="h-32 rounded-2xl" />)}</div>
+  if (!rows) return <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{Array.from({ length: 8 }, (_, i) => <Skeleton key={i} className="h-32 rounded-lg" />)}</div>
 
   return (
     <section className="space-y-4" data-testid="driver-document-vault" aria-label={isAr ? "خزنة المستندات" : "Document vault"}>
-      <div className="relative overflow-hidden rounded-2xl border border-border/50 bg-card p-5 shadow-sm">
-        <div aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-br from-elite-blue-500/10 via-transparent to-emerald-500/10" />
+      <div className="relative overflow-hidden rounded-lg border border-border/50 bg-card p-5 ">
         <div className="relative flex flex-wrap items-center gap-5">
           <div className="relative size-20 shrink-0">
             <svg viewBox="0 0 36 36" className="size-20 -rotate-90">
@@ -116,7 +102,7 @@ export function DriverDocumentVault({ driverId, isAr, canUpload, onUpload, onVie
       <div className="flex flex-wrap gap-1.5" role="tablist" aria-label={isAr ? "تصنيف المستندات" : "Document categories"}>
         {([{ id: "all", en: "All", ar: "الكل" }, { id: "attention", en: "Needs attention", ar: "تحتاج متابعة" }, ...DOC_CATEGORIES] as { id: DocCategory | "all" | "attention"; en: string; ar: string }[]).map((c) => (
           <button key={c.id} type="button" role="tab" aria-selected={filter === c.id} onClick={() => setFilter(c.id)}
-            className={cn("rounded-full border px-3 py-1 text-xs transition-colors", filter === c.id ? "border-elite-blue-500 bg-elite-blue-500 text-white" : "border-border/60 bg-background hover:bg-muted")}>
+            className={cn("min-h-11 rounded-md border px-3 text-sm transition-colors", filter === c.id ? "border-elite-blue-500 bg-elite-blue-500 text-white" : "border-border/60 bg-background hover:bg-muted")}>
             {isAr ? c.ar : c.en}
           </button>
         ))}
@@ -130,10 +116,10 @@ export function DriverDocumentVault({ driverId, isAr, canUpload, onUpload, onVie
             const Icon = ICONS[s.meta.category]
             return (
               <article key={s.meta.type} data-testid="document-slot" data-doc-type={s.meta.type} data-state={s.state}
-                className={cn("group relative flex flex-col overflow-hidden rounded-2xl border bg-card p-4 shadow-xs transition-all hover:-translate-y-0.5 hover:shadow-md",
+                className={cn("group relative flex flex-col overflow-hidden rounded-lg border bg-card p-4  transition-all",
                   s.state === "expired" ? "border-red-500/40" : s.state === "expiring" ? "border-amber-500/40" : s.state === "missing" ? "border-dashed border-border/70" : "border-border/50")}>
                 <div className="flex items-start justify-between gap-2">
-                  <span className={cn("flex size-10 items-center justify-center rounded-xl bg-gradient-to-br to-transparent", TONE[s.meta.category])}><Icon className="size-5" /></span>
+                  <span className="flex size-10 items-center justify-center text-muted-foreground"><Icon className="size-5" /></span>
                   <span className={cn("rounded-full px-2 py-0.5 text-[10.5px] font-semibold", BADGE[s.state])}>{stateLabel(s)}</span>
                 </div>
                 <h4 className="mt-3 text-sm font-semibold leading-tight">{isAr ? s.meta.ar : s.meta.en}{s.meta.core && <span className="ms-1 text-[10px] font-normal text-muted-foreground">{isAr ? "• أساسي" : "• core"}</span>}</h4>

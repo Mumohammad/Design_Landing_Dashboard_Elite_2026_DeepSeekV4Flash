@@ -162,7 +162,7 @@ export default function MfaSettingsPage() {
   }
 
   return (
-    <div className="page-enter px-4 lg:px-6 py-4 space-y-6">
+    <div className="page-enter py-4 space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-foreground">
           {ar ? "التحقق الثنائي (MFA)" : "Two-Factor Authentication"}
@@ -222,7 +222,7 @@ export default function MfaSettingsPage() {
             <Button
               onClick={handleEnroll}
               disabled={enrolling}
-              className="w-full rounded-xl bg-elite-blue-500 text-white shadow-elite-blue-500/25"
+              className="w-full rounded-xl shadow-lg shadow-elite-blue-500/25 bg-foreground text-background"
             >
               {enrolling ? (
                 <LoadingSpinner className="h-4 w-4 mr-2" />
@@ -264,7 +264,7 @@ export default function MfaSettingsPage() {
         <Card className="rounded-2xl border border-border/50 bg-card shadow-sm">
           <CardHeader className="pb-4">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl text-elite-blue-600 dark:text-elite-blue-300">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-elite-blue-600/10">
                 <QrCode className="h-5 w-5 text-elite-blue-600" />
               </div>
               <div>
@@ -293,7 +293,7 @@ export default function MfaSettingsPage() {
             {/* Manual Entry Secret */}
             {secret && (
               <div className="rounded-xl border border-border/50 bg-muted/30 px-4 py-3">
-                <p className="text-[11px] font-semibold text-muted-foreground">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   {ar ? "المعرف اليدوي" : "Manual entry key"}
                 </p>
                 <p className="mt-1 font-mono text-sm font-bold text-foreground break-all" dir="ltr">
@@ -317,14 +317,14 @@ export default function MfaSettingsPage() {
                   placeholder="000000"
                   value={verifyCode}
                   onChange={(e) => setVerifyCode(e.target.value.replace(/\D/g, ""))}
-                  className="flex-1 rounded-xl font-mono text-center text-lg"
+                  className="flex-1 rounded-xl font-mono text-center text-lg tracking-[0.3em]"
                   dir="ltr"
                 />
                 <Button
                   onClick={handleVerify}
                   aria-label={ar ? "تأكيد رمز التحقق" : "Verify authentication code"}
                   disabled={verifying || verifyCode.length !== 6}
-                  className="rounded-xl bg-emerald-500 text-white"
+                  className="rounded-xl text-white bg-emerald-500"
                 >
                   {verifying ? (
                     <LoadingSpinner className="h-4 w-4" />

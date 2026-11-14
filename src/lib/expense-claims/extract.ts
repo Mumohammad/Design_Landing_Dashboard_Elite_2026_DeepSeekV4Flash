@@ -5,9 +5,9 @@ import "server-only"
 //   3. PDF text layer parsed with the receipt heuristics.
 // Everything returned is a SUGGESTION: fields are marked unverified until the
 // submitter or reviewer confirms them. Nothing is sent anywhere.
-import jsQR from "jsqr"
 import { parseReceiptText, type ReceiptSuggestion } from "./receipt-parse"
 import { decodeZatcaQr, qrToSuggestion, readUblXml } from "./zatca-qr"
+import { runReceiptProcess } from "./extraction-process"
 
 export interface ExtractResult {
   fields: ReceiptSuggestion
@@ -16,85 +16,23 @@ export interface ExtractResult {
   textChars: number
 }
 
-const MAX_PAGES = 3
-
-function qrFromRgba(data: Uint8ClampedArray, width: number, height: number): string | null {
-  if (width < 21 || height < 21 || width * height > 25_000_000) return null
-  const r = jsQR(data, width, height, { inversionAttempts: "attemptBoth" })
-  return r?.data ?? null
-}
-
-function greyToRgba(g: Uint8Array): Uint8ClampedArray {
-  const out = new Uint8ClampedArray(g.length * 4)
-  for (let i = 0, j = 0; i < g.length; i++, j += 4) { out[j] = out[j + 1] = out[j + 2] = g[i]; out[j + 3] = 255 }
-  return out
-}
-
-async function qrFromImageBytes(bytes: Uint8Array): Promise<string | null> {
-  const sharp = (await import("sharp")).default
-  for (const size of [1600, 1000, 2400]) {
-    try {
-      // Single-channel grey buffer expanded manually: guarantees the 4-channel layout jsQR expects.
-      const { data, info } = await sharp(bytes, { failOn: "none", limitInputPixels: 60_000_000 })
-        .rotate().resize({ width: size, height: size, fit: "inside", withoutEnlargement: size <= 1600 })
-        .greyscale().normalise().extractChannel(0).raw().toBuffer({ resolveWithObject: true })
-      if (info.channels !== 1) continue
-      const hit = qrFromRgba(greyToRgba(data), info.width, info.height)
-      if (hit && decodeZatcaQr(hit)) return hit
-    } catch { return null }
-  }
-  return null
-}
-
-const rgba = (img: { data: Uint8Array }) => new Uint8ClampedArray(img.data.buffer, img.data.byteOffset, img.data.byteLength)
-
-async function readPdf(bytes: Uint8Array): Promise<{ text: string; qr: string | null }> {
-  const { getDocumentProxy, extractText, extractImages } = await import("unpdf")
-  const pdf = await getDocumentProxy(new Uint8Array(bytes))
-  try {
-    const pages = Math.min(pdf.numPages, MAX_PAGES)
-    const { text } = await extractText(pdf, { mergePages: false })
-    const pageText = (Array.isArray(text) ? text : [text]).slice(0, pages).join("\n").replace(/\u0000/g, "").normalize("NFKC")
-    let qr: string | null = null
-    for (let p = 1; p <= pages && !qr; p++) {
-      const images = await extractImages(pdf, p).catch(() => [])
-      for (const img of images.slice(0, 12)) {
-        if (img.width < 60 || img.height < 60 || Math.abs(img.width - img.height) > Math.max(img.width, img.height) * 0.35) continue
-        qr = qrFromRgba(rgba(img), img.width, img.height)
-        if (!qr) {
-          // Small embedded QR bitmaps decode better when upscaled.
-          const sharp = (await import("sharp")).default
-          const up = await sharp(Buffer.from(img.data.buffer, img.data.byteOffset, img.data.byteLength), { raw: { width: img.width, height: img.height, channels: 4 } })
-            .resize({ width: Math.max(400, img.width * 3), kernel: "nearest" }).ensureAlpha().raw().toBuffer({ resolveWithObject: true }).catch(() => null)
-          if (up) qr = qrFromRgba(new Uint8ClampedArray(up.data.buffer, up.data.byteOffset, up.data.byteLength), up.info.width, up.info.height)
-        }
-        if (qr && decodeZatcaQr(qr)) break
-        qr = null
-      }
-    }
-    return { text: pageText.slice(0, 60_000), qr }
-  } finally { await (pdf as unknown as { destroy?: () => Promise<void> }).destroy?.().catch(() => {}) }
-}
-
-/** Never throws: an unreadable file simply yields no suggestions. */
-export async function extractReceiptData(bytes: Uint8Array, mime: string): Promise<ExtractResult> {
+async function extractWithDeadline(bytes: Uint8Array, mime: string, ms: number): Promise<ExtractResult> {
   const res: ExtractResult = { fields: {}, source: [], qrPhase2: null, textChars: 0 }
   try {
-    let qr: string | null = null
+    const parsed = await runReceiptProcess(bytes, mime, ms)
+    if (parsed.status !== "complete" || !parsed.value) return res
+    const { text, xml, qr } = parsed.value
+    const ubl = xml ? readUblXml(xml) : null
     let textFields: ReceiptSuggestion = {}
     if (mime === "application/pdf") {
-      const r = await readPdf(bytes)
-      res.textChars = r.text.replace(/\s/g, "").length
-      if (res.textChars > 20) { textFields = parseReceiptText(r.text).fields; res.source.push("pdf_text") }
-      qr = r.qr
+      res.textChars = text.replace(/\s/g, "").length
+      if (res.textChars > 20) { textFields = parseReceiptText(text).fields; res.source.push("pdf_text") }
     } else if (mime === "application/xml" || mime === "text/xml") {
-      const r = readUblXml(new TextDecoder().decode(bytes))
-      textFields = r.fields; qr = r.qr
-      if (Object.keys(r.fields).length) res.source.push("xml")
-    } else if (mime.startsWith("image/")) {
-      qr = await qrFromImageBytes(bytes)
+      textFields = ubl?.fields ?? {}
+      if (Object.keys(textFields).length) res.source.push("xml")
     }
-    const q = qr ? decodeZatcaQr(qr) : null
+    const rawQr = qr ?? ubl?.qr
+    const q = rawQr ? decodeZatcaQr(rawQr) : null
     if (q) { res.source.unshift("qr"); res.qrPhase2 = q.phase2 }
     // QR values win for the fields it carries; text/XML fill the rest.
     res.fields = { ...textFields, ...(q ? qrToSuggestion(q) : {}) }
@@ -102,16 +40,22 @@ export async function extractReceiptData(bytes: Uint8Array, mime: string): Promi
       const n = Number(res.fields.total_amount) - Number(res.fields.vat_amount)
       if (n >= 0) res.fields.amount_before_vat = n.toFixed(2)
     }
-  } catch { /* best effort */ }
+  } catch (error) {
+    if (error instanceof Error && error.message === "RECEIPT_PARSER_RETIREMENT_UNCONFIRMED") throw error
+    // Unreadable/budget-limited receipts retain their original document and
+    // yield no suggestions. No fallback executes a parser in this process.
+  }
   return res
 }
 
-/** Extraction bounded in time so webhooks and uploads never hang on a hostile/huge file. */
+/** Best-effort suggestions from an isolated parser; original bytes are unchanged. */
+export async function extractReceiptData(bytes: Uint8Array, mime: string): Promise<ExtractResult> {
+  return extractWithDeadline(bytes, mime, 20_000)
+}
+
+/** Resolve only after the worker's process exit is observed, including timeout. */
 export async function extractReceiptDataWithin(bytes: Uint8Array, mime: string, ms = 20_000): Promise<ExtractResult> {
-  const empty: ExtractResult = { fields: {}, source: [], qrPhase2: null, textChars: 0 }
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const timeout = new Promise<ExtractResult>((r) => { timer = setTimeout(() => r(empty), ms) })
-  try { return await Promise.race([extractReceiptData(bytes, mime), timeout]) } finally { clearTimeout(timer) }
+  return extractWithDeadline(bytes, mime, ms)
 }
 
 /** Caption/typed values win over file values; everything stays unverified. */

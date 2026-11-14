@@ -3,11 +3,9 @@ import { isMasterDate, isMasterId, isMasterTimestamp } from "./master-contract"
 
 export const INVOICE_STATUSES = ["draft","issued","finalized","paid","partially_paid","overdue","cancelled","credited"] as const
 export type InvoiceListRow = {
- id:string;invoice_number:string;invoice_type:"sales"|"purchase";issue_date:string;due_date:string;show_due_date:boolean;status:string;
+ id:string;invoice_number:string;invoice_type:"sales"|"purchase";issue_date:string;due_date:string;show_due_date:boolean;status:string;zatca_status:string|null;
  subtotal:number;discount:number;vat_amount:number;total:number;currency:string;updated_at:string;customer_id:string|null;supplier_id:string|null;vat_rate:number;notes:string|null;
  customer_name:string|null;customer_name_en:string|null;supplier_name:string|null;supplier_name_en:string|null;
- /** E-invoicing (ZATCA) transmission state; absent on older read contracts. */
- zatca_status?:string|null;
 }
 export type InvoiceSummary={total:number;drafts:number;finalized:number;value_sar:string}
 export type InvoicePartyOption={id:string;code:string;name_ar:string|null;name_en:string|null}
@@ -36,7 +34,7 @@ export function parseInvoicePage<T>(value:unknown,kind:"invoices"|"customers"|"s
   if(kind!=="invoices"){
    if(typeof row.code!=="string"||!row.code||!nullableText(row.name_ar)||!nullableText(row.name_en)||!(row.name_ar||row.name_en))throw new InvoiceReadError()
   }else{
-   if(typeof row.invoice_number!=="string"||!row.invoice_number||!(["sales","purchase"] as unknown[]).includes(row.invoice_type)||!INVOICE_STATUSES.some(x=>x===row.status)||!isMasterDate(row.issue_date)||!isMasterDate(row.due_date)||typeof row.show_due_date!=="boolean"||typeof row.currency!=="string"||!/^[A-Z]{3}$/.test(row.currency)||!isMasterTimestamp(row.updated_at)||!([row.customer_id,row.supplier_id].every(x=>x===null||isMasterId(x)))||!nullableText(row.notes)||![row.customer_name,row.customer_name_en,row.supplier_name,row.supplier_name_en].every(nullableText)||![row.subtotal,row.discount,row.vat_amount,row.total].every(amount)||typeof row.vat_rate!=="number"||!Number.isFinite(row.vat_rate)||row.vat_rate<0||row.vat_rate>100||!(row.zatca_status===undefined||nullableText(row.zatca_status)))throw new InvoiceReadError()
+   if(typeof row.invoice_number!=="string"||!row.invoice_number||!(["sales","purchase"] as unknown[]).includes(row.invoice_type)||!INVOICE_STATUSES.some(x=>x===row.status)||!(row.zatca_status===null||["not_transmitted","pending","reported","cleared","rejected","failed"].includes(row.zatca_status as string))||!isMasterDate(row.issue_date)||!isMasterDate(row.due_date)||typeof row.show_due_date!=="boolean"||typeof row.currency!=="string"||!/^[A-Z]{3}$/.test(row.currency)||!isMasterTimestamp(row.updated_at)||!([row.customer_id,row.supplier_id].every(x=>x===null||isMasterId(x)))||!nullableText(row.notes)||![row.customer_name,row.customer_name_en,row.supplier_name,row.supplier_name_en].every(nullableText)||![row.subtotal,row.discount,row.vat_amount,row.total].every(amount)||typeof row.vat_rate!=="number"||!Number.isFinite(row.vat_rate)||row.vat_rate<0||row.vat_rate>100)throw new InvoiceReadError()
   }
  }
  let summary:InvoiceSummary|undefined
