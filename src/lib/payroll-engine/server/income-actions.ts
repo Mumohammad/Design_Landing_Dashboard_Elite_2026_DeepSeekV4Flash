@@ -29,7 +29,20 @@ const COLUMN: Record<NumField, string> = {
   missedDaysPenalty: "missed_days_penalty", riderBalance: "rider_balance",
 }
 
-type CustomField = { name: string; amount: number; type: "add" | "deduct" }
+const customFieldId = z.string().uuid()
+const maxMappedIncomeFields = 50
+type CustomField = { field_id?: string; name: string; amount: number; type: "add" | "deduct" }
+
+function parseCustomIncomeAmount(value: unknown): number {
+  if (value == null) return 0
+  if (typeof value === "number") return value
+  if (typeof value !== "string") return NaN
+
+  const text = value.trim()
+  if (!text) return 0
+  if (text.includes(",") && !/^[+-]?\d{1,3}(?:,\d{3})+(?:\.\d+)?$/.test(text)) return NaN
+  return Number(text.replace(/,/g, ""))
+}
 
 function recordFromRow(r: Record<string, unknown>): IncomeRecordInput {
   const out = { id: String(r.id), riderId: String(r.rider_id), driverName: String(r.driver_name ?? ""), companyName: String(r.company_name),
@@ -43,9 +56,9 @@ function recordFromRow(r: Record<string, unknown>): IncomeRecordInput {
 export interface IncomeDashboardData extends IncomeDashboard {
   month: string; months: string[]; companies: string[]
   driverCount: { confirmed: number | null; notes: string | null; source: "confirmed" | "income" | "payroll" | "none" }
-  expenses: Array<{ id: string; categoryId: string; categoryName: string; amount: number; allocationType: string; assignedRiderId: string | null; notes: string | null }>
+  expenses: Array<{ id: string; categoryId: string; categoryName: string; amount: number; allocationType: string; assignedRiderId: string | null; notes: string | null; updatedAt: string }>
   categories: Array<{ id: string; name: string; nameAr: string | null; defaultAmount: number; allocationType: string; description: string | null; isActive: boolean }>
-  customFields: Array<{ id: string; name: string; nameAr: string | null; fieldType: "add" | "deduct"; isActive: boolean }>
+  customFields: Array<{ id: string; name: string; nameAr: string | null; fieldType: "add" | "deduct"; description: string | null; isActive: boolean }>
 }
 
 async function loadMonth(ctx: EngineContext, month: string, company: string, rider: string) {
@@ -88,9 +101,9 @@ export async function getIncomeDashboard(input: unknown): Promise<EngineResult<I
       months: [...new Set(d.allIncome.map(r => r.month_key as string))].sort().reverse(),
       companies: [...new Set(d.allIncome.map(r => r.company_name as string))].sort(),
       driverCount: { confirmed, notes: d.count?.notes ?? null, source },
-      expenses: d.expenses.map(e => ({ id: e.id, categoryId: e.category_id, categoryName: e.category_name, amount: num(e.amount), allocationType: e.allocation_type, assignedRiderId: e.assigned_rider_id, notes: e.notes })),
+      expenses: d.expenses.map(e => ({ id: e.id, categoryId: e.category_id, categoryName: e.category_name, amount: num(e.amount), allocationType: e.allocation_type, assignedRiderId: e.assigned_rider_id, notes: e.notes, updatedAt: e.updated_at })),
       categories: d.categories.map(c => ({ id: c.id, name: c.name, nameAr: c.name_ar, defaultAmount: num(c.default_amount), allocationType: c.allocation_type, description: c.description, isActive: c.is_active })),
-      customFields: d.customFields.map(f => ({ id: f.id, name: f.name, nameAr: f.name_ar, fieldType: f.field_type, isActive: f.is_active })),
+      customFields: d.customFields.map(f => ({ id: f.id, name: f.name, nameAr: f.name_ar, fieldType: f.field_type, description: f.description, isActive: f.is_active })),
     } }
   } catch (e) { return failure(e, "Could not load income and expenses") }
 }
@@ -142,10 +155,28 @@ export async function importIncomeRows(input: unknown): Promise<EngineResult<Inc
         }
       }
       if (Array.isArray(r.customFields)) {
-        for (const f of r.customFields.slice(0, 50) as Array<Record<string, unknown>>) {
-          const amount = Number(f?.amount)
-          if (!f?.name || !Number.isFinite(amount) || amount === 0) continue
-          row.customFields.push({ name: String(f.name).slice(0, 120), amount: Math.abs(amount), type: f.type === "deduct" ? "deduct" : "add" })
+        if (r.customFields.length > maxMappedIncomeFields) {
+          errors.push(`Row ${i + 1}: at most ${maxMappedIncomeFields} mapped income fields are supported`)
+          return
+        }
+        for (const f of r.customFields as Array<Record<string, unknown>>) {
+          if (!f?.name) continue
+          const name = String(f.name).slice(0, 120)
+          const amount = parseCustomIncomeAmount(f.amount)
+          if (!Number.isFinite(amount)) {
+            errors.push(`Row ${i + 1}: invalid amount for ${name}`)
+            continue
+          }
+          if (amount === 0) continue
+          const fieldId = f.field_id === undefined ? undefined : customFieldId.safeParse(f.field_id)
+          if (fieldId && !fieldId.success) {
+            errors.push("Invalid mapped income field in row " + (i + 1))
+            continue
+          }
+          row.customFields.push({
+            ...(fieldId?.success ? { field_id: fieldId.data } : {}),
+            name, amount: Math.abs(amount), type: f.type === "deduct" ? "deduct" : "add",
+          })
         }
       }
       clean.push(row)
@@ -236,7 +267,8 @@ export async function deleteExpenseCategory(id: unknown): Promise<EngineResult> 
 }
 
 const expenseSchema = z.object({
-  id: z.string().uuid().optional(), month: monthKey, categoryId: z.string().uuid(), amount: money.refine(n => n > 0, "Amount must be greater than zero"),
+  id: z.string().uuid().optional(), expectedUpdatedAt: z.iso.datetime({ offset: true }).optional(),
+  month: monthKey, categoryId: z.string().uuid(), amount: money,
   allocationType: allocation.optional(), assignedRiderId: optText(64), notes: optText(500),
 })
 
@@ -250,13 +282,33 @@ export async function saveMonthlyExpense(input: unknown): Promise<EngineResult<{
     if (cat.error) return { success: false, error: "Expense category not found" }
     const allocationType = v.allocationType ?? cat.data.allocation_type
     if (allocationType === "assigned" && !v.assignedRiderId) return { success: false, error: "Choose the rider this expense is assigned to" }
-    const driver = allocationType === "assigned" && v.assignedRiderId ? (await loadDriversByRider(ctx, [v.assignedRiderId])).get(v.assignedRiderId) : undefined
-    const row = { month_key: v.month, category_id: v.categoryId, category_name: cat.data.name, amount: v.amount, allocation_type: allocationType,
-      assigned_rider_id: allocationType === "assigned" ? v.assignedRiderId : null, assigned_driver_id: driver?.id ?? null, notes: v.notes, updated_at: now() }
-    const res = v.id
-      ? await ctx.admin.from("payroll_monthly_expenses").update(row).eq("id", v.id).eq("tenant_id", ctx.tenantId).select("id").single()
-      : await ctx.admin.from("payroll_monthly_expenses").insert({ ...row, tenant_id: ctx.tenantId, created_by: ctx.userId }).select("id").single()
+    const table = () => ctx.admin.from("payroll_monthly_expenses")
+    const previous = v.id
+      ? await table().select("amount,category_id,allocation_type,assigned_rider_id,updated_at")
+        .eq("id", v.id).eq("tenant_id", ctx.tenantId).eq("month_key", v.month).maybeSingle()
+      : null
+    if (previous?.error) return failure(previous.error, "Could not verify the expense")
+    if (previous && (!previous.data || (v.expectedUpdatedAt && previous.data.updated_at !== v.expectedUpdatedAt))) {
+      return { success: false, error: "This expense changed or was deleted. Refresh and reopen it." }
+    }
+    if (v.amount === 0 && !(previous?.data && Number(previous.data.amount) === 0)) {
+      return { success: false, error: "Amount must be greater than zero" }
+    }
+    const assignedRiderId = allocationType === "assigned" ? v.assignedRiderId : null
+    const preserveDriver = allocationType === "assigned" && previous?.data?.allocation_type === "assigned"
+      && assignedRiderId === previous.data.assigned_rider_id
+    const row = {
+      month_key: v.month, category_id: v.categoryId,
+      ...(previous?.data?.category_id === v.categoryId ? {} : { category_name: cat.data.name }),
+      amount: v.amount, allocation_type: allocationType,
+      assigned_rider_id: assignedRiderId, ...(preserveDriver ? {} : { assigned_driver_id: null }), notes: v.notes, updated_at: now(),
+    }
+    const res = v.id && previous?.data
+      ? await table().update(row).eq("id", v.id).eq("tenant_id", ctx.tenantId).eq("month_key", v.month)
+        .eq("updated_at", previous.data.updated_at).select("id").maybeSingle()
+      : await table().insert({ ...row, tenant_id: ctx.tenantId, created_by: ctx.userId }).select("id").single()
     if (res.error) return failure(res.error, "Could not save expense")
+    if (!res.data) return { success: false, error: "This expense changed or was deleted. Refresh and reopen it." }
     await writeAuditLog({ tenantId: ctx.tenantId, actorId: ctx.userId, module: "payroll", action: v.id ? "payroll_expense_updated" : "payroll_expense_created", entityType: "payroll_monthly_expenses", entityId: res.data.id as string, newValues: row })
     revalidatePath(PATH)
     return { success: true, data: { id: res.data.id as string } }
@@ -322,12 +374,35 @@ export async function saveCustomIncomeField(input: unknown): Promise<EngineResul
     if (!p.success) return { success: false, error: p.error.issues.map(i => i.message).join("; ") }
     const v = p.data
     const ctx = await engineContext(v.id ? "update" : "create")
-    const row = { name: v.name, name_ar: v.nameAr, field_type: v.fieldType, description: v.description, is_active: v.isActive, updated_at: now() }
+    const row = { name: v.name, name_ar: v.nameAr, field_type: v.fieldType, description: v.description, updated_at: now() }
     const res = v.id
       ? await ctx.admin.from("payroll_custom_income_fields").update(row).eq("id", v.id).eq("tenant_id", ctx.tenantId).select("id").single()
-      : await ctx.admin.from("payroll_custom_income_fields").insert({ ...row, tenant_id: ctx.tenantId }).select("id").single()
+      : await ctx.admin.from("payroll_custom_income_fields").insert({ ...row, tenant_id: ctx.tenantId, is_active: v.isActive }).select("id").single()
     if (res.error) return failure(res.error.code === "23505" ? new Error("A field with this name already exists") : res.error, "Could not save field")
+    await writeAuditLog({ tenantId: ctx.tenantId, actorId: ctx.userId, module: "payroll",
+      action: v.id ? "payroll_income_field_updated" : "payroll_income_field_created",
+      entityType: "payroll_custom_income_fields", entityId: res.data.id as string, newValues: row })
     revalidatePath(PATH)
     return { success: true, data: { id: res.data.id as string } }
   } catch (e) { return failure(e, "Could not save field") }
+}
+
+/** Archived definitions stay available for review. Imported amounts already retain their own snapshot. */
+export async function setCustomIncomeFieldAvailability(input: unknown): Promise<EngineResult> {
+  try {
+    const parsed = z.object({ id: z.string().uuid(), isActive: z.boolean() }).safeParse(input)
+    if (!parsed.success) return { success: false, error: "Invalid income field" }
+    const { id, isActive } = parsed.data
+    const ctx = await engineContext("update")
+    const { data, error } = await ctx.admin.from("payroll_custom_income_fields")
+      .update({ is_active: isActive, updated_at: now() })
+      .eq("id", id).eq("tenant_id", ctx.tenantId).select("id").maybeSingle()
+    if (error) return failure(error, "Could not change income field availability")
+    if (!data) return { success: false, error: "Income field not found" }
+    await writeAuditLog({ tenantId: ctx.tenantId, actorId: ctx.userId, module: "payroll",
+      action: isActive ? "payroll_income_field_restored" : "payroll_income_field_archived",
+      entityType: "payroll_custom_income_fields", entityId: id })
+    revalidatePath(PATH)
+    return { success: true, data: undefined }
+  } catch (e) { return failure(e, "Could not change income field availability") }
 }

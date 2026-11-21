@@ -70,7 +70,7 @@ export function IncomeImportDialog({ defaultMonth, customFields, onClose, onImpo
       const XLSX = await import("xlsx")
       const wb = XLSX.read(await f.arrayBuffer(), { type: "array" })
       const parsed: Sheet[] = wb.SheetNames.map(name => {
-        const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[name], { defval: null })
+        const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[name], { defval: null, blankrows: false })
         const headers = [...new Set(rows.flatMap(r => Object.keys(r)))]
         return { name, headers, rows }
       }).filter(s => s.rows.length > 0)
@@ -86,9 +86,11 @@ export function IncomeImportDialog({ defaultMonth, customFields, onClose, onImpo
     return sheet.rows.map(r => {
       const out: Record<string, unknown> = {}
       for (const [field, col] of Object.entries(mapping)) if (col && !field.startsWith("cf:")) out[field] = r[col]
-      out.customFields = customFields.filter(f => mapping[`cf:${f.id}`]).map(f => ({ name: f.name, type: f.fieldType, amount: Number(r[mapping[`cf:${f.id}`]] ?? 0) || 0 }))
+      out.customFields = customFields.filter(f => mapping[`cf:${f.id}`]).map(f => ({
+        field_id: f.id, name: f.name, type: f.fieldType, amount: r[mapping[`cf:${f.id}`]],
+      }))
       return out
-    }).filter(r => String(r.riderId ?? "").trim())
+    })
   }
 
   async function submit(previewOnly: boolean) {
@@ -102,7 +104,12 @@ export function IncomeImportDialog({ defaultMonth, customFields, onClose, onImpo
     if (!previewOnly && !request.current) request.current = { id: crypto.randomUUID(), signature }
     try {
       const r = await importIncomeRows({ ...input, requestId: request.current?.id, preview: previewOnly })
-      if (!r.success) { setError(r.error); return }
+      if (!r.success) {
+        setError(r.error.startsWith("PAYENG024:")
+          ? tx("A mapped income field changed. Reopen the import and map the columns again.", "تغيّر أحد حقول الإيراد المرتبطة. أعد فتح الاستيراد واربط الأعمدة مجدداً.")
+          : r.error)
+        return
+      }
       if (previewOnly) setPreview(r.data); else onImported()
     } catch { setError(tx("Import outcome is unknown. Retry the same request or reload to inspect the saved rows.", "نتيجة الاستيراد غير مؤكدة. أعد نفس الطلب أو أعد التحميل لمراجعة السجلات.")) }
     finally { setBusy(false) }

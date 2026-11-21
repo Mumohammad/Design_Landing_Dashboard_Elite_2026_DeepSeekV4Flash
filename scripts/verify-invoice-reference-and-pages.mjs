@@ -1,6 +1,6 @@
 import {continueVerificationRoute,forwardVerificationRoute} from './lib/verification-access.mjs'
 import {expect as baseExpect} from '@playwright/test'
-import {randomUUID} from 'node:crypto'
+import {createHash,randomUUID} from 'node:crypto'
 import path from 'node:path'
 import {getDocument} from 'pdfjs-dist/legacy/build/pdf.mjs'
 import {readFile} from 'node:fs/promises'
@@ -62,8 +62,56 @@ export async function verifyInvoiceReferenceAndPages(page,admin,tenantId,appUrl)
  const search=()=>page.getByPlaceholder('Search invoice number, party or status…',{exact:true}).filter({visible:true})
  const invoiceRow=number=>page.getByRole('row').filter({hasText:number})
  const openEdit=async number=>{await invoiceRow(number).getByRole('button',{name:'Invoice actions '+number,exact:true}).click();await page.getByRole('menuitem',{name:'Edit',exact:true}).click();return page.getByRole('dialog')}
- const pdfText=async(number,name)=>{
-  await invoiceRow(number).getByRole('button',{name:'Invoice actions '+number,exact:true}).click();await page.getByRole('menuitem',{name:'Print / Save PDF',exact:true}).click();const dialog=page.getByRole('dialog');const pending=page.waitForEvent('download');await dialog.getByRole('button',{name:'Download PDF',exact:true}).click();const download=await pending,file=path.join(evidence,name);await download.saveAs(file);const task=getDocument({data:Uint8Array.from(await readFile(file)),isEvalSupported:false});const pdf=await task.promise;expect(pdf.numPages).toBe(1);const sheet=await pdf.getPage(1),size=sheet.getViewport({scale:1});expect(size.width).toBeCloseTo(612,1);expect(size.height).toBeCloseTo(792,1);const text=(await sheet.getTextContent()).items.map(item=>item.str??'').join(' ');await task.destroy();await expect(dialog).toBeHidden();return text
+ const renderPdf=async(dialog,ar=false)=>{
+  const preview=dialog.getByRole('img',{name:ar?'صفحة الفاتورة 1 من 1':'Invoice page 1 of 1',exact:true})
+  await expect(preview).toBeVisible({timeout:60000})
+  expect(await preview.evaluate(canvas=>{
+   const pixels=canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height).data
+   return pixels.some((value,index)=>index%4===0 && value<128 && pixels[index+3]>0)
+  })).toBe(true)
+ }
+ const pdfText=async(id,number,name,open)=>{
+  let requests=0
+  const matches=request=>request.method()==='POST'&&new URL(request.url()).pathname==='/api/invoices/'+id+'/pdf'
+  const watch=request=>{if(matches(request))requests++}
+  const tabs=page.context().pages().length
+  page.on('request',watch)
+  try{
+   const response=page.waitForResponse(result=>matches(result.request()))
+   if(open)await open()
+   else {
+    await invoiceRow(number).getByRole('button',{name:'Invoice actions '+number,exact:true}).click()
+    await page.getByRole('menuitem',{name:'Print / Save PDF',exact:true}).click()
+    await page.getByRole('dialog').getByRole('button',{name:'Preview PDF',exact:true}).click()
+   }
+   const dialog=page.getByRole('dialog')
+   await renderPdf(dialog)
+   expect(page.context().pages()).toHaveLength(tabs)
+   const pdfResponse=await response
+   expect(pdfResponse.ok()).toBe(true)
+   expect(pdfResponse.headers()['content-type']).toContain('application/pdf')
+   const generated=await admin.from('generated_documents').select('generated_data').eq('tenant_id',tenantId).eq('invoice_id',id).is('deleted_at',null).single()
+   const previewHash=generated.data?.generated_data?.pdf_sha256
+   if(generated.error||!/^[a-f0-9]{64}$/.test(previewHash??''))throw Error('Stored preview hash unavailable')
+   if(name.includes('hidden-due'))await dialog.screenshot({path:path.join(evidence,'invoice-preview-desktop.png')})
+   const pending=page.waitForEvent('download')
+   await dialog.getByRole('button',{name:'Download PDF',exact:true}).click()
+   const download=await pending,file=path.join(evidence,name)
+   await download.saveAs(file)
+   const bytes=await readFile(file)
+   expect(createHash('sha256').update(bytes).digest('hex')).toBe(previewHash)
+   expect(requests).toBe(1)
+   const task=getDocument({data:Uint8Array.from(bytes),isEvalSupported:false})
+   try{
+    const pdf=await task.promise
+    expect(pdf.numPages).toBe(1)
+    const sheet=await pdf.getPage(1),size=sheet.getViewport({scale:1})
+    expect(size.width).toBeCloseTo(612,1)
+    expect(size.height).toBeCloseTo(792,1)
+    await expect(dialog).toBeHidden()
+    return (await sheet.getTextContent()).items.map(item=>item.str??'').join(' ')
+   }finally{await task.destroy()}
+  }finally{page.off('request',watch)}
  }
  try{
   const customer=await admin.from('customers').insert({tenant_id:tenantId,name_ar:'عميل الفاتورة المرجعية '+tag,name_en:'Reference invoice party '+tag}).select('id').single();if(customer.error)throw Error('Owned reference customer creation failed');customerId=customer.data.id
@@ -73,8 +121,8 @@ export async function verifyInvoiceReferenceAndPages(page,admin,tenantId,appUrl)
   await dialog.getByRole('button',{name:'Save draft',exact:true}).click();await expect.poll(()=>loss.ready).toBe(true);await loss.wait();await expect(dialog.getByRole('alert')).toBeVisible();await expect.poll(async()=>Number((await readReference()).total)).toBe(83058.99);await dialog.getByRole('button',{name:'Save draft',exact:true}).click();await expect(dialog).toBeHidden();await page.unroute(pattern,loss.handler);expect(loss.lost).toBe(true);expect(loss.ids).toHaveLength(2);expect(loss.ids[0]).toMatch(uuid);expect(loss.ids[1]).toBe(loss.ids[0]);const reference=await readReference();expect(reference.show_due_date).toBe(false);expect(reference.due_date).toBe('2091-06-17');const line=await scalar('invoice_lines',{invoice_id:reference.id});expect(line.item_name).toBe('Reference item '+tag);expect(line.description).toBe(description);expect(Number(line.unit_price)).toBe(72225.2082)
   const audits=await admin.from('audit_log').select('id',{count:'exact'}).eq('tenant_id',tenantId).eq('entity_id',reference.id).eq('action','invoice_draft_created');if(audits.error||audits.count!==1)throw Error('Reference retry created duplicate audit evidence')
   step='persisted reference fields and due-date PDF option'
-  await page.reload();await search().fill(reference.invoice_number);await expect(invoiceRow(reference.invoice_number)).toHaveCount(1);const hidden=await pdfText(reference.invoice_number,'invoice-reference-hidden-due.pdf');expect(invoicePdfContainsText(hidden,'Reference item '+tag)).toBe(true);expect(invoicePdfContainsText(hidden,description)).toBe(true);expect(hidden).toContain('72,225.2082');expect(hidden).not.toContain('Due Date');expect(hidden).not.toContain('17/06/2091');for(const amount of['72,225.21','10,833.78','83,058.99'])expect(hidden).toContain(amount);expect(hidden).not.toMatch(/https?:\/\/|about:blank/)
-  dialog=await openEdit(reference.invoice_number);await expect(dialog.getByLabel('Item name (optional)',{exact:true})).toHaveValue('Reference item '+tag);await expect(dialog.getByLabel('Unit price',{exact:true})).toHaveValue('72225.2082');await dialog.getByLabel('Show due date on the printed invoice',{exact:true}).check();await dialog.getByRole('button',{name:'Save draft',exact:true}).click();await expect(dialog).toBeHidden();await expect.poll(async()=>(await readReference()).show_due_date).toBe(true);expect((await readReference()).due_date).toBe('2091-06-17');const shown=await pdfText(reference.invoice_number,'invoice-reference-visible-due.pdf');expect(shown).toContain('Due Date');expect(shown).toContain('72,225.2082');expect(shown).toContain('17/06/2091');for(const amount of['72,225.21','10,833.78','83,058.99'])expect(shown).toContain(amount)
+  await page.reload();await search().fill(reference.invoice_number);await expect(invoiceRow(reference.invoice_number)).toHaveCount(1);const hidden=await pdfText(reference.id,reference.invoice_number,'invoice-reference-hidden-due.pdf');expect(invoicePdfContainsText(hidden,'Reference item '+tag)).toBe(true);expect(invoicePdfContainsText(hidden,description)).toBe(true);expect(hidden).toContain('72,225.2082');expect(hidden).not.toContain('Due Date');expect(hidden).not.toContain('17/06/2091');for(const amount of['72,225.21','10,833.78','83,058.99'])expect(hidden).toContain(amount);expect(hidden).not.toMatch(/https?:\/\/|about:blank/)
+  dialog=await openEdit(reference.invoice_number);await expect(dialog.getByLabel('Item name (optional)',{exact:true})).toHaveValue('Reference item '+tag);await expect(dialog.getByLabel('Unit price',{exact:true})).toHaveValue('72225.2082');await dialog.getByLabel('Show due date on the printed invoice',{exact:true}).check();const shown=await pdfText(reference.id,reference.invoice_number,'invoice-reference-visible-due.pdf',()=>dialog.getByRole('button',{name:'Save & preview',exact:true}).click());await expect.poll(async()=>(await readReference()).show_due_date).toBe(true);expect((await readReference()).due_date).toBe('2091-06-17');expect(shown).toContain('Due Date');expect(shown).toContain('72,225.2082');expect(shown).toContain('17/06/2091');for(const amount of['72,225.21','10,833.78','83,058.99'])expect(shown).toContain(amount)
   step='complete invoice search/global metrics and exports beyond old caps'
   const before=await admin.from('invoices').select('total,currency,status',{count:'exact'}).eq('tenant_id',tenantId).is('deleted_at',null).limit(500);if(before.error||before.count!==before.data?.length)throw Error('Fresh finance baseline must fit one exact snapshot');const beforeValue=before.data.filter(row=>row.currency==='SAR'&&!['cancelled','credited'].includes(row.status)).reduce((sum,row)=>sum+BigInt(Math.round(Number(row.total)*100)),0n)
   const customers=Array.from({length:1201},(_,index)=>({id:randomUUID(),tenant_id:tenantId,customer_code:'IP'+tag+String(index).padStart(4,'0'),name_ar:'عميل خيارات '+index,name_en:index===1200?'Last picker 50%_ '+tag:index===0?'Export invoices 50%_ '+tag:'Invoice option '+tag+' '+index}));for(let i=0;i<customers.length;i+=200)if((await admin.from('customers').insert(customers.slice(i,i+200))).error)throw Error('Owned party page fixtures failed')
@@ -98,7 +146,7 @@ export async function verifyInvoiceReferenceAndPages(page,admin,tenantId,appUrl)
   try{await expect(dialog.getByRole('button',{name:'Save draft',exact:true})).toBeEnabled();await page.route(partyRpc,partyFault);await picker.getByRole('button',{name:'Refresh records',exact:true}).click();await expect(picker.getByRole('alert')).toContainText('Could not load records');await expect(dialog.locator('#inv-party')).toBeDisabled();await expect(dialog.locator('#inv-party')).toHaveValue(customers[1200].id);await expect(dialog.getByRole('button',{name:'Save draft',exact:true})).toBeDisabled();expect(writesWhileUnknown).toBe(0);await page.unroute(partyRpc,partyFault);await picker.getByRole('button',{name:'Retry',exact:true}).click();await expect(dialog.locator('#inv-party')).toBeEnabled();await expect(dialog.locator('#inv-party')).toHaveValue(customers[1200].id);await expect(dialog.getByRole('button',{name:'Save draft',exact:true})).toBeEnabled()}finally{page.off('request',watch)}
   await dialog.getByRole('button',{name:'Save draft',exact:true}).click();await expect(dialog).toBeHidden();expect((await scalar('invoices',{customer_id:customers[1200].id})).status).toBe('draft')
   step='Arabic reference editor and responsive layout'
-  await page.setViewportSize({width:390,height:844});await page.goto(appUrl+'/invoices?lang=ar');await page.getByPlaceholder('ابحث برقم الفاتورة أو الطرف أو الحالة…',{exact:true}).filter({visible:true}).fill(reference.invoice_number);await expect(page.locator('html')).toHaveAttribute('lang','ar');await invoiceRow(reference.invoice_number).getByRole('button',{name:'إجراءات الفاتورة '+reference.invoice_number,exact:true}).click();await page.getByRole('menuitem',{name:'تعديل',exact:true}).click();dialog=page.getByRole('dialog');await expect(dialog.getByLabel('اسم الصنف (اختياري)',{exact:true})).toHaveValue('Reference item '+tag);await expect(dialog.getByLabel('سعر الوحدة',{exact:true})).toHaveValue('72225.2082');await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);await page.screenshot({path:path.join(evidence,'invoice-reference-mobile-ar.png'),fullPage:true});await dialog.locator('[data-slot="dialog-close"]').click();console.log(JSON.stringify({check:'invoice reference persistence/PDF, receipt replay, complete pages/KPIs/export/party options, read failure/retry and Arabic mobile',result:'PASS'}))
+  await page.setViewportSize({width:390,height:844});await page.goto(appUrl+'/invoices?lang=ar');await page.getByPlaceholder('ابحث برقم الفاتورة أو الطرف أو الحالة…',{exact:true}).filter({visible:true}).fill(reference.invoice_number);await expect(page.locator('html')).toHaveAttribute('lang','ar');await invoiceRow(reference.invoice_number).getByRole('button',{name:'إجراءات الفاتورة '+reference.invoice_number,exact:true}).click();await page.getByRole('menuitem',{name:'تعديل',exact:true}).click();dialog=page.getByRole('dialog');await expect(dialog.getByLabel('اسم الصنف (اختياري)',{exact:true})).toHaveValue('Reference item '+tag);await expect(dialog.getByLabel('سعر الوحدة',{exact:true})).toHaveValue('72225.2082');await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);await page.screenshot({path:path.join(evidence,'invoice-reference-mobile-ar.png'),fullPage:true});await dialog.locator('[data-slot="dialog-close"]').click();await invoiceRow(reference.invoice_number).getByRole('button',{name:'إجراءات الفاتورة '+reference.invoice_number,exact:true}).click();await page.getByRole('menuitem',{name:'طباعة / حفظ PDF',exact:true}).click();await dialog.getByRole('button',{name:'معاينة PDF',exact:true}).click();await renderPdf(dialog,true);await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);await page.screenshot({path:path.join(evidence,'invoice-preview-mobile-ar.png')});await dialog.locator('[data-slot="dialog-close"]').click();console.log(JSON.stringify({check:'invoice reference persistence/PDF, receipt replay, complete pages/KPIs/export/party options, read failure/retry and Arabic mobile',result:'PASS'}))
  }catch(error){console.error(JSON.stringify({check:'invoice reference and complete reads',stage:step,errorType:error.name,callsite:/verify-invoice-reference-and-pages\.mjs:(\d+):(\d+)/.exec(error.stack)?.slice(1),operation:/expect\(locator\)\.[A-Za-z]+/.exec(error.message)?.[0]}));await page.screenshot({path:path.join(evidence,'invoice-reference-failure.png'),fullPage:true}).catch(()=>{});error.verificationStage=step;throw error}
  finally{for(const[pattern,handler]of routes)await page.unroute(pattern,handler).catch(()=>{});if(viewport)await page.setViewportSize(viewport);await page.goto(appUrl+'/invoices?lang=en').catch(()=>{})}
 }

@@ -37,6 +37,7 @@ import { isMasterDate, isMasterId } from "@/lib/accounting/master-contract"
 import { sendDocumentToZatca } from "@/lib/accounting/zatca"
 import { getZatcaStatus } from "@/lib/accounting/zatca-management"
 import { requestInvoicePdf } from "@/lib/invoice-pdf-download"
+import { InvoicePdfPreview } from "./invoice-pdf-preview"
 import { businessDateKey } from "@/lib/formatting/business-date"
 import { useBusinessDate } from "@/hooks/use-business-date"
 import {
@@ -467,11 +468,8 @@ export function InvoicesManager() {
     setCreateOpen(true)
   }
 
-  async function handleCreate(print = false) {
-    const win = print ? window.open("", "_blank") : null
-    if (win) { win.opener = null; win.document.body.textContent = ar ? "جارٍ تجهيز PDF الفاتورة…" : "Preparing invoice PDF…" }
+  async function handleCreate(preview = false) {
     if (formPaid && formPaidMethod !== "cash" && !formBank) {
-      win?.close()
       setFormTab("bank")
       setFormError(ar ? "اختر الحساب البنكي الذي استُلمت عليه الدفعة، أو اختر الدفع نقداً." : "Choose the bank account that received the payment, or choose cash.")
       return
@@ -490,20 +488,18 @@ export function InvoicesManager() {
       const res = editTarget
         ? await updateInvoiceDraft({ ...input, id: editTarget.id, expected_updated_at: editTarget.updated_at })
         : await createInvoiceDraft(input)
-      if (!res.success) { win?.close(); setFormError((ar?res.errorAr:res.error) ?? (ar?"تعذر تأكيد الحفظ. أعد المحاولة بالتفاصيل نفسها.":"Unable to confirm the save. Retry with unchanged details.")); return }
+      if (!res.success) { setFormError((ar?res.errorAr:res.error) ?? (ar?"تعذر تأكيد الحفظ. أعد المحاولة بالتفاصيل نفسها.":"Unable to confirm the save. Retry with unchanged details.")); return }
       flash("ok", ar ? "تم حفظ مسودة الفاتورة." : "Invoice draft saved.")
       setCreateOpen(false)
       const resId = (res as { id?: unknown }).id
       const savedId = editTarget?.id ?? (typeof resId === "string" ? resId : undefined)
-      if (win && savedId) {
-        void requestInvoicePdf(savedId, undefined, ar ? "ar" : "en").then(({ blob }) => {
-          if (win.closed) return
-          const url = URL.createObjectURL(blob); win.location.replace(url)
-          const cleanup = window.setInterval(() => { if (win.closed) { URL.revokeObjectURL(url); window.clearInterval(cleanup) } }, 30_000)
-        }).catch((error) => { win.close(); flash("err", error instanceof Error ? error.message : (ar ? "تعذرت الطباعة." : "Print failed.")) })
+      if (preview && savedId) {
+        const target = { id: savedId, invoice_type: formType, status: "draft" as const }
+        resetPrint(target, formBank)
+        void handlePrint(target, "preview", formBank)
       }
       await load()
-    } catch { win?.close(); setFormError(ar ? "تعذر الحفظ. حاول مجدداً." : "Could not save. Please retry.") }
+    } catch { setFormError(ar ? "تعذر الحفظ. حاول مجدداً." : "Could not save. Please retry.") }
     finally { setIsSaving(false) }
   }
 
@@ -558,46 +554,45 @@ export function InvoicesManager() {
   }
 
   // ── Print / PDF (Phase 6) ───────────────────────────────────────────────
+  type PrintTarget = Pick<InvoiceRow, "id" | "invoice_type" | "status">
   const [printingId, setPrintingId] = useState<string | null>(null)
-  const [printTarget, setPrintTarget] = useState<InvoiceRow | null>(null)
+  const [printTarget, setPrintTarget] = useState<PrintTarget | null>(null)
   const [printBank, setPrintBank] = useState("")
   const [printError, setPrintError] = useState("")
-  async function handlePrint(r: InvoiceRow, mode: "preview" | "download" = "preview") {
-    const win = mode === "preview" ? window.open("", "_blank") : null
-    if (mode === "preview" && !win) {
-      setPrintError(ar ? "اسمح بالنوافذ المنبثقة للطباعة وحفظ PDF." : "Allow pop-ups to print or save a PDF.")
-      return
-    }
-    if (win) {
-      win.opener = null
-      win.document.body.textContent = ar ? "جارٍ تجهيز PDF الفاتورة…" : "Preparing invoice PDF…"
-    }
-    setPrintingId(r.id)
+  const [printPreview, setPrintPreview] = useState<Awaited<ReturnType<typeof requestInvoicePdf>> | null>(null)
+
+  function resetPrint(target: PrintTarget | null, bank = "") {
+    setPrintTarget(target)
+    setPrintBank(bank)
+    setPrintError("")
+    setPrintPreview(null)
+  }
+
+  async function handlePrint(target: PrintTarget, mode: "preview" | "download", bank = printBank) {
+    setPrintingId(target.id)
     setPrintError("")
     try {
-      const { blob, filename } = await requestInvoicePdf(r.id, printBank || undefined, ar ? "ar" : "en")
-      if (win?.closed) throw Error(ar ? "أُغلقت نافذة المعاينة. حاول مجدداً." : "The PDF preview was closed. Please try again.")
-      const url = URL.createObjectURL(blob)
-      if (win) {
-        win.location.replace(url)
-        // Keep the PDF available for the viewer's print/download controls.
-        const cleanup = window.setInterval(() => {
-          if (win.closed) { URL.revokeObjectURL(url); window.clearInterval(cleanup) }
-        }, 30_000)
-      } else {
-        const link = document.createElement("a")
-        link.href = url
-        link.download = filename
-        document.body.append(link)
-        link.click()
-        link.remove()
-        window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+      const file = mode === "download" && printPreview
+        ? printPreview
+        : await requestInvoicePdf(target.id, bank || undefined, ar ? "ar" : "en")
+      if (mode === "preview") {
+        setPrintPreview(file)
+        return
       }
-      setPrintTarget(null)
+      const url = URL.createObjectURL(file.blob)
+      const link = document.createElement("a")
+      link.href = url
+      link.download = file.filename
+      document.body.append(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+      resetPrint(null)
     } catch (error) {
-      win?.close()
-      setPrintError(error instanceof Error ? error.message : "Print failed")
-    } finally { setPrintingId(null) }
+      setPrintError(error instanceof Error ? error.message : (ar ? "تعذر تجهيز PDF الفاتورة." : "Could not prepare the invoice PDF."))
+    } finally {
+      setPrintingId(null)
+    }
   }
 
   // ── Lifecycle actions ───────────────────────────────────────────────────
@@ -797,7 +792,7 @@ export function InvoicesManager() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-44 rounded-xl">
                 <DropdownMenuItem onSelect={() => void openDetail(r)}><FileText className="h-4 w-4" />{ar ? "تفاصيل" : "Details"}</DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => { setPrintTarget(r); setPrintBank(""); setPrintError(""); void createClient().from("invoices").select("bank_account_id").eq("id", r.id).maybeSingle().then(({ data }) => { const saved = (data as { bank_account_id?: string | null } | null)?.bank_account_id; if (saved) setPrintBank((current) => current || saved) }) }}><Printer className="h-4 w-4" />{ar ? "طباعة / حفظ PDF" : "Print / Save PDF"}</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => resetPrint(r)}><Printer className="h-4 w-4" />{ar ? "طباعة / حفظ PDF" : "Print / Save PDF"}</DropdownMenuItem>
                 {canIssue && <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onSelect={() => void openEdit(r)}><Pencil className="h-4 w-4" />{ar ? "تعديل" : "Edit"}</DropdownMenuItem>
@@ -827,12 +822,12 @@ export function InvoicesManager() {
           <Button variant="outline" disabled={isLoading || loadError || page * 50 >= totalCount} onClick={() => setPage(page + 1)}>{ar ? "التالي" : "Next"}</Button>
         </div>
       </div>
-      <Dialog open={!!printTarget} onOpenChange={(open) => { if (!open && !printingId) setPrintTarget(null) }}>
-        <DialogContent className="max-h-[90dvh] overflow-y-auto rounded-2xl">
+      <Dialog open={!!printTarget} onOpenChange={(open) => { if (!open && !printingId) resetPrint(null) }}>
+        <DialogContent className={`max-h-[90dvh] overflow-y-auto rounded-2xl ${printPreview ? "sm:max-w-3xl" : ""}`}>
           <DialogHeader><DialogTitle>{ar ? "طباعة / حفظ PDF" : "Print / Save PDF"}</DialogTitle>
-            <DialogDescription>{ar ? "نزّل ملف PDF جاهزاً أو افتحه ثم اطبعه من عارض PDF. لا يحتوي الملف على تاريخ المتصفح أو روابطه أو رؤوسه وتذييلاته. حساب التحويل اختياري." : "Download the finished PDF or open it and print from your PDF viewer. The file has no browser date, links, headers or footers. A receiving bank is optional."}</DialogDescription>
+            <DialogDescription>{ar ? "عاين الفاتورة أو نزّلها. اترك اختيار البنك فارغاً لاستخدام الحساب المحفوظ." : "Preview or download the invoice. Leave the bank selection blank to use the saved account."}</DialogDescription>
           </DialogHeader>
-          <BankAccountPicker key={printTarget?.id} value={printBank} onChange={setPrintBank} ar={ar} disabled={!!printingId} />
+          <BankAccountPicker key={printTarget?.id} value={printBank} onChange={(bank) => { setPrintBank(bank); setPrintPreview(null); setPrintError("") }} ar={ar} disabled={!!printingId} />
           <p role="note" className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
             {printTarget && printTarget.invoice_type === "sales" && !["draft", "issued", "cancelled"].includes(printTarget.status)
               ? (ar ? "فاتورة إلكترونية (المرحلة الأولى): رمز QR يُنشأ محلياً بوقت الاعتماد ولا تُرسل الفاتورة إلى ZATCA ما لم تُرسل من الربط. لا تعد هذه النسخة دليلاً على التخليص أو الإبلاغ." : "Phase 1 e-invoice: the QR is generated locally at the finalization time and the invoice is not sent to ZATCA unless submitted through the connection. This copy is not evidence of clearance or reporting.")
@@ -844,11 +839,12 @@ export function InvoicesManager() {
             {printingId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
             {ar ? "تنزيل PDF" : "Download PDF"}
           </Button>
-          <Button variant="outline" disabled={!!printingId} onClick={() => printTarget && void handlePrint(printTarget)}>
+          <Button variant="outline" disabled={!!printingId} onClick={() => { setPrintPreview(null); if (printTarget) void handlePrint(printTarget, "preview") }}>
             {printingId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
-            {ar ? "فتح الفاتورة للطباعة" : "Open invoice for printing"}
+            {ar ? "معاينة PDF" : "Preview PDF"}
           </Button>
           </div>
+          {printPreview && <InvoicePdfPreview blob={printPreview.blob} ar={ar} />}
         </DialogContent>
       </Dialog>
       <Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => { if (!open && !isDeleting) setDeleteTarget(null) }}>
@@ -876,7 +872,7 @@ export function InvoicesManager() {
               </DialogHeader>
               <div className="flex flex-wrap items-center gap-2">
                 <Button type="button" variant="outline" onClick={() => void handleCreate(true)} disabled={isSaving || !formPartyId || !lineTotals || !partyReadReady || !draftRequest} className="rounded-xl">
-                  <Printer className="h-4 w-4" />{ar ? "حفظ وطباعة" : "Save & print"}
+                  <Printer className="h-4 w-4" />{ar ? "حفظ ومعاينة" : "Save & preview"}
                 </Button>
                 <Button type="button" onClick={() => void handleCreate()} disabled={isSaving || !formPartyId || !lineTotals || !partyReadReady || !draftRequest} className="rounded-xl bg-elite-blue-600 hover:bg-elite-blue-700">
                   {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
