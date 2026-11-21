@@ -57,3 +57,12 @@ test('valid owned child run identity remains stable',()=>assert.equal(assertAcce
 test('coordinator retains the caller-owned run identity',()=>assert.equal(resolveAcceptanceRunId({VERIFY_RELEASE_RUN_ID:runId}),runId))
 test('coordinator validates caller identity before creating a run',()=>assert.throws(()=>resolveAcceptanceRunId({VERIFY_RELEASE_RUN_ID:'not-owned'}),/UUID required/))
 test('coordinator generates a valid identity when no caller supplied one',()=>assert.doesNotThrow(()=>assertAcceptanceRunId(resolveAcceptanceRunId({}))))
+
+test('signed report download failure asserts exact report feedback in the main content', () => {
+ const verifier=readFileSync(new URL('./verify-reports-lifecycle.mjs',import.meta.url),'utf8')
+ const operation=verifier.split("stage = 'localized signed-download failure and ordinary retry'")[1]?.split("stage = 'completed but expired")[0]
+ assert.ok(operation,'Signed download failure and retry stage must exist')
+ assert.match(operation,/page\.locator\('main'\)\.getByRole\('alert'\)\.filter\(\{hasText:downloadFailure\}\)/)
+ assert.match(operation,/\.toHaveText\(downloadFailure\)/)
+ assert.doesNotMatch(operation,/\.first\(\)|\.nth\(/)
+})

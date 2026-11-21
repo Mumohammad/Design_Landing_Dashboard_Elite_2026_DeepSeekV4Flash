@@ -128,7 +128,8 @@ export async function verifyReportsLifecycle(page, admin, tenantId, appUrl) {
     const signPattern='**/storage/v1/object/sign/generated-reports/**', signFault=route=>route.fulfill({status:503,contentType:'application/json',body:'{"message":"SENSITIVE_TEST_DETAIL"}'})
     routes.push([signPattern,signFault]);await page.route(signPattern,signFault)
     await page.getByTestId('report-download-'+retry.id).click()
-    await expect(page.getByRole('alert')).toContainText('تعذر تنزيل التقرير. أعد المحاولة.')
+    const downloadFailure = 'تعذر تنزيل التقرير. أعد المحاولة.'
+    await expect(page.locator('main').getByRole('alert').filter({hasText:downloadFailure})).toHaveText(downloadFailure)
     await expect(page.locator('main')).not.toContainText('SENSITIVE_TEST_DETAIL')
     await expect(page.getByTestId('report-download-'+retry.id)).toBeEnabled()
     await page.unroute(signPattern,signFault)
