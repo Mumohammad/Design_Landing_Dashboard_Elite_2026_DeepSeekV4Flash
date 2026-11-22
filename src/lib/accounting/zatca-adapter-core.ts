@@ -37,16 +37,14 @@ import { getZatcaCsidCredential } from "./zatca-credentials"
 import { getZatcaNetworkBase } from "./zatca-config"
 import { resolveTenantZatcaEnvironment } from "./zatca-environment"
 import { prepareZatcaDocumentAs, type ZatcaActor } from "./zatca-issuance"
-import { loadZatcaSourceDocument } from "./zatca-source"
+import { loadZatcaBuyer, loadZatcaSourceDocument } from "./zatca-source"
 import { submitPreparedZatcaDocumentAs } from "./zatca-submission-core"
 import {
-  buyerParty,
   invoiceKindFor,
   missingNationalAddress,
   sellerParty,
   transmissionStatusFor,
   ZATCA_VAT_RE,
-  type CustomerPartyRow,
   type TenantPartyRow,
 } from "./zatca-adapter-input"
 
@@ -62,10 +60,8 @@ export type ZatcaAdapterSummary = {
 type EventRow = {
   id: string
   event_type: string
-  source_type: string
   source_id: string
-  payload: Record<string, unknown>
-  created_at?: string
+  created_at: string
 }
 
 function errorMessage(e: unknown): string {
@@ -123,52 +119,48 @@ export async function runZatcaAdapterAs(
     // boundary). Purchase invoices are never transmitted.
     // Cursor-based pagination: process events in batches to handle tenants
     // with large volumes of unprocessed financial events.
-    const allEvents: EventRow[] = []
-    let evCursor: string | null = null
+    let cursor: EventRow | null = null
     const BATCH_SIZE = 200
-    const MAX_EVENTS = 10_000
-
-    while (allEvents.length < MAX_EVENTS) {
-      let evQuery = admin
-        .from("financial_events")
-        .select("id,event_type,source_type,source_id,payload,created_at")
-        .eq("tenant_id", currentUser.tenantId)
-        .in("event_type", [...ZATCA_EVENT_TYPES])
-        .order("created_at", { ascending: true })
-        .order("id", { ascending: true })
-        .limit(BATCH_SIZE + 1)
-
-      if (evCursor) evQuery = evQuery.gt("id", evCursor)
-      // Manual "Send to ZATCA" for selected documents only.
-      if (opts.sourceIds) evQuery = evQuery.in("source_id", opts.sourceIds)
-
-      const { data: batch, error: evErr } = await evQuery
-      if (evErr) return { success: false, error: mapFinancialError(evErr.message) }
-      if (!batch || batch.length === 0) break
-
-      const hasMore = batch.length > BATCH_SIZE
-      const events = hasMore ? batch.slice(0, BATCH_SIZE) : batch
-      evCursor = String(events[events.length - 1].id)
-      allEvents.push(...(events as unknown as EventRow[]))
-
-      if (!hasMore) break
-    }
-
+    const issuedThrough = new Date().toISOString()
     let processed = 0
     let skipped = 0
     let failed = 0
     let lastError: string | null = null
 
-    for (const ev of allEvents) {
-      try {
-        const outcome = await processEvent(admin, currentUser.tenantId, currentUser.authUserId, ev, storedCsid, networkBase ? environment : null)
-        if (outcome === "processed") processed++
-        else if (outcome === "skipped") skipped++
-        else failed++
-      } catch (e) {
-        failed++
-        lastError = errorMessage(e)
+    for (;;) {
+      let evQuery = admin
+        .from("financial_events")
+        .select("id,event_type,source_id,created_at")
+        .eq("tenant_id", currentUser.tenantId)
+        .in("event_type", [...ZATCA_EVENT_TYPES])
+        .lte("created_at", issuedThrough)
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .limit(BATCH_SIZE)
+
+      if (cursor) {
+        const time = `"${cursor.created_at}"`
+        evQuery = evQuery.or(`created_at.gt.${time},and(created_at.eq.${time},id.gt.${cursor.id})`)
       }
+      // Manual "Send to ZATCA" for selected documents only.
+      if (opts.sourceIds) evQuery = evQuery.in("source_id", opts.sourceIds)
+
+      const { data: batch, error: evErr } = await evQuery
+      if (evErr) return { success: false, processed, skipped, failed, sandbox, error: mapFinancialError(evErr.message) }
+      if (!batch || batch.length === 0) break
+      for (const ev of batch) {
+        try {
+          const outcome = await processEvent(admin, currentUser.tenantId, currentUser.authUserId, ev, storedCsid, networkBase ? environment : null)
+          if (outcome === "processed") processed++
+          else if (outcome === "skipped") skipped++
+          else failed++
+        } catch (e) {
+          failed++
+          lastError = errorMessage(e)
+        }
+      }
+      if (batch.length < BATCH_SIZE) break
+      cursor = batch[batch.length - 1]
     }
 
     if (opts.revalidate !== false) revalidatePath("/accounting")
@@ -214,13 +206,14 @@ async function processEvent(
 
   // Idempotency: one transmission per source document (an invoice or the
   // specific credit/debit note — several notes may reference one invoice).
-  const { data: existing } = await admin
+  const { data: existing, error: transmissionReadError } = await admin
     .from("zatca_transmissions")
     .select("id,status,environment:response->>environment")
     .eq("tenant_id", tenantId)
     .eq("doc_type", docType)
     .eq("source_id", ev.source_id)
     .maybeSingle<{ id: string; status: string; environment?: string | null }>()
+  if (transmissionReadError) throw new Error("Unable to verify the previous ZATCA transmission.")
   // Accepted in THIS environment = done. A mock or other-environment
   // acceptance is not evidence for the configured gateway.
   if (existing && (existing.status === "reported" || existing.status === "cleared")
@@ -240,15 +233,7 @@ async function processEvent(
   if (!ZATCA_VAT_RE.test(seller.vatNumber ?? "")) throw new Error("Configure the seller VAT number before preparing a ZATCA document.")
   const sellerVat = seller.vatNumber!
 
-  const { data: customer } = customerId
-    ? await admin
-        .from("customers")
-        .select("name_ar,name_en,tax_number,address,city,district,building_number,additional_number,postal_code,country_code")
-        .eq("id", customerId)
-        .eq("tenant_id", tenantId)
-        .maybeSingle<CustomerPartyRow>()
-    : { data: null }
-  const buyer = buyerParty(customer ?? null)
+  const buyer = await loadZatcaBuyer(admin, tenantId, customerId)
   const invoiceKind = invoiceKindFor(buyer)
   const deliveryDate = fmtDate(issueDate)
 
@@ -374,7 +359,7 @@ async function processEvent(
  * finalized a document lacks accounting:approve. The operator's grant is
  * re-checked on every run; revoked/inactive operators stop automation.
  */
-export async function runZatcaForTenant(tenantId: string): Promise<ZatcaAdapterSummary & { operator?: boolean }> {
+export async function runZatcaForTenant(tenantId: string, sourceId?: string): Promise<ZatcaAdapterSummary & { operator?: boolean }> {
   if (!integrationAvailable("zatca")) return { success: false, error: "ZATCA integration is not enabled." }
   const admin = createAdminClient()
   const { data: automation } = await admin
@@ -385,7 +370,9 @@ export async function runZatcaForTenant(tenantId: string): Promise<ZatcaAdapterS
   if (!automation?.enabled) return { success: false, operator: false, error: "No ZATCA operator registered for automatic submission." }
   const { data: authorized, error } = await admin.rpc("zatca_operator_authorized", { p_tenant: tenantId, p_user: automation.operator_id })
   if (error || authorized !== true) return { success: false, operator: false, error: "The registered ZATCA operator is no longer authorized." }
-  const summary = await runZatcaAdapterAs({ tenantId, authUserId: automation.operator_id }, { revalidate: false })
+  const summary = await runZatcaAdapterAs({ tenantId, authUserId: automation.operator_id }, {
+    revalidate: false, sourceIds: sourceId ? [sourceId] : undefined,
+  })
   await admin.from("zatca_automation").update({
     last_run_at: new Date().toISOString(),
     last_result: { success: summary.success, processed: summary.processed ?? 0, skipped: summary.skipped ?? 0, failed: summary.failed ?? 0, error: summary.error ?? null },

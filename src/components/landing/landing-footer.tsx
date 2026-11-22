@@ -9,7 +9,7 @@ import { REDIRECTS, withLocale } from '@/lib/redirects';
 
 const platformLinks = [{ href: '#driver360', label: 'السائقون' }, { href: '#fleet', label: 'الأسطول' }, { href: '#payroll', label: 'الرواتب' }, { href: '#operations', label: 'العمليات' }, { href: '#reports', label: 'التقارير' }]
 const companyLinks = [{ href: '/platform', label: 'المنصة' }, { href: '/platform/register', label: 'سجّل شركتك' }, { href: REDIRECTS.signInUrl, label: 'تسجيل الدخول' }]
-const resourceLinks = [{ href: '/help', label: 'المساعدة والدعم' }, { href: '#faq', label: 'الأسئلة الشائعة' }, { href: '/driver-registration', label: 'تسجيل السائقين' }]
+const resourceLinks = [{ href: '/help', label: 'المساعدة والدعم' }, { href: '#faq', label: 'الأسئلة الشائعة' }, { href: '#driver-applications', label: 'تسجيل السائقين' }]
 const legalLinks = [{ href: '/privacy', label: 'سياسة الخصوصية' }, { href: '/terms', label: 'شروط الخدمة' }]
 
 function LinkColumn({ title, links }: { title: string; links: { href: string; label: string }[] }) {
@@ -19,7 +19,7 @@ function LinkColumn({ title, links }: { title: string; links: { href: string; la
       <LocalizedText text={title} />
     </p>
     <ul className="mt-4 space-y-3">{links.map(link => <li key={link.href + link.label}>
-      <Link href={link.href === REDIRECTS.signInUrl ? withLocale(link.href, locale) : link.href} className="text-sm text-white/80 underline-offset-4 hover:text-white hover:underline">
+      <Link href={link.href.startsWith("#") ? link.href : withLocale(link.href, locale)} className="text-sm text-white/80 underline-offset-4 hover:text-white hover:underline">
         <LocalizedText text={link.label} />
       </Link>
     </li>)}</ul>

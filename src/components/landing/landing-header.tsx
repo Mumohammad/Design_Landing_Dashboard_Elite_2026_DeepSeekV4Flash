@@ -1,7 +1,7 @@
 'use client';
 
 import { LocalizedText, useUiText } from "@/components/localized-text"
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { Menu, X, Moon } from 'lucide-react';
@@ -21,11 +21,17 @@ export function LandingHeader() {
   const ui = useUiText()
   const { locale } = useTranslation()
   const [menuOpen, setMenuOpen] = useState(false)
+  const menuButton = useRef<HTMLButtonElement>(null)
   const { toggleTheme } = useCircularTransition()
   return (
-    <header className="relative z-50 bg-elite-blue-950 text-white">
-      <nav className="mx-auto flex min-h-20 max-w-7xl items-center gap-4 px-5 py-4 lg:px-8" aria-label={ui("Main navigation")}>
-        <Link className="flex shrink-0 items-center gap-3" aria-label={ui("نخبة التطوير")} href="/landing">
+    <header className="relative z-50 bg-elite-blue-950 text-white" onKeyDown={event => {
+      if (menuOpen && event.key === "Escape") {
+        setMenuOpen(false)
+        menuButton.current?.focus()
+      }
+    }}>
+      <nav className="mx-auto flex min-h-20 max-w-7xl items-center gap-3 px-5 py-4 lg:px-8" aria-label={locale === "ar" ? "التنقل الرئيسي" : "Main navigation"}>
+        <Link className="flex shrink-0 items-center gap-3" aria-label={ui("نخبة التطوير")} href={withLocale("/landing", locale)}>
           <Image alt="" width={36} height={36} className="object-cover" src="/logo.png" />
           <span className="hidden text-sm font-semibold sm:block">
             <LocalizedText text="نخبة التطوير" />
@@ -45,16 +51,15 @@ export function LandingHeader() {
           <Link className="hidden min-h-10 items-center bg-white px-4 text-sm font-semibold text-elite-blue-950 transition-transform hover:-translate-y-0.5 sm:inline-flex" href={withLocale(REDIRECTS.registerUrl, locale)}>
             <LocalizedText text="ابدأ الآن" />
           </Link>
-          <button onClick={() => setMenuOpen(open => !open)} className="ms-1 inline-flex min-h-10 items-center gap-2 px-2 text-sm focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={ui("Menu")} aria-expanded={menuOpen} aria-controls="landing-mobile-menu">{menuOpen ? <X className="h-5 w-5" aria-hidden="true" /> : <Menu className="h-5 w-5" aria-hidden="true" />}<span className="hidden sm:inline">{ui("Menu")}</span>
+          <button ref={menuButton} onClick={() => setMenuOpen(open => !open)} className="ms-1 inline-flex min-h-11 min-w-11 items-center justify-center gap-2 px-2 text-sm focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={ui("Menu")} aria-expanded={menuOpen} aria-controls="landing-mobile-menu">{menuOpen ? <X className="h-5 w-5" aria-hidden="true" /> : <Menu className="h-5 w-5" aria-hidden="true" />}<span className="hidden sm:inline">{ui("Menu")}</span>
           </button>
         </div>
       </nav>
       <div id="landing-mobile-menu" hidden={!menuOpen} inert={!menuOpen} className="bg-elite-blue-900">
         <div className="mx-auto grid max-w-7xl gap-x-8 gap-y-1 px-5 py-6 sm:grid-cols-2 lg:grid-cols-3 lg:px-8">
           {navItems.map(item => <a key={item.href} href={item.href} onClick={() => setMenuOpen(false)} className="py-3 text-base underline-offset-4 hover:underline">{ui(item.label)}</a>)}
-          <a href="/driver-registration" target="_blank" rel="noopener noreferrer" className="py-3 text-base underline-offset-4 hover:underline">
-            <LocalizedText text="سجّل كسائق" />
-          </a>
+          <Link href={withLocale("/platform", locale)} className="py-3 text-base underline-offset-4 hover:underline">{locale === "ar" ? "مساحة عمل الشركة" : "Company workspace"}</Link>
+          <a href="#driver-applications" onClick={() => setMenuOpen(false)} className="py-3 text-base underline-offset-4 hover:underline">{locale === "ar" ? "طلبات السائقين" : "Driver applications"}</a>
           <Link className="py-3 text-base underline-offset-4 hover:underline" href={withLocale(REDIRECTS.signInUrl, locale)}>
             <LocalizedText text="تسجيل الدخول" />
           </Link>

@@ -8,7 +8,7 @@ import { EmptyState, OfflineState } from "./states"
 import { formatCurrency, formatNumber } from "./format"
 import type { DashboardSnapshot } from "@/lib/analytics/types"
 
-export function PayrollSummary({ payroll }: { payroll: DashboardSnapshot["payroll"] }) {
+export function PayrollSummary({ payroll, onRetry }: { payroll: DashboardSnapshot["payroll"]; onRetry?: () => void }) {
   const { t, locale } = useTranslation()
 
   const items = [
@@ -27,13 +27,13 @@ export function PayrollSummary({ payroll }: { payroll: DashboardSnapshot["payrol
 
   if (!payroll.available)
     return (
-      <ChartCard title={t.dashboard.payrollSummary} description={`${t.dashboard.payrollSummaryDesc} — ${payroll.period}`}>
-        <OfflineState />
+      <ChartCard title={t.dashboard.payrollSummary} description={t.dashboard.payrollSummaryDesc}>
+        <OfflineState onRetry={onRetry} />
       </ChartCard>
     )
-  if (payroll.net === 0 && payroll.gross === 0)
+  if (payroll.period === null)
     return (
-      <ChartCard title={t.dashboard.payrollSummary} description={`${t.dashboard.payrollSummaryDesc} — ${payroll.period}`}>
+      <ChartCard title={t.dashboard.payrollSummary}>
         <EmptyState title={t.dashboard.emptyDashboard} description={t.dashboard.payrollSummaryDesc} />
       </ChartCard>
     )

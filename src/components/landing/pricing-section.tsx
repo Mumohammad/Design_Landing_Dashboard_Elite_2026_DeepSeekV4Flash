@@ -4,6 +4,7 @@ import Link from "next/link"
 import { landingContent } from "@/lib/landing-content"
 import { useTranslation } from "@/hooks/use-translation"
 import { cn } from "@/lib/utils"
+import { REDIRECTS, withLocale } from "@/lib/redirects"
 import { Reveal, SectionHeading, DemoNote } from "./shared"
 
 export function PricingSection() {
@@ -16,7 +17,7 @@ export function PricingSection() {
         <article className={cn("grid items-start gap-7 p-6 sm:p-8 lg:grid-cols-[.8fr_1fr_1.2fr] lg:gap-10", plan.popular ? "bg-elite-blue-950 text-white" : "bg-muted")}>
           <div className="contents lg:block">
             <h3 className="order-first text-2xl font-semibold tracking-tight">{plan.name}</h3>
-            <Link href="/platform/register" className={cn("order-last inline-flex min-h-12 items-center justify-center px-5 text-sm font-semibold transition-transform hover:-translate-y-0.5 active:translate-y-0 focus-visible:outline-2 focus-visible:outline-offset-4 lg:mt-7", plan.popular ? "bg-white text-elite-blue-950" : "bg-elite-blue-950 text-white")}>{plan.cta}</Link>
+            <Link href={withLocale(REDIRECTS.registerUrl, locale)} className={cn("order-last inline-flex min-h-12 items-center justify-center px-5 text-sm font-semibold transition-transform hover:-translate-y-0.5 active:translate-y-0 focus-visible:outline-2 focus-visible:outline-offset-4 lg:mt-7", plan.popular ? "bg-white text-elite-blue-950" : "bg-elite-blue-950 text-white")}>{plan.cta}</Link>
           </div>
           <div>
             <p className={cn("font-medium leading-none tracking-[-.05em]", index === 2 ? "text-4xl sm:text-5xl" : "text-6xl sm:text-7xl")}>{plan.price}</p>

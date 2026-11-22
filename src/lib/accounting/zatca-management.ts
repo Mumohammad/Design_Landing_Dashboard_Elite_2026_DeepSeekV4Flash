@@ -50,13 +50,45 @@ export interface ZatcaStatus {
 }
 
 const EVENT_TYPES = ["InvoiceFinalizedEvent", "CreditNoteIssuedEvent", "DebitNoteIssuedEvent"]
-const BACKLOG_EVENT_LIMIT = 500
+const BACKLOG_PAGE_SIZE = 100
+const STATUS_UNAVAILABLE = "Unable to verify ZATCA status. Reload before continuing."
 
 function docRefFromPayload(payload: unknown): string | null {
   if (!payload || typeof payload !== "object") return null
   const p = payload as Record<string, unknown>
-  const ref = p.invoice_number ?? p.credit_note_number ?? p.debit_note_number ?? p.doc_ref ?? p.number
+  const ref = p.invoice_number ?? p.note_number ?? p.credit_note_number ?? p.debit_note_number ?? p.doc_ref ?? p.number
   return typeof ref === "string" ? ref : null
+}
+
+async function loadBacklog(
+  admin: ReturnType<typeof createAdminClient>, tenantId: string,
+  environment: "sandbox" | "simulation", goLiveAt: string,
+) {
+  const events: BacklogEvent[] = []
+  const transmissions: BacklogTransmission[] = []
+  let cursor: string | null = null
+  for (;;) {
+    let query = admin.from("financial_events").select("id,source_id,event_type,created_at,payload")
+      .eq("tenant_id", tenantId).in("event_type", EVENT_TYPES).gte("created_at", goLiveAt)
+      .order("id", { ascending: true }).limit(BACKLOG_PAGE_SIZE)
+    if (cursor) query = query.gt("id", cursor)
+    const { data: page, error } = await query
+    if (error || !page) throw new Error(STATUS_UNAVAILABLE)
+    if (!page.length) break
+    const ids = [...new Set(page.map(event => event.source_id as string))]
+    const result = await admin.from("zatca_transmissions")
+      .select("source_id,doc_type,status,error_message,environment:response->>environment")
+      .eq("tenant_id", tenantId).in("source_id", ids)
+    if (result.error || !result.data) throw new Error(STATUS_UNAVAILABLE)
+    transmissions.push(...result.data.filter(row => row.environment === environment) as BacklogTransmission[])
+    for (const row of page) events.push({
+      source_id: row.source_id, event_type: row.event_type, created_at: row.created_at,
+      doc_ref: docRefFromPayload(row.payload),
+    })
+    if (page.length < BACKLOG_PAGE_SIZE) break
+    cursor = page[page.length - 1].id
+  }
+  return computeZatcaBacklog(events, transmissions)
 }
 
 export async function getZatcaStatus(): Promise<{ success: boolean; error?: string; status?: ZatcaStatus }> {
@@ -78,7 +110,7 @@ export async function getZatcaStatus(): Promise<{ success: boolean; error?: stri
     const environment = productionEnabled ? null : testEnvironment
 
 
-    const [tenantRes, streamRes, csidRes, eventRes, automationRes] = await Promise.all([
+    const [tenantRes, streamRes, csidRes, automationRes] = await Promise.all([
       admin.from("tenants")
         .select("name_ar,name_en,legal_name,vat_number,cr_number,address,city,region,district,building_number,additional_number,postal_code,country")
         .eq("id", tenantId).maybeSingle<TenantPartyRow>(),
@@ -88,14 +120,13 @@ export async function getZatcaStatus(): Promise<{ success: boolean; error?: stri
       admin.from("zatca_csids")
         .select("environment,kind,status,expires_at")
         .eq("tenant_id", tenantId),
-      admin.from("financial_events")
-        .select("source_id,event_type,created_at,payload")
-        .eq("tenant_id", tenantId).in("event_type", EVENT_TYPES)
-        .order("created_at", { ascending: false }).limit(BACKLOG_EVENT_LIMIT),
       admin.from("zatca_automation")
         .select("enabled,last_run_at,last_result")
         .eq("tenant_id", tenantId).maybeSingle(),
     ])
+    if ([tenantRes, streamRes, csidRes, automationRes].some(result => result.error)) {
+      return { success: false, error: STATUS_UNAVAILABLE }
+    }
 
     const seller = tenantRes.data ? sellerParty(tenantRes.data) : null
     const profileMissing = seller ? missingNationalAddress(seller, "seller", "standard") : ["tenant"]
@@ -103,24 +134,9 @@ export async function getZatcaStatus(): Promise<{ success: boolean; error?: stri
 
     const streams = (streamRes.data ?? []) as { egs_serial: string; environment: string; last_counter: number; created_at: string }[]
     const goLiveAt = streams.find((st) => st.environment === environment)?.created_at ?? null
-    const goLive = goLiveAt ? Date.parse(goLiveAt) : null
-    const events: BacklogEvent[] = (eventRes.data ?? [])
-      .filter((e) => goLive === null || Date.parse(e.created_at as string) >= goLive)
-      .map((e) => ({
-      source_id: e.source_id as string, event_type: e.event_type as string, created_at: e.created_at as string,
-      doc_ref: docRefFromPayload(e.payload),
-    }))
-    let transmissions: BacklogTransmission[] = []
-    const ids = [...new Set(events.map((e) => e.source_id))]
-    if (ids.length) {
-      const { data } = await admin.from("zatca_transmissions")
-        .select("source_id,doc_type,status,error_message,created_at")
-        .eq("tenant_id", tenantId).in("source_id", ids)
-        .order("created_at", { ascending: true })
-      transmissions = (data ?? []) as BacklogTransmission[]
-    }
-    // Backlog only applies once a gateway is configured; otherwise nothing is due.
-    const backlog = enabled && goLiveAt ? computeZatcaBacklog(events, transmissions) : { pending: 0, overdue: 0, items: [] }
+    const backlog = enabled && environment && goLiveAt && !configurationError
+      ? await loadBacklog(admin, tenantId, environment, goLiveAt)
+      : { pending: 0, overdue: 0, items: [] }
 
     return {
       success: true,

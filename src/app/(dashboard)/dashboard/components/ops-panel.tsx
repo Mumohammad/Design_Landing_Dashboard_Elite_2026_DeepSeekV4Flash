@@ -41,7 +41,7 @@ export function OpsPanel({
   const { t, locale } = useTranslation()
 
   const n = (v: number) => formatNumber(locale, v)
-  const sar = (v: number) => `${formatCurrency(locale, v)} ${locale === "ar" ? "ر.س" : "SAR"}`
+  const sar = (v: number) => formatCurrency(locale, v)
 
   const fleetAvailable = kpis.availableVehicles.available
   const approvalsAvailable = approvals.available

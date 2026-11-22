@@ -3,6 +3,7 @@
 import { landingContent } from "@/lib/landing-content"
 import { useTranslation } from "@/hooks/use-translation"
 import { Reveal } from "./shared"
+import { Plus } from "lucide-react"
 
 export function FaqSection() {
   const { locale } = useTranslation()
@@ -14,10 +15,14 @@ export function FaqSection() {
           <h2 className="text-[clamp(2rem,3.5vw,3.3rem)] font-semibold leading-tight tracking-tight">{c.faq.title}</h2>
           <p className="mt-5 text-base leading-relaxed">{c.faq.subtitle}</p>
         </Reveal>
-        <div className="columns-1 gap-10 md:columns-2">{c.faq.items.map((faq, index) => <Reveal key={faq.q} className="mb-7 break-inside-avoid" delay={index % 3 * 60}>
-          <p className="text-base leading-relaxed">
-            <strong className="font-semibold">{faq.q}</strong>{" "}{faq.a}</p>
-        </Reveal>)}</div>
+        <div className="divide-y divide-border">{c.faq.items.map(faq => (
+          <details key={faq.q} className="group">
+            <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-4 py-4 text-start text-lg font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden">
+              {faq.q}<Plus className="size-5 shrink-0 group-open:rotate-45" aria-hidden="true" />
+            </summary>
+            <p className="max-w-[65ch] pb-5 text-base leading-relaxed">{faq.a}</p>
+          </details>
+        ))}</div>
       </div>
     </section>
   )

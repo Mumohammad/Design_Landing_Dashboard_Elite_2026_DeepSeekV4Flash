@@ -119,6 +119,7 @@ function mockBuilder() {
   const builder = {
     select: vi.fn((_cols: string) => builder),
     eq: vi.fn((_col: string, _val: unknown) => builder),
+    lte: vi.fn(() => builder),
     in: vi.fn((_col: string, _vals: unknown[]) => builder),
     order: vi.fn((_col: string, _opts?: unknown) => builder),
     limit: vi.fn((_n: number) => builder),
@@ -203,6 +204,39 @@ describe("runZatcaAdapter — sandbox flag mirrors the transport's real-POST con
     expect(res.error).toBeUndefined()
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/accounting")
   })
+
+  it("traverses the entire issuance queue once in chronological order when UUIDs decrease across pages", async () => {
+    const rows = Array.from({ length: 10_002 }, (_, i) => ({
+      id: String(20_000 - i).padStart(5, "0"), source_id: `invoice-${i}`, event_type: "InvoiceFinalizedEvent",
+      created_at: new Date(Date.UTC(2026, 0, 1) + i * 1000).toISOString(),
+    }))
+    const visited: string[] = []
+    mocks.adminFrom.mockImplementation(((table: string) => {
+      if (table === "invoices") {
+        const q = { select: () => q, eq: (key: string, val: string) => { if (key === "id") visited.push(val); return q }, maybeSingle: async () => ({ data: null, error: null }) }
+        return q
+      }
+      if (table !== "financial_events") throw new Error("Unexpected table")
+      let filtered = rows
+      let count = 0
+      const q = {
+        select: () => q, eq: () => q, in: () => q, order: () => q, lte: () => q,
+        gt: (_key: string, id: string) => { filtered = rows.filter(row => row.id > id); return q },
+        or: (condition: string) => {
+          const cursor = /created_at\.gt\."?([^",]+)"?,and\(created_at\.eq\."?([^",]+)"?,id\.gt\.([\w-]+)\)/.exec(condition)
+          if (!cursor || cursor[1] !== cursor[2]) throw new Error("Invalid chronological cursor")
+          filtered = rows.filter(row => row.created_at > cursor[1] || (row.created_at === cursor[1] && row.id > cursor[3]))
+          return q
+        },
+        limit: (n: number) => { count = n; return q },
+        then: (resolve: (value: unknown) => unknown) => resolve({ data: filtered.slice(0, count), error: null }),
+      }
+      return q
+    }) as never)
+    const result = await runZatcaAdapter()
+    expect(result).toMatchObject({ success: true, skipped: 10_002, failed: 0 })
+    expect(visited).toEqual(rows.map(row => row.source_id))
+  })
 })
 
 describe("transmission detail boundary", () => {
@@ -240,9 +274,9 @@ const TENANT_ROW = {
 }
 
 function tableBuilder(table: string, rows: Record<string, unknown>, writes: { table: string; op: string; value: unknown }[]) {
-  const single = () => Promise.resolve({ data: rows[table] ?? null, error: null })
+  const single = () => Promise.resolve({ data: rows[table] ?? null, error: rows[`${table}:error`] ?? null })
   const builder: Record<string, unknown> = {}
-  for (const m of ["select", "eq", "in", "order", "limit", "gt", "is"]) builder[m] = vi.fn(() => builder)
+  for (const m of ["select", "eq", "in", "order", "limit", "lte", "gt", "is"]) builder[m] = vi.fn(() => builder)
   builder.maybeSingle = vi.fn(single)
   builder.insert = vi.fn((value: unknown) => { writes.push({ table, op: "insert", value }); return Promise.resolve({ error: null }) })
   builder.update = vi.fn((value: unknown) => { writes.push({ table, op: "update", value }); return builder })
@@ -325,6 +359,19 @@ describe("runZatcaAdapter — network mode uses the prepared, signed submission 
     const res = await runZatcaAdapter()
     expect(res.failed).toBe(1)
     expect(res.error).toContain("EGS issuance stream")
+    expect(mocks.submitPreparedZatcaDocument).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { customers: null },
+    { customers: null, "customers:error": { message: "private database error" } },
+    { "zatca_transmissions:error": { message: "private database error" } },
+  ])("stops when the linked buyer or prior transmission cannot be verified", async overrides => {
+    networkAdmin(overrides)
+    const res = await runZatcaAdapter()
+    expect(res).toMatchObject({ processed: 0, failed: 1 })
+    expect(res.error).not.toContain("private database error")
+    expect(mocks.prepareZatcaDocument).not.toHaveBeenCalled()
     expect(mocks.submitPreparedZatcaDocument).not.toHaveBeenCalled()
   })
 

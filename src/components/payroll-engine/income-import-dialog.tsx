@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { importIncomeRows, type IncomeImportResult } from "@/lib/payroll-engine/server/income-actions"
+import type { IncomeSheet } from "@/lib/payroll-engine/income-workbook"
 import { Field, Notice, buttonClass, inputClass, primaryButtonClass, sar, useLang } from "./shared"
 
 // Same target fields and auto-mapping heuristic as the upstream import dialog,
@@ -38,14 +39,12 @@ function autoMap(headers: string[]): Record<string, string> {
   return out
 }
 
-type Sheet = { name: string; headers: string[]; rows: Record<string, unknown>[] }
-
 export function IncomeImportDialog({ defaultMonth, customFields, onClose, onImported }: {
   defaultMonth: string; customFields: Array<{ id: string; name: string; nameAr: string | null; fieldType: "add" | "deduct" }>; onClose: () => void; onImported: () => void
 }) {
   const { ar, tx } = useLang()
   const [file, setFile] = useState<File | null>(null)
-  const [sheets, setSheets] = useState<Sheet[]>([])
+  const [sheets, setSheets] = useState<IncomeSheet[]>([])
   const [sheetName, setSheetName] = useState("")
   const [month, setMonth] = useState(defaultMonth)
   const [companyName, setCompanyName] = useState("HungerStation")
@@ -67,13 +66,8 @@ export function IncomeImportDialog({ defaultMonth, customFields, onClose, onImpo
   async function readFile(f: File) {
     setError(""); setPreview(null); setFile(f)
     try {
-      const XLSX = await import("xlsx")
-      const wb = XLSX.read(await f.arrayBuffer(), { type: "array" })
-      const parsed: Sheet[] = wb.SheetNames.map(name => {
-        const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[name], { defval: null, blankrows: false })
-        const headers = [...new Set(rows.flatMap(r => Object.keys(r)))]
-        return { name, headers, rows }
-      }).filter(s => s.rows.length > 0)
+      const { readIncomeWorkbook } = await import("@/lib/payroll-engine/income-workbook")
+      const parsed = readIncomeWorkbook(await f.arrayBuffer(), f.name)
       if (!parsed.length) { setError(tx("The file has no data rows", "الملف لا يحتوي على بيانات")); return }
       // Prefer the sheet that looks like rider data (has a rider id column).
       const best = parsed.find(s => autoMap(s.headers).riderId) ?? parsed[0]

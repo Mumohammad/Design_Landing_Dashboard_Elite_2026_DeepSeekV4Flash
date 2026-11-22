@@ -3,14 +3,15 @@
 import { useState } from "react"
 import { landingContent } from "@/lib/landing-content"
 import { useTranslation } from "@/hooks/use-translation"
-import { Reveal, SectionHeading, DemoNote } from "./shared"
+import { Reveal, SectionHeading } from "./shared"
 import { DashboardPreview } from "./dashboard-preview"
 
 export function PlatformOverview() {
   const { locale } = useTranslation()
   const c = landingContent[locale as "en" | "ar"]
   const [query, setQuery] = useState("")
-  const modules = c.modules.items.filter(module => `${module.title} ${module.desc}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()))
+  const search = query.trim().toLocaleLowerCase()
+  const modules = c.modules.items.filter(module => `${module.title} ${module.desc}`.toLocaleLowerCase().includes(search))
   return (
     <section id="platform" className="mx-auto max-w-7xl scroll-mt-8 px-5 py-24 lg:px-8 lg:py-32">
       <SectionHeading tag={c.modules.tag} title={locale === "ar" ? "كل السجلات، مترابطة." : "Every record, connected."} subtitle={c.modules.subtitle} />
@@ -30,7 +31,6 @@ export function PlatformOverview() {
       <Reveal className="mt-16" direction="scale">
         <DashboardPreview />
       </Reveal>
-      <DemoNote>{c.preview.note}</DemoNote>
     </section>
   )
 }

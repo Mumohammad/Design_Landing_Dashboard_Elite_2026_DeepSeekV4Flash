@@ -28,7 +28,11 @@ const driverRows = Array.from({ length: 1251 }, (_, i) => ({
 function query(table: string) {
   let head = false
   let limit = 1000
-  const rows = table === "drivers" ? driverRows : []
+  const rows = table === "drivers" ? driverRows
+    : table === "driver_payroll_periods" && mocks.fault === "fractional-payroll"
+      ? [{ id: "period-1", driver_id: "analytics-driver-0", period_year: 2026, period_month: 11,
+        total_earnings: 0.45, total_deductions: 0.20, orders_bonus: 0.10, net_payroll: 0.25 }]
+      : []
   const chain = {
     select: (columns: string, options?: { head?: boolean; count?: string }) => {
       head = options?.head === true
@@ -86,6 +90,14 @@ beforeEach(() => {
 const filters = { period: "30d", platform: "all", category: "all" } as const
 
 describe("complete dashboard data", () => {
+  it("preserves approved payroll below one riyal in the summary and driver breakdown", async () => {
+    mocks.fault = "fractional-payroll"
+    const snapshot = await getDashboardSnapshot(filters)
+    expect(snapshot.payroll).toMatchObject({
+      period: "2026-11", gross: 0.45, deductions: 0.20, bonuses: 0.10, net: 0.25, avgNet: 0.25,
+    })
+    expect(snapshot.driverTargets[0].netPayroll).toBe(0.25)
+  })
   it("includes drivers beyond the API's 1,000-row cap and retains complete approval totals", async () => {
     const snapshot = await getDashboardSnapshot(filters)
     expect(snapshot.kpis.totalDrivers).toMatchObject({ value: 1251, available: true })

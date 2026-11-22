@@ -3,6 +3,8 @@
 // Reference: SAMA WPS Technical Specification.
 // Generates a pipe-delimited SIF file for upload to the bank/WPS portal.
 
+import { decimalRound, sumMoneyValues } from "@/lib/accounting/decimal"
+
 export interface WPSPaymentRecord {
   driver: {
     iqama_number: string
@@ -42,7 +44,7 @@ function getSaudiBankCode(iban: string): string {
 }
 
 function escapePipe(text: string): string {
-  return text.replace(/\|/g, "")
+  return text.replace(/[|\r\n]/g, "")
 }
 
 function formatDate(dateStr: string): string {
@@ -68,26 +70,26 @@ export function generateWPSSIF(
   }
 
   // Header record
-  const totalNet = payments.reduce((s, p) => s + p.net_payroll, 0)
+  const netAmounts = payments.map(p => decimalRound(p.net_payroll).toFixed(2))
   const header = [
     "H",
     company.mol_reference,
     periodLabel.replace("-", ""),
     payments.length.toString().padStart(6, "0"),
-    totalNet.toFixed(2),
+    sumMoneyValues(netAmounts).toFixed(2),
     "01", // file version
   ].join("|")
 
   // Detail records
   const records = payments
-    .map((p) => {
+    .map((p, index) => {
       return [
         "D",
         p.driver.iqama_number,
         escapePipe(p.driver.full_name_ar),
         p.iban,
         getSaudiBankCode(p.iban),
-        p.net_payroll.toFixed(2),
+        netAmounts[index],
         p.base_amount.toFixed(2),
         p.housing_allowance.toFixed(2),
         p.other_allowances.toFixed(2),

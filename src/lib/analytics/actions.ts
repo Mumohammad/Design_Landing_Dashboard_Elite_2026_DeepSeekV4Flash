@@ -21,6 +21,7 @@ import { rollupCodSessions } from "@/lib/payroll/payroll-utils"
 import { businessDateKey } from "@/lib/formatting/business-date"
 import { getFinancialKpis } from "@/lib/accounting/kpis"
 import { CACHE_TTL, cacheGet, cacheKey } from "@/lib/cache"
+import { decimalRound, sumMoneyValues } from "@/lib/accounting/decimal"
 import { buildMetric, mergePayrollTrend } from "./dashboard-utils"
 import type {
   ActivityEvent,
@@ -120,7 +121,7 @@ export async function getDashboardSnapshot(
   const authorization = await readDashboardAuthorizationScope(supabase, currentUser)
   // Unavailable/ambiguous grants must use a fresh RLS read, never old cache.
   if (!authorization) return buildDashboardSnapshot(filters, supabase)
-  const key = cacheKey("dashboard", currentUser.tenantId, user.id, { filters, authorization })
+  const key = cacheKey("dashboard", currentUser.tenantId, user.id, { filters, authorization, version: 2 })
   return cacheGet(key, () => buildDashboardSnapshot(filters, supabase), CACHE_TTL.dashboard, options)
 }
 
@@ -363,6 +364,8 @@ async function buildDashboardSnapshot(
     total_earnings: number | null; total_deductions: number | null; net_payroll: number | null
   }[] = []
   let latestPeriod: { year: number; month: number } | null = null
+  let latestRows: typeof payrollRows = []
+  let payrollTotals = { net: 0, previousNet: 0, gross: 0, bonuses: 0, deductions: 0, averageNet: 0 }
   const payrollTrendRows: { period_year: number; period_month: number; net_payroll: number | null }[] = []
   const payrollFromYear = new Date().getFullYear() - 2
   try {
@@ -409,6 +412,18 @@ async function buildDashboardSnapshot(
             orders_bonus: Number(result.bonusAmount ?? 0), total_earnings: gross, total_deductions: Math.round((gross - net) * 100) / 100, net_payroll: net })
         }
       }
+      const current = latestPeriod
+      latestRows = payrollRows.filter(r => r.period_year === current.year && r.period_month === current.month)
+      const previousRows = payrollRows.filter(r => r.period_year === previous.year && r.period_month === previous.month)
+      const net = sumMoneyValues(latestRows.map(r => r.net_payroll ?? 0))
+      payrollTotals = {
+        net,
+        previousNet: sumMoneyValues(previousRows.map(r => r.net_payroll ?? 0)),
+        gross: sumMoneyValues(latestRows.map(r => r.total_earnings ?? 0)),
+        bonuses: sumMoneyValues(latestRows.map(r => r.orders_bonus ?? 0)),
+        deductions: sumMoneyValues(latestRows.map(r => r.total_deductions ?? 0)),
+        averageNet: latestRows.length ? decimalRound(net / latestRows.length) : 0,
+      }
     }
     availability.payroll = true
   } catch {
@@ -416,34 +431,10 @@ async function buildDashboardSnapshot(
     payrollRows.length = 0
     payrollTrendRows.length = 0
     latestPeriod = null
+    latestRows = []
     availability.payroll = false
   }
 
-  const prevPeriod =
-    latestPeriod && latestPeriod.month === 1
-      ? { year: latestPeriod.year - 1, month: 12 }
-      : latestPeriod
-        ? { year: latestPeriod.year, month: latestPeriod.month - 1 }
-        : null
-
-  const latestRows = payrollRows.filter(
-    (r) =>
-      latestPeriod &&
-      r.period_year === latestPeriod.year &&
-      r.period_month === latestPeriod.month,
-  )
-  const prevRows = payrollRows.filter(
-    (r) =>
-      prevPeriod &&
-      r.period_year === prevPeriod.year &&
-      r.period_month === prevPeriod.month,
-  )
-
-  const payrollNet = sum(latestRows.map((r) => Number(r.net_payroll ?? 0)))
-  const payrollNetPrev = sum(prevRows.map((r) => Number(r.net_payroll ?? 0)))
-  const payrollGross = sum(latestRows.map((r) => Number(r.total_earnings ?? 0)))
-  const payrollBonus = sum(latestRows.map((r) => Number(r.orders_bonus ?? 0)))
-  const payrollDeductions = sum(latestRows.map((r) => Number(r.total_deductions ?? 0)))
 
   // Payroll period series (approved periods, monthly) merged by period key —
   // payroll months without orders data appear; orders months without payroll
@@ -477,7 +468,7 @@ async function buildDashboardSnapshot(
         target,
         actual,
         achievement,
-        netPayroll: Math.round(Number(r.net_payroll ?? 0)),
+        netPayroll: Number(r.net_payroll ?? 0),
         status,
       }
     })
@@ -769,7 +760,7 @@ async function buildDashboardSnapshot(
     totalOrders: buildMetric(totalOrders, totalOrdersPrev, availability.orders),
     completionRate: buildMetric(completionRate, completionRatePrev, availability.orders),
     revenue: buildMetric(revenue, revenuePrev, availability.orders),
-    netPayroll: buildMetric(payrollNet, payrollNetPrev, availability.payroll),
+    netPayroll: buildMetric(payrollTotals.net, payrollTotals.previousNet, availability.payroll),
     openViolations: buildMetric(openViolations, openViolations, availability.violations),
     pendingApplications: buildMetric(pendingApplications, pendingApplications, availability.applications),
     expiringDocuments: buildMetric(expiringDocs, expiringDocs, availability.drivers && availability.vehicles),
@@ -782,12 +773,12 @@ async function buildDashboardSnapshot(
   }
 
   const payroll = {
-    period: latestPeriod ? `${latestPeriod.year}-${String(latestPeriod.month).padStart(2, "0")}` : "—",
-    gross: Math.round(payrollGross),
-    bonuses: Math.round(payrollBonus),
-    deductions: Math.round(payrollDeductions),
-    net: Math.round(payrollNet),
-    avgNet: latestRows.length > 0 ? Math.round(payrollNet / latestRows.length) : 0,
+    period: latestPeriod ? `${latestPeriod.year}-${String(latestPeriod.month).padStart(2, "0")}` : null,
+    gross: payrollTotals.gross,
+    bonuses: payrollTotals.bonuses,
+    deductions: payrollTotals.deductions,
+    net: payrollTotals.net,
+    avgNet: payrollTotals.averageNet,
     aboveTarget,
     belowTarget,
     negativeBalance,

@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest"
 
 const m = vi.hoisted(() => ({
   enabled: true,
-  tables: {} as Record<string, { data: unknown }>,
+  tables: {} as Record<string, { data: unknown; error?: unknown }>,
   requirePermission: vi.fn(async () => undefined),
   user: vi.fn(), caller: vi.fn(), rpc: vi.fn(), rate: vi.fn(), gatewayError: false, from: vi.fn(),
 }))
@@ -23,8 +23,21 @@ vi.mock("@/lib/supabase/admin", () => ({
       const res = m.tables[table] ?? { data: [] }
       const q: Record<string, unknown> = {}
       for (const k of ["select", "eq", "in", "order", "limit"]) q[k] = () => q
+      let cursor: string | null = null
+      let count = Infinity
+      let issuedFrom = ""
+      let ids: string[] | null = null
+      q.limit = (n: number) => { count = n; return q }
+      q.gt = (_key: string, id: string) => { cursor = id; return q }
+      q.gte = (_key: string, date: string) => { issuedFrom = date; return q }
+      q.in = (key: string, values: string[]) => { if (key === "source_id") ids = values; return q }
       q.maybeSingle = async () => res
-      q.then = (ok: (v: unknown) => unknown, ko: (e: unknown) => unknown) => Promise.resolve(res).then(ok, ko)
+      q.then = (ok: (v: unknown) => unknown, ko: (e: unknown) => unknown) => {
+        const data = Array.isArray(res.data) ? res.data.filter(row =>
+          (!cursor || row.id > cursor) && (!issuedFrom || row.created_at >= issuedFrom) && (!ids || ids.includes(row.source_id))
+        ).slice(0, count) : res.data
+        return Promise.resolve({ ...res, data }).then(ok, ko)
+      }
       return q
     },
   }),
@@ -58,8 +71,8 @@ describe("getZatcaStatus", () => {
         { source_id: "c", event_type: "CreditNoteIssuedEvent", created_at: old, payload: {} },
       ] },
       zatca_transmissions: { data: [
-        { source_id: "c", doc_type: "credit_note", status: "reported", error_message: null },
-        { source_id: "a", doc_type: "invoice", status: "failed", error_message: "NETWORK" },
+        { source_id: "c", doc_type: "credit_note", status: "reported", environment: "sandbox", error_message: null },
+        { source_id: "a", doc_type: "invoice", status: "failed", environment: "sandbox", error_message: "NETWORK" },
       ] },
     }
   })
@@ -89,6 +102,31 @@ describe("getZatcaStatus", () => {
     expect(s.profileMissing.length).toBeGreaterThan(0)
     expect(s.backlog).toEqual({ pending: 0, overdue: 0, items: [] })
   })
+  it.each([null, "simulation"])("keeps a document with %s transmission evidence pending on sandbox", async environment => {
+    m.tables.zatca_transmissions = { data: [{ source_id: "c", doc_type: "credit_note", status: "reported", environment }] }
+    expect((await getZatcaStatus()).status?.backlog.pending).toBe(3)
+  })
+  it("counts all pending documents across pages and displays the oldest notes with their references", async () => {
+    const events = Array.from({ length: 503 }, (_, i) => {
+      const id = String(i).padStart(4, "0")
+      return { id, source_id: id, event_type: "CreditNoteIssuedEvent", created_at: i === 502 ? old : recent, payload: { note_number: `CN-${id}` } }
+    })
+    m.tables.financial_events = { data: events }
+    m.tables.zatca_transmissions = { data: [{ source_id: "0501", doc_type: "credit_note", status: "reported", environment: "sandbox" }] }
+    const result = await getZatcaStatus()
+    expect(result.status?.backlog).toMatchObject({ pending: 502, overdue: 1 })
+    expect(result.status?.backlog.items).toHaveLength(50)
+    expect(result.status?.backlog.items[0]).toMatchObject({ sourceId: "0502", docRef: "CN-0502" })
+  })
+  it.each(["tenants", "zatca_csids", "zatca_issuance_streams", "financial_events", "zatca_transmissions", "zatca_automation"])(
+    "returns unavailable when %s cannot be read", async table => {
+      m.tables[table] = { data: null, error: { message: "private database detail" } }
+      const result = await getZatcaStatus()
+      expect(result.success).toBe(false)
+      expect(result.status).toBeUndefined()
+      expect(result.error).not.toContain("private database detail")
+    },
+  )
   it("retains a stored ON flag but never labels it connected or routes it to a test gateway", async () => {
     m.rpc.mockResolvedValue({data:{production_enabled:true,changed_at:old,configuration_version:8,can_manage:true},error:null})
     const result=await getZatcaStatus()

@@ -1,6 +1,5 @@
 "use client"
 
-import Image from "next/image"
 import { landingContent } from "@/lib/landing-content"
 import { useTranslation } from "@/hooks/use-translation"
 import { Reveal, SectionHeading, DemoNote } from "./shared"
@@ -46,19 +45,13 @@ export function Driver360Section() {
             </Reveal>)}</div>
           </div>
         </div>
-        <div className="mt-20 grid items-start gap-10 lg:grid-cols-[1.1fr_.9fr]">
-          <Reveal direction="scale">
-            <figure>
-              <Image src="/Bike-2026.png" alt={c.driver360.note} width={1365} height={768} className="aspect-[16/10] w-full object-cover" sizes="(min-width: 1024px) 55vw, 100vw" />
-              <figcaption className="mt-3 text-sm text-white/75">{locale === "ar" ? "الأسطول في الطريق" : "The fleet on the move"}</figcaption>
-            </figure>
-          </Reveal>
-          <div>
+        <div className="mt-20 grid items-start gap-8 lg:grid-cols-[.9fr_1.1fr]">
             <Reveal>
               <h3 className="text-2xl font-medium tracking-tight">{c.driver360.contractsTitle}</h3>
               <p className="mt-3 text-base leading-relaxed">{c.driver360.contractsSubtitle}</p>
             </Reveal>
-            <div className="mt-7 space-y-7">{c.driver360.contracts.map((model, index) => <Reveal key={model.title} delay={index * 70}>
+          <div>
+            <div className="space-y-7">{c.driver360.contracts.map((model, index) => <Reveal key={model.title} delay={index * 70}>
               <div>
                 <p className="text-lg font-semibold">{model.title}</p>
                 <p className="mt-2 text-base leading-relaxed text-white/80">{model.desc}</p>

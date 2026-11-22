@@ -50,6 +50,13 @@ describe("generateWPSSIF — layout", () => {
     const header = generateWPSSIF([PAYMENT, { ...PAYMENT, net_payroll: 10000 }], COMPANY, PERIOD).split("\n")[0]
     expect(header).toBe("H|MOL-2026-000123|202608|000002|15000.00|01")
   })
+
+  it("reconciles the header to the net amounts actually written on the detail lines", () => {
+    const payments = [12.004, 1.004].map(net_payroll => ({ ...PAYMENT, net_payroll }))
+    const [header, ...remaining] = generateWPSSIF(payments, COMPANY, PERIOD).split("\n")
+    expect(remaining.slice(0, -1).map(line => line.split("|")[5])).toEqual(["12.00", "1.00"])
+    expect(header.split("|")[4]).toBe("13.00")
+  })
 })
 
 describe("generateWPSSIF — escaping", () => {

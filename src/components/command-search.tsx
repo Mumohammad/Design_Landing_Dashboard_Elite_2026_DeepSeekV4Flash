@@ -4,31 +4,8 @@ import { LocalizedText } from "@/components/localized-text"
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import { Command as CommandPrimitive } from "cmdk"
-import {
-  Search,
-  Navigation,
-  UsersRound,
-  CarFront,
-  CalendarClock,
-  LayoutTemplate,
-  HandCoins,
-  WalletCards,
-  FileBadge,
-  Calculator,
-  CreditCard,
-  Wrench,
-  Siren,
-  Users,
-  ChartLine,
-  ShieldCheck,
-  ClipboardCheck,
-  FileSearch,
-  Fingerprint,
-  Settings,
-  HelpCircle,
-  ArrowUpRight,
-  type LucideIcon,
-} from "lucide-react"
+import { ArrowUpRight, Search } from "lucide-react"
+import { dashboardNavigation } from "@/lib/dashboard-navigation"
 
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { useTranslation } from "@/hooks/use-translation"
@@ -118,13 +95,6 @@ const CommandItem = React.forwardRef<
 ))
 CommandItem.displayName = CommandPrimitive.Item.displayName
 
-interface SearchItem {
-  title: string
-  url: string
-  group: string
-  icon?: LucideIcon
-}
-
 interface CommandSearchProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -132,54 +102,8 @@ interface CommandSearchProps {
 
 export function CommandSearch({ open, onOpenChange }: CommandSearchProps) {
   const router = useRouter()
-  const { t } = useTranslation()
-
-  const searchItems: SearchItem[] = [
-    // Operations
-    { title: t.nav.dashboard, url: "/dashboard", group: t.nav.operations, icon: Navigation },
-    { title: t.nav.drivers, url: "/drivers", group: t.nav.operations, icon: UsersRound },
-    { title: t.nav.vehicles, url: "/vehicles", group: t.nav.operations, icon: CarFront },
-    { title: t.nav.attendance, url: "/attendance", group: t.nav.operations, icon: CalendarClock },
-    { title: t.nav.platforms, url: "/platforms", group: t.nav.operations, icon: LayoutTemplate },
-
-    // Finance
-    { title: t.nav.payroll, url: "/payroll", group: t.nav.finance, icon: HandCoins },
-    { title: t.nav.expenses, url: "/expenses", group: t.nav.finance, icon: WalletCards },
-    { title: t.nav.invoices, url: "/invoices", group: t.nav.finance, icon: FileBadge },
-    { title: t.nav.payments, url: "/payments", group: t.nav.finance, icon: CreditCard },
-    { title: t.nav.accounting, url: "/accounting", group: t.nav.finance, icon: Calculator },
-
-    // Fleet
-    { title: t.nav.maintenance, url: "/maintenance", group: t.nav.fleet, icon: Wrench },
-    { title: t.nav.violations, url: "/violations", group: t.nav.fleet, icon: Siren },
-
-    // HR
-    { title: t.nav.hrManagement, url: "/hr", group: t.nav.hr, icon: Users },
-    { title: t.nav.templates, url: "/templates", group: t.nav.hr, icon: LayoutTemplate },
-
-    // Analytics
-    { title: t.nav.reports, url: "/reports", group: t.nav.analytics, icon: ChartLine },
-
-    // Administration
-    { title: t.nav.users, url: "/users", group: t.nav.administration, icon: UsersRound },
-    { title: t.nav.roles, url: "/roles", group: t.nav.administration, icon: ShieldCheck },
-    { title: t.nav.approvals, url: "/approvals", group: t.nav.administration, icon: ClipboardCheck },
-    { title: t.nav.auditLog, url: "/audit-log", group: t.nav.administration, icon: FileSearch },
-    { title: t.nav.security, url: "/security", group: t.nav.administration, icon: Fingerprint },
-    { title: t.nav.settings, url: "/settings", group: t.nav.administration, icon: Settings },
-
-    // Pages
-    { title: t.navExtra.faqs, url: "/faqs", group: t.pages.help, icon: HelpCircle },
-    { title: t.navExtra.pricing, url: "/pricing", group: t.pages.help, icon: HandCoins },
-  ]
-
-  const groupedItems = searchItems.reduce((acc, item) => {
-    if (!acc[item.group]) {
-      acc[item.group] = []
-    }
-    acc[item.group].push(item)
-    return acc
-  }, {} as Record<string, SearchItem[]>)
+  const { t, locale } = useTranslation()
+  const groups = dashboardNavigation(t, locale)
 
   const handleSelect = (url: string) => {
     router.push(url)
@@ -202,7 +126,7 @@ export function CommandSearch({ open, onOpenChange }: CommandSearchProps) {
           />
           <CommandList>
             <CommandEmpty>{t.common.noData}</CommandEmpty>
-            {Object.entries(groupedItems).map(([group, items]) => (
+            {groups.map(({ label: group, items }) => (
               <CommandGroup key={group} heading={group}>
                 {items.map((item) => {
                   const Icon = item.icon

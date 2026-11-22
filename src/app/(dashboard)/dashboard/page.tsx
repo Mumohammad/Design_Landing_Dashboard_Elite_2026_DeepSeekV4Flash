@@ -212,7 +212,7 @@ export default function DashboardPage() {
                 <KpiCard label={t.dashboard.totalOrders} metric={k.totalOrders} icon={PackageCheck} color="#1E5A99" href="/platforms" spark={ordersSpark} />
                 <KpiCard label={t.dashboard.completionRate} metric={k.completionRate} icon={Gauge} color="#10B981" href="/platforms" spark={completionSpark} deltaUnit="pp" />
                 <KpiCard label={t.dashboard.revenue} metric={k.revenue} icon={Banknote} color="#2F7BC4" href="/reports" spark={revenueSpark} currency />
-                <KpiCard label={t.dashboard.netPayroll} metric={k.netPayroll} icon={WalletCards} color="#E87D3E" href="/payroll" currency />
+                <KpiCard label={t.dashboard.netPayroll} metric={k.netPayroll} icon={WalletCards} color="#E87D3E" href="/payroll" currency exactCurrency />
               </div>
             </StaggerContainer>
           </section>
@@ -327,7 +327,7 @@ export default function DashboardPage() {
 
           {/* ── Financial ── */}
           <ScrollReveal disabled direction="up" delay={100}>
-            <PayrollSummary payroll={snapshot.payroll} />
+            <PayrollSummary payroll={snapshot.payroll} onRetry={() => requestLoad(filters, true)} />
           </ScrollReveal>
 
           {/* ── Compliance + violations ── */}

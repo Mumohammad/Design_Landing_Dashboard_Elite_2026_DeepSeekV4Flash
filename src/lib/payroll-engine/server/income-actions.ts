@@ -33,14 +33,14 @@ const customFieldId = z.string().uuid()
 const maxMappedIncomeFields = 50
 type CustomField = { field_id?: string; name: string; amount: number; type: "add" | "deduct" }
 
-function parseCustomIncomeAmount(value: unknown): number {
+function parseIncomeAmount(value: unknown): number {
   if (value == null) return 0
   if (typeof value === "number") return value
   if (typeof value !== "string") return NaN
 
   const text = value.trim()
   if (!text) return 0
-  if (text.includes(",") && !/^[+-]?\d{1,3}(?:,\d{3})+(?:\.\d+)?$/.test(text)) return NaN
+  if (!/^[+-]?(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(text)) return NaN
   return Number(text.replace(/,/g, ""))
 }
 
@@ -147,11 +147,12 @@ export async function importIncomeRows(input: unknown): Promise<EngineResult<Inc
       const row = { riderId: rid, driverName: String(r.driverName ?? "").trim().slice(0, 160) || `Rider ${rid}`, customFields: [] as CustomField[] } as Record<NumField, number> & { riderId: string; driverName: string; customFields: CustomField[] }
       for (const k of INCOME_NUMERIC_FIELDS) {
         const v = r[k]
-        if (v === undefined || v === null || v === "") row[k] = 0
-        else {
-          const n = typeof v === "number" ? v : Number(String(v).replace(/,/g, "").trim())
-          if (!Number.isFinite(n)) { errors.push(`Row ${i + 1} (rider ${rid}): invalid ${k} = "${String(v).slice(0, 40)}"`); row[k] = 0 }
-          else row[k] = n
+        const n = parseIncomeAmount(v)
+        if (!Number.isFinite(n)) {
+          errors.push(`Row ${i + 1} (rider ${rid}): invalid ${k} = "${String(v).slice(0, 40)}"`)
+          row[k] = 0
+        } else {
+          row[k] = n
         }
       }
       if (Array.isArray(r.customFields)) {
@@ -162,7 +163,7 @@ export async function importIncomeRows(input: unknown): Promise<EngineResult<Inc
         for (const f of r.customFields as Array<Record<string, unknown>>) {
           if (!f?.name) continue
           const name = String(f.name).slice(0, 120)
-          const amount = parseCustomIncomeAmount(f.amount)
+          const amount = parseIncomeAmount(f.amount)
           if (!Number.isFinite(amount)) {
             errors.push(`Row ${i + 1}: invalid amount for ${name}`)
             continue

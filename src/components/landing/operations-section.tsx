@@ -20,7 +20,7 @@ export function OperationsSection() {
         <Reveal>
           <div data-ui className="h-full bg-muted p-5 sm:p-8">
             <h3 className="text-xl font-semibold">{c.operations.tableTitle}</h3>
-            <div className="mt-6 overflow-x-auto">
+            <div role="region" aria-label={c.operations.tableTitle} tabIndex={0} className="mt-6 overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-2">
               <table className="w-full min-w-[480px] text-start text-sm">
                 <thead>
                   <tr className="text-muted-foreground">{c.operations.tableHeaders.map(header => <th key={header} className="py-3 pe-5 text-start font-medium">{header}</th>)}</tr>
@@ -39,7 +39,7 @@ export function OperationsSection() {
         </Reveal>
         <Reveal delay={100} direction="scale">
           <figure className="h-full">
-            <Image src="/Banner.png" alt={c.operations.droneCaption} width={1024} height={1024} className="aspect-square w-full object-cover lg:h-full" sizes="(min-width: 1024px) 40vw, 100vw" />
+            <Image src="/Banner.png" alt="" width={1024} height={1024} className="aspect-square w-full object-cover" sizes="(min-width: 1024px) 40vw, 100vw" />
             <figcaption className="mt-3 text-sm text-muted-foreground">{c.operations.droneCaption}</figcaption>
           </figure>
         </Reveal>

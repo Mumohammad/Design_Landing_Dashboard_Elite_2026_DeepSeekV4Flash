@@ -2,7 +2,17 @@ import "server-only"
 // Read-only loader for the immutable source of a ZATCA document. Shared by
 // the live adapter (zatca-adapter-core.ts) and the offline dry run.
 import type { createAdminClient } from "@/lib/supabase/admin"
+import { buyerParty, type CustomerPartyRow } from "./zatca-adapter-input"
 import type { ZatcaLine } from "./zatca-ubl"
+
+export async function loadZatcaBuyer(admin: ReturnType<typeof createAdminClient>, tenantId: string, customerId: string | null) {
+  if (!customerId) return buyerParty(null)
+  const { data, error } = await admin.from("customers")
+    .select("name_ar,name_en,tax_number,address,city,district,building_number,additional_number,postal_code,country_code")
+    .eq("id", customerId).eq("tenant_id", tenantId).maybeSingle<CustomerPartyRow>()
+  if (error || !data) throw new Error("Unable to verify the invoice buyer before preparing the ZATCA document.")
+  return buyerParty(data)
+}
 
 type InvoiceRow = {
   id: string
