@@ -78,15 +78,24 @@ function setNumberFormat(ws: XLSX.WorkSheet, cols: number[], fromRow: number, fm
 }
 
 function widths(rows: unknown[][], max = 48): XLSX.ColInfo[] {
-  const n = Math.max(...rows.map((r) => r.length))
-  return Array.from({ length: n }, (_, i) => ({ wch: Math.min(max, Math.max(8, ...rows.map((r) => String(r[i] ?? "").length + 2))) }))
+  const lengths: number[] = []
+  for (const row of rows) {
+    for (let i = 0; i < row.length; i++) {
+      lengths[i] = Math.min(max, Math.max(lengths[i] ?? 8, String(row[i] ?? "").length + 2))
+    }
+  }
+  return lengths.map(wch => ({ wch }))
 }
 
 export function buildExpenseWorkbook(input: ExportInput): XLSX.WorkBook {
   const L = (b: Bi) => label(b, input.language)
   const fmt = amountFormat(input.amountLocale)
   const byClaim = new Map<string, ClaimAttachment[]>()
-  for (const a of input.attachments) byClaim.set(a.claim_id, [...(byClaim.get(a.claim_id) ?? []), a])
+  for (const attachment of input.attachments) {
+    const existing = byClaim.get(attachment.claim_id)
+    if (existing) existing.push(attachment)
+    else byClaim.set(attachment.claim_id, [attachment])
+  }
   const name = (id: string | null) => (id ? input.names[id] ?? id.slice(0, 8) : "")
   const claims = [...input.claims].sort((a, b) => (a.expense_date ?? "").localeCompare(b.expense_date ?? "") || a.claim_no.localeCompare(b.claim_no))
 

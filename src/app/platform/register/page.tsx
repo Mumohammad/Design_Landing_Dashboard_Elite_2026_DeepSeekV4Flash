@@ -4,6 +4,7 @@ import { LocalizedText, useUiText } from "@/components/localized-text"
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import Image from 'next/image';
 import { Building2, ArrowRight, Loader2, CheckCircle2, ArrowLeft, MailCheck, ImageIcon } from 'lucide-react';
 import { LOGO_ACCEPT, prepareLogoFile, logoPrepMessage } from '@/lib/branding/logo-client';
 import { REDIRECTS, withLocale } from '@/lib/redirects';
@@ -180,7 +181,7 @@ export default function RegisterPage() {
             <div><label className="mb-2 block text-sm font-medium" htmlFor="registration-password"><LocalizedText text="كلمة المرور *" /></label><input id="registration-password" required type="password" autoComplete="new-password" aria-describedby="registration-password-policy" value={formData.password} onChange={e => setFormData(previous => ({ ...previous, password: e.target.value }))} className={inputCls} placeholder={ui("10 أحرف على الأقل (أحرف وأرقام)")} minLength={MIN_PASSWORD_LENGTH} maxLength={MAX_PASSWORD_LENGTH} /><p id="registration-password-policy" className="mt-2 text-sm text-muted-foreground">{newPasswordHint(locale)}</p></div>
             <div><label htmlFor="registration-logo" className="mb-2 block text-sm font-medium">{locale === 'ar' ? 'شعار الشركة' : 'Company logo'}</label>
               <div className="flex items-center gap-3"><div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border">
-                {formData.logo_base64 ? <img src={formData.logo_base64} alt="" className="h-full w-full object-contain" /> : <ImageIcon className="h-6 w-6 text-muted-foreground" />}</div>
+                {formData.logo_base64 ? <Image src={formData.logo_base64} unoptimized width={56} height={56} alt="" className="h-full w-full object-contain" /> : <ImageIcon className="h-6 w-6 text-muted-foreground" />}</div>
                 <input id="registration-logo" type="file" accept={LOGO_ACCEPT} disabled={loading} aria-describedby="registration-logo-hint" onChange={async event => {
                   const input = event.currentTarget;
                   const file = input.files?.[0];

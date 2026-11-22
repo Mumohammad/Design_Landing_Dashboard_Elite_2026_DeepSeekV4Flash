@@ -4,6 +4,7 @@
 // and workflow. Service-role access is limited to storage objects, display
 // names and the attachment registration RPC (after a caller access check).
 import { revalidatePath } from "next/cache"
+import { createHash, randomUUID } from "node:crypto"
 import { can, getCurrentUser } from "@/lib/auth/authorization"
 import { rateLimit } from "@/lib/auth/rate-limit"
 import { createAdminClient } from "@/lib/supabase/admin"
@@ -11,7 +12,7 @@ import { createClient } from "@/lib/supabase/server"
 import { registerStoredAttachment } from "./attachments"
 import {
   CLAIM_STATUSES, DEFAULT_SETTINGS, EDITABLE_FIELDS, FIELD_LABELS, RECEIPT_BUCKET, STATUS_LABELS, categoryLabel, claimErrorMessage,
-  type Bi, type ClaimAttachment, type ClaimSettings, type ExpenseClaim,
+  type Bi, type ClaimSettings, type ExpenseClaim,
 } from "./constants"
 import { filterClaims, type ClaimFilters } from "./dashboard"
 import { readClaimDisplayNames, readCompleteAttachments, readCompleteClaims } from "./complete-reads"
@@ -65,6 +66,10 @@ export async function getTenantUserNames(): Promise<Record<string, string>> {
   const allowed = await Promise.all((["create", "read", "approve", "export", "manage"] as const).map(action => can("expense_claims", action)))
   if (!allowed.some(check => check.allowed)) return {}
   const claims = await readCompleteClaims(await createClient())
+  return visibleClaimNames(me, claims)
+}
+
+function visibleClaimNames(me: { tenantId: string; authUserId: string }, claims: ExpenseClaim[]) {
   const actors = claims.flatMap(claim => [claim.submitter_id, claim.reviewer_id, claim.verified_by]).filter((id): id is string => typeof id === "string")
   return readClaimDisplayNames(createAdminClient(), me.tenantId, [me.authUserId, ...actors])
 }
@@ -178,14 +183,6 @@ export async function getAttachmentDownloadUrl(attachmentId: string): Promise<Ac
   return { ok: true, url: signed.signedUrl }
 }
 
-async function readAllClaims(): Promise<ExpenseClaim[]> {
-  return readCompleteClaims(await createClient())
-}
-
-async function readAttachments(ids: string[]): Promise<ClaimAttachment[]> {
-  return readCompleteAttachments(await createClient(), ids)
-}
-
 function sanitizeFilters(f: ClaimFilters): ClaimFilters {
   const list = (v: unknown, max = 50) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").map((x) => x.slice(0, 200)).slice(0, max) : null)
   const date = (v: unknown) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null)
@@ -203,10 +200,13 @@ export async function exportExpenseClaims(rawFilters: ClaimFilters, markExported
   if (!(await can("expense_claims", "export")).allowed) return denied()
   try {
     const filters = sanitizeFilters(rawFilters)
-    const [all, names, settings] = await Promise.all([readAllClaims(), getTenantUserNames(), getClaimSettings()])
+    const client = await createClient()
+    const [all, settings] = await Promise.all([readCompleteClaims(client), getClaimSettings()])
+    const names = await visibleClaimNames(me, all)
     const claims = filterClaims(all, filters, names)
     if (claims.length === 0) return fail("No claims match the current filters.", "لا توجد مطالبات مطابقة لعوامل التصفية الحالية.")
-    const attachments = await readAttachments(claims.map((c) => c.id))
+    if (claims.length > 20_000) return fail("Choose filters matching at most 20,000 claims.", "اختر عوامل تصفية تطابق ٢٠٬٠٠٠ مطالبة أو أقل.")
+    const attachments = await readCompleteAttachments(client, claims.map(c => c.id))
     const desc: Array<[Bi, string]> = []
     if (filters.from || filters.to) desc.push([{ en: "Expense date", ar: "تاريخ المصروف" }, `${filters.from ?? "…"} → ${filters.to ?? "…"}`])
     const lang = settings.export_language
@@ -218,19 +218,42 @@ export async function exportExpenseClaims(rawFilters: ClaimFilters, markExported
     if (filters.currency?.length) desc.push([FIELD_LABELS.currency, filters.currency.join(", ")])
     if (filters.q) desc.push([{ en: "Search", ar: "بحث" }, filters.q])
     const exportedAt = new Date()
-    const { data: tenant } = await createAdminClient().from("tenants").select("name").eq("id", me.tenantId).maybeSingle()
-    const { data: marked, error } = await (await createClient()).rpc("expense_claims_record_export", {
-      p_ids: claims.map((c) => c.id), p_mark_exported: markExported, p_filters: { ...filters, mark_exported: markExported },
-    })
-    if (error) return failFrom(error)
-    // Reflect the new "exported" status in the file when requested.
+    const { data: tenant, error: tenantError } = await createAdminClient().from("tenants").select("name_ar,name_en").eq("id", me.tenantId).maybeSingle()
+    if (tenantError || !tenant) return fail("Could not load the company for this export.", "تعذر تحميل بيانات الشركة لهذا التصدير.")
+    const companyName = lang === "ar" ? tenant.name_ar || tenant.name_en : tenant.name_en || tenant.name_ar
     const rows = markExported ? claims.map((c) => (c.status === "approved" ? { ...c, status: "exported" as const, exported_at: exportedAt.toISOString() } : c)) : claims
     const bytes = writeExpenseWorkbook({
       claims: rows, attachments, names, language: lang, amountLocale: settings.amount_locale, filters: desc, exportedAt,
-      exportedBy: names[me.authUserId] ?? me.authUserId, companyName: (tenant as { name?: string } | null)?.name ?? undefined, markedExported: markExported,
+      exportedBy: names[me.authUserId] ?? me.authUserId, companyName, markedExported: markExported,
     })
-    touch()
-    return { ok: true, filename: exportFilename(exportedAt), base64: Buffer.from(bytes).toString("base64"), rows: claims.length, marked: Number(marked ?? 0) }
+    // Leave room for base64 expansion and the Server Action response envelope.
+    if (bytes.byteLength > 3 * 1024 * 1024) {
+      return fail("This workbook is too large to download in one export. Narrow the date range or filters.", "حجم المصنف كبير للتنزيل دفعة واحدة. قلّل النطاق الزمني أو ضيّق عوامل التصفية.")
+    }
+    const base64 = Buffer.from(bytes).toString("base64")
+    const filename = exportFilename(exportedAt)
+    const request = {
+      p_request_id: randomUUID(), p_exported_at: exportedAt.toISOString(), p_mark_exported: markExported,
+      p_claims: claims.map(({ id, version, export_revision }) => ({ id, version, export_revision })),
+      p_attachments: attachments.map(({ id, claim_id, export_revision }) => ({ id, claim_id, export_revision })),
+      p_workbook_sha256: createHash("sha256").update(bytes).digest("hex"),
+    }
+    const expected = markExported ? claims.filter(c => c.status === "approved").length : 0
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const { data, error, status } = await client.rpc("expense_claims_commit_export", request)
+        if (!error) {
+          if (data !== expected) break
+          touch()
+          return { ok: true, filename, base64, rows: claims.length, marked: data }
+        }
+        if (error.message.includes("EXC_EXPORT_CONFLICT")) {
+          return fail("The selected claims or receipts changed. Refresh and prepare a new export.", "تغيرت المطالبات المحددة أو إيصالاتها. حدّث البيانات وجهّز تصديراً جديداً.")
+        }
+        if (error.code && status !== 0 && status < 500) return failFrom(error)
+      } catch { /* A lost response may follow a commit. Replay the identical receipt once. */ }
+    }
+    return fail("Export confirmation was interrupted. Check the claim history before starting another export.", "تعذر تأكيد التصدير. تحقّق من سجل المطالبات قبل بدء تصدير آخر.")
   } catch (e) { return failFrom(e) }
 }
 

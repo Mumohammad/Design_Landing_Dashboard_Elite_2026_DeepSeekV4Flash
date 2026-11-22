@@ -4,22 +4,24 @@ import type { ClaimAttachment, ExpenseClaim } from "./constants"
 
 /** Caller RLS is preserved. Counts and unique ordering prevent silent caps;
  * changing counts/duplicate IDs fail visibly. This is not a SQL snapshot. */
-export async function readCompleteClaims(client: SupabaseClient): Promise<ExpenseClaim[]> {
+type Revision = { export_revision: string }
+
+export async function readCompleteClaims(client: SupabaseClient): Promise<(ExpenseClaim & Revision)[]> {
   return await collectRows(() => client.from("expense_claims").select("*", { count: "exact" })
     .order("expense_date", { ascending: false, nullsFirst: false })
-    .order("created_at", { ascending: false }).order("id", { ascending: false })) as unknown as ExpenseClaim[]
+    .order("created_at", { ascending: false }).order("id", { ascending: false })) as unknown as (ExpenseClaim & Revision)[]
 }
 
-export async function readCompleteAttachments(client: SupabaseClient, claimIds: string[]): Promise<ClaimAttachment[]> {
-  const rows: ClaimAttachment[] = []
+export async function readCompleteAttachments(client: SupabaseClient, claimIds: string[]): Promise<(ClaimAttachment & Revision)[]> {
+  const rows: (ClaimAttachment & Revision)[] = []
   const ids = [...new Set(claimIds)]
   for (let i = 0; i < ids.length; i += 200) {
     const batch = ids.slice(i, i + 200)
     const data = await collectRows(() => client.from("expense_claim_attachments")
-      .select("id,claim_id,original_filename,mime_type,size_bytes,sha256,doc_kind,source,uploaded_at", { count: "exact" })
+      .select("id,claim_id,export_revision,original_filename,mime_type,size_bytes,sha256,doc_kind,source,uploaded_at", { count: "exact" })
       .in("claim_id", batch).order("id", { ascending: true }))
     if (data.some(row => !batch.includes(String(row.claim_id)))) throw Error("Receipt evidence scope could not be verified")
-    rows.push(...data as unknown as ClaimAttachment[])
+    rows.push(...data as unknown as (ClaimAttachment & Revision)[])
   }
   return rows
 }

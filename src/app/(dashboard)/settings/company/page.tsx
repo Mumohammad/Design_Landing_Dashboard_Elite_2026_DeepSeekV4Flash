@@ -4,6 +4,7 @@ import { friendlyError } from "@/lib/errors/friendly"
 import { LocalizedText } from "@/components/localized-text"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useActionState } from "react"
+import Image from "next/image"
 import { settingsMessage, companyFieldIssue, wpsFieldIssue } from "@/lib/settings/schema"
 import { useTranslation } from "@/hooks/use-translation"
 import { updateCompanyProfile, updateCompanyWpsSettings, fetchCompanyProfile, uploadCompanyLogo, removeCompanyLogo, type CompanyProfileInput, type CompanyProfile, type SettingsActionResult } from "@/lib/settings/actions"
@@ -258,7 +259,7 @@ export default function CompanySettingsPage() {
           <CardDescription>{ar ? "يظهر في مساحة العمل والفواتير. PNG أو JPEG أو WebP حتى 5 ميجابايت." : "Shown in your workspace and invoices. PNG, JPEG or WebP up to 5 MB."}</CardDescription></CardHeader>
         <CardContent><fieldset disabled={!tenant.can_manage || isPending || isSavingWps || logoBusy || needsReload} className="flex flex-wrap items-center gap-4">
           <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-xl border border-border bg-background">
-            {tenant.logo_url ? <img src={tenant.logo_url} alt={ar ? "شعار الشركة" : "Company logo"} className="h-full w-full object-contain" /> : <Building2 className="h-7 w-7 text-muted-foreground" />}
+            {tenant.logo_url ? <Image src={tenant.logo_url} unoptimized width={80} height={80} alt={ar ? "شعار الشركة" : "Company logo"} className="h-full w-full object-contain" /> : <Building2 className="h-7 w-7 text-muted-foreground" />}
           </div>
           <div className="min-w-0 flex-1 space-y-2"><Label htmlFor="company-logo">{ar ? "اختيار شعار" : "Choose a logo"}</Label>
             <Input ref={logoInput} id="company-logo" type="file" accept={LOGO_ACCEPT} onChange={event => { const file = event.target.files?.[0]; if (file) void changeLogo(file) }} />

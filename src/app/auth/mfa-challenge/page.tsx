@@ -45,6 +45,7 @@ function MfaChallengeContent() {
       const supabase = createClient()
 
       const { data: { user } } = await supabase.auth.getUser()
+      if (!active) return
       if (!user) {
         router.replace("/auth/sign-in")
         return
@@ -52,6 +53,7 @@ function MfaChallengeContent() {
 
       const { data: aal, error: aalError } =
         await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+      if (!active) return
 
       // Already elevated, or no verified factor → nothing to challenge.
       if (aalError || !aal || aal.currentLevel === "aal2" || aal.nextLevel !== "aal2") {
@@ -60,21 +62,20 @@ function MfaChallengeContent() {
       }
 
       const { data: factors } = await supabase.auth.mfa.listFactors()
+      if (!active) return
       const verified = factors?.totp?.find((f) => f.status === "verified")
       if (!verified) {
         router.replace(dashboardUrl)
         return
       }
 
-      if (active) {
-        setFactorId(verified.id)
-        setIsLoading(false)
-      }
+      setFactorId(verified.id)
+      setIsLoading(false)
     }
 
     void boot()
     return () => { active = false }
-  }, [router])
+  }, [router, dashboardUrl])
 
   async function handleVerify() {
     if (!factorId || code.length !== 6) return

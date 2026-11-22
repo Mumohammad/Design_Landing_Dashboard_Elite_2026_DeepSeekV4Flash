@@ -91,13 +91,21 @@ export function ClaimsDashboard() {
 
   async function doExport() {
     setExporting(true)
-    const r = await exportExpenseClaims({ ...filters }, markExported)
-    setExporting(false)
-    if (!r.ok) { toast.error(t(r.error, r.errorAr)); return }
-    downloadBase64(r.base64, r.filename)
-    toast.success(t(`Exported ${r.rows} claim(s)${r.marked ? `; ${r.marked} marked as exported` : ""}.`, `تم تصدير ${r.rows} مطالبة${r.marked ? `، وتعليم ${r.marked} كمُصدَّرة` : ""}.`))
-    setExportOpen(false)
-    if (r.marked) setReload((x) => x + 1)
+    try {
+      const r = await exportExpenseClaims({ ...filters }, markExported)
+      if (!r.ok) {
+        toast.error(t(r.error, r.errorAr))
+        return
+      }
+      downloadBase64(r.base64, r.filename)
+      toast.success(t(`Exported ${r.rows} claim(s)${r.marked ? `, including ${r.marked} marked as exported` : ""}.`, `تم تصدير ${r.rows} مطالبة${r.marked ? `، وتعليم ${r.marked} كمُصدَّرة` : ""}.`))
+      setExportOpen(false)
+    } catch {
+      toast.error(t("The download was interrupted. Check the claim history before exporting again.", "انقطع التنزيل. تحقّق من سجل المطالبات قبل التصدير مجدداً."))
+    } finally {
+      setExporting(false)
+      setReload(x => x + 1)
+    }
   }
 
   const alertDefs: Array<[AlertKey, string, React.ReactNode]> = [

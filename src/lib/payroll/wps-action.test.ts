@@ -98,4 +98,16 @@ describe("WPS export period reads with a synthetic enabled gate", () => {
     expect(mock.audit).not.toHaveBeenCalled()
     expect(mock.emit).not.toHaveBeenCalled()
   })
+
+  it.each([
+    { paid_at: "not-a-date" },
+    { base_amount: Infinity },
+    { driver: { ...records[1].driver, iqama_number: "123|456" } },
+  ])("withholds the entire export on malformed payment data", async invalid => {
+    setupReads(undefined, [records[0], { ...records[1], ...invalid }])
+    const result = await generateWpsFile(2026, 8)
+    expect(result).toEqual({ success: false, error: expect.any(String) })
+    expect(mock.audit).not.toHaveBeenCalled()
+    expect(mock.emit).not.toHaveBeenCalled()
+  })
 })

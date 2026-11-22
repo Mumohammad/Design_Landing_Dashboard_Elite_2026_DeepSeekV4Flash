@@ -4,7 +4,7 @@ import * as React from "react"
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { useForm, Controller } from "react-hook-form"
+import { useForm, useWatch, Controller } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { toast } from "@/lib/toast"
@@ -188,7 +188,6 @@ export function CreateVehicleDialog({
     handleSubmit,
     control,
     reset,
-    watch,
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -246,8 +245,8 @@ export function CreateVehicleDialog({
   }
 
   const inputClass = "h-10"
-  const ownership = watch("ownership_type")
-  const plateValue = watch("plate_number") ?? ""
+  const ownership = useWatch({ control, name: "ownership_type" })
+  const plateValue = useWatch({ control, name: "plate_number" }) ?? ""
   const plateCounterpart = plateValue.trim() ? saudiPlateCounterpart(plateValue) : null
 
   return (

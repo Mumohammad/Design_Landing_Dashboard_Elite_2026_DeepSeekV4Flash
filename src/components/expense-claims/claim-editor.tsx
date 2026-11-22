@@ -1,6 +1,7 @@
 "use client"
 import { useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
+import Image from "next/image"
 import { toast } from "sonner"
 import { Camera, FileUp, Loader2, ScanText, Send, Save, X, FileText, AlertTriangle } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -177,7 +178,7 @@ export function ClaimEditor({ claim, settings, tenantId, existingAttachments = 0
             <ul className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {files.map((p) => (
                 <li key={p.key} className={`relative overflow-hidden rounded-lg border ${p.error ? "border-red-500/50" : ""}`}>
-                  {p.preview ? <img src={p.preview} alt="" className="h-24 w-full object-cover" /> : <div className="flex h-24 items-center justify-center bg-muted"><FileText className="size-8 text-muted-foreground" /></div>}
+                  {p.preview ? <Image src={p.preview} unoptimized width={96} height={96} alt="" className="h-24 w-full object-cover" /> : <div className="flex h-24 items-center justify-center bg-muted"><FileText className="size-8 text-muted-foreground" /></div>}
                   <div className="truncate px-2 py-1 text-[11px]" title={p.file.name}>{p.file.name}</div>
                   {p.error && <div className="px-2 pb-1 text-[11px] text-red-600">{p.error}</div>}
                   <button type="button" aria-label={t("Remove", "إزالة")} className="absolute end-1 top-1 rounded-full bg-background/90 p-1 shadow" onClick={() => setFiles((f) => f.filter((x) => x.key !== p.key))}><X className="size-3" /></button>

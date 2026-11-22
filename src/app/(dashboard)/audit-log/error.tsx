@@ -4,6 +4,7 @@ import { LocalizedText } from "@/components/localized-text"
 import { useEffect } from "react"
 import { TriangleAlert } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { RecoveryLink } from "@/components/ui/recovery-link"
 
 export default function AuditTrailError({
   error,
@@ -29,9 +30,7 @@ export default function AuditTrailError({
         )}
         <div className="mt-6 flex items-center justify-center gap-3">
           <Button onClick={reset} className="rounded-xl"><LocalizedText text="إعادة المحاولة" /></Button>
-          <Button variant="outline" className="rounded-xl" onClick={() => (window.location.href = "/")}>
-            العودة للرئيسية
-          </Button>
+          <RecoveryLink href="/">العودة للرئيسية</RecoveryLink>
         </div>
       </div>
     </div>

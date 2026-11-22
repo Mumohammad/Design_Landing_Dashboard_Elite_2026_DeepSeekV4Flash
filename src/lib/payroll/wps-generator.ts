@@ -4,6 +4,7 @@
 // Generates a pipe-delimited SIF file for upload to the bank/WPS portal.
 
 import { decimalRound, sumMoneyValues } from "@/lib/accounting/decimal"
+import { businessDateKey } from "@/lib/formatting/business-date"
 
 export interface WPSPaymentRecord {
   driver: {
@@ -43,21 +44,36 @@ function getSaudiBankCode(iban: string): string {
   return bankCodes[bankCode2Digit] ?? "9999" // 9999 = unknown
 }
 
-function escapePipe(text: string): string {
-  return text.replace(/[|\r\n]/g, "")
+function requiredField(value: string, label: string): string {
+  if (typeof value !== "string" || !value.trim() || /[|\r\n]/.test(value)) {
+    throw new Error(`Invalid WPS ${label}.`)
+  }
+  return value
 }
 
-function formatDate(dateStr: string): string {
-  // SIF expects YYYYMMDD
-  try {
-    const d = new Date(dateStr)
-    const y = d.getFullYear()
-    const m = String(d.getMonth() + 1).padStart(2, "0")
-    const day = String(d.getDate()).padStart(2, "0")
-    return `${y}${m}${day}`
-  } catch {
-    return "00000000"
+function formatPeriod(periodLabel: string): string {
+  if (!/^\d{4}-(?:0[1-9]|1[0-2])$/.test(periodLabel)) throw new Error("Invalid payroll period.")
+  return periodLabel.replace("-", "")
+}
+
+function formatDate(value: string): string {
+  const match = /^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)(Z|[+-]\d{2}:?\d{2})?)?$/i.exec(value)
+  if (!match) throw new Error("Invalid WPS payment date.")
+  const [, day, time, offset] = match
+  const midnight = new Date(`${day}T00:00:00Z`)
+  // Date parsing rolls dates such as February 30 forward into March.
+  if (!Number.isFinite(midnight.getTime()) || midnight.toISOString().slice(0, 10) !== day) {
+    throw new Error("Invalid WPS payment date.")
   }
+  if (!time) return day.replace(/-/g, "")
+  const instant = new Date(`${day}T${time}${offset ?? "+03:00"}`)
+  if (!Number.isFinite(instant.getTime())) throw new Error("Invalid WPS payment date.")
+  return businessDateKey(instant).replace(/-/g, "")
+}
+
+function finiteValue(value: number, label: string): number {
+  if (!Number.isFinite(value)) throw new Error(`Invalid WPS ${label}.`)
+  return value
 }
 
 export function generateWPSSIF(
@@ -73,8 +89,8 @@ export function generateWPSSIF(
   const netAmounts = payments.map(p => decimalRound(p.net_payroll).toFixed(2))
   const header = [
     "H",
-    company.mol_reference,
-    periodLabel.replace("-", ""),
+    requiredField(company.mol_reference, "MOL reference"),
+    formatPeriod(periodLabel),
     payments.length.toString().padStart(6, "0"),
     sumMoneyValues(netAmounts).toFixed(2),
     "01", // file version
@@ -85,17 +101,17 @@ export function generateWPSSIF(
     .map((p, index) => {
       return [
         "D",
-        p.driver.iqama_number,
-        escapePipe(p.driver.full_name_ar),
-        p.iban,
+        requiredField(p.driver.iqama_number, "iqama number"),
+        requiredField(p.driver.full_name_ar.replace(/[|\r\n]/g, ""), "beneficiary name"),
+        requiredField(p.iban, "IBAN"),
         getSaudiBankCode(p.iban),
         netAmounts[index],
-        p.base_amount.toFixed(2),
-        p.housing_allowance.toFixed(2),
-        p.other_allowances.toFixed(2),
-        p.total_deductions.toFixed(2),
+        finiteValue(p.base_amount, "base amount").toFixed(2),
+        finiteValue(p.housing_allowance, "housing allowance").toFixed(2),
+        finiteValue(p.other_allowances, "other allowances").toFixed(2),
+        finiteValue(p.total_deductions, "deductions").toFixed(2),
         formatDate(p.paid_at),
-        p.working_days_actual.toString(),
+        finiteValue(p.working_days_actual, "working days").toString(),
         "682", // SAR ISO 4217 numeric
         "01", // Payment method: IBAN transfer
       ].join("|")
@@ -110,7 +126,7 @@ export function generateWPSSIF(
 
 export function generateSIFFileName(periodLabel: string): string {
   // Standard naming: SIF-YYYYMM-NNNNNN.txt
-  const period = periodLabel.replace("-", "")
+  const period = formatPeriod(periodLabel)
   const timestamp = Date.now().toString().slice(-6)
   return `SIF-${period}-${timestamp}.txt`
 }
