@@ -153,14 +153,24 @@ export function parseCaption(caption: string | null | undefined, categories?: st
   const text = westernize(String(caption ?? "")).replace(/\u066B/g, ".").replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 1000)
   const out: ReceiptSuggestion = {}
   if (!text) return out
-  const tokens = text.split(" ")
+  const tokens = text.match(/"[^"]*"(?= |$)|\S+/g) ?? []
   let current: keyof ReceiptSuggestion | null = null
   const buf: Partial<Record<keyof ReceiptSuggestion, string[]>> = {}
   const loose: string[] = []
   for (const tok of tokens) {
+    if (tok.length > 1 && tok.startsWith('"') && tok.endsWith('"')) {
+      const value = tok.slice(1, -1)
+      if (value) (current ? buf[current]! : loose).push(value)
+      continue
+    }
     const bare = tok.replace(/[:=]$/, "")
     const key = CAPTION_KEYS.find(([, re]) => re.test(bare))?.[0]
-    if (key && (tok.endsWith(":") || tok.endsWith("=") || !current || buf[current]?.length)) { current = key; buf[key] ??= []; continue }
+    const explicit = bare !== tok
+    if (key && (explicit || !current || (key !== current && buf[current]?.length))) {
+      current = key
+      buf[key] ??= []
+      continue
+    }
     if (current) buf[current]!.push(tok)
     else loose.push(tok)
   }
