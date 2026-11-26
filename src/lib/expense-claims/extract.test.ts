@@ -57,4 +57,12 @@ describe("receipt suggestion isolation boundary", () => {
     expect(claim.payload.unverified_fields).toContain("supplier_name")
     expect(claim.payload).not.toHaveProperty("zatca_cleared")
   })
+
+  it("keeps invalid caption values as raw evidence without blocking receipt registration", () => {
+    const parsed = { total_amount: "100000001", vat_amount: "-1", vat_rate: "101", expense_date: "2026-02-31", currency: "X1Y" }
+    const claim = claimPayload(parsed, { ...empty, fields: { total_amount: "115.00", expense_date: "2026-02-28" } }, "Original caption")
+    expect(claim.fields).toEqual({ total_amount: "115.00", expense_date: "2026-02-28" })
+    expect(claim.payload.ocr_suggestions).toMatchObject({ caption: "Original caption", parsed })
+    expect(claim.payload.unverified_fields).toEqual(["total_amount", "expense_date"])
+  })
 })

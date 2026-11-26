@@ -1,4 +1,5 @@
-import { readFileSync, readdirSync, statSync } from "node:fs"
+import { readFile, readdir } from "node:fs/promises"
+import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { createHash } from "node:crypto"
 import { describe, expect, it } from "vitest"
@@ -11,34 +12,24 @@ import { describe, expect, it } from "vitest"
  * fails if anyone reintroduces a runtime Google Fonts request (a <link>, an
  * @import, or a preconnect) that the CSP would have to allow.
  */
-function* walk(dir: string): Generator<string> {
-  for (const entry of readdirSync(dir)) {
-    const full = join(dir, entry)
-    const stat = statSync(full)
-    if (stat.isDirectory()) yield* walk(full)
-    // *.test.ts files are excluded — this contract's own source mentions the
-    // domains it polices.
-    else if (/\.(tsx?|css|html)$/.test(entry) && !/\.test\.[tj]sx?$/.test(entry)) yield full
-  }
-}
-
 describe("font policy (Prompt M2 regression guard)", () => {
-  // This scans the entire source tree with filesystem I/O. Windows release
-  // verification can exceed the default 5s while other checks are running.
-  it("src never references fonts.googleapis.com / fonts.gstatic.com at runtime", { timeout: 20_000 }, () => {
-    const offenders: string[] = []
-    for (const file of walk("src")) {
-      const content = readFileSync(file, "utf8")
-      if (/fonts\.googleapis\.com|fonts\.gstatic\.com/.test(content)) {
-        offenders.push(file)
+  it("uses local fonts at build time and runtime", { timeout: 60_000 }, async () => {
+    const remoteUrls: string[] = []
+    const remoteImports: string[] = []
+    const entries = await readdir("src", { recursive: true, withFileTypes: true })
+    // Test sources may mention the domains and import this guard checks.
+    const files = entries
+      .filter(entry => entry.isFile() && /\.(tsx?|css|html)$/.test(entry.name) && !/\.test\.[tj]sx?$/.test(entry.name))
+      .map(entry => join(entry.parentPath, entry.name))
+    for (let index = 0; index < files.length; index += 32) {
+      const batch = files.slice(index, index + 32)
+      const contents = await Promise.all(batch.map(file => readFile(file, "utf8")))
+      for (const [offset, content] of contents.entries()) {
+        if (/fonts\.googleapis\.com|fonts\.gstatic\.com/.test(content)) remoteUrls.push(batch[offset])
+        if (/next\/font\/google/.test(content)) remoteImports.push(batch[offset])
       }
     }
-    expect(offenders).toEqual([])
-  })
-
-  it("builds do not depend on a Google Fonts network download", { timeout: 20_000 }, () => {
-    const offenders = [...walk("src")].filter(file => /next\/font\/google/.test(readFileSync(file, "utf8")))
-    expect(offenders).toEqual([])
+    expect({ remoteUrls, remoteImports }).toEqual({ remoteUrls: [], remoteImports: [] })
   })
 
   it("ships the four complete WOFF2 assets with matching integrity and OFL licenses", () => {

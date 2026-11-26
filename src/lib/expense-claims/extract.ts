@@ -8,6 +8,7 @@ import "server-only"
 import { parseReceiptText, type ReceiptSuggestion } from "./receipt-parse"
 import { decodeZatcaQr, qrToSuggestion, readUblXml } from "./zatca-qr"
 import { runReceiptProcess } from "./extraction-process"
+import { PAYMENT_METHODS } from "./constants"
 
 export interface ExtractResult {
   fields: ReceiptSuggestion
@@ -58,9 +59,26 @@ export async function extractReceiptDataWithin(bytes: Uint8Array, mime: string, 
   return extractWithDeadline(bytes, mime, ms)
 }
 
-/** Caption/typed values win over file values; everything stays unverified. */
+function usableSuggestions(input: ReceiptSuggestion): ReceiptSuggestion {
+  const fields = { ...input }
+  for (const key of ["amount_before_vat", "vat_amount", "total_amount", "vat_rate"] as const) {
+    const value = fields[key]
+    const maximum = key === "vat_rate" ? 100 : 100_000_000
+    if (value !== undefined && (!/^\d+(?:\.\d{1,2})?$/.test(value) || Number(value) > maximum)) delete fields[key]
+  }
+  if (fields.currency && !/^[A-Z]{3}$/.test(fields.currency)) delete fields.currency
+  if (fields.payment_method && !PAYMENT_METHODS.includes(fields.payment_method)) delete fields.payment_method
+  if (fields.expense_date) {
+    const date = new Date(fields.expense_date + "T00:00:00Z")
+    if (!/^[0-9]{4}-\d{2}-\d{2}$/.test(fields.expense_date) || fields.expense_date.startsWith("0000")
+      || Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== fields.expense_date) delete fields.expense_date
+  }
+  return fields
+}
+
+/** Valid caption values take precedence; raw suggestions remain available for review. */
 export function claimPayload(typed: ReceiptSuggestion, ex: ExtractResult, caption?: string) {
-  const fields: ReceiptSuggestion = { ...ex.fields, ...typed }
+  const fields = { ...usableSuggestions(ex.fields), ...usableSuggestions(typed) }
   return {
     fields,
     payload: {

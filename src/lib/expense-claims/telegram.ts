@@ -40,14 +40,18 @@ export async function sendMessage(chatId: number, text: string): Promise<void> {
   try { await tg("sendMessage", { chat_id: chatId, text: text.slice(0, 3900), disable_web_page_preview: true }) } catch { /* best effort */ }
 }
 
-/** Downloads a Telegram file (≤ maxBytes). Returns null when too large or unavailable. */
+/** Downloads a Telegram file. Returns null for a known size rejection. */
 export async function downloadTelegramFile(fileId: string, maxBytes: number): Promise<Uint8Array | null> {
   const f = await tg<{ file_path?: string; file_size?: number }>("getFile", { file_id: fileId })
-  if (!f.file_path || (f.file_size ?? 0) > maxBytes || !/^[\w\-./]+$/.test(f.file_path) || f.file_path.includes("..")) return null
+  if ((f.file_size ?? 0) > maxBytes) return null
+  if (!f.file_path || !/^[\w\-./]+$/.test(f.file_path) || f.file_path.includes("..")) throw new Error("TELEGRAM_FILE_UNAVAILABLE")
   const res = await fetch(`${API}/file/bot${token()}/${f.file_path}`, { signal: AbortSignal.timeout(20000), cache: "no-store" })
-  if (!res.ok || !res.body) return null
+  if (!res.ok || !res.body) throw new Error("TELEGRAM_FILE_UNAVAILABLE")
   const declared = Number(res.headers.get("content-length") ?? 0)
-  if (declared > maxBytes) return null
+  if (declared > maxBytes) {
+    await res.body.cancel()
+    return null
+  }
   const reader = res.body.getReader()
   const chunks: Uint8Array[] = []
   let size = 0

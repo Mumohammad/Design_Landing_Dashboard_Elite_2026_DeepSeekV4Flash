@@ -93,14 +93,3 @@ export async function registerStoredAttachment(args: AttachmentInput): Promise<R
   }
   return { ok: false, message: GENERIC }
 }
-
-/** Uploads server-received bytes (Telegram) and registers them. */
-export async function uploadAndRegister(args: { actor: string; tenantId: string; claimId: string; bytes: Uint8Array; originalName: string; source: "web" | "telegram" }): Promise<RegisterResult> {
-  const sniff = sniffFile(args.bytes)
-  if (!sniff.ok) return { ok: false, message: sniff.message }
-  const path = `${args.tenantId}/${args.claimId}/${crypto.randomUUID()}.${sniff.ext}`
-  const admin = createAdminClient()
-  const { error } = await admin.storage.from(RECEIPT_BUCKET).upload(path, args.bytes, { contentType: sniff.mime, upsert: false })
-  if (error) return { ok: false, message: GENERIC }
-  return registerStoredAttachment({ ...args, path })
-}

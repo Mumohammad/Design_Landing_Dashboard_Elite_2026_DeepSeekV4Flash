@@ -135,7 +135,10 @@ describe("isolated receipt process lifecycle", () => {
   })
 })
 
-describe("actual receipt decoders in the isolated process", () => {
+// Give the caller time to observe the parser's own 20s deadline and 2s
+// retirement window. A shorter test timeout can leave its slot occupied
+// when the next test starts.
+describe("actual receipt decoders in the isolated process", { timeout: 30_000 }, () => {
   it("continues past an unrelated base64 QR to find a later receipt QR in the same PDF", async () => {
     const fields = ["Synthetic seller", "300000000000003", "2026-09-01T12:00:00+03:00", "115.00", "15.00"]
     const payload = Buffer.concat(fields.map((value, i) => { const text = Buffer.from(value); return Buffer.concat([Buffer.from([i + 1, text.length]), text]) })).toString("base64")
