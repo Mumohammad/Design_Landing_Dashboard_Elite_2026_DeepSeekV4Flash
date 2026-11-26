@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
-  from: vi.fn(), approvals: vi.fn(), financial: vi.fn(), rateLimit: vi.fn(),
+  from: vi.fn(), rpc: vi.fn(), approvals: vi.fn(), financial: vi.fn(), rateLimit: vi.fn(),
   fault: "none", calls: [] as { table: string; method: string; args: unknown[] }[],
 }))
 
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => ({
   auth: { getUser: async () => ({ data: { user: { id: "analytics-owner" } } }) },
-  from: mocks.from,
+  from: mocks.from, rpc: mocks.rpc,
 }) }))
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => ({ from: mocks.from }) }))
 vi.mock("@/lib/auth/authorization", () => ({ getCurrentUser: async () => ({ tenantId: "analytics-tenant", id: "analytics-owner", role: "owner" }) }))
@@ -26,8 +26,8 @@ const driverRows = Array.from({ length: 1251 }, (_, i) => ({
 }))
 
 const roundingRuns = [
-  { id: "latest-run", month_key: "2026-11", total_drivers: 3, total_net: 290.014 },
-  { id: "historical-run", month_key: "2026-09", total_drivers: 2, total_net: 200.01 },
+  { id: "latest-run", month_key: "2026-11", total_drivers: 3, total_net: 290.014, result_count: 3, payable_total: 290.02 },
+  { id: "historical-run", month_key: "2026-09", total_drivers: 2, total_net: 200.01, result_count: 2, payable_total: 200.02 },
 ]
 const roundingResults = roundingRuns.flatMap(run => Array.from({ length: run.total_drivers }, (_, i) => ({
   id: `${run.id}-${i}`, run_id: run.id, month_key: run.month_key, rider_id: `rider-${i}`,
@@ -37,13 +37,18 @@ const roundingResults = roundingRuns.flatMap(run => Array.from({ length: run.tot
 function query(table: string) {
   let head = false
   let limit = 1000
+  const hasEngine = ["engine-rounding", "large-history"].includes(mocks.fault)
   let rows = table === "drivers" ? driverRows
     : table === "driver_payroll_periods" && mocks.fault === "fractional-payroll"
       ? [{ id: "period-1", driver_id: "analytics-driver-0", period_year: 2026, period_month: 11,
         total_earnings: 0.45, total_deductions: 0.20, orders_bonus: 0.10, net_payroll: 0.25 }]
-    : table === "payroll_engine_runs" && mocks.fault === "engine-rounding" ? roundingRuns
-    : table === "payroll_engine_results" && mocks.fault === "engine-rounding" ? roundingResults
-    : table === "daily_order_entries" && mocks.fault === "engine-rounding"
+    : table === "payroll_engine_runs" && hasEngine ? roundingRuns
+    : table === "dashboard_payroll_engine_payable" && hasEngine
+      ? roundingRuns.map(row => mocks.fault === "large-history" && row.id === "historical-run"
+        ? { ...row, total_drivers: 100_000, result_count: 100_000, payable_total: 10_001_000 }
+        : row)
+    : table === "payroll_engine_results" && hasEngine ? roundingResults
+    : table === "daily_order_entries" && hasEngine
       ? roundingRuns.map(run => ({ id: run.id, entry_date: `${run.month_key}-01`, gross_revenue: 300 }))
       : []
   const chain = {
@@ -64,6 +69,9 @@ function query(table: string) {
     limit: (size: number) => { limit = size; return record("limit", [size]) },
     range: async (from: number, to: number) => {
       mocks.calls.push({ table, method: "range", args: [from, to] })
+      if (table === "payroll_engine_results" && mocks.fault === "large-history" && rows.some(row => row.id === "historical-run-0")) {
+        return { data: [], count: 100_003, error: null }
+      }
       if (table === "drivers" && from >= 500 && mocks.fault === "late-driver-error") {
         return { data: null, count: rows.length, error: { message: "private database detail" } }
       }
@@ -95,6 +103,7 @@ beforeEach(() => {
   mocks.fault = "none"
   mocks.calls = []
   mocks.from.mockImplementation(query)
+  mocks.rpc.mockImplementation(query)
   mocks.rateLimit.mockResolvedValue({ success: true })
   mocks.financial.mockResolvedValue({ available: false })
   mocks.approvals.mockResolvedValue({
@@ -113,6 +122,15 @@ describe("complete dashboard data", () => {
     expect(snapshot.trends.revenue).toMatchObject([
       { date: "2026-09", payroll: 200.02 }, { date: "2026-11", payroll: 290.02 },
     ])
+  })
+
+  it("uses the database total for large approved histories and reads current rider detail only", async () => {
+    mocks.fault = "large-history"
+    const snapshot = await getDashboardSnapshot({ ...filters, period: "12m" })
+    expect(snapshot.payroll).toMatchObject({ available: true, net: 290.02 })
+    expect(snapshot.trends.revenue).toMatchObject([{ date: "2026-09", payroll: 10_001_000 }, { date: "2026-11", payroll: 290.02 }])
+    expect(mocks.calls.filter(call => call.table === "payroll_engine_results" && call.method === "in").map(call => call.args))
+      .toEqual([["run_id", ["latest-run"]]])
   })
   it("preserves approved payroll below one riyal in the summary and driver breakdown", async () => {
     mocks.fault = "fractional-payroll"

@@ -15,6 +15,14 @@ const golden = JSON.parse(readFileSync(join(FX, "golden.json"), "utf8")) as Reco
 const scenarios = JSON.parse(readFileSync(join(FX, "scenarios.json"), "utf8")) as Array<{ id: string; rules: Record<string, unknown>; expenses: Array<{ categoryName: string; amount: number; allocationType: string; assignedRiderId?: string | null }> }>
 const close = (a: number, b: number) => expect(Math.abs(a - b)).toBeLessThan(1e-6)
 
+it("rounds half-halalah payable amounts to the same amounts as the journal", () => {
+  const seed = golden[scenarios[0].id].results[0]
+  const results = [1024.215, 10.075].map((finalNetSalary, i) => ({ ...seed, riderId: `rounding-${i}`, finalNetSalary }))
+  const sheets = payrollResultsSheets({ payrollMonth: "M", platformName: "P", ruleSetName: "R", status: "approved", fileName: "f.xlsx" }, results.map(result => ({ result, bank: null })))
+  expect(sheets.find(sheet => sheet.name === "Bank Transfer")?.rows.slice(1).map(row => row[4])).toEqual([1024.22, 10.08, 1034.30])
+  expect(sheets[0].rows.find(row => row[0] === "Total net payable, rounded per rider (SAR)")?.[1]).toBe(1034.30)
+})
+
 describe.each(scenarios)("reports reconcile — $id", sc => {
   const results = golden[sc.id].results
   const capped = ["deduction_cap", "salary_floor", "pen_max_allowed"].some(k => Number(sc.rules[k] ?? 0) > 0)

@@ -1,6 +1,7 @@
 // Excel sheet builders (array-of-arrays) shared by the client download and
 // the tests. Numbers are written unrounded so Excel totals equal the app;
 // only the bank-transfer amount is rounded to halalas (what is actually paid).
+import { sumMoneyValues } from "@/lib/accounting/decimal"
 import type { IncomeDashboard } from "./income-dashboard"
 import { toHalalas } from "./month"
 import { DEDUCTIBLE_PENALTY_KEYS, PENALTY_LABELS, payslipBreakdown } from "./payslip"
@@ -18,6 +19,8 @@ export interface ExportRow { result: DriverResultCalc; bank: { beneficiaryName?:
 export function payrollResultsSheets(run: ExportRun, rows: readonly ExportRow[]): SheetSpec[] {
   const rs = rows.map(r => r.result)
   const slips = rs.map(payslipBreakdown)
+  const payableAmounts = rs.map(r => toHalalas(r.finalNetSalary))
+  const totalPayable = sumMoneyValues(payableAmounts)
   const summary: SheetSpec = { name: "Summary", cols: [40, 28], rows: [
     [run.companyName || "Payroll", null], ["Payroll month", run.payrollMonth], ["Platform", run.platformName], ["Status", run.status], ["Rule set", run.ruleSetName], ["Source file", run.fileName],
     ["Generated", new Date().toISOString()], [null, null],
@@ -32,7 +35,7 @@ export function payrollResultsSheets(run: ExportRun, rows: readonly ExportRow[])
     ["Total cap / floor adjustments (SAR)", sum(slips, s => s.capFloorAdjustment)],
     ["Total deductions (SAR)", sum(slips, s => s.totalDeductions)],
     ["Total net salary (SAR)", sum(rs, r => r.finalNetSalary)],
-    ["Total net payable, rounded per rider (SAR)", toHalalas(sum(rs, r => toHalalas(r.finalNetSalary)))],
+    ["Total net payable, rounded per rider (SAR)", totalPayable],
     ["Total uploaded basic payment (SAR)", sum(rs, r => r.uploadedBasicPayment)], ["Total variance (SAR)", sum(rs, r => r.varianceAmount)],
     [null, null], ["Check: gross − deductions − net", sum(slips, s => s.gross - s.totalDeductions - s.net)],
   ] }
@@ -65,8 +68,8 @@ export function payrollResultsSheets(run: ExportRun, rows: readonly ExportRow[])
   const adjustments: SheetSpec = { name: "Adjustments", cols: [14, 24, 28, 30, 14], rows: aRows }
 
   const bank: SheetSpec = { name: "Bank Transfer", cols: [14, 28, 30, 30, 16], rows: [["Rider ID", "Beneficiary name", "IBAN", "Bank", "Amount (SAR)"],
-    ...rows.map(({ result: r, bank: b }) => [r.riderId, b?.beneficiaryName || r.driverName, b?.iban ?? "", b?.bankName ?? "", toHalalas(r.finalNetSalary)] as Cell[]),
-    ["TOTAL", null, null, null, toHalalas(sum(rs, r => toHalalas(r.finalNetSalary)))]] }
+    ...rows.map(({ result: r, bank: b }, i) => [r.riderId, b?.beneficiaryName || r.driverName, b?.iban ?? "", b?.bankName ?? "", payableAmounts[i]] as Cell[]),
+    ["TOTAL", null, null, null, totalPayable]] }
   return [summary, results, penalties, adjustments, bank]
 }
 

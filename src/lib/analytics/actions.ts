@@ -91,6 +91,14 @@ interface OrderRow {
   gross_revenue: number | null
 }
 
+interface PayrollPayableRun {
+  id: string
+  month_key: string
+  total_drivers: number
+  result_count: number | string
+  payable_total: number | string
+}
+
 /**
  * Browser-supplied filters are parsed, never trusted (zod parity with the
  * module actions); .catch() degrades to the safe default instead of throwing.
@@ -374,54 +382,49 @@ async function buildDashboardSnapshot(
       .select("id, driver_id, period_year, period_month, orders_achieved, target_orders_monthly, orders_prorated_target, orders_bonus, total_earnings, total_deductions, net_payroll", { count: "exact" })
       .in("status", APPROVED_PAYROLL_STATUS).is("deleted_at", null)
       .gte("period_year", payrollFromYear).order("id", { ascending: true }))
-    const engine = await readCompleteRows(() => supabase.from("payroll_engine_runs")
-      .select("id, month_key, total_drivers", { count: "exact" })
-      .eq("status", "approved").gte("month_key", String(payrollFromYear) + "-01").order("id", { ascending: true }))
+    const engine = await readCompleteRows(() => supabase.rpc("dashboard_payroll_engine_payable",
+      { p_from_month: `${payrollFromYear}-01` }, { count: "exact" }).order("id", { ascending: true }))
     if (legacy.error || engine.error || !legacy.data || !engine.data) throw Error("Payroll data unavailable")
     payrollRows.push(...legacy.data as typeof payrollRows)
     payrollTrendRows.push(...payrollRows)
-    const enginePeriods = engine.data.map(run => {
-      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(run.month_key)) || !Number.isInteger(run.total_drivers) || run.total_drivers < 0) throw Error("Incomplete payroll summary")
+    const enginePeriods = (engine.data as PayrollPayableRun[]).map(run => {
+      const totalDrivers = run.total_drivers
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(run.month_key)) || !Number.isSafeInteger(totalDrivers) || totalDrivers < 0
+        || run.result_count === null || Number(run.result_count) !== totalDrivers || run.payable_total == null) throw Error("Incomplete payroll summary")
       const [year, month] = String(run.month_key).split("-").map(Number)
-      return { id: String(run.id), period_year: year, period_month: month, totalDrivers: run.total_drivers }
+      return { id: String(run.id), period_year: year, period_month: month, totalDrivers, net_payroll: decimalRound(run.payable_total) }
     })
-    for (const row of [...payrollRows, ...enginePeriods]) {
+    payrollTrendRows.push(...enginePeriods)
+    for (const row of payrollTrendRows) {
       if (!latestPeriod || row.period_year > latestPeriod.year || row.period_year === latestPeriod.year && row.period_month > latestPeriod.month) latestPeriod = { year: row.period_year, month: row.period_month }
     }
     if (latestPeriod) {
       const current = latestPeriod
       const previous = latestPeriod.month === 1 ? { year: latestPeriod.year - 1, month: 12 } : { year: latestPeriod.year, month: latestPeriod.month - 1 }
-      const detailPeriods = [current, previous]
-      for (let i = 0; i < enginePeriods.length; i += 100) {
-        const runs = new Map(enginePeriods.slice(i, i + 100).map(run => [run.id, run]))
+      const currentRuns = enginePeriods.filter(run => run.period_year === current.year && run.period_month === current.month)
+      for (const run of currentRuns) {
         const results = await readCompleteRows(() => supabase.from("payroll_engine_results")
           .select("id, run_id, driver_id, rider_id, driver_name, completed_orders, gross_salary, final_net_salary, adjusted_target:result->>adjustedTargetOrders, monthly_target:result->>appliedMonthlyTarget, bonus:result->>bonusAmount", { count: "exact" })
-          .in("run_id", [...runs.keys()]).order("id", { ascending: true }))
-        if (results.error || !results.data) throw Error("Payroll results unavailable")
-        const counts = new Map<string, number>()
+          .in("run_id", [run.id]).order("id", { ascending: true }))
+        if (results.error || !results.data || results.data.length !== run.totalDrivers) throw Error("Incomplete payroll results")
+        const payableAmounts: number[] = []
         for (const row of results.data) {
-          const run = runs.get(String(row.run_id))
-          if (!run || row.final_net_salary == null) throw Error("Invalid payroll results")
-          counts.set(run.id, (counts.get(run.id) ?? 0) + 1)
-          const { period_year: year, period_month: month } = run
-          // Match the payable journal and bank export, which round each rider.
+          if (row.run_id !== run.id || row.final_net_salary == null || row.gross_salary == null) throw Error("Invalid payroll results")
           const net = decimalRound(row.final_net_salary)
-          payrollTrendRows.push({ period_year: year, period_month: month, net_payroll: net })
-          if (!detailPeriods.some(period => period.year === year && period.month === month)) continue
-          if (row.gross_salary == null) throw Error("Invalid payroll results")
+          payableAmounts.push(net)
           const gross = decimalRound(row.gross_salary)
           const target = Number(row.adjusted_target ?? row.monthly_target ?? 0) || null
           const driverKey = row.driver_id as string | null ?? "rider:" + row.rider_id
           if (!driverNames.has(driverKey)) driverNames.set(driverKey, String(row.driver_name || row.rider_id))
-          payrollRows.push({ driver_id: driverKey, period_year: year, period_month: month,
+          payrollRows.push({ driver_id: driverKey, period_year: current.year, period_month: current.month,
             orders_achieved: Number(row.completed_orders ?? 0), target_orders_monthly: target, orders_prorated_target: target,
             orders_bonus: Number(row.bonus ?? 0), total_earnings: gross, total_deductions: sumMoney(gross, -net), net_payroll: net })
         }
-        for (const run of runs.values()) if ((counts.get(run.id) ?? 0) !== run.totalDrivers) throw Error("Incomplete payroll results")
+        if (sumMoneyValues(payableAmounts) !== run.net_payroll) throw Error("Payroll results changed during the read")
       }
       payrollTrend = mergePayrollTrend([], payrollTrendRows)
       latestRows = payrollRows.filter(r => r.period_year === current.year && r.period_month === current.month)
-      const previousRows = payrollRows.filter(r => r.period_year === previous.year && r.period_month === previous.month)
+      const previousRows = payrollTrendRows.filter(r => r.period_year === previous.year && r.period_month === previous.month)
       const net = sumMoneyValues(latestRows.map(r => r.net_payroll ?? 0))
       payrollTotals = {
         net,
