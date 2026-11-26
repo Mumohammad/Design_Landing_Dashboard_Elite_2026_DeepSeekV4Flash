@@ -145,7 +145,27 @@ export async function verifyIssuanceLedger(sql) {
   assert.ok(["busy", "accepted"].includes(concurrentReplay.state))
   assert.deepEqual(await claim(), { state: "accepted", response: { synthetic: true }, created_at: acceptedAt })
   assert.equal(await sql(`SELECT count(*) FROM public.zatca_submission_attempts WHERE issuance_id=${literal(claimedIssuance)}`), "1")
-  console.log("PASS: issuance allocation and replay, contiguous PIH chain, independent notes, immutable evidence, tenant boundaries, one concurrent submission claim and one retained acceptance; financial totals unchanged")
+
+  stage="scheduled tenant claim concurrency"
+  await sql(`INSERT INTO public.zatca_automation(tenant_id,operator_id) VALUES
+    (${literal(tenant)},${literal(actor)}),(${literal(otherTenant)},${literal(otherActor)});`)
+  const claimTurn = async () => {
+    const output = await sql(`BEGIN; SET LOCAL ROLE service_role;
+      SELECT public.claim_zatca_scheduled_tenant();
+      SELECT pg_sleep(0.1); COMMIT;`)
+    return JSON.parse(output.split("\n")[0] || "null")
+  }
+  const turns = (await Promise.all(Array.from({ length: 4 }, claimTurn))).filter(Boolean)
+  assert.equal(turns.length, 2)
+  assert.deepEqual(new Set(turns.map(result => result.tenant_id)), new Set([tenant, otherTenant]))
+  assert.equal(new Set(turns.map(result => result.token)).size, 2)
+  for (const turn of turns) {
+    assert.equal(await sql(`BEGIN; SET LOCAL ROLE service_role;
+      SELECT public.finish_zatca_scheduled_tenant(${literal(turn.tenant_id)},${literal(turn.token)},NULL);
+      COMMIT;`), "t")
+  }
+  assert.equal(await claimTurn(), null)
+  console.log("PASS: issuance allocation and replay, contiguous PIH chain, independent notes, immutable evidence, tenant boundaries, one concurrent submission claim, one retained acceptance, and distinct scheduled tenant turns; financial totals unchanged")
   } catch(error) { error.verificationStage=stage; throw error }
 }
 

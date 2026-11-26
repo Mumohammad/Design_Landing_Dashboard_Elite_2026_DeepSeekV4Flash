@@ -275,7 +275,7 @@ const TENANT_ROW = {
 function tableBuilder(table: string, rows: Record<string, unknown>, writes: { table: string; op: string; value: unknown }[]) {
   const single = () => Promise.resolve({ data: rows[table] ?? null, error: rows[`${table}:error`] ?? null })
   const builder: Record<string, unknown> = {}
-  for (const m of ["select", "eq", "in", "order", "limit", "lte", "gt", "is"]) builder[m] = vi.fn(() => builder)
+  for (const m of ["select", "eq", "in", "order", "limit", "lte", "gt", "is", "or"]) builder[m] = vi.fn(() => builder)
   builder.maybeSingle = vi.fn(single)
   builder.insert = vi.fn((value: unknown) => { writes.push({ table, op: "insert", value }); return Promise.resolve({ error: null }) })
   builder.update = vi.fn((value: unknown) => { writes.push({ table, op: "update", value }); return builder })
@@ -299,6 +299,17 @@ function networkAdmin(overrides: Record<string, unknown> = {}) {
   }
   mocks.adminFrom.mockImplementation(((table: string) => tableBuilder(table, rows, writes)) as never)
   return writes
+}
+
+function scheduledAdmin(events: { id: string; created_at: string }[], overrides: Record<string, unknown> = {}) {
+  networkAdmin({ zatca_automation: { operator_id: "auth-9", enabled: true }, ...overrides })
+  const last = events[events.length - 1]
+  mocks.adminRpc.mockImplementation(async name => ({
+    data: name === "list_zatca_scheduled_events"
+      ? { events, after: last ? { id: last.id, created_at: last.created_at } : null, has_more: false }
+      : true,
+    error: null,
+  }))
 }
 
 describe("runZatcaAdapter — network mode uses the prepared, signed submission path", () => {
@@ -383,6 +394,8 @@ describe("runZatcaAdapter — network mode uses the prepared, signed submission 
     vi.clearAllMocks(); mocks.getCurrentUser.mockResolvedValue(CURRENT_USER); mocks.getZatcaCsidCredential.mockResolvedValue(STORED_CSID)
     networkAdmin({ zatca_transmissions: { id: "tx-1", status: "cleared", environment: "sandbox" } })
     expect(await runZatcaAdapter()).toMatchObject({ processed: 0, skipped: 1 })
+    networkAdmin({ zatca_transmissions: { id: "tx-1", status: "reported", environment: "sandbox", mock: true } })
+    expect(await runZatcaAdapter()).toMatchObject({ processed: 1, skipped: 0 })
   })
 
   it("requires a registered EGS issuance stream for the environment", async () => {
@@ -515,6 +528,108 @@ describe("runZatcaForTenant — scheduled backstop on behalf of the registered o
     )
     expect(writes.find((w) => w.table === "zatca_automation")?.value).toMatchObject({ last_result: { success: true, processed: 1 } })
     expect(mocks.adminRpc).toHaveBeenCalledWith("record_zatca_transmission",expect.objectContaining({p_actor:"auth-9",p_tenant:"tenant-0001"}))
+  })
+
+  it("checkpoints a bounded scheduled page even when every document in that page fails", async () => {
+    const events = Array.from({ length: 17 }, (_, index) => ({
+      id: `event-${index}`, source_id: `invoice-${index}`, event_type: "InvoiceFinalizedEvent",
+      created_at: new Date(Date.UTC(2026, 9, 31, 0, 0, index)).toISOString(),
+    }))
+    const through = "2026-11-01T00:00:00.000Z"
+    scheduledAdmin(events, {
+      "invoices:error": { message: "synthetic failure" },
+    })
+
+    const result = await runZatcaForTenant("tenant-0001", undefined, {
+      scan: { environment: "sandbox", through, cursor: null }, stopAt: Date.now() + 10_000,
+    })
+    expect(result).toMatchObject({
+      success: true, failed: 16, scheduledProgress: {
+        scan: { environment: "sandbox", through, cursor: { id: events[15].id, created_at: events[15].created_at } },
+      },
+    })
+  })
+
+  it("resumes strictly after the saved tuple inside the same finite window", async () => {
+    const through = "2026-11-01T00:00:00.000Z"
+    const cursor = { id: "event-1", created_at: "2026-10-31T12:00:00.000Z" }
+    scheduledAdmin([])
+
+    const result = await runZatcaForTenant("tenant-0001", undefined, {
+      scan: { environment: "sandbox", through, cursor }, stopAt: Date.now() + 10_000,
+    })
+    expect(mocks.adminRpc).toHaveBeenCalledWith("list_zatca_scheduled_events", {
+      p_tenant: "tenant-0001", p_environment: "sandbox", p_through: through,
+      p_cursor_at: cursor.created_at, p_cursor_id: cursor.id, p_limit: 512,
+    })
+    expect(result).toMatchObject({ scheduledProgress: { scan: null } })
+  })
+
+  it("leaves the saved scan intact when the scheduled time slice is already exhausted", async () => {
+    networkAdmin({ zatca_automation: { operator_id: "auth-9", enabled: true } })
+    const result = await runZatcaForTenant("tenant-0001", undefined, { scan: null, stopAt: Date.now() - 10 })
+    expect(result).not.toHaveProperty("scheduledProgress")
+    expect(mocks.adminFrom).not.toHaveBeenCalledWith("financial_events")
+    expect(mocks.adminRpc).not.toHaveBeenCalledWith("list_zatca_scheduled_events", expect.anything())
+    expect(mocks.prepareZatcaDocument).not.toHaveBeenCalled()
+  })
+
+  it("advances over a settled window and checkpoints it if the next database read fails", async () => {
+    const cursor = { id: "last-settled-event", created_at: "2026-10-31T12:00:00.123456Z" }
+    const through = "2026-11-01T00:00:00.000Z"
+    scheduledAdmin([])
+    let reads = 0
+    mocks.adminRpc.mockImplementation(async name => {
+      if (name !== "list_zatca_scheduled_events") return { data: true, error: null }
+      if (++reads === 1) return { data: { events: [], after: cursor, has_more: true }, error: null }
+      return { data: null, error: { message: "synthetic read failure" } }
+    })
+
+    const result = await runZatcaForTenant("tenant-0001", undefined, {
+      scan: { environment: "sandbox", through, cursor: null }, stopAt: Date.now() + 10_000,
+    })
+    expect(result).toMatchObject({ success: false, scheduledProgress: { scan: { environment: "sandbox", through, cursor } } })
+    expect(mocks.adminRpc).toHaveBeenCalledWith("list_zatca_scheduled_events", expect.objectContaining({
+      p_cursor_at: cursor.created_at, p_cursor_id: cursor.id,
+    }))
+    expect(mocks.prepareZatcaDocument).not.toHaveBeenCalled()
+  })
+
+  it("does not start a sweep before a stream exists in the configured environment", async () => {
+    scheduledAdmin([])
+    mocks.adminRpc.mockImplementation(async name => ({
+      data: name === "list_zatca_scheduled_events" ? null : true, error: null,
+    }))
+    const result = await runZatcaForTenant("tenant-0001", undefined, { scan: null, stopAt: Date.now() + 10_000 })
+
+    expect(result).toMatchObject({ success: false, error: expect.stringContaining("Register an EGS issuance stream") })
+    expect(result).not.toHaveProperty("scheduledProgress")
+    expect(mocks.prepareZatcaDocument).not.toHaveBeenCalled()
+  })
+
+  it("stops admitting documents when the first submission consumes the rest of a turn", async () => {
+    let now = Date.now()
+    const wallClock = vi.spyOn(Date, "now").mockImplementation(() => now)
+    try {
+      const timestamp = "2026-10-31T12:00:00.000Z"
+      const events = ["event-1", "event-2"].map(id => ({
+        id, event_type: "InvoiceFinalizedEvent", source_id: SOURCE_ID, created_at: timestamp,
+      }))
+      scheduledAdmin(events)
+      mocks.submitPreparedZatcaDocument.mockImplementationOnce(async () => {
+        now += 200
+        return { success: true, status: "cleared", pipeline: "clearance" }
+      })
+
+      const result = await runZatcaForTenant("tenant-0001", undefined, { scan: null, stopAt: now + 100 })
+      expect(result).toMatchObject({
+        processed: 1,
+        scheduledProgress: { scan: { cursor: { id: "event-1", created_at: timestamp } } },
+      })
+      expect(mocks.submitPreparedZatcaDocument).toHaveBeenCalledOnce()
+    } finally {
+      wallClock.mockRestore()
+    }
   })
 })
 

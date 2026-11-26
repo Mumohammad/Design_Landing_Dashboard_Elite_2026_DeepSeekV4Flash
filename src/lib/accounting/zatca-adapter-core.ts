@@ -55,6 +55,7 @@ export type ZatcaAdapterSummary = {
   failed?: number
   inProgress?: number
   sandbox?: boolean
+  scheduledProgress?: { scan: ScheduledZatcaScan | null }
 }
 
 type EventRow = {
@@ -63,6 +64,21 @@ type EventRow = {
   source_id: string
   created_at: string
 }
+
+type EventCursor = Pick<EventRow, "id" | "created_at">
+
+export type ScheduledZatcaScan = {
+  environment: "sandbox" | "simulation"
+  through: string
+  cursor: EventCursor | null
+}
+
+type ScheduledZatcaTurn = { scan: ScheduledZatcaScan | null; stopAt: number }
+type ScheduledEventWindow = { events: EventRow[]; after: EventCursor | null; has_more: boolean }
+
+const SCHEDULED_EVENTS_PER_TURN = 16
+const SCHEDULED_WINDOW_SIZE = 512
+const SCHEDULED_WINDOWS_PER_TURN = 16
 
 function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : "Unknown error"
@@ -73,6 +89,32 @@ const ZATCA_EVENT_TYPES = new Set([
   "CreditNoteIssuedEvent",
   "DebitNoteIssuedEvent",
 ])
+
+function readManualEvents(
+  admin: ReturnType<typeof createAdminClient>,
+  tenantId: string,
+  through: string,
+  cursor: EventCursor | null,
+  pageSize: number,
+  sourceIds?: string[],
+) {
+  let query = admin
+    .from("financial_events")
+    .select("id,event_type,source_id,created_at")
+    .eq("tenant_id", tenantId)
+    .in("event_type", [...ZATCA_EVENT_TYPES])
+    .lte("created_at", through)
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true })
+    .limit(pageSize)
+
+  if (cursor) {
+    const time = `"${cursor.created_at}"`
+    query = query.or(`created_at.gt.${time},and(created_at.eq.${time},id.gt.${cursor.id})`)
+  }
+  if (sourceIds) query = query.in("source_id", sourceIds)
+  return query
+}
 
 function fmtDate(s: string | null | undefined): string {
   if (!s) return ""
@@ -92,7 +134,7 @@ function fmtTime(s: string | null | undefined): string {
  */
 export async function runZatcaAdapterAs(
   currentUser: ZatcaActor,
-  opts: { revalidate?: boolean; sourceIds?: string[] } = {},
+  opts: { revalidate?: boolean; sourceIds?: string[]; scheduled?: ScheduledZatcaTurn } = {},
 ): Promise<ZatcaAdapterSummary> {
   try {
 
@@ -109,43 +151,64 @@ export async function runZatcaAdapterAs(
     if (networkBase && !tenantEnvironment) return { success: false, error: "Unable to resolve the tenant's ZATCA environment." }
     const environment = tenantEnvironment ?? "sandbox"
     const sandbox = !networkBase
+    const scheduled = opts.scheduled
+    if (scheduled && sandbox) return { success: false, error: "The ZATCA gateway is unavailable for scheduled retry." }
 
     // ZATCA-relevant events for this tenant (any processing status — the
     // accounting dispatcher owns that column; our ledger is the idempotency
     // boundary). Purchase invoices are never transmitted.
     // Cursor-based pagination: process events in batches to handle tenants
     // with large volumes of unprocessed financial events.
-    let cursor: EventRow | null = null
-    const BATCH_SIZE = 200
-    const issuedThrough = new Date().toISOString()
+    // Hold the sweep's upper bound across scheduled turns. An advancing
+    // backlog must eventually wrap so failures in earlier pages get retried.
+    const savedScan = scheduled?.scan?.environment === environment ? scheduled.scan : null
+    let cursor: EventCursor | null = savedScan?.cursor ?? null
+    const issuedThrough = savedScan?.through ?? new Date().toISOString()
+    const manualPageSize = 200
+    let windowsLeft = SCHEDULED_WINDOWS_PER_TURN
+    let scheduledEventsLeft = SCHEDULED_EVENTS_PER_TURN
+    let sweepComplete = false
+    let pageRead = false
     let processed = 0
     let skipped = 0
     let failed = 0
     let inProgress = 0
     let lastError: string | null = null
+    let scheduledReadError: string | null = null
 
-    for (;;) {
-      let evQuery = admin
-        .from("financial_events")
-        .select("id,event_type,source_id,created_at")
-        .eq("tenant_id", currentUser.tenantId)
-        .in("event_type", [...ZATCA_EVENT_TYPES])
-        .lte("created_at", issuedThrough)
-        .order("created_at", { ascending: true })
-        .order("id", { ascending: true })
-        .limit(BATCH_SIZE)
-
-      if (cursor) {
-        const time = `"${cursor.created_at}"`
-        evQuery = evQuery.or(`created_at.gt.${time},and(created_at.eq.${time},id.gt.${cursor.id})`)
+    scanEvents: for (;;) {
+      let events: EventRow[]
+      let hasMore: boolean
+      let windowEnd: EventCursor | null = null
+      if (scheduled) {
+        if (windowsLeft === 0 || scheduledEventsLeft === 0 || Date.now() >= scheduled.stopAt) break
+        const { data, error } = await admin.rpc("list_zatca_scheduled_events", {
+          p_tenant: currentUser.tenantId, p_environment: environment, p_through: issuedThrough,
+          p_cursor_at: cursor?.created_at ?? null, p_cursor_id: cursor?.id ?? null, p_limit: SCHEDULED_WINDOW_SIZE,
+        })
+        if (error || !data) {
+          scheduledReadError = error
+            ? mapFinancialError(error.message)
+            : "Register an EGS issuance stream for this ZATCA environment before transmitting."
+          break
+        }
+        const window: ScheduledEventWindow = data
+        events = window.events
+        hasMore = window.has_more
+        windowEnd = window.after
+        windowsLeft--
+        pageRead = true
+      } else {
+        const { data, error } = await readManualEvents(admin, currentUser.tenantId, issuedThrough, cursor, manualPageSize, opts.sourceIds)
+        if (error) return { success: false, processed, skipped, failed, inProgress, sandbox, error: mapFinancialError(error.message) }
+        events = data ?? []
+        hasMore = events.length === manualPageSize
       }
-      // Manual "Send to ZATCA" for selected documents only.
-      if (opts.sourceIds) evQuery = evQuery.in("source_id", opts.sourceIds)
-
-      const { data: batch, error: evErr } = await evQuery
-      if (evErr) return { success: false, processed, skipped, failed, inProgress, sandbox, error: mapFinancialError(evErr.message) }
-      if (!batch || batch.length === 0) break
-      for (const ev of batch) {
+      for (const ev of events) {
+        if (scheduled) {
+          if (scheduledEventsLeft === 0 || Date.now() >= scheduled.stopAt) break scanEvents
+          scheduledEventsLeft--
+        }
         try {
           const outcome = await processEvent(admin, currentUser.tenantId, currentUser.authUserId, ev, networkBase ? environment : null)
           if (outcome === "processed") processed++
@@ -158,9 +221,13 @@ export async function runZatcaAdapterAs(
           failed++
           lastError = errorMessage(e)
         }
+        cursor = { id: ev.id, created_at: ev.created_at }
       }
-      if (batch.length < BATCH_SIZE) break
-      cursor = batch[batch.length - 1]
+      if (windowEnd) cursor = windowEnd
+      if (!hasMore) {
+        sweepComplete = true
+        break
+      }
     }
 
     if (opts.revalidate !== false) revalidatePath("/accounting")
@@ -176,11 +243,18 @@ export async function runZatcaAdapterAs(
         failed,
         in_progress: inProgress,
         sandbox,
-        last_error: lastError,
+        last_error: scheduledReadError ?? lastError,
       },
     })
 
-    return { success: true, processed, skipped, failed, inProgress, sandbox, error: lastError ?? undefined }
+    const scheduledProgress = scheduled && pageRead
+      ? { scan: sweepComplete ? null : { environment, through: issuedThrough, cursor } }
+      : undefined
+    return {
+      success: !scheduledReadError, processed, skipped, failed, inProgress, sandbox,
+      error: scheduledReadError ?? lastError ?? undefined,
+      ...(scheduledProgress ? { scheduledProgress } : {}),
+    }
   } catch (e) {
     return { success: false, error: errorMessage(e) }
   }
@@ -208,16 +282,16 @@ async function processEvent(
   // specific credit/debit note — several notes may reference one invoice).
   const { data: existing, error: transmissionReadError } = await admin
     .from("zatca_transmissions")
-    .select("id,status,environment:response->>environment")
+    .select("id,status,environment:response->>environment,mock:response->mock,sandbox:response->sandbox")
     .eq("tenant_id", tenantId)
     .eq("doc_type", docType)
     .eq("source_id", ev.source_id)
-    .maybeSingle<{ id: string; status: string; environment?: string | null }>()
+    .maybeSingle<{ id: string; status: string; environment?: string | null; mock?: boolean; sandbox?: boolean }>()
   if (transmissionReadError) throw new Error("Unable to verify the previous ZATCA transmission.")
   // Accepted in THIS environment = done. A mock or other-environment
   // acceptance is not evidence for the configured gateway.
   if (existing && (existing.status === "reported" || existing.status === "cleared")
-    && (!networkEnvironment || existing.environment === networkEnvironment)) {
+    && (!networkEnvironment || (existing.environment === networkEnvironment && existing.mock !== true && existing.sandbox !== true))) {
     return "skipped"
   }
 
@@ -360,7 +434,11 @@ async function processEvent(
  * finalized a document lacks accounting:approve. The operator's grant is
  * re-checked on every run; revoked/inactive operators stop automation.
  */
-export async function runZatcaForTenant(tenantId: string, sourceId?: string): Promise<ZatcaAdapterSummary & { operator?: boolean }> {
+export async function runZatcaForTenant(
+  tenantId: string,
+  sourceId?: string,
+  scheduled?: ScheduledZatcaTurn,
+): Promise<ZatcaAdapterSummary & { operator?: boolean }> {
   if (!integrationAvailable("zatca")) return { success: false, error: "ZATCA integration is not enabled." }
   const admin = createAdminClient()
   const { data: automation } = await admin
@@ -372,7 +450,7 @@ export async function runZatcaForTenant(tenantId: string, sourceId?: string): Pr
   const { data: authorized, error } = await admin.rpc("zatca_operator_authorized", { p_tenant: tenantId, p_user: automation.operator_id })
   if (error || authorized !== true) return { success: false, operator: false, error: "The registered ZATCA operator is no longer authorized." }
   const summary = await runZatcaAdapterAs({ tenantId, authUserId: automation.operator_id }, {
-    revalidate: false, sourceIds: sourceId ? [sourceId] : undefined,
+    revalidate: false, sourceIds: sourceId ? [sourceId] : undefined, scheduled,
   })
   await admin.from("zatca_automation").update({
     last_run_at: new Date().toISOString(),
