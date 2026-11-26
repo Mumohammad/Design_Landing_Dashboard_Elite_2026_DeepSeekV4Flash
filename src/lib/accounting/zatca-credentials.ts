@@ -13,11 +13,21 @@ export async function getZatcaCsidCredential(
   await requirePermission("accounting", "approve")
   const user = await getCurrentUser()
   if (!user || user.tenantId !== tenantId) throw new Error("Forbidden ZATCA credential access.")
-  const admin = createAdminClient()
+  return readAuthorizedZatcaCsidCredential(createAdminClient(), user.tenantId, environment, kind)
+}
+
+// Internal read for callers that already verified accounting approval for this
+// tenant, including the scheduled operator who has no browser session.
+export async function readAuthorizedZatcaCsidCredential(
+  admin: ReturnType<typeof createAdminClient>,
+  tenantId: string,
+  environment: ZatcaCsidEnvironment,
+  kind: ZatcaCsidKind,
+): Promise<{ csidBase64: string; secret: string; privateKeyPem: string | null } | null> {
   const { data, error } = await admin
     .from("zatca_csids")
     .select("csid_base64,secret,private_key")
-    .eq("tenant_id", user.tenantId)
+    .eq("tenant_id", tenantId)
     .eq("environment", environment)
     .eq("kind", kind)
     .eq("status", "issued")

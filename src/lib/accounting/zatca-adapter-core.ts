@@ -33,7 +33,6 @@ import { writeAuditLog } from "@/lib/auth/sessions"
 import { mapFinancialError } from "@/lib/accounting/csv-utils"
 import { buildZatcaUblInvoice, type ZatcaInvoiceData } from "./zatca-ubl"
 import { transmitToZatca } from "./zatca-transport"
-import { getZatcaCsidCredential } from "./zatca-credentials"
 import { getZatcaNetworkBase } from "./zatca-config"
 import { resolveTenantZatcaEnvironment } from "./zatca-environment"
 import { prepareZatcaDocumentAs, type ZatcaActor } from "./zatca-issuance"
@@ -101,17 +100,13 @@ export async function runZatcaAdapterAs(
       p_tenant: currentUser.tenantId, p_user: currentUser.authUserId,
     })
     if (authorizationError || authorized !== true) return { success: false, error: "The ZATCA operator is no longer authorized." }
-    // Effective sandbox mode. The transport performs a REAL POST only when a
-    // gateway base URL is configured AND credentials resolve (stored tenant
-    // CSID first, env fallback — see zatca-transport.ts resolveCredentials).
-    // Mirror that decision here so the audit log / UI flash can never report
-    // "not sandbox" while the transport is actually returning the mock.
+    // The configured gateway uses the signed submission path. That path
+    // loads a credential for the authorized tenant only when it needs to send.
     const tenantEnvironment = await resolveTenantZatcaEnvironment(admin, currentUser.tenantId)
     if (tenantEnvironment === "production") return { success: false, error: "ZATCA production submission is disabled." }
     const networkBase = getZatcaNetworkBase(tenantEnvironment ?? undefined)
     if (networkBase && !tenantEnvironment) return { success: false, error: "Unable to resolve the tenant's ZATCA environment." }
     const environment = tenantEnvironment ?? "sandbox"
-    const storedCsid = networkBase ? await getZatcaCsidCredential(environment, "production", currentUser.tenantId) : null
     const sandbox = !networkBase
 
     // ZATCA-relevant events for this tenant (any processing status — the
@@ -150,7 +145,7 @@ export async function runZatcaAdapterAs(
       if (!batch || batch.length === 0) break
       for (const ev of batch) {
         try {
-          const outcome = await processEvent(admin, currentUser.tenantId, currentUser.authUserId, ev, storedCsid, networkBase ? environment : null)
+          const outcome = await processEvent(admin, currentUser.tenantId, currentUser.authUserId, ev, networkBase ? environment : null)
           if (outcome === "processed") processed++
           else if (outcome === "skipped") skipped++
           else failed++
@@ -192,7 +187,6 @@ async function processEvent(
   tenantId: string,
   authUserId: string,
   ev: EventRow,
-  storedCsid: { csidBase64: string; secret: string; privateKeyPem: string | null } | null,
   networkEnvironment: "sandbox" | "simulation" | "production" | null
 ): Promise<Outcome> {
   const actor: ZatcaActor = { tenantId, authUserId }
@@ -297,7 +291,7 @@ async function processEvent(
       errors: result.errors ?? [],
     }
     if (status === "failed" || status === "rejected") failure = result.error ?? "Rejected by ZATCA validation."
-    if (status === "failed") transmittedAt = null
+    transmittedAt = status === "failed" ? null : result.transmittedAt ?? transmittedAt
   } else {
     // Offline mock (no gateway configured): unsigned preview payload only,
     // classified as mock evidence by the transport response.
@@ -330,7 +324,6 @@ async function processEvent(
       xml,
       pipeline: invoiceKind === "standard" ? "clearance" : "reporting",
       docRef,
-      ...(storedCsid ? { credentials: storedCsid } : {}),
     })
     status = response.status
     zatcaUuid = response.uuid

@@ -9,7 +9,7 @@ import { writeAuditLog } from "@/lib/auth/sessions"
 import { getZatcaNetworkBase } from "./zatca-config"
 import { resolveTenantZatcaEnvironment } from "./zatca-environment"
 import { certificateFromToken } from "./zatca-cert"
-import { getZatcaCsidCredential } from "./zatca-credentials"
+import { readAuthorizedZatcaCsidCredential } from "./zatca-credentials"
 import { signZatcaInvoice, ZatcaSigningError } from "./zatca-signer"
 import { transmitToZatca, ZatcaTransportError, type ZatcaPipeline, type ZatcaValidationMessage } from "./zatca-transport"
 
@@ -20,9 +20,25 @@ export interface ZatcaSubmissionResult {
   warnings?: ZatcaValidationMessage[]
   errors?: ZatcaValidationMessage[]
   error?: string
+  transmittedAt?: string
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+function submissionResult(
+  status: NonNullable<ZatcaSubmissionResult["status"]>,
+  pipeline: ZatcaPipeline,
+  response: Record<string, unknown>,
+): ZatcaSubmissionResult {
+  const validation = (response.validationResults ?? {}) as { warningMessages?: ZatcaValidationMessage[]; errorMessages?: ZatcaValidationMessage[] }
+  return {
+    success: status !== "rejected",
+    status,
+    pipeline,
+    warnings: validation.warningMessages ?? [],
+    errors: validation.errorMessages ?? [],
+  }
+}
 
 /** Riyadh wall-clock time, YYYY-MM-DDTHH:mm:ss, for xades:SigningTime. */
 function riyadhNow(): string {
@@ -60,11 +76,37 @@ export async function submitPreparedZatcaDocumentAs(
     if (error || !issuance) return { success: false, error: "Prepared document not found." }
     if (issuance.environment !== environment) return { success: false, error: "The document was prepared for another ZATCA environment." }
 
-    const credential = await getZatcaCsidCredential(environment, mode === "compliance" ? "compliance" : "production", user.tenantId)
-    if (!credential?.privateKeyPem) return { success: false, error: "Issue a CSID with its private key before submitting." }
-
     const simplified = /<cbc:InvoiceTypeCode name="02/.test(issuance.unsigned_xml)
     const pipeline: ZatcaPipeline = mode === "compliance" ? "compliance" : simplified ? "reporting" : "clearance"
+    if (pipeline !== "compliance") {
+      const acceptedStatus = pipeline === "reporting" ? "reported" : "cleared"
+      const { data: accepted, error: attemptError } = await admin
+        .from("zatca_submission_attempts")
+        .select("response,created_at")
+        .eq("tenant_id", user.tenantId)
+        .eq("issuance_id", issuance.id)
+        .eq("environment", environment)
+        .eq("invoice_hash", issuance.invoice_hash)
+        .eq("pipeline", pipeline)
+        .eq("status", acceptedStatus)
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
+        .limit(1)
+        .maybeSingle<{ response: Record<string, unknown>; created_at: string }>()
+      if (attemptError) return { success: false, pipeline, error: "Unable to verify the previous ZATCA submission." }
+      // A previous attempt may have retained acceptance before the adapter
+      // could save the source document's status. Return that durable result.
+      if (accepted) {
+        return {
+          ...submissionResult(acceptedStatus, pipeline, accepted.response),
+          transmittedAt: accepted.created_at,
+        }
+      }
+    }
+
+    const credential = await readAuthorizedZatcaCsidCredential(admin, user.tenantId, environment, mode === "compliance" ? "compliance" : "production")
+    if (!credential?.privateKeyPem) return { success: false, error: "Issue a CSID with its private key before submitting." }
+
     const signed = signZatcaInvoice({
       environment,
       kind: simplified ? "simplified" : "standard",
@@ -126,14 +168,7 @@ export async function submitPreparedZatcaDocumentAs(
     })
 
     if (status === "failed") return { success: false, pipeline, error: `ZATCA gateway unavailable (${errorCode}).` }
-    const validation = (raw.validationResults ?? {}) as { warningMessages?: ZatcaValidationMessage[]; errorMessages?: ZatcaValidationMessage[] }
-    return {
-      success: status !== "rejected",
-      status,
-      pipeline,
-      warnings: validation.warningMessages ?? [],
-      errors: validation.errorMessages ?? [],
-    }
+    return submissionResult(status, pipeline, raw)
   } catch (e) {
     if (e instanceof ZatcaSigningError) return { success: false, error: e.message }
     return { success: false, error: e instanceof Error ? e.message : "Unexpected error." }

@@ -45,7 +45,7 @@ const mocks = vi.hoisted(() => ({
     invoice_hash: "HASH",
     unsigned_xml: "<Invoice prepared/>",
   })),
-  submitPreparedZatcaDocument: vi.fn(async (_id: string, _mode: string): Promise<Record<string, unknown>> => ({
+  submitPreparedZatcaDocument: vi.fn(async (_actor: { tenantId: string; authUserId: string }, _id: string, _mode: string): Promise<Record<string, unknown>> => ({
     success: true,
     status: "cleared",
     pipeline: "clearance",
@@ -86,14 +86,13 @@ vi.mock("./zatca-transport", () => ({
 
 vi.mock("server-only", () => ({}))
 
-// The adapter core calls the actor-based primitives; drop the actor argument
-// so assertions keep checking the document arguments.
+// Preserve the preparation mock's document-focused argument list.
 vi.mock("./zatca-issuance", () => ({
   prepareZatcaDocumentAs: (_actor: unknown, ...args: unknown[]) => (mocks.prepareZatcaDocument as (...a: unknown[]) => unknown)(...args),
 }))
 
 vi.mock("./zatca-submission-core", () => ({
-  submitPreparedZatcaDocumentAs: (_actor: unknown, ...args: unknown[]) => (mocks.submitPreparedZatcaDocument as (...a: unknown[]) => unknown)(...args),
+  submitPreparedZatcaDocumentAs: mocks.submitPreparedZatcaDocument,
 }))
 
 vi.mock("next/cache", () => ({
@@ -319,13 +318,26 @@ describe("runZatcaAdapter — network mode uses the prepared, signed submission 
     expect(stream).toBe("33333333-3333-4333-8333-333333333333")
     expect(source).toBe(SOURCE_ID)
     expect(input).toMatchObject({ docType: "invoice", invoiceKind: "standard", invoiceNumber: "INV-1", deliveryDate: "2026-10-28" })
-    expect(mocks.submitPreparedZatcaDocument).toHaveBeenCalledWith("11111111-1111-4111-8111-111111111111", "submit")
+    expect(mocks.submitPreparedZatcaDocument).toHaveBeenCalledWith(CURRENT_USER, "11111111-1111-4111-8111-111111111111", "submit")
     expect(input).toMatchObject({ lines: [expect.objectContaining({ item_name: "Delivery service", description: "Delivery", unit_price: 100.1234 })] })
     expect(mocks.adminRpc).toHaveBeenCalledWith("record_zatca_transmission", expect.objectContaining({
       p_tenant: CURRENT_USER.tenantId, p_actor: CURRENT_USER.authUserId, p_source_type: "invoice", p_status: "cleared",
       p_source_id: SOURCE_ID, p_zatca_uuid: "11111111-1111-4111-8111-111111111111", p_payload_xml: "<Invoice prepared/>", p_error_message: null,
     }))
     expect(writes.filter(w => ["invoices", "zatca_transmissions"].includes(w.table))).toEqual([])
+  })
+
+  it("records the original acceptance time when the adapter recovers after a failed status write", async () => {
+    const transmittedAt = "2026-11-24T12:34:56.000Z"
+    mocks.submitPreparedZatcaDocument.mockResolvedValueOnce({
+      success: true, status: "cleared", pipeline: "clearance", transmittedAt,
+    })
+    networkAdmin()
+
+    expect(await runZatcaAdapter()).toMatchObject({ processed: 1, failed: 0 })
+    expect(mocks.adminRpc).toHaveBeenCalledWith("record_zatca_transmission", expect.objectContaining({
+      p_status: "cleared", p_transmitted_at: transmittedAt,
+    }))
   })
 
   it("fails closed (no preparation) when the seller National Address is incomplete", async () => {
@@ -470,10 +482,18 @@ describe("runZatcaForTenant — scheduled backstop on behalf of the registered o
   })
 
   it("submits pending documents as the operator and records the run", async () => {
+    mocks.getCurrentUser.mockResolvedValue(null)
+    mocks.getZatcaCsidCredential.mockRejectedValueOnce(new Error("No browser session"))
     const writes = networkAdmin({ zatca_automation: { operator_id: "auth-9", enabled: true } })
     const res = await runZatcaForTenant("tenant-0001")
     expect(res).toMatchObject({ success: true, processed: 1, operator: true })
     expect(mocks.getCurrentUser).not.toHaveBeenCalled()
+    expect(mocks.getZatcaCsidCredential).not.toHaveBeenCalled()
+    expect(mocks.submitPreparedZatcaDocument).toHaveBeenCalledWith(
+      { tenantId: "tenant-0001", authUserId: "auth-9" },
+      "11111111-1111-4111-8111-111111111111",
+      "submit",
+    )
     expect(writes.find((w) => w.table === "zatca_automation")?.value).toMatchObject({ last_result: { success: true, processed: 1 } })
     expect(mocks.adminRpc).toHaveBeenCalledWith("record_zatca_transmission",expect.objectContaining({p_actor:"auth-9",p_tenant:"tenant-0001"}))
   })
