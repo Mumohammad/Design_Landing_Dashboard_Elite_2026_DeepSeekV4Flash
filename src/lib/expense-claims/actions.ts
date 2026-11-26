@@ -202,6 +202,19 @@ export async function exportExpenseClaims(rawFilters: ClaimFilters, markExported
     const filters = sanitizeFilters(rawFilters)
     const client = await createClient()
     const [all, settings] = await Promise.all([readCompleteClaims(client), getClaimSettings()])
+    // Each page has its own database snapshot. Verify the complete visible
+    // set before filtering, including claims that did not match on their page.
+    const digest = createHash("sha256")
+    for (const { id, export_revision } of [...all].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)) {
+      digest.update(id).update(export_revision)
+    }
+    const snapshot = await client.rpc("expense_claims_verify_export_snapshot", {
+      p_expected_count: all.length, p_expected_sha256: digest.digest("hex"),
+    })
+    if (snapshot.error) return failFrom(snapshot.error)
+    if (snapshot.data !== true) {
+      return fail("The claims changed while preparing the export. Refresh and try again.", "تغيرت المطالبات أثناء إعداد التصدير. حدّث البيانات وحاول مرة أخرى.")
+    }
     const names = await visibleClaimNames(me, all)
     const claims = filterClaims(all, filters, names)
     if (claims.length === 0) return fail("No claims match the current filters.", "لا توجد مطالبات مطابقة لعوامل التصفية الحالية.")

@@ -25,13 +25,26 @@ const driverRows = Array.from({ length: 1251 }, (_, i) => ({
   iqama_expiry_date: null, license_expiry_date: null,
 }))
 
+const roundingRuns = [
+  { id: "latest-run", month_key: "2026-11", total_drivers: 3, total_net: 290.014 },
+  { id: "historical-run", month_key: "2026-09", total_drivers: 2, total_net: 200.01 },
+]
+const roundingResults = roundingRuns.flatMap(run => Array.from({ length: run.total_drivers }, (_, i) => ({
+  id: `${run.id}-${i}`, run_id: run.id, month_key: run.month_key, rider_id: `rider-${i}`,
+  gross_salary: i === 2 ? 100.005 : 110.005, final_net_salary: i === 2 ? 90.004 : 100.005,
+})))
+
 function query(table: string) {
   let head = false
   let limit = 1000
-  const rows = table === "drivers" ? driverRows
+  let rows = table === "drivers" ? driverRows
     : table === "driver_payroll_periods" && mocks.fault === "fractional-payroll"
       ? [{ id: "period-1", driver_id: "analytics-driver-0", period_year: 2026, period_month: 11,
         total_earnings: 0.45, total_deductions: 0.20, orders_bonus: 0.10, net_payroll: 0.25 }]
+    : table === "payroll_engine_runs" && mocks.fault === "engine-rounding" ? roundingRuns
+    : table === "payroll_engine_results" && mocks.fault === "engine-rounding" ? roundingResults
+    : table === "daily_order_entries" && mocks.fault === "engine-rounding"
+      ? roundingRuns.map(run => ({ id: run.id, entry_date: `${run.month_key}-01`, gross_revenue: 300 }))
       : []
   const chain = {
     select: (columns: string, options?: { head?: boolean; count?: string }) => {
@@ -43,7 +56,10 @@ function query(table: string) {
     eq: (...args: unknown[]) => record("eq", args),
     gte: (...args: unknown[]) => record("gte", args),
     lte: (...args: unknown[]) => record("lte", args),
-    in: (...args: unknown[]) => record("in", args),
+    in: (column: string, values: string[]) => {
+      if (table === "payroll_engine_results" && column === "run_id") rows = roundingResults.filter(row => values.includes(row.run_id))
+      return record("in", [column, values])
+    },
     order: (...args: unknown[]) => record("order", args),
     limit: (size: number) => { limit = size; return record("limit", [size]) },
     range: async (from: number, to: number) => {
@@ -90,6 +106,14 @@ beforeEach(() => {
 const filters = { period: "30d", platform: "all", category: "all" } as const
 
 describe("complete dashboard data", () => {
+  it("reconciles approved engine payroll with payable rounding in the summary and trend", async () => {
+    mocks.fault = "engine-rounding"
+    const snapshot = await getDashboardSnapshot({ ...filters, period: "12m" })
+    expect(snapshot.payroll).toMatchObject({ period: "2026-11", gross: 320.03, deductions: 30.01, net: 290.02 })
+    expect(snapshot.trends.revenue).toMatchObject([
+      { date: "2026-09", payroll: 200.02 }, { date: "2026-11", payroll: 290.02 },
+    ])
+  })
   it("preserves approved payroll below one riyal in the summary and driver breakdown", async () => {
     mocks.fault = "fractional-payroll"
     const snapshot = await getDashboardSnapshot(filters)

@@ -40,6 +40,16 @@ CREATE TEMP TABLE export_input AS SELECT
   clock_timestamp() AS prepared_at;
 GRANT SELECT ON export_input TO authenticated;
 
+CREATE TEMP TABLE export_snapshot_input AS
+  SELECT scope, count(*)::integer AS rows,
+    encode(sha256(convert_to(string_agg(id::text || export_revision::text, '' ORDER BY id), 'UTF8')), 'hex') AS digest
+  FROM (
+    SELECT 'tenant' AS scope, id, export_revision FROM public.expense_claims WHERE claim_no IN ('EXP-OWN', 'EXP-SCOPED')
+    UNION ALL
+    SELECT 'own', id, export_revision FROM public.expense_claims WHERE claim_no = 'EXP-SCOPED'
+  ) AS claims GROUP BY scope;
+GRANT SELECT ON export_snapshot_input TO authenticated;
+
 CREATE FUNCTION pg_temp.try_export(claims jsonb, evidence jsonb,
   request_id uuid DEFAULT '17600000-0000-4000-8000-000000000099', mark boolean DEFAULT true,
   digest text DEFAULT repeat('a',64)) RETURNS integer LANGUAGE sql AS $$
@@ -50,8 +60,14 @@ SELECT ok(NOT has_function_privilege('authenticated','public.expense_claims_reco
   'clients cannot use the old unversioned mutation');
 SELECT ok(NOT has_function_privilege('anon','public.expense_claims_commit_export(uuid,timestamptz,boolean,jsonb,jsonb,text)','EXECUTE'),
   'anonymous users cannot register exports');
+SELECT ok(NOT has_function_privilege('anon','public.expense_claims_verify_export_snapshot(integer,text)','EXECUTE'),
+  'anonymous users cannot verify export snapshots');
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claims','{"role":"authenticated","sub":"17600000-0000-4000-8000-000000000001","aal":"aal2"}',true);
+SELECT ok((SELECT public.expense_claims_verify_export_snapshot(rows,digest) FROM export_snapshot_input WHERE scope='tenant'),
+  'snapshot matches the whole visible tenant and excludes foreign claims');
+SELECT ok(NOT public.expense_claims_verify_export_snapshot(2,repeat('a',64)),
+  'the visible count alone cannot match independently paginated claims');
 SELECT throws_like($$SELECT pg_temp.try_export(claims || jsonb_build_array(foreign_claim), evidence) FROM export_input$$,
   '%EXC_EXPORT_CONFLICT%', 'mixed cross-tenant selection fails in full');
 SELECT throws_like($$SELECT pg_temp.try_export(claims || jsonb_build_array(claims->0), evidence) FROM export_input$$,
@@ -68,6 +84,10 @@ SELECT throws_like($$SELECT pg_temp.try_export(claims, evidence, digest => 'bad'
   '%EXC001%', 'invalid workbook digest rejected');
 
 SELECT set_config('request.jwt.claims','{"role":"authenticated","sub":"17600000-0000-4000-8000-000000000003","aal":"aal2"}',true);
+SELECT ok((SELECT public.expense_claims_verify_export_snapshot(rows,digest) FROM export_snapshot_input WHERE scope='own'),
+  'own-read visibility is preserved when verifying a snapshot');
+SELECT ok(NOT (SELECT public.expense_claims_verify_export_snapshot(rows,digest) FROM export_snapshot_input WHERE scope='tenant'),
+  'own-read cannot verify a different actor claim set');
 SELECT throws_like($$SELECT pg_temp.try_export(claims, evidence) FROM export_input$$,
   '%EXC_EXPORT_CONFLICT%', 'export plus own-read cannot access a colleague claim');
 SELECT is((SELECT pg_temp.try_export(jsonb_build_array(claims->1),'[]','17600000-0000-4000-8000-000000000088',false) FROM export_input),
@@ -89,6 +109,8 @@ UPDATE export_input SET evidence=(SELECT jsonb_agg(to_jsonb(s)) FROM (SELECT id,
   FROM public.expense_claim_attachments WHERE id='17600000-0000-4000-8000-000000000020') s);
 UPDATE public.expense_claims SET duplicate_status='possible' WHERE id='17600000-0000-4000-8000-000000000010';
 SET LOCAL ROLE authenticated;
+SELECT ok(NOT (SELECT public.expense_claims_verify_export_snapshot(rows,digest) FROM export_snapshot_input WHERE scope='tenant'),
+  'a claim changed after pagination invalidates the prior snapshot at the same count');
 SELECT throws_like($$SELECT pg_temp.try_export(claims, evidence) FROM export_input$$,
   '%EXC_EXPORT_CONFLICT%', 'duplicate refresh invalidates export even without a workflow version increment');
 RESET ROLE;
@@ -131,6 +153,8 @@ DELETE FROM public.role_permissions rp USING public.roles r, public.permissions 
     AND r.name='accountant' AND p.module='expense_claims' AND p.action='export';
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claims','{"role":"authenticated","sub":"17600000-0000-4000-8000-000000000003","aal":"aal2"}',true);
+SELECT throws_like($$SELECT public.expense_claims_verify_export_snapshot(rows,digest) FROM export_snapshot_input WHERE scope='own'$$,
+  '%AUTH007%', 'revoked export permission blocks snapshot verification');
 SELECT throws_like($$SELECT pg_temp.try_export(jsonb_build_array(claims->1),'[]','17600000-0000-4000-8000-000000000088',false) FROM export_input$$,
   '%AUTH007%', 'revoked export permission blocks even an exact own-claim replay');
 RESET ROLE;

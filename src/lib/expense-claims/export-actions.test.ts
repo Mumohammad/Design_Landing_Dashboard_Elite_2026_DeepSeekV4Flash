@@ -1,8 +1,9 @@
+import { createHash } from "node:crypto"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { DEFAULT_SETTINGS } from "./constants"
 
 const m = vi.hoisted(() => ({
-  claims: vi.fn(), names: vi.fn(), attachments: vi.fn(), rpc: vi.fn(),
+  claims: vi.fn(), names: vi.fn(), attachments: vi.fn(), rpc: vi.fn(), snapshot: vi.fn(),
   workbook: vi.fn(), allow: vi.fn(), adminFrom: vi.fn(),
 }))
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }))
@@ -12,7 +13,8 @@ vi.mock("@/lib/auth/authorization", () => ({
 vi.mock("@/lib/auth/rate-limit", () => ({ rateLimit: async () => ({ success: true }) }))
 vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => ({
-    rpc: m.rpc, from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: DEFAULT_SETTINGS, error: null }) }) }) }),
+    rpc: (name: string, args: unknown) => name === "expense_claims_verify_export_snapshot" ? m.snapshot(args) : m.rpc(name, args),
+    from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: DEFAULT_SETTINGS, error: null }) }) }) }),
   }),
 }))
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => ({ from: m.adminFrom }) }))
@@ -35,6 +37,7 @@ beforeEach(() => {
     data: { name_ar: "شركة", name_en: "Company" }, error: null,
   }) }) }) })
   m.rpc.mockResolvedValue({ data: 1, error: null })
+  m.snapshot.mockResolvedValue({ data: true, error: null })
   m.workbook.mockReturnValue(Uint8Array.of(80, 75))
 })
 
@@ -49,7 +52,28 @@ describe("expense workbook delivery", () => {
     const result = await exportExpenseClaims({}, true)
     expect(result).toMatchObject({ ok: true, base64: "UEs=", rows: 1, marked: 1 })
     expect(m.claims).toHaveBeenCalledTimes(1)
+    expect(m.snapshot).toHaveBeenCalledWith({
+      p_expected_count: 1,
+      p_expected_sha256: createHash("sha256").update(`${claim.id}${claim.export_revision}`).digest("hex"),
+    })
     expect(m.workbook.mock.invocationCallOrder[0]).toBeLessThan(m.rpc.mock.invocationCallOrder[0])
+  })
+
+  it("rejects mixed claim pages before filtering or saving a workbook", async () => {
+    const first = { ...claim, id: "claim-0", status: "submitted", export_revision: "before-approval" }
+    m.claims.mockResolvedValue([claim, first])
+    m.snapshot.mockResolvedValue({ data: false, error: null })
+    expect(await exportExpenseClaims({ status: ["approved"] }, true)).toMatchObject({
+      ok: false, error: expect.stringContaining("changed"),
+    })
+    expect(m.snapshot).toHaveBeenCalledWith({
+      p_expected_count: 2,
+      p_expected_sha256: createHash("sha256")
+        .update(`${first.id}${first.export_revision}${claim.id}${claim.export_revision}`).digest("hex"),
+    })
+    expect(m.names).not.toHaveBeenCalled()
+    expect(m.workbook).not.toHaveBeenCalled()
+    expect(m.rpc).not.toHaveBeenCalled()
   })
 
   it("withholds the file after a concurrent change", async () => {

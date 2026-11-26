@@ -21,7 +21,7 @@ import { rollupCodSessions } from "@/lib/payroll/payroll-utils"
 import { businessDateKey } from "@/lib/formatting/business-date"
 import { getFinancialKpis } from "@/lib/accounting/kpis"
 import { CACHE_TTL, cacheGet, cacheKey } from "@/lib/cache"
-import { decimalRound, sumMoneyValues } from "@/lib/accounting/decimal"
+import { decimalRound, sumMoney, sumMoneyValues } from "@/lib/accounting/decimal"
 import { buildMetric, mergePayrollTrend } from "./dashboard-utils"
 import type {
   ActivityEvent,
@@ -366,53 +366,60 @@ async function buildDashboardSnapshot(
   let latestPeriod: { year: number; month: number } | null = null
   let latestRows: typeof payrollRows = []
   let payrollTotals = { net: 0, previousNet: 0, gross: 0, bonuses: 0, deductions: 0, averageNet: 0 }
-  const payrollTrendRows: { period_year: number; period_month: number; net_payroll: number | null }[] = []
+  let payrollTrend: ReturnType<typeof mergePayrollTrend> = []
   const payrollFromYear = new Date().getFullYear() - 2
   try {
+    const payrollTrendRows: { period_year: number; period_month: number; net_payroll: number | null }[] = []
     const legacy = await readCompleteRows(() => supabase.from("driver_payroll_periods")
       .select("id, driver_id, period_year, period_month, orders_achieved, target_orders_monthly, orders_prorated_target, orders_bonus, total_earnings, total_deductions, net_payroll", { count: "exact" })
       .in("status", APPROVED_PAYROLL_STATUS).is("deleted_at", null)
       .gte("period_year", payrollFromYear).order("id", { ascending: true }))
     const engine = await readCompleteRows(() => supabase.from("payroll_engine_runs")
-      .select("id, month_key, total_net, total_drivers", { count: "exact" })
+      .select("id, month_key, total_drivers", { count: "exact" })
       .eq("status", "approved").gte("month_key", String(payrollFromYear) + "-01").order("id", { ascending: true }))
     if (legacy.error || engine.error || !legacy.data || !engine.data) throw Error("Payroll data unavailable")
     payrollRows.push(...legacy.data as typeof payrollRows)
     payrollTrendRows.push(...payrollRows)
-    for (const run of engine.data) {
-      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(run.month_key)) || !Number.isFinite(Number(run.total_net)) || !Number.isInteger(Number(run.total_drivers)) || Number(run.total_drivers) < 0) throw Error("Incomplete payroll summary")
+    const enginePeriods = engine.data.map(run => {
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(run.month_key)) || !Number.isInteger(run.total_drivers) || run.total_drivers < 0) throw Error("Incomplete payroll summary")
       const [year, month] = String(run.month_key).split("-").map(Number)
-      payrollTrendRows.push({ period_year: year, period_month: month, net_payroll: Number(run.total_net) })
-    }
-    for (const row of payrollTrendRows) {
+      return { id: String(run.id), period_year: year, period_month: month, totalDrivers: run.total_drivers }
+    })
+    for (const row of [...payrollRows, ...enginePeriods]) {
       if (!latestPeriod || row.period_year > latestPeriod.year || row.period_year === latestPeriod.year && row.period_month > latestPeriod.month) latestPeriod = { year: row.period_year, month: row.period_month }
     }
     if (latestPeriod) {
+      const current = latestPeriod
       const previous = latestPeriod.month === 1 ? { year: latestPeriod.year - 1, month: 12 } : { year: latestPeriod.year, month: latestPeriod.month - 1 }
-      const keys = [latestPeriod, previous].map(period => String(period.year) + "-" + String(period.month).padStart(2, "0"))
-      const selectedRuns = engine.data.filter(run => keys.includes(String(run.month_key)))
-      const monthByRun = new Map(selectedRuns.map(run => [String(run.id), String(run.month_key)]))
-      if (selectedRuns.length) {
+      const detailPeriods = [current, previous]
+      for (let i = 0; i < enginePeriods.length; i += 100) {
+        const runs = new Map(enginePeriods.slice(i, i + 100).map(run => [run.id, run]))
         const results = await readCompleteRows(() => supabase.from("payroll_engine_results")
-          .select("id, run_id, driver_id, rider_id, driver_name, completed_orders, gross_salary, final_net_salary, result", { count: "exact" })
-          .in("run_id", [...monthByRun.keys()]).order("id", { ascending: true }))
+          .select("id, run_id, driver_id, rider_id, driver_name, completed_orders, gross_salary, final_net_salary, adjusted_target:result->>adjustedTargetOrders, monthly_target:result->>appliedMonthlyTarget, bonus:result->>bonusAmount", { count: "exact" })
+          .in("run_id", [...runs.keys()]).order("id", { ascending: true }))
         if (results.error || !results.data) throw Error("Payroll results unavailable")
-        for (const run of selectedRuns) if (results.data.filter(row => row.run_id === run.id).length !== Number(run.total_drivers)) throw Error("Incomplete payroll results")
+        const counts = new Map<string, number>()
         for (const row of results.data) {
-          const monthKey = monthByRun.get(String(row.run_id))
-          const gross = Number(row.gross_salary), net = Number(row.final_net_salary)
-          if (!monthKey || !Number.isFinite(gross) || !Number.isFinite(net)) throw Error("Invalid payroll results")
-          const [year, month] = monthKey.split("-").map(Number)
-          const result = (row.result ?? {}) as Record<string, unknown>
-          const target = Number(result.adjustedTargetOrders ?? result.appliedMonthlyTarget ?? 0) || null
+          const run = runs.get(String(row.run_id))
+          if (!run || row.final_net_salary == null) throw Error("Invalid payroll results")
+          counts.set(run.id, (counts.get(run.id) ?? 0) + 1)
+          const { period_year: year, period_month: month } = run
+          // Match the payable journal and bank export, which round each rider.
+          const net = decimalRound(row.final_net_salary)
+          payrollTrendRows.push({ period_year: year, period_month: month, net_payroll: net })
+          if (!detailPeriods.some(period => period.year === year && period.month === month)) continue
+          if (row.gross_salary == null) throw Error("Invalid payroll results")
+          const gross = decimalRound(row.gross_salary)
+          const target = Number(row.adjusted_target ?? row.monthly_target ?? 0) || null
           const driverKey = row.driver_id as string | null ?? "rider:" + row.rider_id
           if (!driverNames.has(driverKey)) driverNames.set(driverKey, String(row.driver_name || row.rider_id))
           payrollRows.push({ driver_id: driverKey, period_year: year, period_month: month,
             orders_achieved: Number(row.completed_orders ?? 0), target_orders_monthly: target, orders_prorated_target: target,
-            orders_bonus: Number(result.bonusAmount ?? 0), total_earnings: gross, total_deductions: Math.round((gross - net) * 100) / 100, net_payroll: net })
+            orders_bonus: Number(row.bonus ?? 0), total_earnings: gross, total_deductions: sumMoney(gross, -net), net_payroll: net })
         }
+        for (const run of runs.values()) if ((counts.get(run.id) ?? 0) !== run.totalDrivers) throw Error("Incomplete payroll results")
       }
-      const current = latestPeriod
+      payrollTrend = mergePayrollTrend([], payrollTrendRows)
       latestRows = payrollRows.filter(r => r.period_year === current.year && r.period_month === current.month)
       const previousRows = payrollRows.filter(r => r.period_year === previous.year && r.period_month === previous.month)
       const net = sumMoneyValues(latestRows.map(r => r.net_payroll ?? 0))
@@ -429,24 +436,12 @@ async function buildDashboardSnapshot(
   } catch {
     // A combined payroll result is unavailable if either source is incomplete.
     payrollRows.length = 0
-    payrollTrendRows.length = 0
+    payrollTrend = []
     latestPeriod = null
     latestRows = []
     availability.payroll = false
   }
 
-
-  // Payroll period series (approved periods, monthly) merged by period key —
-  // payroll months without orders data appear; orders months without payroll
-  // keep payroll undefined. Neither side is zero-filled.
-  const payrollTrend = mergePayrollTrend(
-    [],
-    payrollTrendRows.map((r) => ({
-      period_year: r.period_year,
-      period_month: r.period_month,
-      net_payroll: r.net_payroll,
-    })),
-  )
   const aboveTarget = latestRows.filter(
     (r) => (r.orders_achieved ?? 0) - (r.orders_prorated_target ?? r.target_orders_monthly ?? 0) > 0,
   ).length
