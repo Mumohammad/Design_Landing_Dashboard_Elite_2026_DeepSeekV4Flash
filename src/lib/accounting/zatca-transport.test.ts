@@ -75,6 +75,29 @@ describe("non-production gateway submission", () => {
     expect(JSON.parse(String(init.body))).toEqual({ invoiceHash: signed.invoiceHash, uuid: signed.uuid, invoice: Buffer.from(signedXml).toString("base64") })
   })
 
+  it("aborts when the gateway sends headers but stalls while sending the response body", async () => {
+    sandbox()
+    vi.useFakeTimers()
+    let responseSignal: AbortSignal | null | undefined
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      responseSignal = init.signal
+      return {
+        status: 200,
+        json: () => new Promise((_, reject) => {
+          responseSignal?.addEventListener("abort", () => reject(new Error("synthetic cancelled body")), { once: true })
+        }),
+      }
+    }))
+    try {
+      const result = transmitToZatca({ ...signed, timeoutMs: 100 }).catch((error: unknown) => error)
+      await vi.advanceTimersByTimeAsync(100)
+      expect(responseSignal?.aborted).toBe(true)
+      expect(await result).toMatchObject({ code: "NETWORK", httpStatus: 200 })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("uses clearance and compliance endpoints and never trusts HTTP 2xx alone", async () => {
     sandbox()
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ validationResults: { status: "PASS" }, clearanceStatus: "NOT_CLEARED" }), { status: 200 }))

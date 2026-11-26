@@ -53,6 +53,7 @@ export type ZatcaAdapterSummary = {
   processed?: number
   skipped?: number
   failed?: number
+  inProgress?: number
   sandbox?: boolean
 }
 
@@ -120,6 +121,7 @@ export async function runZatcaAdapterAs(
     let processed = 0
     let skipped = 0
     let failed = 0
+    let inProgress = 0
     let lastError: string | null = null
 
     for (;;) {
@@ -141,14 +143,17 @@ export async function runZatcaAdapterAs(
       if (opts.sourceIds) evQuery = evQuery.in("source_id", opts.sourceIds)
 
       const { data: batch, error: evErr } = await evQuery
-      if (evErr) return { success: false, processed, skipped, failed, sandbox, error: mapFinancialError(evErr.message) }
+      if (evErr) return { success: false, processed, skipped, failed, inProgress, sandbox, error: mapFinancialError(evErr.message) }
       if (!batch || batch.length === 0) break
       for (const ev of batch) {
         try {
           const outcome = await processEvent(admin, currentUser.tenantId, currentUser.authUserId, ev, networkBase ? environment : null)
           if (outcome === "processed") processed++
           else if (outcome === "skipped") skipped++
-          else failed++
+          else if (outcome === "in_progress") {
+            inProgress++
+            skipped++
+          } else failed++
         } catch (e) {
           failed++
           lastError = errorMessage(e)
@@ -169,18 +174,19 @@ export async function runZatcaAdapterAs(
         processed,
         skipped,
         failed,
+        in_progress: inProgress,
         sandbox,
         last_error: lastError,
       },
     })
 
-    return { success: true, processed, skipped, failed, sandbox, error: lastError ?? undefined }
+    return { success: true, processed, skipped, failed, inProgress, sandbox, error: lastError ?? undefined }
   } catch (e) {
     return { success: false, error: errorMessage(e) }
   }
 }
 
-type Outcome = "processed" | "skipped" | "failed"
+type Outcome = "processed" | "skipped" | "in_progress" | "failed"
 
 async function processEvent(
   admin: ReturnType<typeof createAdminClient>,
@@ -278,6 +284,8 @@ async function processEvent(
       total,
     })
     const result = await submitPreparedZatcaDocumentAs(actor, prepared.id, "submit")
+    if (result.inProgress) return "in_progress"
+    if (result.unconfirmed) throw new Error(result.error ?? "Unable to confirm the ZATCA submission.")
     xml = prepared.unsigned_xml
     status = transmissionStatusFor(result)
     zatcaUuid = prepared.id
@@ -368,7 +376,7 @@ export async function runZatcaForTenant(tenantId: string, sourceId?: string): Pr
   })
   await admin.from("zatca_automation").update({
     last_run_at: new Date().toISOString(),
-    last_result: { success: summary.success, processed: summary.processed ?? 0, skipped: summary.skipped ?? 0, failed: summary.failed ?? 0, error: summary.error ?? null },
+    last_result: { success: summary.success, processed: summary.processed ?? 0, skipped: summary.skipped ?? 0, failed: summary.failed ?? 0, in_progress: summary.inProgress ?? 0, error: summary.error ?? null },
     updated_at: new Date().toISOString(),
   }).eq("tenant_id", tenantId)
   return { ...summary, operator: true }

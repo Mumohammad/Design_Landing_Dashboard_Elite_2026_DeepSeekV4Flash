@@ -21,6 +21,8 @@ export interface ZatcaSubmissionResult {
   errors?: ZatcaValidationMessage[]
   error?: string
   transmittedAt?: string
+  inProgress?: boolean
+  unconfirmed?: boolean
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -78,8 +80,8 @@ export async function submitPreparedZatcaDocumentAs(
 
     const simplified = /<cbc:InvoiceTypeCode name="02/.test(issuance.unsigned_xml)
     const pipeline: ZatcaPipeline = mode === "compliance" ? "compliance" : simplified ? "reporting" : "clearance"
+    const acceptedStatus = simplified ? "reported" : "cleared"
     if (pipeline !== "compliance") {
-      const acceptedStatus = pipeline === "reporting" ? "reported" : "cleared"
       const { data: accepted, error: attemptError } = await admin
         .from("zatca_submission_attempts")
         .select("response,created_at")
@@ -93,7 +95,9 @@ export async function submitPreparedZatcaDocumentAs(
         .order("id", { ascending: false })
         .limit(1)
         .maybeSingle<{ response: Record<string, unknown>; created_at: string }>()
-      if (attemptError) return { success: false, pipeline, error: "Unable to verify the previous ZATCA submission." }
+      if (attemptError) {
+        return { success: false, pipeline, unconfirmed: true, error: "Unable to verify the previous ZATCA submission." }
+      }
       // A previous attempt may have retained acceptance before the adapter
       // could save the source document's status. Return that durable result.
       if (accepted) {
@@ -115,6 +119,29 @@ export async function submitPreparedZatcaDocumentAs(
       signingTime: riyadhNow(),
     })
     if (signed.invoiceHash !== issuance.invoice_hash) return { success: false, error: "Prepared document hash mismatch." }
+
+    let claimToken: string | null = null
+    if (pipeline !== "compliance") {
+      const { data: claim, error: claimError } = await admin.rpc("claim_zatca_submission", {
+        p_tenant: user.tenantId,
+        p_actor: user.authUserId,
+        p_issuance: issuance.id,
+        p_environment: environment,
+        p_pipeline: pipeline,
+      })
+      if (claimError || !claim) return { success: false, pipeline, unconfirmed: true, error: "Unable to claim the ZATCA submission." }
+      if (claim.state === "busy") return { success: false, pipeline, inProgress: true, error: "A ZATCA submission is already in progress." }
+      if (claim.state === "accepted" && claim.response && typeof claim.created_at === "string") {
+        return {
+          ...submissionResult(acceptedStatus, pipeline, claim.response),
+          transmittedAt: claim.created_at,
+        }
+      }
+      if (claim.state !== "claimed" || typeof claim.token !== "string" || !UUID.test(claim.token)) {
+        return { success: false, pipeline, unconfirmed: true, error: "Unable to claim the ZATCA submission." }
+      }
+      claimToken = claim.token
+    }
 
     const uuid = issuance.unsigned_xml.match(/<cbc:UUID>([0-9a-f-]{36})<\/cbc:UUID>/i)?.[1]
     let status: "reported" | "cleared" | "rejected" | "failed" = "failed"
@@ -141,21 +168,34 @@ export async function submitPreparedZatcaDocumentAs(
       httpStatus = e instanceof ZatcaTransportError ? e.httpStatus ?? null : null
     }
 
-    const { error: evidenceError } = await admin.from("zatca_submission_attempts").insert({
-      tenant_id: user.tenantId,
-      issuance_id: issuance.id,
-      environment,
-      pipeline,
+    const attempt = {
       status,
       http_status: httpStatus,
-      invoice_hash: signed.invoiceHash,
       signed_xml: signed.signedXml,
       cleared_xml: clearedXml,
       response: raw,
       error_code: errorCode,
-      created_by: user.authUserId,
-    })
-    if (evidenceError) return { success: false, pipeline, error: "Unable to retain the ZATCA submission evidence. Retry with the same prepared document." }
+    }
+    const { data: recordedAt, error: evidenceError } = claimToken
+      ? await admin.rpc("finish_zatca_submission", {
+        p_tenant: user.tenantId,
+        p_actor: user.authUserId,
+        p_issuance: issuance.id,
+        p_token: claimToken,
+        p_attempt: attempt,
+      })
+      : await admin.from("zatca_submission_attempts").insert({
+        ...attempt,
+        tenant_id: user.tenantId,
+        issuance_id: issuance.id,
+        environment,
+        pipeline,
+        invoice_hash: signed.invoiceHash,
+        created_by: user.authUserId,
+      })
+    if (evidenceError || (claimToken && typeof recordedAt !== "string")) {
+      return { success: false, pipeline, unconfirmed: true, error: "Unable to retain the ZATCA submission evidence. Retry with the same prepared document." }
+    }
 
     await writeAuditLog({
       tenantId: user.tenantId,
@@ -168,7 +208,10 @@ export async function submitPreparedZatcaDocumentAs(
     })
 
     if (status === "failed") return { success: false, pipeline, error: `ZATCA gateway unavailable (${errorCode}).` }
-    return submissionResult(status, pipeline, raw)
+    return {
+      ...submissionResult(status, pipeline, raw),
+      ...(typeof recordedAt === "string" ? { transmittedAt: recordedAt } : {}),
+    }
   } catch (e) {
     if (e instanceof ZatcaSigningError) return { success: false, error: e.message }
     return { success: false, error: e instanceof Error ? e.message : "Unexpected error." }

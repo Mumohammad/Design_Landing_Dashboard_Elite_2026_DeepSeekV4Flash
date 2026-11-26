@@ -120,7 +120,32 @@ export async function verifyIssuanceLedger(sql) {
   assert.equal(new Set(acrossStreams.filter(r=>r.status==="fulfilled").map(r=>r.value.id)).size,1)
   assert.equal(await sql(`SELECT count(*) FROM public.zatca_document_issuances WHERE tenant_id='${tenant}' AND environment='simulation'`),"1")
   assert.equal(await sql(`SELECT sum(last_counter) FROM public.zatca_issuance_streams WHERE id IN ('${streams[0]}','${streams[1]}')`),"1")
-  console.log("PASS: issuance replay/concurrent allocation, contiguous PIH chain, independent credit/debit notes, rollback on invalid artifacts, immutable evidence, tenant RLS and service-only writes; financial totals unchanged")
+
+  stage="concurrent submission claims and completion"
+  const claimedIssuance = replay[0].id
+  const claim = async () => {
+    const output = await sql(`BEGIN; SET LOCAL ROLE service_role;
+      SELECT public.claim_zatca_submission(${literal(tenant)},${literal(actor)},${literal(claimedIssuance)},'sandbox','reporting');
+      SELECT pg_sleep(0.1); COMMIT;`)
+    return JSON.parse(output.split("\n")[0])
+  }
+  const claims = await Promise.all(Array.from({length: 4}, claim))
+  const winners = claims.filter(result => result.state === "claimed")
+  assert.equal(winners.length, 1)
+  assert.equal(claims.filter(result => result.state === "busy").length, 3)
+  const finish = () => sql(`BEGIN; SET LOCAL ROLE service_role;
+    SELECT to_jsonb(public.finish_zatca_submission(
+      ${literal(tenant)},${literal(actor)},${literal(claimedIssuance)},${literal(winners[0].token)},
+      '{"status":"reported","http_status":200,"signed_xml":"<Invoice>synthetic signed evidence</Invoice>","response":{"synthetic":true}}'
+    )); SELECT pg_sleep(0.1); COMMIT;`)
+  const [completions, concurrentReplay] = await Promise.all([Promise.allSettled([finish(), finish()]), claim()])
+  assert.equal(completions.filter(result => result.status === "fulfilled").length, 1)
+  assert.match(completions.find(result => result.status === "rejected").reason.message, /ZTC_CLAIM/)
+  const acceptedAt = JSON.parse(completions.find(result => result.status === "fulfilled").value.split("\n")[0])
+  assert.ok(["busy", "accepted"].includes(concurrentReplay.state))
+  assert.deepEqual(await claim(), { state: "accepted", response: { synthetic: true }, created_at: acceptedAt })
+  assert.equal(await sql(`SELECT count(*) FROM public.zatca_submission_attempts WHERE issuance_id=${literal(claimedIssuance)}`), "1")
+  console.log("PASS: issuance allocation and replay, contiguous PIH chain, independent notes, immutable evidence, tenant boundaries, one concurrent submission claim and one retained acceptance; financial totals unchanged")
   } catch(error) { error.verificationStage=stage; throw error }
 }
 

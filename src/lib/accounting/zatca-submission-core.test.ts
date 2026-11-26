@@ -17,6 +17,8 @@ import { submitPreparedZatcaDocumentAs } from "./zatca-submission-core"
 const actor={tenantId:"15700000-0000-4000-8000-000000000001",authUserId:"15700000-0000-4000-8000-000000000002"}
 const id="15700000-0000-4000-8000-000000000003"
 const issuance={id,tenant_id:actor.tenantId,environment:"sandbox",doc_ref:"SYNTHETIC",invoice_hash:"stored hash",unsigned_xml:`<Invoice><cbc:UUID>${id}</cbc:UUID><cbc:InvoiceTypeCode name="0200000">388</cbc:InvoiceTypeCode></Invoice>`}
+const token = "15700000-0000-4000-8000-000000000099"
+const recordedAt = "2026-11-26T18:00:00.000Z"
 let insert:ReturnType<typeof vi.fn>,eq:ReturnType<typeof vi.fn>,issuanceRead:ReturnType<typeof vi.fn>
 let credentialRead:ReturnType<typeof vi.fn>,credentialEq:ReturnType<typeof vi.fn>
 let evidenceRows: Record<string, unknown>[]
@@ -24,7 +26,12 @@ let evidenceReadError: { message: string } | null
 let evidenceFilters: Record<string, unknown>
 beforeEach(()=>{
   vi.clearAllMocks()
-  mocks.rpc.mockResolvedValue({data:true,error:null})
+  mocks.rpc.mockReset().mockImplementation(async (name: string) => {
+    if (name === "zatca_operator_authorized") return { data: true, error: null }
+    if (name === "claim_zatca_submission") return { data: { state: "claimed", token }, error: null }
+    if (name === "finish_zatca_submission") return { data: recordedAt, error: null }
+    throw new Error(`Unexpected RPC: ${name}`)
+  })
   mocks.environment.mockResolvedValue("sandbox")
   mocks.base.mockReturnValue("https://synthetic-gateway.test")
   mocks.session.mockRejectedValue(new Error("No browser session"))
@@ -106,7 +113,14 @@ describe("prepared submission authorization and persistence boundaries",()=>{
     ])
     expect(mocks.rpc.mock.invocationCallOrder[0]).toBeLessThan(mocks.environment.mock.invocationCallOrder[0])
     expect(mocks.environment).toHaveBeenCalledWith(expect.any(Object),actor.tenantId)
-    expect(insert).toHaveBeenCalledWith(expect.objectContaining({tenant_id:actor.tenantId,issuance_id:id,environment:"sandbox",pipeline:"reporting",status:"reported",signed_xml:"retained signed bytes",created_by:actor.authUserId}))
+    expect(mocks.rpc).toHaveBeenCalledWith("claim_zatca_submission", {
+      p_tenant: actor.tenantId, p_actor: actor.authUserId, p_issuance: id, p_environment: "sandbox", p_pipeline: "reporting",
+    })
+    expect(mocks.rpc).toHaveBeenCalledWith("finish_zatca_submission", {
+      p_tenant: actor.tenantId, p_actor: actor.authUserId, p_issuance: id, p_token: token,
+      p_attempt: expect.objectContaining({ status: "reported", signed_xml: "retained signed bytes" }),
+    })
+    expect(insert).not.toHaveBeenCalled()
   })
   it.each(["production",null])("stops unavailable %s environments before credentials or source bytes",async environment=>{
     mocks.environment.mockResolvedValue(environment)
@@ -131,8 +145,10 @@ describe("prepared submission authorization and persistence boundaries",()=>{
     expect(mocks.transmit).not.toHaveBeenCalled()
   })
   it("does not claim an accepted result if its submission evidence could not be retained",async()=>{
-    insert.mockResolvedValue({error:{message:"private database detail"}})
-    expect(await submitPreparedZatcaDocumentAs(actor,id)).toEqual({success:false,pipeline:"reporting",error:"Unable to retain the ZATCA submission evidence. Retry with the same prepared document."})
+    mocks.rpc.mockResolvedValueOnce({ data: true, error: null })
+      .mockResolvedValueOnce({ data: { state: "claimed", token }, error: null })
+      .mockResolvedValueOnce({ data: null, error: { message: "private database detail" } })
+    expect(await submitPreparedZatcaDocumentAs(actor,id)).toEqual({success:false,pipeline:"reporting",unconfirmed:true,error:"Unable to retain the ZATCA submission evidence. Retry with the same prepared document."})
     expect(mocks.audit).not.toHaveBeenCalled()
   })
   it("replays retained acceptance without fetching credentials or submitting a duplicate", async () => {
@@ -165,6 +181,59 @@ describe("prepared submission authorization and persistence boundaries",()=>{
     expect(credentialEq).toHaveBeenCalledWith("kind", "compliance")
     expect(mocks.transmit).toHaveBeenCalledWith(expect.objectContaining({ pipeline: "compliance" }))
     expect(insert).toHaveBeenCalledWith(expect.objectContaining({ pipeline: "compliance" }))
+    expect(mocks.rpc).not.toHaveBeenCalledWith("claim_zatca_submission", expect.anything())
+  })
+  it("allows only the worker holding the database claim to contact the gateway", async () => {
+    let claimed = false
+    mocks.rpc.mockImplementation(async (name: string) => {
+      if (name === "claim_zatca_submission") {
+        if (claimed) return { data: { state: "busy" }, error: null }
+        claimed = true
+        return { data: { state: "claimed", token }, error: null }
+      }
+      if (name === "finish_zatca_submission") return { data: recordedAt, error: null }
+      return { data: true, error: null }
+    })
+    let reply!: (response: { status: string; raw: Record<string, unknown> }) => void
+    const response = new Promise<{ status: string; raw: Record<string, unknown> }>(resolve => { reply = resolve })
+    let markStarted!: () => void
+    const started = new Promise<void>(resolve => { markStarted = resolve })
+    mocks.transmit.mockImplementationOnce(() => {
+      markStarted()
+      return response
+    })
+    const first = submitPreparedZatcaDocumentAs(actor, id)
+    await Promise.race([
+      started,
+      first.then(() => { throw new Error("The claimed worker completed before contacting the gateway.") }),
+    ])
+    try {
+      expect(await submitPreparedZatcaDocumentAs(actor, id)).toMatchObject({ inProgress: true })
+      expect(mocks.transmit).toHaveBeenCalledOnce()
+    } finally {
+      reply({ status: "reported", raw: { httpStatus: 200 } })
+      await first
+    }
+    expect(await first).toMatchObject({ success: true, status: "reported", transmittedAt: recordedAt })
+  })
+  it("uses acceptance that was retained while the worker prepared its signature", async () => {
+    mocks.rpc.mockResolvedValueOnce({ data: true, error: null })
+      .mockResolvedValueOnce({ data: { state: "accepted", response: reportedAttempt.response, created_at: recordedAt }, error: null })
+
+    expect(await submitPreparedZatcaDocumentAs(actor, id)).toMatchObject({
+      success: true, status: "reported", transmittedAt: recordedAt,
+    })
+    expect(mocks.transmit).not.toHaveBeenCalled()
+    expect(mocks.rpc).not.toHaveBeenCalledWith("finish_zatca_submission", expect.anything())
+  })
+  it("fails closed when the database cannot claim the submission", async () => {
+    mocks.rpc.mockResolvedValueOnce({ data: true, error: null })
+      .mockResolvedValueOnce({ data: null, error: { message: "private database detail" } })
+
+    expect(await submitPreparedZatcaDocumentAs(actor, id)).toMatchObject({
+      success: false, error: "Unable to claim the ZATCA submission.",
+    })
+    expect(mocks.transmit).not.toHaveBeenCalled()
   })
   it("submits when no accepted attempt matches the prepared document and reporting pipeline", async () => {
     evidenceRows = [
@@ -178,13 +247,13 @@ describe("prepared submission authorization and persistence boundaries",()=>{
 
     expect(await submitPreparedZatcaDocumentAs(actor, id)).toMatchObject({ success: true, status: "reported" })
     expect(mocks.transmit).toHaveBeenCalledOnce()
-    expect(insert).toHaveBeenCalledOnce()
+    expect(mocks.rpc).toHaveBeenCalledWith("finish_zatca_submission", expect.anything())
   })
   it("stops before sending when it cannot check retained evidence", async () => {
     evidenceReadError = { message: "private database detail" }
 
     expect(await submitPreparedZatcaDocumentAs(actor, id)).toEqual({
-      success: false, pipeline: "reporting", error: "Unable to verify the previous ZATCA submission.",
+      success: false, pipeline: "reporting", unconfirmed: true, error: "Unable to verify the previous ZATCA submission.",
     })
     expect(credentialRead).not.toHaveBeenCalled()
     expect(mocks.transmit).not.toHaveBeenCalled()

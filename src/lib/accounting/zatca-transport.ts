@@ -169,25 +169,29 @@ export async function transmitToZatca(input: ZatcaTransmitInput): Promise<ZatcaT
       cache: "no-store",
     })
   } catch {
-    throw new ZatcaTransportError("NETWORK")
-  } finally {
     clearTimeout(timer)
+    throw new ZatcaTransportError("NETWORK")
   }
 
-  if (response.status === 401 || response.status === 403) throw new ZatcaTransportError("UNAUTHORIZED", response.status)
-  if (response.status >= 500 || response.status === 429) throw new ZatcaTransportError("SERVER", response.status)
   let body: Record<string, unknown>
   try {
-    const parsed = (await response.json()) as unknown
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error()
-    body = parsed as Record<string, unknown>
-  } catch {
-    // Never echo the body: it may contain invoice or credential data.
-    throw new ZatcaTransportError("PROTOCOL", response.status)
+    if (response.status === 401 || response.status === 403) throw new ZatcaTransportError("UNAUTHORIZED", response.status)
+    if (response.status >= 500 || response.status === 429) throw new ZatcaTransportError("SERVER", response.status)
+    // 200 = accepted, 202 = accepted with warnings, 400 = rejected,
+    // 409 = already submitted (status in body).
+    if (![200, 202, 400, 409].includes(response.status)) throw new ZatcaTransportError("PROTOCOL", response.status)
+    try {
+      const parsed: unknown = await response.json()
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error()
+      body = parsed as Record<string, unknown>
+    } catch {
+      // Keep the deadline through the body read and never echo gateway data.
+      throw new ZatcaTransportError(controller.signal.aborted ? "NETWORK" : "PROTOCOL", response.status)
+    }
+  } finally {
+    clearTimeout(timer)
+    controller.abort()
   }
-  // 200 = accepted, 202 = accepted with warnings, 400 = rejected,
-  // 409 = already submitted (status in body). Anything else is a protocol fault.
-  if (![200, 202, 400, 409].includes(response.status)) throw new ZatcaTransportError("PROTOCOL", response.status)
 
   const status = zatcaStatusFromBody(input.pipeline, body)
   const cleared = typeof body.clearedInvoice === "string" && /^[A-Za-z0-9+/=]+$/.test(body.clearedInvoice) ? body.clearedInvoice : undefined

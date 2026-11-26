@@ -340,6 +340,25 @@ describe("runZatcaAdapter — network mode uses the prepared, signed submission 
     }))
   })
 
+  it("reports an in-flight manual submission without writing a failed transmission", async () => {
+    mocks.submitPreparedZatcaDocument.mockResolvedValueOnce({ success: false, inProgress: true, pipeline: "clearance" })
+    networkAdmin()
+
+    expect(await sendDocumentToZatca(SOURCE_ID)).toMatchObject({
+      success: false, inProgress: 1, failed: 0, error: "A ZATCA submission is already in progress.",
+    })
+    expect(mocks.adminRpc).not.toHaveBeenCalledWith("record_zatca_transmission", expect.anything())
+  })
+
+  it("reports unconfirmed evidence without projecting a stale failure", async () => {
+    const error = "Unable to retain the ZATCA submission evidence. Retry with the same prepared document."
+    mocks.submitPreparedZatcaDocument.mockResolvedValueOnce({ success: false, unconfirmed: true, pipeline: "clearance", error })
+    networkAdmin()
+
+    expect(await runZatcaAdapter()).toMatchObject({ processed: 0, failed: 1, error })
+    expect(mocks.adminRpc).not.toHaveBeenCalledWith("record_zatca_transmission", expect.anything())
+  })
+
   it("fails closed (no preparation) when the seller National Address is incomplete", async () => {
     networkAdmin({ tenants: { ...TENANT_ROW, building_number: null, postal_code: null } })
     const res = await runZatcaAdapter()
