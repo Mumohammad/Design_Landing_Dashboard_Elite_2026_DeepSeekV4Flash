@@ -20,6 +20,7 @@ describe("ZATCA environment boundary", () => {
   it.each([
     { target: "production", backend: "https://staging.example.test", mode: "simulation", path: "simulation" },
     { target: "preview", backend: "https://wwfnsbilmyxeawgzicmv.supabase.co/", mode: "sandbox", path: "developer-portal" },
+    { target: "preview", backend: "https://WWFNSBILMYXEAWGZICMV.SUPABASE.CO:443/", mode: "simulation", path: "simulation" },
   ] as const)("blocks $mode when either the deployment or database is production", async ({ target, backend, mode, path }) => {
     vi.stubEnv("VERCEL_ENV", target)
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", backend)

@@ -4,7 +4,7 @@ Production integration is incomplete and disabled in code. Adding credentials or
 
 ## Current gates
 
-A Vercel Production deployment or a connection to the production Supabase project rejects sandbox and simulation routing. Configure the production deployment with `ZATCA_MODE=mock` and an empty `ZATCA_API_BASE_URL` while real submission is gated. Use the isolated staging project for connected test-gateway work.
+A Vercel Production deployment or a connection to the production Supabase project rejects sandbox and simulation routing. Configure Production with `ZATCA_MODE=mock` and an empty `ZATCA_API_BASE_URL` while real submission is gated. The standard Vercel acceptance Preview also builds in mock mode. Use a separate isolated runtime with test data and the matching gateway for connected verification.
 
 `src/lib/release/integrations.ts` opens ZATCA onboarding and submission **only** when a valid non-production gateway is configured (`ZATCA_MODE=sandbox|simulation` plus the matching official URL, `zatcaNonProductionEnabled()`); otherwise both are rejected before database access. `zatca-config.ts` independently rejects production mode, including when `ZATCA_PRODUCTION_ENABLED=true`. The browser cannot read these variables, so the accounting ZATCA tab uses the server action `getZatcaStatus()` (`zatca-management.ts`) to decide what is enabled.
 
