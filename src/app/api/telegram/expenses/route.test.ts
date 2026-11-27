@@ -4,7 +4,7 @@ import { POST } from "./route"
 const io = vi.hoisted(() => ({
   rpc: vi.fn(), storage: vi.fn(), upload: vi.fn(), download: vi.fn(),
   settings: vi.fn(), downloadTelegramFile: vi.fn(), sendMessage: vi.fn(),
-  rateLimit: vi.fn(), extract: vi.fn(),
+  rateLimit: vi.fn(), extract: vi.fn(), deliver: vi.fn(),
 }))
 
 vi.mock("server-only", () => ({}))
@@ -18,6 +18,7 @@ vi.mock("@/lib/supabase/admin", () => ({
 vi.mock("@/lib/auth/rate-limit", () => ({ rateLimit: io.rateLimit }))
 vi.mock("@/lib/expense-claims/telegram", () => ({
   downloadTelegramFile: io.downloadTelegramFile, sendMessage: io.sendMessage,
+  telegramBotId: () => 901, deliverTelegramReceiptConfirmation: io.deliver,
 }))
 vi.mock("@/lib/expense-claims/extract", () => ({
   extractReceiptDataWithin: io.extract,
@@ -34,6 +35,8 @@ const pdf = new TextEncoder().encode("%PDF-1.7\nTest receipt")
 const ledger = { receipt_id: receiptId, claim_id: claimId, path, completed: false }
 const identity = { ok: true, tenant_id: tenant, user_id: "17700000-0000-4000-8000-000000000005", link_id: "17700000-0000-4000-8000-000000000006" }
 const committed = { claim_id: claimId, claim_no: "EXP-TEST", created: true, duplicate_status: "none" }
+const token = "17700000-0000-4000-8000-000000000007"
+const sending = { state: "sending", token, claim_id: claimId, claim_no: "EXP-TEST", chat_id: 120, duplicate_status: "none" }
 
 function request(key = secret) {
   return new Request("https://example.test/api/telegram/expenses", {
@@ -60,10 +63,14 @@ beforeEach(() => {
   io.upload.mockResolvedValue({ error: null })
   io.settings.mockResolvedValue({ data: { categories: [] }, error: null })
   io.extract.mockResolvedValue({ source: [] })
+  io.deliver.mockResolvedValue({ state: "sent", messageId: 123 })
   const responses: Record<string, unknown> = {
     expense_telegram_identity: identity,
     expense_telegram_reserve_receipt: ledger,
     expense_telegram_finish_receipt: committed,
+    expense_telegram_finish_receipt_with_reply: committed,
+    expense_telegram_claim_confirmation: sending,
+    expense_telegram_finish_confirmation: true,
   }
   io.rpc.mockImplementation(async (name: string) => ({ data: responses[name], error: null }))
 })
@@ -86,18 +93,30 @@ describe("Telegram receipt webhook", () => {
       p_file: expect.objectContaining({ filename: "receipt.pdf", size: pdf.byteLength }),
     }))
     expect(io.upload).toHaveBeenCalledWith(path, pdf, { contentType: "application/pdf", upsert: false })
-    expect(io.rpc).toHaveBeenNthCalledWith(3, "expense_telegram_finish_receipt", {
+    expect(io.rpc).toHaveBeenNthCalledWith(3, "expense_telegram_finish_receipt_with_reply", {
       p_receipt_id: receiptId, p_fields: { supplier_name: "Fixture supplier" },
     })
-    expect(io.sendMessage).toHaveBeenCalledWith(120, expect.stringContaining(`/expenses/claims/${claimId}`))
+    expect(io.deliver).toHaveBeenCalledWith(120, expect.stringContaining(`/expenses/claims/${claimId}`))
+    expect(io.rpc).toHaveBeenCalledWith("expense_telegram_finish_confirmation", {
+      p_claim_id: claimId, p_token: token, p_state: "sent", p_message_id: 123, p_retry_after: null,
+    })
   })
 
-  it("acknowledges a completed Telegram retry without uploading or announcing it again", async () => {
+  it("recovers a pending confirmation after intake committed without reuploading the receipt", async () => {
     io.rpc.mockResolvedValueOnce({ data: identity }).mockResolvedValueOnce({ data: { ...ledger, completed: true } })
     expect((await POST(request())).status).toBe(200)
-    expect(io.rpc).toHaveBeenCalledTimes(2)
+    expect(io.rpc).toHaveBeenCalledWith("expense_telegram_claim_confirmation", { p_bot_id: 901, p_receipt_id: receiptId })
     expect(io.upload).not.toHaveBeenCalled()
+    expect(io.deliver).toHaveBeenCalledWith(120, expect.stringContaining("EXP-TEST"))
     expect(io.sendMessage).not.toHaveBeenCalled()
+  })
+
+  it("acknowledges a completed retry when no confirmation is eligible", async () => {
+    io.rpc.mockResolvedValueOnce({ data: identity }).mockResolvedValueOnce({ data: { ...ledger, completed: true } })
+      .mockResolvedValueOnce({ data: null, error: null })
+    expect((await POST(request())).status).toBe(200)
+    expect(io.upload).not.toHaveBeenCalled()
+    expect(io.deliver).not.toHaveBeenCalled()
   })
 
   it("uses a previous upload only after verifying the exact bytes", async () => {
@@ -112,7 +131,7 @@ describe("Telegram receipt webhook", () => {
     io.download.mockResolvedValueOnce({ data: new Blob([pdf]) })
     expect((await POST(request())).status).toBe(200)
     expect(io.upload).toHaveBeenNthCalledWith(2, path, pdf, expect.anything())
-    expect(io.sendMessage).toHaveBeenCalledTimes(1)
+    expect(io.deliver).toHaveBeenCalledTimes(1)
   })
 
   it("returns a retryable response for a missing provider or commit response", async () => {
@@ -121,6 +140,19 @@ describe("Telegram receipt webhook", () => {
     io.rpc.mockResolvedValueOnce({ data: identity }).mockResolvedValueOnce({ data: ledger })
       .mockResolvedValueOnce({ error: { message: "backend unavailable" } })
     expect((await POST(request())).status).toBe(503)
-    expect(io.sendMessage).not.toHaveBeenCalled()
+    expect(io.deliver).not.toHaveBeenCalled()
+  })
+
+  it("retains intake success and records uncertainty instead of resending a lost Telegram response", async () => {
+    io.deliver.mockResolvedValueOnce({ state: "uncertain" })
+    expect((await POST(request())).status).toBe(200)
+    expect(io.rpc).toHaveBeenCalledWith("expense_telegram_finish_confirmation", {
+      p_claim_id: claimId, p_token: token, p_state: "uncertain", p_message_id: null, p_retry_after: null,
+    })
+
+    io.rpc.mockResolvedValueOnce({ data: identity }).mockResolvedValueOnce({ data: { ...ledger, completed: true } })
+      .mockResolvedValueOnce({ data: null, error: null })
+    expect((await POST(request())).status).toBe(200)
+    expect(io.deliver).toHaveBeenCalledTimes(1)
   })
 })

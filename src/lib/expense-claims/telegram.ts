@@ -15,15 +15,34 @@ function token(): string {
   return t
 }
 
-export async function tg<T = unknown>(method: string, body: Record<string, unknown> = {}, timeoutMs = 8000): Promise<T> {
+export function telegramBotId(): number | null {
+  const value = Number(/^([1-9]\d*):[A-Za-z0-9_-]{20,}$/.exec(process.env.TELEGRAM_BOT_TOKEN ?? "")?.[1])
+  return Number.isSafeInteger(value) ? value : null
+}
+
+type TelegramReply<T> = {
+  ok?: boolean
+  result?: T
+  description?: string
+  error_code?: number
+  parameters?: { retry_after?: number }
+}
+
+async function telegramRequest<T>(method: string, body: Record<string, unknown>, timeoutMs: number) {
   const res = await fetch(`${API}/bot${token()}/${method}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(timeoutMs),
     cache: "no-store",
+    redirect: "error",
   })
-  const json = (await res.json().catch(() => null)) as { ok?: boolean; result?: T; description?: string } | null
+  const json = (await res.json().catch(() => null)) as TelegramReply<T> | null
+  return { res, json }
+}
+
+export async function tg<T = unknown>(method: string, body: Record<string, unknown> = {}, timeoutMs = 8000): Promise<T> {
+  const { res, json } = await telegramRequest<T>(method, body, timeoutMs)
   // Never include the request URL (it contains the token) in errors.
   if (!json?.ok) throw new Error(`TELEGRAM_API_ERROR:${method}:${String(json?.description ?? res.status).slice(0, 120)}`)
   return json.result as T
@@ -38,6 +57,39 @@ export async function getBotUsername(): Promise<string | null> {
 
 export async function sendMessage(chatId: number, text: string): Promise<void> {
   try { await tg("sendMessage", { chat_id: chatId, text: text.slice(0, 3900), disable_web_page_preview: true }) } catch { /* best effort */ }
+}
+
+export type ReceiptConfirmationResult =
+  | { state: "sent"; messageId: number }
+  | { state: "retry"; retryAfter: number }
+  | { state: "uncertain" | "rejected" }
+
+/** Classifies delivery evidence without exposing provider bodies or credentials. */
+export async function deliverTelegramReceiptConfirmation(chatId: number, text: string): Promise<ReceiptConfirmationResult> {
+  try {
+    const { res, json } = await telegramRequest<{ message_id?: number; chat?: { id?: number } }>("sendMessage", {
+      chat_id: chatId, text: text.slice(0, 3900), disable_web_page_preview: true,
+    }, 8000)
+    const message = json?.result
+    const messageId = message?.message_id
+    if (res.ok && json?.ok === true && message?.chat?.id === chatId &&
+      typeof messageId === "number" && messageId > 0 && Number.isSafeInteger(messageId)) {
+      return { state: "sent", messageId }
+    }
+    if (json?.ok === false && json.error_code === res.status) {
+      if (res.status === 429) {
+        const delay = json.parameters?.retry_after ?? 60
+        if (Number.isSafeInteger(delay) && delay > 0) {
+          return delay <= 2_147_483_647 ? { state: "retry", retryAfter: delay } : { state: "rejected" }
+        }
+        return { state: "retry", retryAfter: 60 }
+      }
+      if ([400, 401, 403].includes(res.status)) return { state: "rejected" }
+    }
+  } catch {
+    // A timeout or lost response leaves open whether Telegram accepted it.
+  }
+  return { state: "uncertain" }
 }
 
 /** Downloads a Telegram file. Returns null for a known size rejection. */

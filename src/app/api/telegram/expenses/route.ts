@@ -15,7 +15,9 @@ import { safeFilename, sniffFile } from "@/lib/expense-claims/file-check"
 import { bareLinkCode, parseCaption } from "@/lib/expense-claims/receipt-parse"
 import { claimPayload, extractReceiptDataWithin, readSummary } from "@/lib/expense-claims/extract"
 import { zatcaPurchaseCheck } from "@/lib/expense-claims/zatca-check"
-import { downloadTelegramFile, sendMessage } from "@/lib/expense-claims/telegram"
+import { downloadTelegramFile, sendMessage, telegramBotId } from "@/lib/expense-claims/telegram"
+import { dispatchTelegramConfirmation } from "@/lib/expense-claims/telegram-confirmations"
+import { moduleLogger } from "@/lib/logger"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -37,9 +39,22 @@ type TgMessage = {
 const ok = () => NextResponse.json({ ok: true })
 const retry = (status = 503) => NextResponse.json({ ok: false }, { status, headers: { "Retry-After": "60" } })
 const digest = (value: Uint8Array | string) => createHash("sha256").update(value).digest("hex")
+const log = moduleLogger("api/telegram/expenses")
 
 type ReceiptReservation = { receipt_id: string; path: string; claim_id: string; completed: boolean }
-type ReceiptResult = { claim_id: string; claim_no: string; created: boolean; duplicate_status: string }
+type ReceiptResult = { claim_id: string; created: boolean }
+
+async function confirmReceipt(...args: Parameters<typeof dispatchTelegramConfirmation>) {
+  try {
+    const outcome = await dispatchTelegramConfirmation(...args)
+    if (outcome === "uncertain" || outcome === "rejected") {
+      log.warn({ outcome }, "Telegram receipt confirmation delivery needs attention")
+    }
+  } catch {
+    // Receipt intake already committed. The durable queue owns confirmation.
+    log.error("Unable to process the Telegram receipt confirmation")
+  }
+}
 
 function secretMatches(header: string | null): boolean {
   const expected = process.env.TELEGRAM_WEBHOOK_SECRET ?? ""
@@ -62,8 +77,8 @@ const T = {
 
 export async function POST(req: Request) {
   if (!secretMatches(req.headers.get("x-telegram-bot-api-secret-token"))) return new NextResponse("unauthorized", { status: 401 })
-  const botId = Number(/^([1-9]\d*):[A-Za-z0-9_-]{20,}$/.exec(process.env.TELEGRAM_BOT_TOKEN ?? "")?.[1])
-  if (!Number.isSafeInteger(botId)) return retry()
+  const botId = telegramBotId()
+  if (botId === null) return retry()
   const update = (await req.json().catch(() => null)) as { update_id: number; message?: TgMessage } | null
   const msg = update?.message
   if (!msg?.from || !msg.chat) return ok()
@@ -144,7 +159,10 @@ async function handle(botId: number, updateId: number, msg: TgMessage, from: TgU
   if (reserveError?.message.includes("TG_RECEIPT_CONFLICT")) { await sendMessage(chat, T.failed); return }
   if (reserveError || !reserved) return retry()
   const reservation = reserved as ReceiptReservation
-  if (reservation.completed) return
+  if (reservation.completed) {
+    await confirmReceipt(admin, botId, reservation.receipt_id)
+    return
+  }
   if (!ATTACHMENT_PATH.test(reservation.path) || !reservation.path.startsWith(`${id.tenant_id}/${reservation.claim_id}/`)) return retry()
 
   const bucket = admin.storage.from(RECEIPT_BUCKET)
@@ -163,20 +181,21 @@ async function handle(botId: number, updateId: number, msg: TgMessage, from: TgU
   const albumPage = !!msg.media_group_id && !msg.caption
   const ex = albumPage ? { fields: {}, source: [], qrPhase2: null, textChars: 0 } : await extractReceiptDataWithin(bytes, sniff.mime, 25_000)
   const { fields, payload } = claimPayload(typed, ex, msg.caption)
-  const { data: finished, error: finishError } = await admin.rpc("expense_telegram_finish_receipt", {
+  const { data: finished, error: finishError } = await admin.rpc("expense_telegram_finish_receipt_with_reply", {
     p_receipt_id: reservation.receipt_id, p_fields: albumPage ? {} : payload,
   })
   if (finishError?.message.includes("TG_RECEIPT_DENIED")) { await sendMessage(chat, T.notLinked); return }
   if (finishError && /TG_RECEIPT_CONFLICT|EXC004|EXC014/.test(finishError.message)) { await sendMessage(chat, T.failed); return }
   if (finishError || !finished) return retry()
   const claim = finished as ReceiptResult
-  if (!claim.created) return // album or replay: one confirmation per claim
-  const base = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "")
-  const dup = claim.duplicate_status === "possible" ? "\n⚠️ Possible duplicate — a reviewer will check it. / تكرار محتمل — سيتحقق منه المراجع." : ""
+  if (!claim.created || albumPage) {
+    await confirmReceipt(admin, botId, reservation.receipt_id)
+    return
+  }
   const f = fields as Record<string, string | undefined>
-  const summary = albumPage ? "" : readSummary(f, ex.source)
+  const summary = readSummary(f, ex.source)
   const z = zatcaPurchaseCheck({ currency: f.currency ?? id.currency ?? "SAR", supplier_name: f.supplier_name ?? null, supplier_vat_number: f.supplier_vat_number ?? null, receipt_number: f.receipt_number ?? null, expense_date: f.expense_date ?? null, amount_before_vat: f.amount_before_vat ?? null, vat_rate: f.vat_rate ?? null, vat_amount: f.vat_amount ?? null, total_amount: f.total_amount ?? null })
-  const zErr = albumPage ? [] : z.issues.filter((i) => i.severity === "error").slice(0, 4)
-  const zatca = zErr.length ? `\n\nZATCA invoice check — please add in the dashboard / التحقق حسب متطلبات الهيئة — أكمل في لوحة التحكم:\n${zErr.map((i) => `• ${i.text.en}\n  ${i.text.ar}`).join("\n")}` : ""
-  await sendMessage(chat, `🧾 Receipt received — claim ${claim.claim_no} is pending review. Details are unverified until reviewed.\nتم استلام الإيصال — المطالبة ${claim.claim_no} بانتظار المراجعة. البيانات غير متحقق منها حتى تتم المراجعة.${summary}${dup}${zatca}${base ? `\n${base}/expenses/claims/${claim.claim_id}` : ""}`)
+  const zErr = z.issues.filter((i) => i.severity === "error").slice(0, 4)
+  const vatCheck = zErr.length ? `\n\nZATCA invoice check — please add in the dashboard / التحقق حسب متطلبات الهيئة — أكمل في لوحة التحكم:\n${zErr.map((i) => `• ${i.text.en}\n  ${i.text.ar}`).join("\n")}` : ""
+  await confirmReceipt(admin, botId, reservation.receipt_id, { claimId: claim.claim_id, summary, vatCheck })
 }
