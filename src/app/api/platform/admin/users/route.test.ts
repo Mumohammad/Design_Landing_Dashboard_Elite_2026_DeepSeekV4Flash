@@ -35,6 +35,37 @@ describe('caller-bound platform user routes',()=>{
 });
 describe('durable platform creation recovery',()=>{
  it('validates password policy, nonce and non-owner role before provisioning',async()=>{expect((await POST(request('POST',{...creation(),password:'weak'}))).status).toBe(400);const{request_id,...missing}=creation();void request_id;expect((await POST(request('POST',missing))).status).toBe(400);expect((await POST(request('POST',{...creation(),role:'general_manager'}))).status).toBe(400);expect(m.rpc).not.toHaveBeenCalled();});
+ it('binds legacy tenant and request IDs to their canonical database representation', async () => {
+   const tenantId = '00000000-0000-0000-0000-0000000000ab';
+   const requestId = '14600000-00ab-4000-8000-00000000000a';
+   const identity = {
+     ...owned(),
+     app_metadata: {
+       ...owned().app_metadata,
+       _platform_provision_tenant: tenantId,
+       _platform_provision_request: requestId,
+     },
+   };
+   m.create.mockImplementation(async () => {
+     m.identity = identity;
+     return { data: { user: identity }, error: null };
+   });
+   const response = await POST(request('POST', {
+     ...creation(), tenant_id: tenantId.toUpperCase(), request_id: requestId.toUpperCase(),
+   }));
+   expect(response.status).toBe(200);
+   expect(m.rpc).toHaveBeenCalledWith('reserve_platform_user', expect.objectContaining({
+     p_tenant_id: tenantId, p_request_id: requestId,
+   }));
+   expect(m.create).toHaveBeenCalledWith(expect.objectContaining({ app_metadata: identity.app_metadata }));
+   expect(m.rpc).toHaveBeenCalledWith('finalize_platform_user', { p_request_id: requestId });
+ });
+ it('keeps a strict request ID when the company has a legacy ID', async () => {
+   const tenantId = '00000000-0000-0000-0000-000000000001';
+   const response = await POST(request('POST', { ...creation(), tenant_id: tenantId, request_id: tenantId }));
+   expect(response.status).toBe(400);
+   expect(m.rpc).not.toHaveBeenCalled();
+ });
  it('uses reserved Auth ID and server metadata before atomic finalization',async()=>{const res=await POST(request('POST',creation()));expect(res.status).toBe(200);expect(await res.json()).toMatchObject({success:true,kind:'user',id:U});expect(m.create).toHaveBeenCalledWith({id:AUTH,email:'new@example.test',password:creation().password,email_confirm:true,app_metadata:owned().app_metadata});expect(m.rpc).toHaveBeenCalledWith('finalize_platform_user',{p_request_id:R});expect(m.from).not.toHaveBeenCalled();expect(m.deleteUser).not.toHaveBeenCalled();});
  it('recovers a lost create response only through exact-ID proof',async()=>{m.createLost=true;const res=await POST(request('POST',creation()));expect(res.status).toBe(200);expect(await res.json()).toHaveProperty('notice');expect(m.lookup).toHaveBeenCalledWith(AUTH);expect(m.create).toHaveBeenCalledTimes(1);expect(m.deleteUser).not.toHaveBeenCalled();});
  it('preserves the original password on an already-owned identity retry',async()=>{m.identity=owned();const res=await POST(request('POST',{...creation(),password:'DifferentPass123!'}));expect(res.status).toBe(200);expect(await res.json()).toHaveProperty('notice');expect(m.create).not.toHaveBeenCalled();expect(m.updateUser).not.toHaveBeenCalled();expect(m.deleteUser).not.toHaveBeenCalled();});

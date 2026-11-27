@@ -5,7 +5,9 @@ type Endpoint = 'companies' | 'roles'
 export class PlatformUserChoicesError extends Error {
   constructor(public endpoint: Endpoint, public status?: number) { super('Company and role choices could not be verified. Retry.') }
 }
-const uuid = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v)
+// Existing tenants can have PostgreSQL UUIDs without modern version or variant bits.
+const isTenantId = (value: unknown): value is string =>
+  typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 export async function loadPlatformUserChoices(request: (path: string) => Promise<unknown>): Promise<PlatformUserChoices> {
   // Creation depends on these two verified sources, independently of overview/billing.
@@ -20,14 +22,14 @@ export async function loadPlatformUserChoices(request: (path: string) => Promise
   if (!record(companyBody) || !Array.isArray(companyBody.companies)) throw new PlatformUserChoicesError('companies')
   const companies: PlatformUserCompany[] = [], ids = new Set<string>()
   for (const row of companyBody.companies) {
-    if (!record(row) || !uuid(row.id) || typeof row.name_en !== 'string' || !(row.name_ar === null || row.name_ar === undefined || typeof row.name_ar === 'string') || !['active','suspended','terminated'].includes(String(row.status)) || ids.has(row.id)) throw new PlatformUserChoicesError('companies')
+    if (!record(row) || !isTenantId(row.id) || typeof row.name_en !== 'string' || !(row.name_ar === null || row.name_ar === undefined || typeof row.name_ar === 'string') || !['active','suspended','terminated'].includes(String(row.status)) || ids.has(row.id)) throw new PlatformUserChoicesError('companies')
     ids.add(row.id)
     companies.push({ id: row.id, name_en: row.name_en, name_ar: typeof row.name_ar === 'string' ? row.name_ar : null, status: row.status as PlatformUserCompany['status'] })
   }
   if (!record(roleBody) || !Array.isArray(roleBody.active_roles)) throw new PlatformUserChoicesError('roles')
   const roles: PlatformUserRole[] = [], keys = new Set<string>()
   for (const row of roleBody.active_roles) {
-    if (!record(row) || !uuid(row.tenant_id) || typeof row.name !== 'string' || !row.name || keys.has(row.tenant_id + ':' + row.name)) throw new PlatformUserChoicesError('roles')
+    if (!record(row) || !isTenantId(row.tenant_id) || typeof row.name !== 'string' || !row.name || keys.has(row.tenant_id + ':' + row.name)) throw new PlatformUserChoicesError('roles')
     keys.add(row.tenant_id + ':' + row.name); roles.push({ tenant_id: row.tenant_id, name: row.name })
   }
   return { companies, roles }

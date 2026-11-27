@@ -16,7 +16,14 @@ type RoleRow={tenant_id:string;name:string};
 const roles = ['admin','accountant','supervisor','hr_officer','operations_officer','payroll_officer','platform_coordinator','readonly_auditor'] as const;
 const version = z.union([z.string().regex(/^[1-9][0-9]*$/),z.number().int().positive().max(Number.MAX_SAFE_INTEGER)]).transform(String);
 const reason = z.string().trim().min(5).max(500);
-const createSchema = z.object({ request_id:z.uuid(),tenant_id:z.uuid(),email:z.email().max(254).transform(v=>v.toLowerCase()),full_name:z.string().trim().max(150).optional(),role:z.enum(roles),password:z.string().optional() }).strict();
+const createSchema = z.object({
+  request_id: z.uuid().transform(value => value.toLowerCase()),
+  tenant_id: z.guid().transform(value => value.toLowerCase()),
+  email: z.email().max(254).transform(value => value.toLowerCase()),
+  full_name: z.string().trim().max(150).optional(),
+  role: z.enum(roles),
+  password: z.string().optional(),
+}).strict();
 const patchSchema = z.object({user_id:z.uuid(),expected_version:version,reason,role:z.enum(roles).optional(),status:z.enum(['active','inactive','locked','terminated']).optional(),reset_password:z.literal(true).optional()}).strict().refine(v=>[v.role,v.status,v.reset_password].filter(v=>v!==undefined).length===1);
 const archiveSchema = z.object({user_id:z.uuid(),expected_version:version,reason}).strict();
 const failure = (error:string,status=503,errorAr='تعذر إكمال العملية. تحقق من الحالة ثم حاول مجدداً.') => NextResponse.json({error,error_ar:errorAr},{status});
