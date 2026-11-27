@@ -18,6 +18,25 @@ describe("ZATCA environment boundary", () => {
     expect(getZatcaNetworkBase()).toBe("https://gw-fatoora.zatca.gov.sa/e-invoicing/developer-portal")
   })
   it.each([
+    { target: "production", backend: "https://staging.example.test", mode: "simulation", path: "simulation" },
+    { target: "preview", backend: "https://wwfnsbilmyxeawgzicmv.supabase.co/", mode: "sandbox", path: "developer-portal" },
+  ] as const)("blocks $mode when either the deployment or database is production", async ({ target, backend, mode, path }) => {
+    vi.stubEnv("VERCEL_ENV", target)
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", backend)
+    vi.stubEnv("ZATCA_MODE", mode)
+    vi.stubEnv("ZATCA_API_BASE_URL", "https://gw-fatoora.zatca.gov.sa/e-invoicing/" + path)
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+
+    expect(getZatcaNetworkBase).toThrow("ZATCA test gateways require an isolated environment")
+    expect(zatcaConfiguredEnvironment()).toBeNull()
+    await expect(requestComplianceCsid({ csr: "fixture", otp: "fixture", environment: mode }))
+      .rejects.toThrow("ZATCA test gateways require an isolated environment")
+    await expect(transmitToZatca({ xml: "<Invoice/>", pipeline: "reporting", docRef: "TEST", environment: mode }))
+      .rejects.toThrow("ZATCA test gateways require an isolated environment")
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+  it.each([
     "http://gw-fatoora.zatca.gov.sa/e-invoicing/developer-portal",
     "https://gw-fatoora.zatca.gov.sa/e-invoicing/core",
     "https://gw-fatoora.zatca.gov.sa/e-invoicing/simulation",

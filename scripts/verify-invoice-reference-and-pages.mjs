@@ -4,7 +4,6 @@ import {createHash,randomUUID} from 'node:crypto'
 import path from 'node:path'
 import {getDocument} from 'pdfjs-dist/legacy/build/pdf.mjs'
 import {readFile} from 'node:fs/promises'
-import {spawnSync} from 'node:child_process'
 import {assertAcceptanceTarget,preflightAcceptanceTarget} from './lib/coordinated-acceptance.mjs'
 const expect=baseExpect.configure({timeout:30000}),uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 // PDF text extraction inserts whitespace at soft wraps, including inside words.
@@ -20,6 +19,46 @@ export function assertInvoiceReferenceTestTarget(backend,app,sha){
  }
  return assertAcceptanceTarget(backend,app,sha)
 }
+
+export async function seedInvoiceDraftFixtures({request,target,ownerId,customerId,today,count=1105,fetcher=fetch}) {
+ const {backend}=assertInvoiceReferenceTestTarget(target.backend,target.app,target.sha)
+ const readUrl=backend+'/rest/v1/rpc/read_my_invoice_page'
+ if(request.url()!==readUrl||request.method()!=='POST'||!uuid.test(ownerId)||!uuid.test(customerId)||
+    !Number.isSafeInteger(count)||count<1||count>1105||!/^\d{4}-\d{2}-\d{2}$/.test(today)){
+  throw Error('Owned invoice fixture session required')
+ }
+ const [authorization,apikey]=await Promise.all([request.headerValue('authorization'),request.headerValue('apikey')])
+ const payload=/^Bearer [\w-]+\.([\w-]+)\.[\w-]+$/.exec(authorization??'')?.[1]
+ let claims
+ try { claims=JSON.parse(Buffer.from(payload??'','base64url').toString('utf8')) } catch {}
+ // This check scopes the fixture to the browser owner. PostgREST verifies the
+ // signature, membership, MFA and draft permissions on every write.
+ if(!apikey||claims?.sub!==ownerId||claims?.role!=='authenticated'||claims?.aal!=='aal2'){
+  throw Error('Owned invoice fixture session required')
+ }
+ const url=backend+'/rest/v1/rpc/save_invoice_draft'
+ const batchSize=5
+ for(let start=0;start<count;start+=batchSize){
+  const size=Math.min(batchSize,count-start)
+  const results=await Promise.allSettled(Array.from({length:size},async(_,offset)=>{
+   const date=new Date(today+'T00:00:00Z')
+   date.setUTCDate(date.getUTCDate()-((start+offset)%29))
+   const p_input={
+    request_id:randomUUID(),invoice_type:'sales',customer_id:customerId,
+    issue_date:date.toISOString().slice(0,10),due_date:today,currency:'SAR',
+    lines:[{description:'Synthetic invoice page fixture',quantity:1,unit_price:1,vat_rate:15}],
+   }
+   const result=await fetcher(url,{
+    method:'POST',redirect:'error',headers:{authorization,apikey,'content-type':'application/json'},
+    body:JSON.stringify({p_input}),signal:AbortSignal.timeout(15000),
+   })
+   if(!result.ok){await result.body?.cancel();throw Error('Invoice draft RPC failed')}
+   if(!uuid.test((await result.json())?.id??''))throw Error('Invoice draft response missing its ID')
+  }))
+  if(results.some(result=>result.status==='rejected'))throw Error('Owned invoice page fixtures failed')
+ }
+}
+
 export function createInvoiceResponseLoss(description,assertPendingFields){
  const ids=[],completion=Promise.withResolvers();let lost=false,ready=false
  const handler=async route=>{
@@ -127,14 +166,11 @@ export async function verifyInvoiceReferenceAndPages(page,admin,tenantId,appUrl)
   const before=await admin.from('invoices').select('total,currency,status',{count:'exact'}).eq('tenant_id',tenantId).is('deleted_at',null).limit(500);if(before.error||before.count!==before.data?.length)throw Error('Fresh finance baseline must fit one exact snapshot');const beforeValue=before.data.filter(row=>row.currency==='SAR'&&!['cancelled','credited'].includes(row.status)).reduce((sum,row)=>sum+BigInt(Math.round(Number(row.total)*100)),0n)
   const customers=Array.from({length:1201},(_,index)=>({id:randomUUID(),tenant_id:tenantId,customer_code:'IP'+tag+String(index).padStart(4,'0'),name_ar:'عميل خيارات '+index,name_en:index===1200?'Last picker 50%_ '+tag:index===0?'Export invoices 50%_ '+tag:'Invoice option '+tag+' '+index}));for(let i=0;i<customers.length;i+=200)if((await admin.from('customers').insert(customers.slice(i,i+200))).error)throw Error('Owned party page fixtures failed')
   const today=new Date().toISOString().slice(0,10)
-  if(target.kind==='loopback'){
-   // The legacy guard blocks service-role invoice writes. Seed bulk draft
-   // fixtures as the owner only after the exact disposable-local preflight.
-   const seeded=spawnSync('psql',['postgresql://postgres:postgres@127.0.0.1:58322/postgres','-X','-qAt','-v','ON_ERROR_STOP=1'],{encoding:'utf8',timeout:60000,input:`INSERT INTO public.invoices(tenant_id,invoice_type,customer_id,issue_date,due_date,subtotal,discount,vat_amount,total,vat_rate) SELECT '${tenantId}'::uuid,'sales','${customers[0].id}'::uuid,'${today}'::date-(g%29),'${today}'::date,1,0,0.15,1.15,15 FROM generate_series(0,1104) g;`})
-   if(seeded.status!==0)throw Error('Owned local invoice page fixtures failed')
-  }else{
-   const invoices=Array.from({length:1105},(_,index)=>{const date=new Date(today+'T00:00:00Z');date.setUTCDate(date.getUTCDate()-(index%29));return{tenant_id:tenantId,invoice_type:'sales',customer_id:customers[0].id,issue_date:date.toISOString().slice(0,10),due_date:today,subtotal:1,discount:0,vat_amount:0.15,total:1.15,vat_rate:15}});for(let i=0;i<invoices.length;i+=200)if((await admin.from('invoices').insert(invoices.slice(i,i+200))).error)throw Error('Owned invoice page fixtures failed')
-  }
+  const [invoiceRequest]=await Promise.all([
+   page.waitForRequest(req=>req.method()==='POST'&&req.url()===target.backend+'/rest/v1/rpc/read_my_invoice_page'),
+   page.reload(),
+  ])
+  await seedInvoiceDraftFixtures({request:invoiceRequest,target,ownerId:tenant.data.created_by,customerId:customers[0].id,today})
   await page.reload();await search().fill('Export invoices 50%_ '+tag);await expect(root.locator('tbody tr')).toHaveCount(50);const metrics=root.getByTestId('module-kpi-value');await expect(metrics.nth(0)).toHaveText(String(before.count+1105));const cents=beforeValue+127075n,expectedValue=(cents/100n).toString().replace(/\B(?=(\d{3})+(?!\d))/g,',')+'.'+(cents%100n).toString().padStart(2,'0');await expect(metrics.nth(3)).toHaveText(expectedValue);await expect(root).toContainText('1105 invoices');const first=await root.getByRole('button',{name:/^Invoice actions /}).first().getAttribute('aria-label');await root.getByRole('button',{name:'Next',exact:true}).click();await expect.poll(()=>root.getByRole('button',{name:/^Invoice actions /}).first().getAttribute('aria-label')).not.toBe(first)
   const pending=page.waitForEvent('download');await root.getByRole('button',{name:'Export CSV',exact:true}).click();const csvDownload=await pending,stream=await csvDownload.createReadStream();if(!stream)throw Error('Owned export stream unavailable');const chunks=[];for await(const chunk of stream)chunks.push(Buffer.from(chunk));const csv=Buffer.concat(chunks).toString('utf8').replace(/^\uFEFF/,''),csvRows=csv.trim().split(/\r?\n/);expect(csvRows).toHaveLength(1106);expect(new Set(csvRows.slice(1).map(row=>row.split(',')[0])).size).toBe(1105)
   step='truthful invoice read failure and real retry'

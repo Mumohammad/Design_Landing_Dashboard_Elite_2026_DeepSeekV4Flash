@@ -10,6 +10,7 @@ export const ZATCA_PRODUCTION_BLOCKED = "ZATCA production remains blocked pendin
 export const ZATCA_ENVIRONMENT_UNAVAILABLE = "ZATCA environment could not be verified. Reload before continuing."
 
 const GATEWAY_HOST = "gw-fatoora.zatca.gov.sa"
+const PRODUCTION_SUPABASE_URL = "https://wwfnsbilmyxeawgzicmv.supabase.co"
 export const ZATCA_GATEWAY_PATHS: Record<ZatcaEnvironment, string> = {
   sandbox: "/e-invoicing/developer-portal",
   simulation: "/e-invoicing/simulation",
@@ -50,6 +51,10 @@ export function getZatcaNetworkBase(environment?: ZatcaEnvironment): string | nu
     throw new Error(ZATCA_PRODUCTION_BLOCKED)
   }
   if (mode !== "sandbox" && mode !== "simulation") throw new Error("Invalid ZATCA_MODE.")
+  if (process.env.VERCEL_ENV === "production" ||
+      process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/+$/, "") === PRODUCTION_SUPABASE_URL) {
+    throw new Error("ZATCA test gateways require an isolated environment.")
+  }
   if (environment && environment !== mode) {
     throw new Error(environment === "production"
       ? "ZATCA production is not enabled in this deployment."

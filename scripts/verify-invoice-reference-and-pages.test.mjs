@@ -1,6 +1,7 @@
 import test from'node:test'
 import assert from'node:assert/strict'
 import{assertInvoiceReferenceTestTarget,createInvoiceResponseLoss,verifyInvoiceReferenceAndPages,invoicePdfContainsText}from'./verify-invoice-reference-and-pages.mjs'
+import * as invoiceVerification from './verify-invoice-reference-and-pages.mjs'
 const stage='https://viowrovartosrkqukjxy.supabase.co',app='https://elite-dashboard-fixture-elitesaasc-5643.vercel.app',sha='a'.repeat(40)
 for(const[name,backend,url,commit]of[
  ['production backend','https://wwfnsbilmyxeawgzicmv.supabase.co',app,sha],['production alias',stage,'https://elite-dashboard-blush.vercel.app',sha],['unknown backend','https://unknown.supabase.co',app,sha],['unknown app',stage,'https://example.test',sha],['backend path',stage+'/rest/v1',app,sha],['query pin',stage,app+'?dpl=old',sha],['nonexact commit',stage,app,'master'],
@@ -19,6 +20,47 @@ test('healthy exclusively local runtime still requires an owned company',async()
 
 
 const requestId='95200000-0000-4000-8000-000000000003',description='Owned offline invoice description'
+const fixtureOwner='95200000-0000-4000-8000-000000000004'
+const fixtureCustomer='95200000-0000-4000-8000-000000000005'
+function invoiceOwnerRequest(overrides={}) {
+ const claims={sub:fixtureOwner,aal:'aal2',role:'authenticated',...overrides}
+ const token=['fixture',Buffer.from(JSON.stringify(claims)).toString('base64url'),'signature'].join('.')
+ return {url:()=>stage+'/rest/v1/rpc/read_my_invoice_page',method:()=> 'POST',
+  headerValue:async name=>name==='authorization'?'Bearer '+token:'synthetic-publishable-key'}
+}
+
+test('invoice volume fixtures use the authenticated draft RPC for every unique invoice', async () => {
+ const calls=[]
+ await invoiceVerification.seedInvoiceDraftFixtures({
+  request:invoiceOwnerRequest(),target:assertInvoiceReferenceTestTarget(stage,app,sha),
+  ownerId:fixtureOwner,customerId:fixtureCustomer,today:'2026-11-27',count:11,
+  fetcher:async (url,options)=>{calls.push({url,options});return Response.json({id:fixtureCustomer})},
+ })
+ assert.equal(calls.length,11)
+ const drafts=calls.map(call=>JSON.parse(call.options.body).p_input)
+ assert.equal(new Set(drafts.map(row=>row.request_id)).size,11)
+ for(const [index,call] of calls.entries()){
+  assert.equal(call.url,stage+'/rest/v1/rpc/save_invoice_draft')
+  assert.equal(call.options.redirect,'error')
+  assert.equal(call.options.headers.apikey,'synthetic-publishable-key')
+  assert.equal(drafts[index].customer_id,fixtureCustomer)
+  assert.equal(drafts[index].currency,'SAR')
+  assert.equal(drafts[index].lines[0].unit_price,1)
+ }
+})
+
+for(const claims of [{sub:fixtureCustomer},{aal:'aal1'},{role:'service_role'}]){
+ test('invoice volume fixtures reject an unowned access session '+Object.keys(claims)[0],async()=>{
+  let sends=0
+  await assert.rejects(()=>invoiceVerification.seedInvoiceDraftFixtures({
+   request:invoiceOwnerRequest(claims),target:assertInvoiceReferenceTestTarget(stage,app,sha),
+   ownerId:fixtureOwner,customerId:fixtureCustomer,today:'2026-11-27',count:1,
+   fetcher:async()=>{sends++;return Response.json({id:fixtureCustomer})},
+  }),/Owned invoice fixture session/)
+  assert.equal(sends,0)
+ })
+}
+
 function invoiceLossRoute(overrides={}){
  const calls={continued:0,forwarded:0,aborted:0},request={method:()=> 'POST',headers:()=>({'next-action':'offline-action'}),postData:()=>JSON.stringify([{request_id:requestId,description}])}
  const route={request:()=>request,async continue(){calls.continued++},async fetch(options){calls.forwarded++;assert.equal(options.timeout,60000);return{ok:()=>true}},async abort(reason){calls.aborted++;assert.equal(reason,'failed')},...overrides}
