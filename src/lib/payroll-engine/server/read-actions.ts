@@ -1,4 +1,5 @@
 "use server"
+import { readCompleteRows } from "@/lib/analytics/complete-read"
 
 // Read models for the platform payroll screens (tenant-scoped, payroll:read).
 import { z } from "zod"
@@ -28,11 +29,11 @@ export async function listPayrollRuns(): Promise<EngineResult<{ runs: RunSummary
   try {
     const ctx = await engineContext("read")
     const [runs, exc, platforms] = await Promise.all([
-      ctx.admin.from("payroll_engine_runs").select("*").eq("tenant_id", ctx.tenantId).order("month_key", { ascending: false }).order("created_at", { ascending: false }).limit(200),
-      ctx.admin.from("payroll_engine_exceptions").select("run_id").eq("tenant_id", ctx.tenantId).eq("review_status", "open").in("severity", ["warning", "error"]).limit(20000),
-      ctx.admin.from("delivery_platforms").select("id,name_en,name_ar").eq("tenant_id", ctx.tenantId).is("deleted_at", null).order("sort_order"),
+      readCompleteRows(() => ctx.admin.from("payroll_engine_runs").select("*", { count: "exact" }).eq("tenant_id", ctx.tenantId).order("month_key", { ascending: false }).order("created_at", { ascending: false }).order("id", { ascending: true })),
+      readCompleteRows(() => ctx.admin.from("payroll_engine_exceptions").select("id,run_id", { count: "exact" }).eq("tenant_id", ctx.tenantId).eq("review_status", "open").in("severity", ["warning", "error"]).order("id", { ascending: true })),
+      readCompleteRows(() => ctx.admin.from("delivery_platforms").select("id,name_en,name_ar", { count: "exact" }).eq("tenant_id", ctx.tenantId).is("deleted_at", null).order("sort_order").order("id", { ascending: true })),
     ])
-    if (runs.error) throw new Error(runs.error.message)
+    for (const read of [runs, exc, platforms]) if (read.error) throw new Error("Complete payroll overview unavailable")
     const open = new Map<string, number>()
     for (const e of exc.data ?? []) open.set(e.run_id, (open.get(e.run_id) ?? 0) + 1)
     return { success: true, data: {
@@ -54,11 +55,11 @@ export async function getPayrollRunDetail(id: unknown): Promise<EngineResult<Run
     const ctx = await engineContext("read")
     const [run, results, exceptions] = await Promise.all([
       ctx.admin.from("payroll_engine_runs").select("*").eq("id", runId).eq("tenant_id", ctx.tenantId).single(),
-      ctx.admin.from("payroll_engine_results").select("id,rider_id,driver_id,driver_name,result,raw_input,bank").eq("run_id", runId).eq("tenant_id", ctx.tenantId).order("rider_id"),
-      ctx.admin.from("payroll_engine_exceptions").select("*").eq("run_id", runId).eq("tenant_id", ctx.tenantId).order("created_at"),
+      readCompleteRows(() => ctx.admin.from("payroll_engine_results").select("id,rider_id,driver_id,driver_name,result,raw_input,bank", { count: "exact" }).eq("run_id", runId).eq("tenant_id", ctx.tenantId).order("rider_id").order("id", { ascending: true })),
+      readCompleteRows(() => ctx.admin.from("payroll_engine_exceptions").select("*", { count: "exact" }).eq("run_id", runId).eq("tenant_id", ctx.tenantId).order("created_at").order("id", { ascending: true })),
     ])
     if (run.error) return { success: false, error: "Payroll run not found" }
-    if (results.error) throw new Error(results.error.message)
+    if (results.error || exceptions.error || !results.data || results.data.length !== run.data.total_drivers) throw new Error("Complete payroll results and exceptions unavailable")
     const r = run.data
     return { success: true, data: {
       run: { ...summary(r, (exceptions.data ?? []).filter(e => e.review_status === "open" && e.severity !== "info").length), fileSize: r.file_size, ruleSnapshot: r.rule_snapshot,
@@ -80,13 +81,13 @@ export async function getPayrollAdjustments(): Promise<EngineResult<AdjustmentsD
   try {
     const ctx = await engineContext("read")
     const [items, adj, traffic, drivers, lastResults] = await Promise.all([
-      ctx.admin.from("payroll_engine_items").select("*").eq("tenant_id", ctx.tenantId).order("created_at", { ascending: false }),
-      ctx.admin.from("payroll_engine_adjustments").select("*").eq("tenant_id", ctx.tenantId).order("created_at", { ascending: false }).limit(2000),
-      ctx.admin.from("payroll_engine_traffic_fines").select("*").eq("tenant_id", ctx.tenantId).order("ticket_date", { ascending: false }).limit(2000),
-      ctx.admin.from("drivers").select("rider_id,full_name_en,full_name_ar").eq("tenant_id", ctx.tenantId).is("deleted_at", null).not("rider_id", "is", null).limit(5000),
-      ctx.admin.from("payroll_engine_results").select("rider_id,driver_name").eq("tenant_id", ctx.tenantId).limit(5000),
+      readCompleteRows(() => ctx.admin.from("payroll_engine_items").select("*", { count: "exact" }).eq("tenant_id", ctx.tenantId).order("created_at", { ascending: false }).order("id", { ascending: true })),
+      readCompleteRows(() => ctx.admin.from("payroll_engine_adjustments").select("*", { count: "exact" }).eq("tenant_id", ctx.tenantId).order("created_at", { ascending: false }).order("id", { ascending: true })),
+      readCompleteRows(() => ctx.admin.from("payroll_engine_traffic_fines").select("*", { count: "exact" }).eq("tenant_id", ctx.tenantId).order("ticket_date", { ascending: false }).order("id", { ascending: true })),
+      readCompleteRows(() => ctx.admin.from("drivers").select("id,rider_id,full_name_en,full_name_ar", { count: "exact" }).eq("tenant_id", ctx.tenantId).is("deleted_at", null).not("rider_id", "is", null).order("id", { ascending: true })),
+      readCompleteRows(() => ctx.admin.from("payroll_engine_results").select("id,rider_id,driver_name", { count: "exact" }).eq("tenant_id", ctx.tenantId).order("id", { ascending: true })),
     ])
-    for (const x of [items, adj, traffic]) if (x.error) throw new Error(x.error.message)
+    for (const x of [items, adj, traffic, drivers, lastResults]) if (x.error) throw new Error("Complete adjustment data unavailable")
     const riders = new Map<string, string>()
     for (const r of lastResults.data ?? []) if (r.rider_id) riders.set(r.rider_id, r.driver_name || "")
     for (const d of drivers.data ?? []) if (d.rider_id) riders.set(d.rider_id, d.full_name_en || d.full_name_ar || riders.get(d.rider_id) || "")
@@ -109,8 +110,8 @@ export async function listJournalAccounts(): Promise<EngineResult<Array<{ id: st
   try {
     await engineContext("approve")
     const client = await createClient()
-    const { data, error } = await client.from("chart_of_accounts").select("id,account_code,name_ar,name_en,account_type").eq("is_active", true).is("deleted_at", null)
-      .in("account_type", ["expense", "liability"]).order("account_code").limit(1000)
+    const { data, error } = await readCompleteRows(() => client.from("chart_of_accounts").select("id,account_code,name_ar,name_en,account_type", { count: "exact" }).eq("is_active", true).is("deleted_at", null)
+      .in("account_type", ["expense", "liability"]).order("account_code").order("id", { ascending: true }))
     if (error) return failure(error, "Could not load accounts")
     return { success: true, data: (data ?? []).map(a => ({ id: a.id, code: a.account_code, name: a.name_en || a.name_ar, type: a.account_type })) }
   } catch (e) { return failure(e, "Could not load accounts") }
@@ -120,10 +121,11 @@ export async function listJournalAccounts(): Promise<EngineResult<Array<{ id: st
 export async function getPayslipCompany(): Promise<EngineResult<PayslipCompany>> {
   try {
     const ctx = await engineContext("read")
-    const t = await ctx.admin.from("tenants").select("name_ar,name_en,legal_name,cr_number,vat_number,address,district,city,postal_code,building_number,phone,email,logo_url").eq("id", ctx.tenantId).single()
+    const t = await ctx.admin.from("tenants").select("name_ar,name_en,legal_name,cr_number,vat_number,address,district,city,postal_code,building_number,phone,email,logo_url,logo_storage_path").eq("id", ctx.tenantId).single()
     if (t.error) return { success: false, error: "Could not load company details" }
     const d = t.data
-    const logoDataUrl = await loadTenantLogoDataUrl(ctx.admin, ctx.tenantId, d.logo_url).catch(() => null)
+    const logoDataUrl = await loadTenantLogoDataUrl(ctx.admin, ctx.tenantId, d.logo_url, d.logo_storage_path)
+    if (d.logo_storage_path && !logoDataUrl) throw new Error("Company logo unavailable")
     return { success: true, data: { nameAr: d.name_ar, nameEn: d.name_en, legalName: d.legal_name, crNumber: d.cr_number, vatNumber: d.vat_number, address: d.address, district: d.district,
       city: d.city, postalCode: d.postal_code, buildingNumber: d.building_number, phone: d.phone, email: d.email, logoDataUrl } }
   } catch (e) { return failure(e, "Could not load company details") }
@@ -136,8 +138,8 @@ export async function getDriverPayslips(driverId: unknown): Promise<EngineResult
   try {
     const id = z.string().uuid().parse(driverId)
     const ctx = await engineContext("read")
-    const rows = await ctx.admin.from("payroll_engine_results").select("id,run_id,rider_id,result,bank,payroll_engine_runs!inner(month_key,platform_name,status)")
-      .eq("tenant_id", ctx.tenantId).eq("driver_id", id).neq("payroll_engine_runs.status", "cancelled").limit(120)
+    const rows = await readCompleteRows(() => ctx.admin.from("payroll_engine_results").select("id,run_id,rider_id,result,bank,payroll_engine_runs!inner(month_key,platform_name,status)", { count: "exact" })
+      .eq("tenant_id", ctx.tenantId).eq("driver_id", id).neq("payroll_engine_runs.status", "cancelled").order("id", { ascending: true }))
     if (rows.error) throw new Error(rows.error.message)
     const out = (rows.data ?? []).map(r => {
       const run = (Array.isArray(r.payroll_engine_runs) ? r.payroll_engine_runs[0] : r.payroll_engine_runs) as { month_key: string; platform_name: string; status: "draft" | "approved" }

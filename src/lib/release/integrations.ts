@@ -1,8 +1,6 @@
 // These integrations require provider acceptance evidence before release.
 // WPS and webhooks are code-controlled off. ZATCA is available for an
-// explicit, valid gateway configuration (sandbox/simulation, or a
-// production-capable deployment with ZATCA_PRODUCTION_ENABLED=true where each
-// company still opts in per tenant — see zatca-config.ts).
+// explicit sandbox or simulation gateway in an isolated environment.
 import { zatcaGatewayEnabled } from "@/lib/accounting/zatca-config"
 
 export type Integration = "webhooks" | "wps" | "zatca"

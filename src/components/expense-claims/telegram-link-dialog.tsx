@@ -12,13 +12,15 @@ export function TelegramLinkDialog({ open, onOpenChange }: { open: boolean; onOp
   const [status, setStatus] = useState<TelegramStatus | null>(null)
   const [code, setCode] = useState<{ code: string; expiresAt: string; deepLink: string | null; botUsername: string | null } | null>(null)
   const [busy, setBusy] = useState(false)
+  const [loadError, setLoadError] = useState(false)
+  const [reload, setReload] = useState(0)
 
   useEffect(() => {
     if (!open) return
     let alive = true
-    void getTelegramStatus().then((v) => { if (alive) setStatus(v) })
+    void getTelegramStatus().then((v) => { if (alive) { setStatus(v); setLoadError(false) } }).catch(() => { if (alive) setLoadError(true) })
     return () => { alive = false }
-  }, [open])
+  }, [open, reload])
 
   async function generate() {
     setBusy(true)
@@ -33,7 +35,7 @@ export function TelegramLinkDialog({ open, onOpenChange }: { open: boolean; onOp
     setBusy(false)
     if (!r.ok) { toast.error(t(r.error, r.errorAr)); return }
     toast.success(t("Telegram unlinked.", "تم إلغاء ربط تيليجرام."))
-    void getTelegramStatus().then(setStatus)
+    void getTelegramStatus().then(setStatus).catch(() => setLoadError(true))
   }
 
   return (
@@ -43,7 +45,8 @@ export function TelegramLinkDialog({ open, onOpenChange }: { open: boolean; onOp
           <DialogTitle>{t("Send receipts from Telegram", "إرسال الإيصالات من تيليجرام")}</DialogTitle>
           <DialogDescription>{t("Link your Telegram account once with a one-time code. Receipts you send to the bot become pending claims for review.", "اربط حساب تيليجرام مرة واحدة برمز لمرة واحدة. الإيصالات التي ترسلها للبوت تصبح مطالبات بانتظار المراجعة.")}</DialogDescription>
         </DialogHeader>
-        {!status ? <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("Loading…", "جارٍ التحميل…")}</div>
+        {loadError && <div role="alert" className="space-y-2"><p>{t("Could not verify Telegram settings. Try again.", "تعذر التحقق من إعدادات تيليجرام. أعد المحاولة.")}</p><Button variant="outline" onClick={() => setReload(value => value + 1)}>{t("Try again", "أعد المحاولة")}</Button></div>}
+        {loadError ? null : !status ? <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("Loading…", "جارٍ التحميل…")}</div>
           : !status.configured.token ? <Notice tone="warn">{t("The Telegram bot is not configured on the server yet. Ask an administrator to set it up.", "لم يتم إعداد بوت تيليجرام على الخادم بعد. اطلب من المسؤول إعداده.")}</Notice>
           : !status.enabled ? <Notice tone="warn">{t("Telegram receipts are turned off for your company. An administrator can enable them in Expense claim settings.", "إرسال الإيصالات عبر تيليجرام معطل لشركتك. يمكن للمسؤول تفعيله من إعدادات مطالبات المصروفات.")}</Notice>
           : status.myLink ? (

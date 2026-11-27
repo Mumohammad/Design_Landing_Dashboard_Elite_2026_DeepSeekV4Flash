@@ -35,16 +35,16 @@ type Section = 'overview' | 'companies' | 'users' | 'billing' | 'audit' | 'feedb
 type FeedbackEntry = { id: string; company_name: string; kind: 'bug' | 'idea' | 'question' | 'praise'; message: string; page_path: string | null; status: 'new' | 'triaged' | 'closed'; created_at: string };
 
 const statusMeta: Record<string, { label: string; cls: string }> = {
-  active: { label: 'نشطة', cls: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25' },
-  suspended: { label: 'معلّقة', cls: 'bg-rose-500/10 text-rose-400 border-rose-500/25' },
-  terminated: { label: 'منتهية', cls: 'bg-slate-500/10 text-slate-400 border-slate-500/25' },
+  active: { label: 'نشطة', cls: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/25' },
+  suspended: { label: 'معلّقة', cls: 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/25' },
+  terminated: { label: 'منتهية', cls: 'bg-slate-500/10 text-muted-foreground border-slate-500/25' },
 };
 const billingMeta: Record<string, { label: string; cls: string }> = {
-  trialing: { label: 'تجريبية', cls: 'bg-amber-500/10 text-amber-400 border-amber-500/25' },
-  active_paid: { label: 'مدفوعة', cls: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25' },
-  past_due: { label: 'متأخرة', cls: 'bg-orange-500/10 text-orange-400 border-orange-500/25' },
-  unpaid: { label: 'غير مدفوعة', cls: 'bg-rose-500/10 text-rose-400 border-rose-500/25' },
-  cancelled: { label: 'ملغاة', cls: 'bg-slate-500/10 text-slate-400 border-slate-500/25' },
+  trialing: { label: 'تجريبية', cls: 'bg-amber-500/10 text-amber-800 dark:text-amber-300 border-amber-500/25' },
+  active_paid: { label: 'مدفوعة', cls: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/25' },
+  past_due: { label: 'متأخرة', cls: 'bg-orange-500/10 text-orange-800 dark:text-orange-300 border-orange-500/25' },
+  unpaid: { label: 'غير مدفوعة', cls: 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/25' },
+  cancelled: { label: 'ملغاة', cls: 'bg-slate-500/10 text-muted-foreground border-slate-500/25' },
 };
 const roleLabels: Record<string, string> = {
   general_manager: 'مدير عام', admin: 'مسؤول', accountant: 'محاسب', supervisor: 'مشرف',
@@ -220,8 +220,8 @@ export default function PlatformAdminPage() {
 
   if (phase !== 'ready') {
     return (
-      <main  className="flex min-h-screen items-center justify-center bg-slate-950 text-white">
-        {authError ? <div role="alert" className="space-y-3 p-6 text-center text-sm"><p>{locale==='ar'?'تعذر التحقق من الصلاحيات. أعد المحاولة.':'Access could not be verified. Try again.'}</p><button type="button" className="rounded-lg border border-white/20 px-4 py-2" onClick={() => window.location.reload()}>{locale==='ar'?'أعد المحاولة':'Try again'}</button></div> : <div className="flex items-center gap-3 text-sm text-white/60"><Loader2 className="h-5 w-5 animate-spin text-[#E87D3E]" /><LocalizedText text="جارٍ التحقق من الصلاحيات…" /></div>}
+      <main  className="flex min-h-dvh items-center justify-center bg-background text-foreground">
+        {authError ? <div role="alert" className="space-y-3 p-6 text-center text-sm"><p>{locale==='ar'?'تعذر التحقق من الصلاحيات. أعد المحاولة.':'Access could not be verified. Try again.'}</p><button type="button" className="rounded-lg border border-input px-4 py-2" onClick={() => window.location.reload()}>{locale==='ar'?'أعد المحاولة':'Try again'}</button></div> : <div className="flex items-center gap-3 text-sm text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /><LocalizedText text="جارٍ التحقق من الصلاحيات…" /></div>}
       </main>
     );
   }
@@ -238,76 +238,75 @@ export default function PlatformAdminPage() {
   const maxReg = Math.max(1, ...(analytics?.registrations_by_day.map(d => d.count) ?? [1]));
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white">
-      <div className="flex min-h-screen">
-        <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-l border-white/10 bg-slate-900/50 md:flex">
-          <div className="flex items-center gap-3 border-b border-white/10 px-5 py-5">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl text-elite-blue-600 dark:text-elite-blue-300"><ShieldCheck className="h-5 w-5" /></span>
-            <div className="leading-tight"><p className="text-sm font-bold"><LocalizedText text="إدارة المنصة" /></p><p className="text-[11px] text-white/40">SaaS Control</p></div>
+    <main className="min-h-dvh bg-background text-foreground">
+      <div className="flex min-h-dvh flex-col md:flex-row">
+        <aside className="flex w-full shrink-0 flex-col border-b border-border bg-background md:sticky md:top-0 md:h-dvh md:w-60 md:border-b-0 md:border-e">
+          <div className="flex items-center gap-3 border-b border-border px-5 py-5">
+            <span className="flex h-9 w-9 items-center justify-center rounded-md bg-muted text-foreground"><ShieldCheck className="h-5 w-5" /></span>
+            <div className="leading-tight"><p className="text-sm font-medium"><LocalizedText text="إدارة المنصة" /></p><p className="text-xs text-muted-foreground">SaaS Control</p></div>
           </div>
           <div className="px-3"><LanguageToggle /></div>
-          <nav className="flex-1 space-y-1 p-3">
+          <nav className="flex flex-wrap gap-1 p-3 md:flex-1 md:flex-col md:content-stretch">
             {nav.map(n => (
-              <button data-testid={n.key==='users'?'platform-users-tab':undefined} key={n.key} onClick={() => setSection(n.key)} className={`flex w-full items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-sm font-bold transition ${section === n.key ? 'bg-[#1E5A99]/25 text-white ring-1 ring-inset ring-[#1E5A99]/40' : 'text-white/55 hover:bg-white/5 hover:text-white'}`}>
+              <button data-testid={n.key==='users'?'platform-users-tab':undefined} key={n.key} onClick={() => setSection(n.key)} className={`flex items-center gap-2.5 rounded-md px-3 py-2.5 md:w-full text-sm font-medium transition ${section === n.key ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
                 <n.icon className="h-4 w-4" /> {ui(n.label)}
-                {n.count !== undefined && <span className="ms-auto rounded-full bg-white/10 px-2 py-0.5 text-[11px] tabular-nums">{n.count}</span>}
+                {n.count !== undefined && <span className="ms-auto rounded-full bg-muted px-2 py-0.5 text-xs tabular-nums">{n.count}</span>}
               </button>
             ))}
           </nav>
-          <div className="border-t border-white/10 p-3">
-            <Link href="/platform" className="flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-white/50 transition hover:bg-white/5 hover:text-white"><ArrowLeft className="h-4 w-4 -scale-x-100" /> <LocalizedText text="العودة للمنصة" /></Link>
+          <div className="border-t border-border p-3">
+            <Link href="/platform" className="flex items-center gap-2 rounded-md px-3.5 py-2.5 text-xs font-semibold text-muted-foreground transition hover:bg-muted hover:text-foreground"><ArrowLeft className="h-4 w-4 -scale-x-100" /> <LocalizedText text="العودة للمنصة" /></Link>
           </div>
         </aside>
 
         <div className="min-w-0 flex-1">
-          <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b border-white/10 bg-slate-950/85 px-6">
-            <h1 className="text-lg font-extrabold">{nav.find(n => n.key === section)?.label}</h1>
-            <button onClick={() => {setFormErr('');load().catch(()=>setFormErr(locale==='ar'?'تعذر تحميل البيانات. أعد المحاولة.':'Data could not be loaded. Retry.'));}} className="rounded-lg border border-white/10 bg-white/5 p-2 transition hover:bg-white/10" title={ui("تحديث")}><RefreshCw className="h-4 w-4" /></button>
+          <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b border-border bg-background px-6">
+            <h1 className="text-lg font-semibold">{nav.find(n => n.key === section)?.label}</h1>
+            <button onClick={() => {setFormErr('');load().catch(()=>setFormErr(locale==='ar'?'تعذر تحميل البيانات. أعد المحاولة.':'Data could not be loaded. Retry.'));}} className="rounded-lg border border-border bg-muted p-2 transition hover:bg-muted" title={ui("تحديث")}><RefreshCw className="h-4 w-4" /></button>
           </header>
 
-          <div className="p-6">
-            {!modal&&formErr&&<div role="alert" className="mb-5 rounded-xl border border-rose-500/25 bg-rose-500/10 p-3 text-sm text-rose-300">{formErr}<button className="ms-3 underline" onClick={()=>{setFormErr('');load().catch(()=>setFormErr(locale==='ar'?'تعذر تحديث القائمة.':'The roster could not refresh.'));}}>{locale==='ar'?'إعادة المحاولة':'Retry'}</button></div>}
-            {notice&&<p role="status" className="mb-5 rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-3 text-sm text-emerald-200">{notice}</p>}
+          <div className="p-4 sm:p-6">
+            {!modal&&formErr&&<div role="alert" className="mb-5 rounded-md border border-rose-500/25 bg-rose-500/10 p-3 text-sm text-rose-700 dark:text-rose-300">{formErr}<button className="ms-3 underline" onClick={()=>{setFormErr('');load().catch(()=>setFormErr(locale==='ar'?'تعذر تحديث القائمة.':'The roster could not refresh.'));}}>{locale==='ar'?'إعادة المحاولة':'Retry'}</button></div>}
+            {notice&&<p role="status" className="mb-5 rounded-md border border-emerald-500/25 bg-emerald-500/10 p-3 text-sm text-emerald-800 dark:text-emerald-300">{notice}</p>}
             {section === 'overview' && (
               <div className="space-y-6">
-                <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
+                <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border md:grid-cols-3 xl:grid-cols-6">
                   {stats && [
-                    { label: ui("إجمالي الشركات"), value: stats.total, grad: 'bg-[#1E5A99]', icon: Building2 },
-                    { label: ui("نشطة"), value: stats.active, grad: 'bg-emerald-500', icon: PlayCircle },
-                    { label: ui("في التجربة"), value: stats.trial, grad: 'bg-[#E87D3E]', icon: Rocket },
-                    { label: ui("معلّقة"), value: stats.suspended, grad: 'bg-rose-500', icon: PauseCircle },
-                    { label: ui("غير مدفوعة"), value: billingSummary?.unpaid_companies ?? 0, grad: 'bg-orange-500', icon: BadgeDollarSign },
-                    { label: ui("جديدة هذا الشهر"), value: stats.new_this_month, grad: 'bg-teal-500', icon: TrendingUp },
+                    { label: ui("إجمالي الشركات"), value: stats.total, icon: Building2 },
+                    { label: ui("نشطة"), value: stats.active, icon: PlayCircle },
+                    { label: ui("في التجربة"), value: stats.trial, icon: Rocket },
+                    { label: ui("معلّقة"), value: stats.suspended, icon: PauseCircle },
+                    { label: ui("غير مدفوعة"), value: billingSummary?.unpaid_companies ?? 0, icon: BadgeDollarSign },
+                    { label: ui("جديدة هذا الشهر"), value: stats.new_this_month, icon: TrendingUp },
                   ].map(c => (
-                    <div key={c.label} className="rounded-2xl border border-white/10 bg-slate-900/60 p-5">
-                      <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${c.grad}`}><c.icon className="h-5 w-5" /></div>
-                      <p className="mt-4 text-3xl font-extrabold tabular-nums">{c.value}</p>
-                      <p className="mt-1 text-xs font-semibold text-white/50">{ui(c.label)}</p>
+                    <div key={c.label} className="bg-card p-5">
+                      <p className="text-3xl font-medium tabular-nums">{c.value}</p>
+                      <p className="mt-1 text-xs font-semibold text-muted-foreground">{ui(c.label)}</p>
                     </div>
                   ))}
                 </div>
 
                 <div className="grid gap-6 lg:grid-cols-5">
-                  <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-6 lg:col-span-3">
-                    <p className="text-sm font-bold"><LocalizedText text="التسجيلات — آخر 30 يومًا" /></p>
+                  <div className="rounded-lg border border-border bg-card p-6 lg:col-span-3">
+                    <p className="text-sm font-medium"><LocalizedText text="التسجيلات — آخر 30 يومًا" /></p>
                     <div className="mt-5 flex h-36 items-end gap-1">
                       {(analytics?.registrations_by_day ?? []).map(d => (
-                        <div key={d.date} className="group relative flex-1 rounded-t bg-[#1E5A99]/70 transition hover:bg-[#1E5A99]" style={{ height: `${Math.max(4, (d.count / maxReg) * 100)}%` }} title={`${d.date}: ${d.count}`}></div>
+                        <div key={d.date} className="group relative flex-1 rounded-t bg-elite-blue-500 transition-colors hover:bg-elite-blue-600" style={{ height: `${(d.count / maxReg) * 100}%` }} title={`${d.date}: ${d.count}`}></div>
                       ))}
                     </div>
                   </div>
-                  <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-6 lg:col-span-2">
-                    <p className="text-sm font-bold"><LocalizedText text="أكبر الشركات بالمستخدمين" /></p>
+                  <div className="rounded-lg border border-border bg-card p-6 lg:col-span-2">
+                    <p className="text-sm font-medium"><LocalizedText text="أكبر الشركات بالمستخدمين" /></p>
                     <div className="mt-4 space-y-3">
                       {(analytics?.top_companies_by_users ?? []).map(t => (
                         <div key={t.tenant_id} className="flex items-center justify-between text-sm">
-                          <span className="truncate font-semibold text-white/80">{t.name}</span>
-                          <span className="rounded-full bg-white/10 px-2.5 py-0.5 text-xs tabular-nums">{t.users}</span>
+                          <span className="truncate font-semibold text-foreground">{t.name}</span>
+                          <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs tabular-nums">{t.users}</span>
                         </div>
                       ))}
-                      {!(analytics?.top_companies_by_users?.length) && <p className="text-xs text-white/35"><LocalizedText text="لا بيانات بعد" /></p>}
+                      {!(analytics?.top_companies_by_users?.length) && <p className="text-xs text-muted-foreground"><LocalizedText text="لا بيانات بعد" /></p>}
                     </div>
-                    <div className="mt-5 border-t border-white/10 pt-4 text-xs text-white/45"><LocalizedText text="إجمالي المستخدمين:" /><span className="font-extrabold text-white tabular-nums">{analytics?.total_users ?? 0}</span>
+                    <div className="mt-5 border-t border-border pt-4 text-xs text-muted-foreground"><LocalizedText text="إجمالي المستخدمين:" /><span className="font-semibold text-foreground tabular-nums">{analytics?.total_users ?? 0}</span>
                     </div>
                   </div>
                 </div>
@@ -315,25 +314,25 @@ export default function PlatformAdminPage() {
             )}
 
             {section === 'companies' && (
-              <div className="rounded-2xl border border-white/10 bg-slate-900/60">
-                <div className="flex flex-col gap-4 border-b border-white/10 p-5 md:flex-row md:items-center md:justify-between">
-                  <div><h2 className="text-lg font-extrabold"><LocalizedText text="الشركات المسجلة" /></h2><p className="mt-0.5 text-xs text-white/45">{filtered.length} <LocalizedText text="من" /> {companies.length}</p></div>
+              <div className="rounded-lg border border-border bg-card">
+                <div className="flex flex-col gap-4 border-b border-border p-5 md:flex-row md:items-center md:justify-between">
+                  <div><h2 className="text-lg font-semibold"><LocalizedText text="الشركات المسجلة" /></h2><p className="mt-0.5 text-xs text-muted-foreground">{filtered.length} <LocalizedText text="من" /> {companies.length}</p></div>
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="relative">
-                      <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" />
-                      <input value={search} onChange={e => setSearch(e.target.value)} placeholder={ui("بحث…")} className="w-48 rounded-xl border border-white/10 bg-slate-950/60 py-2.5 pl-3 pr-9 text-sm placeholder:text-white/30 focus:border-[#1E5A99] focus:outline-none" />
+                      <Search className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <input value={search} onChange={e => setSearch(e.target.value)} placeholder={ui("بحث…")} className="w-48 rounded-md border border-border bg-background py-2.5 pe-3 ps-9 text-sm placeholder:text-muted-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20" />
                     </div>
-                    <div className="flex overflow-hidden rounded-xl border border-white/10">
+                    <div className="flex overflow-hidden rounded-md border border-border">
                       {([['all', ui("الكل")], ['active', ui("نشطة")], ['trial', ui("تجريبية")], ['suspended', ui("معلّقة")]] as const).map(([k, l]) => (
-                        <button key={k} onClick={() => setFilter(k)} className={`px-3 py-2 text-xs font-bold transition ${filter === k ? 'bg-[#1E5A99] text-white' : 'bg-white/5 text-white/50 hover:bg-white/10'}`}>{l}</button>
+                        <button key={k} onClick={() => setFilter(k)} className={`px-3 py-2 text-xs font-medium transition ${filter === k ? 'bg-foreground text-background' : 'bg-muted text-muted-foreground hover:bg-muted'}`}>{l}</button>
                       ))}
                     </div>
-                    <button disabled={busy} onClick={() => { if(busyLock.current)return; setFormErr(''); setModal('create-company'); }} className="inline-flex items-center gap-1.5 rounded-xl bg-[#E87D3E] px-4 py-2.5 text-sm font-bold shadow-lg shadow-[#E87D3E]/25 transition hover:scale-[1.02]"><Plus className="h-4 w-4" /><LocalizedText text="إضافة شركة" /></button>
+                    <button disabled={busy} onClick={() => { if(busyLock.current)return; setFormErr(''); setModal('create-company'); }} className="inline-flex items-center gap-1.5 rounded-md bg-foreground text-background hover:bg-foreground/90 px-4 py-2.5 text-sm font-medium transition-colors"><Plus className="h-4 w-4" /><LocalizedText text="إضافة شركة" /></button>
                   </div>
                 </div>
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[900px] text-right">
-                    <thead><tr className="border-b border-white/10 text-[11px] text-white/40">
+                  <table className="w-full min-w-[900px] text-start">
+                    <thead><tr className="border-b border-border text-xs font-normal text-muted-foreground">
                       <th className="px-5 py-3.5"><LocalizedText text="الشركة" /></th><th className="px-5 py-3.5"><LocalizedText text="الدومين" /></th><th className="px-5 py-3.5"><LocalizedText text="الحالة" /></th><th className="px-5 py-3.5"><LocalizedText text="الفوترة" /></th><th className="px-5 py-3.5"><LocalizedText text="المستخدمون" /></th><th className="px-5 py-3.5"><LocalizedText text="التسجيل" /></th><th className="px-5 py-3.5"><LocalizedText text="إجراءات" /></th>
                     </tr></thead>
                     <tbody>
@@ -342,36 +341,36 @@ export default function PlatformAdminPage() {
                         const meta = statusMeta[c.status] ?? statusMeta.terminated;
                         const bMeta = billingMeta[c.billing_status] ?? billingMeta.trialing;
                         return (
-                          <tr key={c.id} className="border-b border-white/5 text-sm transition hover:bg-white/[0.03]">
+                          <tr key={c.id} className="border-b border-border text-sm transition hover:bg-muted">
                             <td className="px-5 py-4">
                               <div className="flex items-center gap-3">
                                 {c.logo_url ? (
                                   // eslint-disable-next-line @next/next/no-img-element
-                                  <img src={c.logo_url} alt="" className="h-9 w-9 rounded-xl border border-white/10 object-cover" />
+                                  <img src={c.logo_url} alt="" className="h-9 w-9 rounded-md border border-border object-cover" />
                                 ) : (
-                                  <span className="flex h-9 w-9 items-center justify-center rounded-xl text-sm font-extrabold text-elite-blue-600 dark:text-elite-blue-300">{(c.name_en || '؟').charAt(0)}</span>
+                                  <span className="flex h-9 w-9 items-center justify-center rounded-md bg-muted text-foreground text-sm font-semibold">{(c.name_en || '؟').charAt(0)}</span>
                                 )}
-                                <div className="leading-tight"><p className="font-bold">{c.name_en}</p><p className="text-[11px] text-white/40">{c.slug ?? '—'}</p></div>
+                                <div className="leading-tight"><p className="font-medium">{c.name_en}</p><p className="text-xs text-muted-foreground">{c.slug ?? '—'}</p></div>
                               </div>
                             </td>
-                            <td className="px-5 py-4 text-white/60" dir="ltr">{c.domain ?? '—'}</td>
-                            <td className="px-5 py-4"><span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold ${meta.cls}`}>{meta.label}</span></td>
-                            <td className="px-5 py-4"><span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold ${isTrial ? billingMeta.trialing.cls : bMeta.cls}`}>{isTrial ? ui("تجريبية") : bMeta.label}</span></td>
-                            <td className="px-5 py-4 tabular-nums text-white/60">{c.users_count}</td>
-                            <td className="px-5 py-4 text-xs text-white/45">{fmtDate(c.created_at)}</td>
+                            <td className="px-5 py-4 text-muted-foreground" dir="ltr">{c.domain ?? '—'}</td>
+                            <td className="px-5 py-4"><span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${meta.cls}`}>{meta.label}</span></td>
+                            <td className="px-5 py-4"><span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${isTrial ? billingMeta.trialing.cls : bMeta.cls}`}>{isTrial ? ui("تجريبية") : bMeta.label}</span></td>
+                            <td className="px-5 py-4 tabular-nums text-muted-foreground">{c.users_count}</td>
+                            <td className="px-5 py-4 text-xs text-muted-foreground">{fmtDate(c.created_at)}</td>
                             <td className="px-5 py-4">
                               <div className="flex items-center gap-1.5">
-                                <button disabled={busy} onClick={() => { if(busyLock.current)return; setEditTarget(c); setFormErr(''); setModal('edit-company'); }} className="rounded-lg bg-white/10 p-1.5 text-white/60 transition hover:bg-white/15 hover:text-white" title={ui("تعديل")}><Pencil className="h-3.5 w-3.5" /></button>
-                                <button disabled={busyId === c.id || c.status === 'terminated'} onClick={() => toggleStatus(c)} className={`rounded-lg p-1.5 transition disabled:opacity-40 ${c.status === 'suspended' ? 'bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25' : 'bg-amber-500/15 text-amber-400 hover:bg-amber-500/25'}`} title={c.status === 'suspended' ? ui("تفعيل") : ui("تعليق")}>
+                                <button disabled={busy} onClick={() => { if(busyLock.current)return; setEditTarget(c); setFormErr(''); setModal('edit-company'); }} className="rounded-lg bg-muted p-1.5 text-muted-foreground transition hover:bg-white/15 hover:text-foreground" title={ui("تعديل")}><Pencil className="h-3.5 w-3.5" /></button>
+                                <button disabled={busyId === c.id || c.status === 'terminated'} onClick={() => toggleStatus(c)} className={`rounded-lg p-1.5 transition disabled:opacity-40 ${c.status === 'suspended' ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/25' : 'bg-amber-500/15 text-amber-800 dark:text-amber-300 hover:bg-amber-500/25'}`} title={c.status === 'suspended' ? ui("تفعيل") : ui("تعليق")}>
                                   {busyId === c.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : c.status === 'suspended' ? <PlayCircle className="h-3.5 w-3.5" /> : <PauseCircle className="h-3.5 w-3.5" />}
                                 </button>
-                                <button disabled={busyId === c.id} onClick={() => companyAction('/api/platform/admin/companies', { tenant_id: c.id }, locale === "ar" ? `أرشفة «${c.name_en}»؟` : `Archive “${c.name_en}”?`)} className="rounded-lg bg-rose-500/15 p-1.5 text-rose-400 transition hover:bg-rose-500/25" title={ui("حذف")}><Trash2 className="h-3.5 w-3.5" /></button>
+                                <button disabled={busyId === c.id} onClick={() => companyAction('/api/platform/admin/companies', { tenant_id: c.id }, locale === "ar" ? `أرشفة «${c.name_en}»؟` : `Archive “${c.name_en}”?`)} className="rounded-lg bg-rose-500/15 p-1.5 text-rose-700 dark:text-rose-300 transition hover:bg-rose-500/25" title={ui("حذف")}><Trash2 className="h-3.5 w-3.5" /></button>
                               </div>
                             </td>
                           </tr>
                         );
                       })}
-                      {filtered.length === 0 && <tr><td colSpan={7} className="px-5 py-14 text-center text-sm text-white/35"><LocalizedText text="لا توجد شركات مطابقة" /></td></tr>}
+                      {filtered.length === 0 && <tr><td colSpan={7} className="px-5 py-14 text-center text-sm text-muted-foreground"><LocalizedText text="لا توجد شركات مطابقة" /></td></tr>}
                     </tbody>
                   </table>
                 </div>
@@ -379,39 +378,39 @@ export default function PlatformAdminPage() {
             )}
 
             {section === 'users' && (
-              <div data-testid="platform-users" className="rounded-2xl border border-white/10 bg-slate-900/60">
-                <div className="flex flex-col gap-4 border-b border-white/10 p-5 md:flex-row md:items-center md:justify-between">
-                  <div><h2 className="text-lg font-extrabold"><LocalizedText text="كل المستخدمين" /></h2><p className="mt-0.5 text-xs text-white/45">{users.length}<LocalizedText text="مستخدم عبر" />{companies.length}<LocalizedText text="شركة" /></p></div>
-                  <button data-testid="platform-user-create" disabled={busy} onClick={() => { if(busyLock.current)return; if(!userForm.request_id)setUserForm({...userForm,request_id:crypto.randomUUID(),tenant_id:'',role:'readonly_auditor'}); setFormErr(''); setModal('create-user'); void refreshUserChoices(); }} className="inline-flex items-center gap-1.5 rounded-xl bg-[#1E5A99] px-4 py-2.5 text-sm font-bold shadow-lg shadow-[#1E5A99]/25 transition hover:scale-[1.02]"><Plus className="h-4 w-4" /><LocalizedText text="إنشاء مستخدم" /></button>
+              <div data-testid="platform-users" className="rounded-lg border border-border bg-card">
+                <div className="flex flex-col gap-4 border-b border-border p-5 md:flex-row md:items-center md:justify-between">
+                  <div><h2 className="text-lg font-semibold"><LocalizedText text="كل المستخدمين" /></h2><p className="mt-0.5 text-xs text-muted-foreground">{users.length}<LocalizedText text="مستخدم عبر" />{companies.length}<LocalizedText text="شركة" /></p></div>
+                  <button data-testid="platform-user-create" disabled={busy} onClick={() => { if(busyLock.current)return; if(!userForm.request_id)setUserForm({...userForm,request_id:crypto.randomUUID(),tenant_id:'',role:'readonly_auditor'}); setFormErr(''); setModal('create-user'); void refreshUserChoices(); }} className="inline-flex items-center gap-1.5 rounded-md bg-foreground text-background hover:bg-foreground/90 px-4 py-2.5 text-sm font-medium transition-colors"><Plus className="h-4 w-4" /><LocalizedText text="إنشاء مستخدم" /></button>
                 </div>
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[820px] text-right">
-                    <thead><tr className="border-b border-white/10 text-[11px] text-white/40">
+                  <table className="w-full min-w-[820px] text-start">
+                    <thead><tr className="border-b border-border text-xs font-normal text-muted-foreground">
                       <th className="px-5 py-3.5"><LocalizedText text="المستخدم" /></th><th className="px-5 py-3.5"><LocalizedText text="الشركة" /></th><th className="px-5 py-3.5"><LocalizedText text="الدور" /></th><th className="px-5 py-3.5"><LocalizedText text="الحالة" /></th><th className="px-5 py-3.5"><LocalizedText text="آخر دخول" /></th><th className="px-5 py-3.5"><LocalizedText text="إجراءات" /></th>
                     </tr></thead>
                     <tbody>
                       {users.map(u => (
-                        <tr key={u.id} data-testid="platform-user-row" data-user-id={u.id} className="border-b border-white/5 text-sm transition hover:bg-white/[0.03]">
-                          <td className="px-5 py-4"><div className="leading-tight"><p className="font-bold">{u.full_name_en || u.email}</p><p className="text-[11px] text-white/40" dir="ltr">{u.email}</p></div></td>
-                          <td className="px-5 py-4 text-white/60">{u.company_name}</td>
+                        <tr key={u.id} data-testid="platform-user-row" data-user-id={u.id} className="border-b border-border text-sm transition hover:bg-muted">
+                          <td className="px-5 py-4"><div className="leading-tight"><p className="font-medium">{u.full_name_en || u.email}</p><p className="text-xs text-muted-foreground" dir="ltr">{u.email}</p></div></td>
+                          <td className="px-5 py-4 text-muted-foreground">{u.company_name}</td>
                           <td className="px-5 py-4">
-                            <select aria-label={locale==='ar'?'دور المستخدم':'User role'} disabled={busy||u.protected||!u.tenant_active||u.status==='terminated'} value={u.role} onChange={e => reviewUser(u,'role',e.target.value)} className="rounded-lg border border-white/10 bg-slate-950/60 px-2.5 py-1.5 text-xs font-bold focus:border-[#1E5A99] focus:outline-none">
+                            <select aria-label={locale==='ar'?'دور المستخدم':'User role'} disabled={busy||u.protected||!u.tenant_active||u.status==='terminated'} value={u.role} onChange={e => reviewUser(u,'role',e.target.value)} className="rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs font-medium focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20">
                               {u.role==='general_manager'&&<option value="general_manager">{ui(roleLabels.general_manager)}</option>}{userRoles.filter(r=>r.tenant_id===u.tenant_id&&ROLES.includes(r.name)).map(r=><option key={r.name} value={r.name}>{ui(roleLabels[r.name]??r.name)}</option>)}
                             </select>
                           </td>
-                          <td className="px-5 py-4"><span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold ${u.status === 'active' ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-400' : 'border-slate-500/25 bg-slate-500/10 text-slate-400'}`}>{u.status === 'active' ? ui("نشط") : u.status === 'pending_invite' ? ui("بانتظار القبول") : u.status === 'locked' ? ui("مقفل") : u.status === 'terminated' ? ui("موقوف") : u.status}</span></td>
-                          <td className="px-5 py-4 text-xs text-white/45">{u.last_login_at ? fmtDate(u.last_login_at) : ui("لم يدخل")}</td>
+                          <td className="px-5 py-4"><span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${u.status === 'active' ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-slate-500/25 bg-slate-500/10 text-muted-foreground'}`}>{u.status === 'active' ? ui("نشط") : u.status === 'pending_invite' ? ui("بانتظار القبول") : u.status === 'locked' ? ui("مقفل") : u.status === 'terminated' ? ui("موقوف") : u.status}</span></td>
+                          <td className="px-5 py-4 text-xs text-muted-foreground">{u.last_login_at ? fmtDate(u.last_login_at) : ui("لم يدخل")}</td>
                           <td className="px-5 py-4">
                             <div className="flex items-center gap-1.5">
-                              <button data-testid="platform-user-reset" disabled={busy||u.protected||!u.tenant_active||u.status!=='active'} onClick={()=>reviewUser(u,'reset')} className="rounded-lg bg-white/10 p-1.5 text-white/60 transition hover:bg-white/15 hover:text-white disabled:opacity-40" title={locale==='ar'?'استعادة كلمة المرور':'Password recovery'} aria-label={locale==='ar'?'استعادة كلمة المرور':'Password recovery'}><KeyRound className="h-3.5 w-3.5" /></button>
+                              <button data-testid="platform-user-reset" disabled={busy||u.protected||!u.tenant_active||u.status!=='active'} onClick={()=>reviewUser(u,'reset')} className="rounded-lg bg-muted p-1.5 text-muted-foreground transition hover:bg-white/15 hover:text-foreground disabled:opacity-40" title={locale==='ar'?'استعادة كلمة المرور':'Password recovery'} aria-label={locale==='ar'?'استعادة كلمة المرور':'Password recovery'}><KeyRound className="h-3.5 w-3.5" /></button>
                               {(u.status==='active'||u.status==='inactive'||u.status==='locked')&&<button data-testid="platform-user-status" disabled={busy||u.protected||!u.tenant_active} onClick={()=>reviewUser(u,'status',u.status==='active'?'inactive':'active')} className="rounded-lg bg-amber-500/15 p-1.5 text-amber-300 disabled:opacity-40" aria-label={u.status==='active'?(locale==='ar'?'إيقاف التفعيل':'Deactivate'):(locale==='ar'?'تفعيل':'Activate')} title={u.status==='active'?(locale==='ar'?'إيقاف التفعيل':'Deactivate'):(locale==='ar'?'تفعيل':'Activate')}><PauseCircle className="h-3.5 w-3.5" /></button>}
-                              {(u.status==='inactive'||u.status==='terminated')&&<button data-testid="platform-user-archive" disabled={busy||u.protected||!u.tenant_active} onClick={()=>reviewUser(u,'archive')} className="rounded-lg bg-rose-500/15 p-1.5 text-rose-400 disabled:opacity-40" aria-label={locale==='ar'?'أرشفة':'Archive'} title={locale==='ar'?'أرشفة':'Archive'}><Trash2 className="h-3.5 w-3.5" /></button>}
+                              {(u.status==='inactive'||u.status==='terminated')&&<button data-testid="platform-user-archive" disabled={busy||u.protected||!u.tenant_active} onClick={()=>reviewUser(u,'archive')} className="rounded-lg bg-rose-500/15 p-1.5 text-rose-700 dark:text-rose-300 disabled:opacity-40" aria-label={locale==='ar'?'أرشفة':'Archive'} title={locale==='ar'?'أرشفة':'Archive'}><Trash2 className="h-3.5 w-3.5" /></button>}
 
                             </div>
                           </td>
                         </tr>
                       ))}
-                      {users.length === 0 && <tr><td colSpan={6} className="px-5 py-14 text-center text-sm text-white/35"><LocalizedText text="لا مستخدمين بعد" /></td></tr>}
+                      {users.length === 0 && <tr><td colSpan={6} className="px-5 py-14 text-center text-sm text-muted-foreground"><LocalizedText text="لا مستخدمين بعد" /></td></tr>}
                     </tbody>
                   </table>
                 </div>
@@ -422,46 +421,46 @@ export default function PlatformAdminPage() {
               <div className="space-y-6">
                 <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
                   {billingSummary && [
-                    { label: ui("معلّق التحصيل"), value: fmtMoney(billingSummary.pending_amount), grad: 'bg-amber-500' },
-                    { label: ui("متأخر"), value: fmtMoney(billingSummary.overdue_amount), grad: 'bg-rose-500' },
-                    { label: ui("محصّل هذا الشهر"), value: fmtMoney(billingSummary.paid_this_month), grad: 'bg-emerald-500' },
-                    { label: ui("شركات غير مدفوعة"), value: billingSummary.unpaid_companies, grad: 'bg-[#1E5A99]' },
+                    { label: ui("معلّق التحصيل"), value: fmtMoney(billingSummary.pending_amount) },
+                    { label: ui("متأخر"), value: fmtMoney(billingSummary.overdue_amount) },
+                    { label: ui("محصّل هذا الشهر"), value: fmtMoney(billingSummary.paid_this_month) },
+                    { label: ui("شركات غير مدفوعة"), value: billingSummary.unpaid_companies },
                   ].map(c => (
-                    <div key={c.label} className="rounded-2xl border border-white/10 bg-slate-900/60 p-5">
-                      <div className={`h-1.5 w-10 rounded-full ${c.grad}`}></div>
-                      <p className="mt-4 text-2xl font-extrabold tabular-nums">{c.value}</p>
-                      <p className="mt-1 text-xs font-semibold text-white/50">{ui(c.label)}</p>
+                    <div key={c.label} className="bg-card p-5">
+                      <div className="h-1.5 w-10 rounded-full bg-foreground"></div>
+                      <p className="mt-4 text-2xl font-semibold tabular-nums">{c.value}</p>
+                      <p className="mt-1 text-xs font-semibold text-muted-foreground">{ui(c.label)}</p>
                     </div>
                   ))}
                 </div>
-                <div className="rounded-2xl border border-white/10 bg-slate-900/60">
-                  <div className="flex items-center justify-between border-b border-white/10 p-5">
-                    <h2 className="text-lg font-extrabold"><LocalizedText text="فواتير المنصة" /></h2>
-                    <button disabled={busy} onClick={() => { if(busyLock.current)return; setInvoiceForm({ ...invoiceForm, tenant_id: companies[0]?.id ?? '' }); setFormErr(''); setModal('create-invoice'); }} className="inline-flex items-center gap-1.5 rounded-xl bg-[#E87D3E] px-4 py-2.5 text-sm font-bold shadow-lg shadow-[#E87D3E]/25 transition hover:scale-[1.02]"><Plus className="h-4 w-4" /><LocalizedText text="فاتورة جديدة" /></button>
+                <div className="rounded-lg border border-border bg-card">
+                  <div className="flex items-center justify-between border-b border-border p-5">
+                    <h2 className="text-lg font-semibold"><LocalizedText text="فواتير المنصة" /></h2>
+                    <button disabled={busy} onClick={() => { if(busyLock.current)return; setInvoiceForm({ ...invoiceForm, tenant_id: companies[0]?.id ?? '' }); setFormErr(''); setModal('create-invoice'); }} className="inline-flex items-center gap-1.5 rounded-md bg-foreground text-background hover:bg-foreground/90 px-4 py-2.5 text-sm font-medium transition-colors"><Plus className="h-4 w-4" /><LocalizedText text="فاتورة جديدة" /></button>
                   </div>
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[760px] text-right">
-                      <thead><tr className="border-b border-white/10 text-[11px] text-white/40">
+                    <table className="w-full min-w-[760px] text-start">
+                      <thead><tr className="border-b border-border text-xs font-normal text-muted-foreground">
                         <th className="px-5 py-3.5"><LocalizedText text="الفاتورة" /></th><th className="px-5 py-3.5"><LocalizedText text="الشركة" /></th><th className="px-5 py-3.5"><LocalizedText text="المبلغ" /></th><th className="px-5 py-3.5"><LocalizedText text="الاستحقاق" /></th><th className="px-5 py-3.5"><LocalizedText text="الحالة" /></th><th className="px-5 py-3.5"><LocalizedText text="إجراء" /></th>
                       </tr></thead>
                       <tbody>
                         {invoices.map(i => (
-                          <tr key={i.id} className="border-b border-white/5 text-sm transition hover:bg-white/[0.03]">
-                            <td className="px-5 py-4 font-mono text-xs font-bold text-white/80" dir="ltr">{i.invoice_number}</td>
+                          <tr key={i.id} className="border-b border-border text-sm transition hover:bg-muted">
+                            <td className="px-5 py-4 font-mono text-xs font-medium text-foreground" dir="ltr">{i.invoice_number}</td>
                             <td className="px-5 py-4">{i.company_name}</td>
-                            <td className="px-5 py-4 font-extrabold tabular-nums">{fmtMoney(Number(i.amount))}</td>
-                            <td className="px-5 py-4 text-xs text-white/45">{fmtDate(i.due_date)}</td>
-                            <td className="px-5 py-4"><span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold ${i.status === 'paid' ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-400' : i.status === 'overdue' ? 'border-rose-500/25 bg-rose-500/10 text-rose-400' : 'border-amber-500/25 bg-amber-500/10 text-amber-400'}`}>{i.status === 'paid' ? ui("مدفوعة") : i.status === 'overdue' ? ui("متأخرة") : i.status === 'void' ? 'ملغاة' : ui("معلّقة")}</span>{i.status === 'paid' && i.payment_method === 'card' && <span className="ms-2 text-[11px] text-sky-400">{ui("بطاقة")}</span>}</td>
+                            <td className="px-5 py-4 text-right font-semibold tabular-nums">{fmtMoney(Number(i.amount))}</td>
+                            <td className="px-5 py-4 text-xs text-muted-foreground">{fmtDate(i.due_date)}</td>
+                            <td className="px-5 py-4"><span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${i.status === 'paid' ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : i.status === 'overdue' ? 'border-rose-500/25 bg-rose-500/10 text-rose-700 dark:text-rose-300' : 'border-amber-500/25 bg-amber-500/10 text-amber-800 dark:text-amber-300'}`}>{i.status === 'paid' ? ui("مدفوعة") : i.status === 'overdue' ? ui("متأخرة") : i.status === 'void' ? 'ملغاة' : ui("معلّقة")}</span>{i.status === 'paid' && i.payment_method === 'card' && <span className="ms-2 text-xs text-muted-foreground">{ui("بطاقة")}</span>}</td>
                             <td className="px-5 py-4">
                               {i.status !== 'paid' && i.status !== 'void' && (
-                                <button disabled={busyId === i.id} onClick={async () => { if (!confirm(ui("تأكيد استلام الدفع؟"))) return; setBusyId(i.id); try { await api('/api/platform/admin/billing', { method: 'PATCH', body: JSON.stringify({ invoice_id: i.id, action: 'mark_paid' }) }); await load(); } finally { setBusyId(null); } }} className="rounded-lg bg-emerald-500/15 px-3 py-1.5 text-xs font-bold text-emerald-400 transition hover:bg-emerald-500/25 disabled:opacity-40">
+                                <button disabled={busyId === i.id} onClick={async () => { if (!confirm(ui("تأكيد استلام الدفع؟"))) return; setBusyId(i.id); try { await api('/api/platform/admin/billing', { method: 'PATCH', body: JSON.stringify({ invoice_id: i.id, action: 'mark_paid' }) }); await load(); } finally { setBusyId(null); } }} className="rounded-lg bg-emerald-500/15 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-300 transition hover:bg-emerald-500/25 disabled:opacity-40">
                                   {busyId === i.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : ui("تأكيد الدفع")}
                                 </button>
                               )}
                             </td>
                           </tr>
                         ))}
-                        {invoices.length === 0 && <tr><td colSpan={6} className="px-5 py-14 text-center text-sm text-white/35"><LocalizedText text="لا فواتير بعد — أنشئ أول فاتورة" /></td></tr>}
+                        {invoices.length === 0 && <tr><td colSpan={6} className="px-5 py-14 text-center text-sm text-muted-foreground"><LocalizedText text="لا فواتير بعد — أنشئ أول فاتورة" /></td></tr>}
                       </tbody>
                     </table>
                   </div>
@@ -470,20 +469,20 @@ export default function PlatformAdminPage() {
             )}
 
             {section === 'audit' && (
-              <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-6">
-                <h2 className="text-lg font-extrabold"><LocalizedText text="أحدث إجراءات المنصة" /></h2>
+              <div className="rounded-lg border border-border bg-card p-6">
+                <h2 className="text-lg font-semibold"><LocalizedText text="أحدث إجراءات المنصة" /></h2>
                 <div className="mt-5 space-y-2">
                   {audit.map(e => (
-                    <div key={e.id} className="flex items-center gap-4 rounded-xl border border-white/5 bg-white/[0.02] px-4 py-3 text-sm">
-                      <span className="h-2 w-2 shrink-0 rounded-full bg-[#E87D3E]"></span>
+                    <div key={e.id} className="flex items-center gap-4 rounded-md border border-border bg-muted px-4 py-3 text-sm">
+                      <span className="h-2 w-2 shrink-0 rounded-full bg-muted-foreground"></span>
                       <div className="min-w-0 flex-1">
-                        <p className="truncate font-semibold text-white/85">{e.action}</p>
-                        <p className="text-xs text-white/40">{e.company_name} · {e.module}{e.entity_type ? ` · ${e.entity_type}` : ''}</p>
+                        <p className="truncate font-semibold text-foreground">{e.action}</p>
+                        <p className="text-xs text-muted-foreground">{e.company_name} · {e.module}{e.entity_type ? ` · ${e.entity_type}` : ''}</p>
                       </div>
-                      <span className="shrink-0 text-[11px] text-white/35 tabular-nums">{new Date(e.created_at).toLocaleString('ar-SA')}</span>
+                      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{new Date(e.created_at).toLocaleString('ar-SA')}</span>
                     </div>
                   ))}
-                  {audit.length === 0 && <p className="py-10 text-center text-sm text-white/35"><LocalizedText text="لا نشاط بعد" /></p>}
+                  {audit.length === 0 && <p className="py-10 text-center text-sm text-muted-foreground"><LocalizedText text="لا نشاط بعد" /></p>}
                 </div>
               </div>
             )}
@@ -529,73 +528,73 @@ export default function PlatformAdminPage() {
 
       {modal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => { if(!busyLock.current)setModal(null); }}>
-          <div role="dialog" aria-modal="true" aria-labelledby="platform-admin-dialog-title" className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-white/10 bg-slate-900 p-7 shadow-2xl" onClick={e => e.stopPropagation()}>
+          <div role="dialog" aria-modal="true" aria-labelledby="platform-admin-dialog-title" className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-lg border border-border bg-popover p-7 shadow-lg" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between">
-              <h3 id="platform-admin-dialog-title" className="text-lg font-extrabold">
+              <h3 id="platform-admin-dialog-title" className="text-lg font-semibold">
                 {modal === 'create-company' && ui("إضافة شركة جديدة")}
                 {modal === 'edit-company' && `تعديل «${editTarget?.name_en}»`}
                 {modal === 'create-user' && ui("إنشاء مستخدم")}
                 {modal==='review-user'&&(locale==='ar'?'مراجعة تغيير الحساب':'Review account change')}
                 {modal === 'create-invoice' && ui("فاتورة جديدة")}
               </h3>
-              <button aria-label={locale==='ar'?'إغلاق':'Close'} disabled={busy} onClick={() => { if(!busyLock.current)setModal(null); }} className="rounded-lg p-1.5 text-white/50 transition hover:bg-white/10"><X className="h-5 w-5" /></button>
+              <button aria-label={locale==='ar'?'إغلاق':'Close'} disabled={busy} onClick={() => { if(!busyLock.current)setModal(null); }} className="rounded-lg p-1.5 text-muted-foreground transition hover:bg-muted"><X className="h-5 w-5" /></button>
             </div>
-            {formErr && <div className="mt-4 rounded-xl border border-rose-500/25 bg-rose-500/10 p-3 text-sm text-rose-300">{formErr}</div>}
+            {formErr && <div className="mt-4 rounded-md border border-rose-500/25 bg-rose-500/10 p-3 text-sm text-rose-700 dark:text-rose-300">{formErr}</div>}
 
             {modal === 'create-company' && (
               <form onSubmit={e => { e.preventDefault(); companyAction('/api/platform/admin/create-company', createCompanyBody(companyForm)); }} className="mt-5 space-y-4"><fieldset disabled={busy} className="min-w-0 space-y-4">
-                <p className="text-xs leading-5 text-white/45"><LocalizedText text="يصل المالك دعوة بالبريد لتعيين كلمة المرور." /></p>
+                <p className="text-xs leading-5 text-muted-foreground"><LocalizedText text="يصل المالك دعوة بالبريد لتعيين كلمة المرور." /></p>
                 {([['company_name', ui("اسم الشركة *")], ['domain', ui("الدومين *")], ['owner_email', ui("بريد المالك *")], ['owner_name', ui("اسم المالك")]] as const).map(([k, l]) => (
-                  <div key={k}><label className="mb-1.5 block text-xs font-bold text-white/70">{l}</label><input required={l.endsWith('*')} value={companyForm[k]} onChange={e => setCompanyForm({ ...companyForm, [k]: e.target.value })} className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm focus:border-[#1E5A99] focus:outline-none" /></div>
+                  <div key={k}><label className="mb-1.5 block text-xs font-medium text-foreground">{l}</label><input required={l.endsWith('*')} value={companyForm[k]} onChange={e => setCompanyForm({ ...companyForm, [k]: e.target.value })} className="w-full rounded-md border border-border bg-background px-4 py-2.5 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20" /></div>
                 ))}
-                <button disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#1E5A99] px-4 py-3 text-sm font-bold disabled:opacity-60">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} {busy ? ui("جارٍ الإنشاء…") : ui("إنشاء ودعوة")}</button>
+                <button disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-md bg-foreground text-background hover:bg-foreground/90 px-4 py-3 text-sm font-medium disabled:opacity-60">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} {busy ? ui("جارٍ الإنشاء…") : ui("إنشاء ودعوة")}</button>
               </fieldset></form>
             )}
 
             {modal === 'edit-company' && editTarget && (
               <form onSubmit={e => { e.preventDefault(); companyAction('/api/platform/admin/companies', { tenant_id: editTarget.id, name_en: editTarget.name_en, domain: editTarget.domain, logo_url: editTarget.logo_url, billing_status: editTarget.billing_status }); }} className="mt-5 space-y-4"><fieldset disabled={busy} className="min-w-0 space-y-4">
-                <div><label className="mb-1.5 block text-xs font-bold text-white/70"><LocalizedText text="اسم الشركة" /></label><input value={editTarget.name_en} onChange={e => setEditTarget({ ...editTarget, name_en: e.target.value })} className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm focus:border-[#1E5A99] focus:outline-none" /></div>
-                <div><label className="mb-1.5 block text-xs font-bold text-white/70"><LocalizedText text="الدومين" /></label><input value={editTarget.domain ?? ''} onChange={e => setEditTarget({ ...editTarget, domain: e.target.value })} className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm focus:border-[#1E5A99] focus:outline-none" dir="ltr" /></div>
-                <div><label className="mb-1.5 block text-xs font-bold text-white/70"><LocalizedText text="رابط الشعار" /></label><input value={editTarget.logo_url ?? ''} onChange={e => setEditTarget({ ...editTarget, logo_url: e.target.value })} className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm focus:border-[#1E5A99] focus:outline-none" dir="ltr" /></div>
-                <div><label className="mb-1.5 block text-xs font-bold text-white/70"><LocalizedText text="حالة الفوترة" /></label><select value={editTarget.billing_status} onChange={e => setEditTarget({ ...editTarget, billing_status: e.target.value })} className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm focus:border-[#1E5A99] focus:outline-none">{Object.entries(billingMeta).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select></div>
-                <button disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#1E5A99] px-4 py-3 text-sm font-bold disabled:opacity-60">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} {busy ? ui("جارٍ الحفظ…") : 'حفظ التعديلات'}</button>
+                <div><label className="mb-1.5 block text-xs font-medium text-foreground"><LocalizedText text="اسم الشركة" /></label><input value={editTarget.name_en} onChange={e => setEditTarget({ ...editTarget, name_en: e.target.value })} className="w-full rounded-md border border-border bg-background px-4 py-2.5 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20" /></div>
+                <div><label className="mb-1.5 block text-xs font-medium text-foreground"><LocalizedText text="الدومين" /></label><input value={editTarget.domain ?? ''} onChange={e => setEditTarget({ ...editTarget, domain: e.target.value })} className="w-full rounded-md border border-border bg-background px-4 py-2.5 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20" dir="ltr" /></div>
+                <div><label className="mb-1.5 block text-xs font-medium text-foreground"><LocalizedText text="رابط الشعار" /></label><input value={editTarget.logo_url ?? ''} onChange={e => setEditTarget({ ...editTarget, logo_url: e.target.value })} className="w-full rounded-md border border-border bg-background px-4 py-2.5 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20" dir="ltr" /></div>
+                <div><label className="mb-1.5 block text-xs font-medium text-foreground"><LocalizedText text="حالة الفوترة" /></label><select value={editTarget.billing_status} onChange={e => setEditTarget({ ...editTarget, billing_status: e.target.value })} className="w-full rounded-md border border-border bg-background px-4 py-2.5 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20">{Object.entries(billingMeta).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select></div>
+                <button disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-md bg-foreground text-background hover:bg-foreground/90 px-4 py-3 text-sm font-medium disabled:opacity-60">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} {busy ? ui("جارٍ الحفظ…") : 'حفظ التعديلات'}</button>
               </fieldset></form>
             )}
 
             {modal==='review-user'&&userReview&&(
               <form data-testid="platform-user-review" onSubmit={e=>{e.preventDefault();const r=userReview;userAction(r.action==='archive'?'DELETE':'PATCH',{user_id:r.user.id,expected_version:r.user.version,reason:userReason,...(r.action==='role'?{role:r.value}:r.action==='status'?{status:r.value}:r.action==='reset'?{reset_password:true}:{})});}} className="mt-5 space-y-4"><fieldset disabled={busy} className="min-w-0 space-y-4">
-                <p className="break-words text-sm text-white/70">{userReview.user.email}</p>
+                <p className="break-words text-sm text-foreground">{userReview.user.email}</p>
                 <p className="text-sm">{userReview.action==='role'?(locale==='ar'?'تغيير الدور إلى: ':'Change role to: ')+ui(roleLabels[userReview.value??'']??userReview.value??''):userReview.action==='status'?(locale==='ar'?'تغيير الحالة إلى: ':'Change status to: ')+(userReview.value==='active'?(locale==='ar'?'نشط':'Active'):(locale==='ar'?'غير نشط':'Inactive')):userReview.action==='archive'?(locale==='ar'?'ستتم أرشفة الحساب مع الاحتفاظ بالسجل.':'Archive this account while preserving its history.'):(locale==='ar'?'طلب رابط استعادة كلمة المرور. التسليم يتطلب قبول مزود البريد.':'Request password recovery. Delivery requires acceptance by the email provider.')}</p>
-                <div><label htmlFor="platform-user-reason" className="mb-1.5 block text-xs font-bold text-white/70">{locale==='ar'?'سبب التغيير':'Reason'}</label><textarea id="platform-user-reason" data-testid="platform-user-reason" required minLength={5} maxLength={500} value={userReason} onChange={e=>setUserReason(e.target.value)} className="min-h-24 w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm focus:border-[#1E5A99] focus:outline-none" /></div>
-                <p className="text-xs text-white/50">{locale==='ar'?'إذا تغير السجل، أعد تحميله ثم راجع العملية من جديد.':'If this record changes, reload and review the operation again.'}</p>
-                <button data-testid="platform-user-confirm" disabled={busy||userReason.trim().length<5} className="w-full rounded-xl bg-[#1E5A99] px-4 py-3 text-sm font-bold disabled:opacity-50">{busy?(locale==='ar'?'جارٍ الحفظ…':'Saving…'):(locale==='ar'?'تأكيد التغيير':'Confirm change')}</button>
+                <div><label htmlFor="platform-user-reason" className="mb-1.5 block text-xs font-medium text-foreground">{locale==='ar'?'سبب التغيير':'Reason'}</label><textarea id="platform-user-reason" data-testid="platform-user-reason" required minLength={5} maxLength={500} value={userReason} onChange={e=>setUserReason(e.target.value)} className="min-h-24 w-full rounded-md border border-border bg-background px-4 py-3 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20" /></div>
+                <p className="text-xs text-muted-foreground">{locale==='ar'?'إذا تغير السجل، أعد تحميله ثم راجع العملية من جديد.':'If this record changes, reload and review the operation again.'}</p>
+                <button data-testid="platform-user-confirm" disabled={busy||userReason.trim().length<5} className="w-full rounded-md bg-foreground text-background px-4 py-3 text-sm font-medium disabled:opacity-50">{busy?(locale==='ar'?'جارٍ الحفظ…':'Saving…'):(locale==='ar'?'تأكيد التغيير':'Confirm change')}</button>
               </fieldset></form>
             )}
             {modal === 'create-user' && (
               <form data-testid="platform-user-create-form" onSubmit={e => { e.preventDefault(); if(!createUserReady){setFormErr(locale==='ar'?'تحقق من المنشأة والدور قبل الإنشاء.':'Verify the company and role before creating.');return;} void userAction('POST', { ...userForm, password: userForm.password || undefined }); }} className="mt-5 space-y-4">
                 <div data-testid="platform-user-choices" data-state={userChoicesState} data-error-endpoint={userChoicesFailure?.endpoint} data-http-status={userChoicesFailure?.status}>
-                  {(userChoicesState==='idle'||userChoicesState==='loading')&&<p role="status" className="text-sm text-white/60">{locale==='ar'?'جارٍ تحميل المنشآت والأدوار…':'Loading companies and roles…'}</p>}
-                  {userChoicesState==='error'&&<div role="alert" className="space-y-2 rounded-xl border border-rose-500/30 p-3 text-sm text-rose-200"><p>{locale==='ar'?'تعذر التحقق من المنشآت والأدوار. أعد المحاولة قبل الإنشاء.':'Companies and roles could not be verified. Retry before creating.'}</p><button type="button" onClick={()=>void refreshUserChoices()} className="rounded-lg border border-white/20 px-3 py-1.5">{locale==='ar'?'أعد المحاولة':'Retry'}</button></div>}
-                  {userChoicesState==='ready'&&!userChoices?.companies.some(c=>c.status==='active')&&<p role="status" className="text-sm text-amber-200">{locale==='ar'?'لا توجد منشأة نشطة متاحة لإنشاء المستخدم.':'No active company is available for user creation.'}</p>}
+                  {(userChoicesState==='idle'||userChoicesState==='loading')&&<p role="status" className="text-sm text-muted-foreground">{locale==='ar'?'جارٍ تحميل المنشآت والأدوار…':'Loading companies and roles…'}</p>}
+                  {userChoicesState==='error'&&<div role="alert" className="space-y-2 rounded-md border border-rose-500/30 p-3 text-sm text-rose-800 dark:text-rose-200"><p>{locale==='ar'?'تعذر التحقق من المنشآت والأدوار. أعد المحاولة قبل الإنشاء.':'Companies and roles could not be verified. Retry before creating.'}</p><button type="button" onClick={()=>void refreshUserChoices()} className="rounded-lg border border-input px-3 py-1.5">{locale==='ar'?'أعد المحاولة':'Retry'}</button></div>}
+                  {userChoicesState==='ready'&&!userChoices?.companies.some(c=>c.status==='active')&&<p role="status" className="text-sm text-amber-800 dark:text-amber-200">{locale==='ar'?'لا توجد منشأة نشطة متاحة لإنشاء المستخدم.':'No active company is available for user creation.'}</p>}
                 </div>
                 <fieldset disabled={busy||userChoicesState!=='ready'} className="min-w-0 space-y-4">
-                <div><label htmlFor="platform-new-tenant" className="mb-1.5 block text-xs font-bold text-white/70">{locale==='ar'?'المنشأة':'Company'}</label><select id="platform-new-tenant" required disabled={creationPending} value={userForm.tenant_id} onChange={e => setUserForm({ ...userForm, tenant_id:e.target.value,role:userChoices?.roles.find(r=>r.tenant_id===e.target.value&&ROLES.includes(r.name))?.name??'' })} className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm focus:border-[#1E5A99] focus:outline-none"><option value="">{locale==='ar'?'اختر المنشأة':'Choose company'}</option>{(userChoices?.companies??[]).filter(c=>c.status==='active').map(c => <option key={c.id} value={c.id}>{locale==='ar'&&c.name_ar?c.name_ar:c.name_en}</option>)}</select></div>
-                <div><label htmlFor="platform-new-email" className="mb-1.5 block text-xs font-bold text-white/70">{locale==='ar'?'البريد الإلكتروني':'Email'}</label><input id="platform-new-email" required type="email" disabled={creationPending} value={userForm.email} onChange={e => setUserForm({ ...userForm, email:e.target.value })} className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm focus:border-[#1E5A99] focus:outline-none" dir="ltr" /></div>
-                <div><label htmlFor="platform-new-name" className="mb-1.5 block text-xs font-bold text-white/70">{locale==='ar'?'الاسم':'Name'}</label><input id="platform-new-name" maxLength={150} disabled={creationPending} value={userForm.full_name} onChange={e => setUserForm({ ...userForm, full_name:e.target.value })} className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm focus:border-[#1E5A99] focus:outline-none" /></div>
-                <div><label htmlFor="platform-new-role" className="mb-1.5 block text-xs font-bold text-white/70">{locale==='ar'?'الدور':'Role'}</label><select id="platform-new-role" required disabled={creationPending} value={userForm.role} onChange={e => setUserForm({ ...userForm, role:e.target.value })} className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm focus:border-[#1E5A99] focus:outline-none"><option value="">{locale==='ar'?'اختر الدور':'Choose role'}</option>{(userChoices?.roles??[]).filter(r=>r.tenant_id===userForm.tenant_id&&ROLES.includes(r.name)).map(r=><option key={r.name} value={r.name}>{ui(roleLabels[r.name]??r.name)}</option>)}</select></div>
-                <div><label htmlFor="platform-new-password" className="mb-1.5 block text-xs font-bold text-white/70">{locale==='ar'?'كلمة مرور أولية (اختياري)':'Initial password (optional)'}</label><input id="platform-new-password" type="password" autoComplete="new-password" minLength={10} maxLength={128} disabled={creationPending} value={userForm.password} onChange={e => setUserForm({ ...userForm, password:e.target.value })} className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm focus:border-[#1E5A99] focus:outline-none" /><p className="mt-2 text-xs text-white/50">{locale==='ar'?'اتركها فارغة لإرسال دعوة. كلمة المرور الأولية تتطلب تغييرها عند أول دخول.':'Leave blank for an invitation. An initial password must be changed at first sign-in.'}</p></div>
-                {creationPending&&<p role="status" className="text-xs text-amber-200">{locale==='ar'?'احتفظ بنفس التفاصيل وأعد محاولة الطلب للتحقق من نتيجته. لن تتغير كلمة المرور الأصلية.':'Retry these same details to confirm the outcome. The original password is preserved.'}</p>}
-                <button data-testid="platform-new-submit" disabled={busy||!createUserReady} className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#1E5A99] px-4 py-3 text-sm font-bold disabled:opacity-60">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} {busy ? (locale==='ar'?'جارٍ الإنشاء…':'Creating…'):(locale==='ar'?'إنشاء المستخدم أو الدعوة':'Create user or invitation')}</button>
+                <div><label htmlFor="platform-new-tenant" className="mb-1.5 block text-xs font-medium text-foreground">{locale==='ar'?'المنشأة':'Company'}</label><select id="platform-new-tenant" required disabled={creationPending} value={userForm.tenant_id} onChange={e => setUserForm({ ...userForm, tenant_id:e.target.value,role:userChoices?.roles.find(r=>r.tenant_id===e.target.value&&ROLES.includes(r.name))?.name??'' })} className="w-full rounded-md border border-border bg-background px-4 py-2.5 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"><option value="">{locale==='ar'?'اختر المنشأة':'Choose company'}</option>{(userChoices?.companies??[]).filter(c=>c.status==='active').map(c => <option key={c.id} value={c.id}>{locale==='ar'&&c.name_ar?c.name_ar:c.name_en}</option>)}</select></div>
+                <div><label htmlFor="platform-new-email" className="mb-1.5 block text-xs font-medium text-foreground">{locale==='ar'?'البريد الإلكتروني':'Email'}</label><input id="platform-new-email" required type="email" disabled={creationPending} value={userForm.email} onChange={e => setUserForm({ ...userForm, email:e.target.value })} className="w-full rounded-md border border-border bg-background px-4 py-2.5 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20" dir="ltr" /></div>
+                <div><label htmlFor="platform-new-name" className="mb-1.5 block text-xs font-medium text-foreground">{locale==='ar'?'الاسم':'Name'}</label><input id="platform-new-name" maxLength={150} disabled={creationPending} value={userForm.full_name} onChange={e => setUserForm({ ...userForm, full_name:e.target.value })} className="w-full rounded-md border border-border bg-background px-4 py-2.5 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20" /></div>
+                <div><label htmlFor="platform-new-role" className="mb-1.5 block text-xs font-medium text-foreground">{locale==='ar'?'الدور':'Role'}</label><select id="platform-new-role" required disabled={creationPending} value={userForm.role} onChange={e => setUserForm({ ...userForm, role:e.target.value })} className="w-full rounded-md border border-border bg-background px-4 py-2.5 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"><option value="">{locale==='ar'?'اختر الدور':'Choose role'}</option>{(userChoices?.roles??[]).filter(r=>r.tenant_id===userForm.tenant_id&&ROLES.includes(r.name)).map(r=><option key={r.name} value={r.name}>{ui(roleLabels[r.name]??r.name)}</option>)}</select></div>
+                <div><label htmlFor="platform-new-password" className="mb-1.5 block text-xs font-medium text-foreground">{locale==='ar'?'كلمة مرور أولية (اختياري)':'Initial password (optional)'}</label><input id="platform-new-password" type="password" autoComplete="new-password" minLength={10} maxLength={128} disabled={creationPending} value={userForm.password} onChange={e => setUserForm({ ...userForm, password:e.target.value })} className="w-full rounded-md border border-border bg-background px-4 py-2.5 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20" /><p className="mt-2 text-xs text-muted-foreground">{locale==='ar'?'اتركها فارغة لإرسال دعوة. كلمة المرور الأولية تتطلب تغييرها عند أول دخول.':'Leave blank for an invitation. An initial password must be changed at first sign-in.'}</p></div>
+                {creationPending&&<p role="status" className="text-xs text-amber-800 dark:text-amber-200">{locale==='ar'?'احتفظ بنفس التفاصيل وأعد محاولة الطلب للتحقق من نتيجته. لن تتغير كلمة المرور الأصلية.':'Retry these same details to confirm the outcome. The original password is preserved.'}</p>}
+                <button data-testid="platform-new-submit" disabled={busy||!createUserReady} className="flex w-full items-center justify-center gap-2 rounded-md bg-foreground text-background hover:bg-foreground/90 px-4 py-3 text-sm font-medium disabled:opacity-60">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} {busy ? (locale==='ar'?'جارٍ الإنشاء…':'Creating…'):(locale==='ar'?'إنشاء المستخدم أو الدعوة':'Create user or invitation')}</button>
               </fieldset></form>
             )}
 
             {modal === 'create-invoice' && (
               <form onSubmit={e => { e.preventDefault(); (async () => { if(busyLock.current)return; busyLock.current=true; setBusy(true); setFormErr(''); try { await api('/api/platform/admin/billing', { method: 'POST', body: JSON.stringify({ ...invoiceForm, amount: Number(invoiceForm.amount), due_date: invoiceForm.due_date || undefined, period_label: invoiceForm.period_label || undefined }) }); setModal(null); await load(); } catch (err) { setFormErr(err instanceof Error ? err.message : ui("فشل")); } finally { busyLock.current=false; setBusy(false); } })(); }} className="mt-5 space-y-4"><fieldset disabled={busy} className="min-w-0 space-y-4">
-                <div><label className="mb-1.5 block text-xs font-bold text-white/70"><LocalizedText text="الشركة *" /></label><select value={invoiceForm.tenant_id} onChange={e => setInvoiceForm({ ...invoiceForm, tenant_id: e.target.value })} className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm focus:border-[#1E5A99] focus:outline-none">{companies.map(c => <option key={c.id} value={c.id}>{c.name_en}</option>)}</select></div>
-                <div><label className="mb-1.5 block text-xs font-bold text-white/70"><LocalizedText text="المبلغ (ر.س) *" /></label><input required type="number" min="1" value={invoiceForm.amount} onChange={e => setInvoiceForm({ ...invoiceForm, amount: e.target.value })} className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm focus:border-[#1E5A99] focus:outline-none" dir="ltr" /></div>
-                <div><label className="mb-1.5 block text-xs font-bold text-white/70"><LocalizedText text="الفترة" /></label><input value={invoiceForm.period_label} onChange={e => setInvoiceForm({ ...invoiceForm, period_label: e.target.value })} placeholder={ui("سبتمبر 2026")} className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm focus:border-[#1E5A99] focus:outline-none" /></div>
-                <div><label className="mb-1.5 block text-xs font-bold text-white/70"><LocalizedText text="تاريخ الاستحقاق" /></label><input type="date" value={invoiceForm.due_date} onChange={e => setInvoiceForm({ ...invoiceForm, due_date: e.target.value })} className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm focus:border-[#1E5A99] focus:outline-none" dir="ltr" /></div>
-                <button disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#E87D3E] px-4 py-3 text-sm font-bold disabled:opacity-60">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} {busy ? ui("جارٍ الإنشاء…") : ui("إنشاء الفاتورة")}</button>
+                <div><label className="mb-1.5 block text-xs font-medium text-foreground"><LocalizedText text="الشركة *" /></label><select value={invoiceForm.tenant_id} onChange={e => setInvoiceForm({ ...invoiceForm, tenant_id: e.target.value })} className="w-full rounded-md border border-border bg-background px-4 py-2.5 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20">{companies.map(c => <option key={c.id} value={c.id}>{c.name_en}</option>)}</select></div>
+                <div><label className="mb-1.5 block text-xs font-medium text-foreground"><LocalizedText text="المبلغ (ر.س) *" /></label><input required type="number" min="1" value={invoiceForm.amount} onChange={e => setInvoiceForm({ ...invoiceForm, amount: e.target.value })} className="w-full rounded-md border border-border bg-background px-4 py-2.5 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20" dir="ltr" /></div>
+                <div><label className="mb-1.5 block text-xs font-medium text-foreground"><LocalizedText text="الفترة" /></label><input value={invoiceForm.period_label} onChange={e => setInvoiceForm({ ...invoiceForm, period_label: e.target.value })} placeholder={ui("سبتمبر 2026")} className="w-full rounded-md border border-border bg-background px-4 py-2.5 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20" /></div>
+                <div><label className="mb-1.5 block text-xs font-medium text-foreground"><LocalizedText text="تاريخ الاستحقاق" /></label><input type="date" value={invoiceForm.due_date} onChange={e => setInvoiceForm({ ...invoiceForm, due_date: e.target.value })} className="w-full rounded-md border border-border bg-background px-4 py-2.5 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20" dir="ltr" /></div>
+                <button disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-md bg-foreground text-background hover:bg-foreground/90 px-4 py-3 text-sm font-medium disabled:opacity-60">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} {busy ? ui("جارٍ الإنشاء…") : ui("إنشاء الفاتورة")}</button>
               </fieldset></form>
             )}
           </div>

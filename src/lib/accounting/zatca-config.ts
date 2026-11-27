@@ -1,20 +1,16 @@
 // Server-side network boundary shared by onboarding and invoice transport.
 // An old API URL/credential pair must never silently enable production.
 //
-// Deployment modes (ZATCA_MODE):
-//   mock        — offline, nothing leaves the server (default).
-//   sandbox     — developer portal only (ZATCA_API_BASE_URL must match).
-//   simulation  — Fatoora simulation only (ZATCA_API_BASE_URL must match).
-//   production  — production-CAPABLE deployment. Requires the explicit
-//                 operator flag ZATCA_PRODUCTION_ENABLED=true. Every tenant
-//                 still starts on the simulation gateway; a tenant reaches the
-//                 core (production) gateway only after its own administrator
-//                 switches production ON (zatca_tenant_environment) and
-//                 onboards a production EGS unit with a real Fatoora OTP.
+// Production remains code-blocked pending independent authority acceptance.
+// Neither an operator flag nor a stored tenant preference opens that gateway.
 
 export type ZatcaEnvironment = "sandbox" | "simulation" | "production"
 
+export const ZATCA_PRODUCTION_BLOCKED = "ZATCA production remains blocked pending independent authority acceptance of XML, signing and simulation evidence."
+export const ZATCA_ENVIRONMENT_UNAVAILABLE = "ZATCA environment could not be verified. Reload before continuing."
+
 const GATEWAY_HOST = "gw-fatoora.zatca.gov.sa"
+const PRODUCTION_SUPABASE_HOST = "wwfnsbilmyxeawgzicmv.supabase.co"
 export const ZATCA_GATEWAY_PATHS: Record<ZatcaEnvironment, string> = {
   sandbox: "/e-invoicing/developer-portal",
   simulation: "/e-invoicing/simulation",
@@ -43,6 +39,7 @@ function checkedUrl(raw: string, expectedPath: string, message: string): void {
 export function getZatcaNetworkBase(environment?: ZatcaEnvironment): string | null {
   const mode = deploymentMode()
   const raw = process.env.ZATCA_API_BASE_URL
+  if (environment === "production" && mode !== "production") throw new Error(ZATCA_PRODUCTION_BLOCKED)
   if (mode === "mock") {
     if (raw) throw new Error("ZATCA_API_BASE_URL requires explicit ZATCA_MODE=sandbox, simulation or production.")
     return null
@@ -51,11 +48,14 @@ export function getZatcaNetworkBase(environment?: ZatcaEnvironment): string | nu
     if (process.env.ZATCA_PRODUCTION_ENABLED !== "true") {
       throw new Error("ZATCA production submission is disabled (ZATCA_PRODUCTION_ENABLED is not true).")
     }
-    if (raw) checkedUrl(raw, ZATCA_GATEWAY_PATHS.production, "ZATCA gateway URL does not match the production (core) gateway.")
-    const env = environment ?? "simulation"
-    return `https://${GATEWAY_HOST}${ZATCA_GATEWAY_PATHS[env]}`
+    throw new Error(ZATCA_PRODUCTION_BLOCKED)
   }
   if (mode !== "sandbox" && mode !== "simulation") throw new Error("Invalid ZATCA_MODE.")
+  const backend = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const backendHost = backend && URL.canParse(backend) ? new URL(backend).hostname.replace(/\.$/, "") : undefined
+  if (process.env.VERCEL_ENV === "production" || backendHost === PRODUCTION_SUPABASE_HOST) {
+    throw new Error("ZATCA test gateways require an isolated environment.")
+  }
   if (environment && environment !== mode) {
     throw new Error(environment === "production"
       ? "ZATCA production is not enabled in this deployment."
@@ -66,7 +66,7 @@ export function getZatcaNetworkBase(environment?: ZatcaEnvironment): string | nu
   return `https://${GATEWAY_HOST}${ZATCA_GATEWAY_PATHS[mode]}`
 }
 
-/** True for any valid gateway configuration (test or production-capable). */
+/** True only for a valid non-production gateway in this release. */
 export function zatcaGatewayEnabled(): boolean {
   try {
     return getZatcaNetworkBase() !== null
@@ -75,17 +75,17 @@ export function zatcaGatewayEnabled(): boolean {
   }
 }
 
-/** @deprecated name kept for callers; true for any valid gateway deployment. */
+/** @deprecated name kept for callers; true for a valid test gateway. */
 export const zatcaNonProductionEnabled = zatcaGatewayEnabled
 
-/** True when this deployment may let tenants switch to the production gateway. */
+/** Production is unavailable until a separate reviewed implementation opens it. */
 export function zatcaProductionAvailable(): boolean {
-  return deploymentMode() === "production" && zatcaGatewayEnabled()
+  return false
 }
 
 /**
- * The deployment's TEST environment (where every tenant starts and where
- * tenants with production OFF keep working). Null when no gateway is enabled.
+ * The deployment's test environment. Invalid/blocked configuration is reported
+ * as unavailable here; routing uses getZatcaNetworkBase directly and throws.
  */
 export function zatcaConfiguredEnvironment(): "sandbox" | "simulation" | null {
   if (!zatcaGatewayEnabled()) return null

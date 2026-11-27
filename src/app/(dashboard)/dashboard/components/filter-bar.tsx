@@ -48,17 +48,18 @@ export function FilterBar({
   const isAr = locale === "ar"
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl border bg-card p-3 shadow-sm lg:flex-row lg:items-center lg:justify-between">
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border bg-card p-2.5 sm:flex sm:flex-wrap sm:gap-3 sm:p-3 lg:justify-between">
       {/* Period presets */}
-      <div className="flex items-center gap-1 rounded-lg bg-muted/60 p-1">
+      <div role="group" aria-label={isAr ? "الفترة الزمنية" : "Time period"} className="flex min-w-0 items-center gap-1 rounded-md bg-muted/60 p-0.5 sm:p-1">
         {PERIODS.map((p) => (
           <button
             key={p}
+            aria-pressed={filters.period === p}
             onClick={() => onChange({ ...filters, period: p })}
             className={cn(
-              "rounded-md px-3 py-1.5 text-xs font-semibold transition-colors",
+              "min-h-11 min-w-0 flex-1 rounded-md px-2 py-1.5 text-xs font-semibold transition-colors sm:min-h-0 sm:flex-none sm:px-3",
               filters.period === p
-                ? "bg-background text-foreground shadow-sm"
+                ? "bg-background text-foreground"
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
@@ -68,12 +69,12 @@ export function FilterBar({
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="col-span-2 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
         <Select
           value={filters.platform}
           onValueChange={(v) => onChange({ ...filters, platform: v })}
         >
-          <SelectTrigger className="h-9 w-40">
+          <SelectTrigger className="h-11 min-w-0 w-full sm:h-9 sm:w-40" aria-label={isAr ? "منصة التشغيل" : "Operating platform"}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -90,7 +91,7 @@ export function FilterBar({
           value={filters.category}
           onValueChange={(v) => onChange({ ...filters, category: v })}
         >
-          <SelectTrigger className="h-9 w-40">
+          <SelectTrigger className="h-11 min-w-0 w-full sm:h-9 sm:w-40" aria-label={isAr ? "فئة السائق" : "Driver category"}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -102,10 +103,9 @@ export function FilterBar({
             ))}
           </SelectContent>
         </Select>
+      </div>
 
-        <div className="hidden h-6 w-px bg-border sm:block" />
-
-        <div className="flex items-center gap-2">
+      <div className="col-start-2 row-start-1 flex items-center gap-2 sm:ms-auto">
           {generatedAt && (
             <span className="hidden items-center gap-1.5 text-[11px] text-muted-foreground md:flex">
               <Radio className="h-3 w-3 text-emerald-500" />
@@ -120,12 +120,13 @@ export function FilterBar({
             size="sm"
             onClick={onRefresh}
             disabled={refreshing}
-            className="gap-1.5"
+            aria-label={t.dashboard.refresh}
+            title={t.dashboard.refresh}
+            className="gap-1.5 max-sm:w-11 max-sm:px-0"
           >
             <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} />
-            {t.dashboard.refresh}
+            <span className="hidden sm:inline">{t.dashboard.refresh}</span>
           </Button>
-        </div>
       </div>
     </div>
   )

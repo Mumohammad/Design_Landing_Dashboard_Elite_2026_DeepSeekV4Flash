@@ -1,0 +1,874 @@
+{
+  "at": "2026-11-10T05:05:21.607Z",
+  "readOnly": true,
+  "sourceCommit": "97c9455f09581d757d8b78ce28a6abd3fc90ff6d",
+  "scope": "144 literal runtime RPC names; public schema catalog only; existence is not signature, privilege, RLS or behavior acceptance; optional/disabled code included",
+  "projects": {
+    "viowrovartosrkqukjxy": {
+      "namesChecked": 144,
+      "missing": [
+        "activate_driver_portal_upload",
+        "approve_my_platform_payroll",
+        "attach_handover_evidence",
+        "attest_platform_payroll",
+        "cancel_my_platform_payroll",
+        "claim_my_platform_checkout",
+        "claim_notification_digest",
+        "complete_driver_portal_upload",
+        "confirm_platform_checkout",
+        "convert_my_external_fine",
+        "create_my_platform_payroll_journal",
+        "create_platform_user",
+        "expense_claim_attach",
+        "expense_claim_delete_draft",
+        "expense_claim_resolve_duplicate",
+        "expense_claim_save",
+        "expense_claim_save_checklist",
+        "expense_claim_settings_save",
+        "expense_claim_transition",
+        "expense_claims_record_export",
+        "expense_telegram_claim",
+        "expense_telegram_consume_link",
+        "expense_telegram_create_link_code",
+        "expense_telegram_identity",
+        "expense_telegram_unlink",
+        "finish_notification_digest",
+        "import_external_fines",
+        "import_my_platform_income",
+        "invoice_reference_fonts",
+        "issue_driver_portal_link",
+        "mark_platform_invoice_paid",
+        "prepare_notification_digest",
+        "read_my_payroll_source_version",
+        "read_my_platform_payroll_approval",
+        "read_my_zatca_environment",
+        "record_driver_government_check",
+        "record_driver_platform_card_prints",
+        "record_zatca_transmission",
+        "rematch_external_fines",
+        "remove_driver_platform_account",
+        "reserve_driver_portal_upload",
+        "resolve_external_fine",
+        "review_driver_portal_submission",
+        "revoke_driver_portal_links",
+        "save_driver_offboarding",
+        "save_driver_platform_account",
+        "save_my_company_logo",
+        "save_my_platform_payroll",
+        "save_my_zatca_environment",
+        "settle_platform_card_payment"
+      ],
+      "present": 94,
+      "authenticatedDeniedOnPresent": 15
+    },
+    "wwfnsbilmyxeawgzicmv": {
+      "namesChecked": 144,
+      "missing": [
+        "activate_driver_portal_upload",
+        "approve_my_platform_payroll",
+        "attest_platform_payroll",
+        "cancel_my_platform_payroll",
+        "claim_my_platform_checkout",
+        "claim_notification_digest",
+        "complete_driver_portal_upload",
+        "confirm_platform_checkout",
+        "convert_my_external_fine",
+        "create_my_platform_payroll_journal",
+        "create_platform_user",
+        "finish_notification_digest",
+        "import_my_platform_income",
+        "mark_platform_invoice_paid",
+        "prepare_notification_digest",
+        "read_my_payroll_source_version",
+        "read_my_platform_payroll_approval",
+        "read_my_zatca_environment",
+        "record_zatca_transmission",
+        "reserve_driver_portal_upload",
+        "save_my_company_logo",
+        "save_my_platform_payroll",
+        "save_my_zatca_environment"
+      ],
+      "present": 121,
+      "authenticatedDeniedOnPresent": 21
+    }
+  },
+  "executionPlan": false,
+  "note": "Definition locations are source evidence only. Dependency order, aliases, schema/signature/ACL compatibility and restore rehearsal are not established; do not execute as a migration plan.",
+  "missing": [
+    {
+      "name": "activate_driver_portal_upload",
+      "sites": [
+        {
+          "file": "src/app/driver-portal/actions.ts",
+          "line": 51
+        }
+      ],
+      "definitions": [
+        "20261109110000_guard_driver_portal_uploads.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy",
+        "wwfnsbilmyxeawgzicmv"
+      ]
+    },
+    {
+      "name": "approve_my_platform_payroll",
+      "sites": [
+        {
+          "file": "src/lib/payroll-engine/server/run-actions.ts",
+          "line": 143
+        }
+      ],
+      "definitions": [
+        "20261109114942_guard_payroll_engine_mutations.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy",
+        "wwfnsbilmyxeawgzicmv"
+      ]
+    },
+    {
+      "name": "attach_handover_evidence",
+      "sites": [
+        {
+          "file": "src/app/actions/drivers/handover-evidence.ts",
+          "line": 31
+        }
+      ],
+      "definitions": [
+        "20261107090000_driver_handover_evidence_offboarding.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy"
+      ]
+    },
+    {
+      "name": "attest_platform_payroll",
+      "sites": [
+        {
+          "file": "src/lib/payroll-engine/server/data.ts",
+          "line": 27
+        }
+      ],
+      "definitions": [
+        "20261109114942_guard_payroll_engine_mutations.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy",
+        "wwfnsbilmyxeawgzicmv"
+      ]
+    },
+    {
+      "name": "cancel_my_platform_payroll",
+      "sites": [
+        {
+          "file": "src/lib/payroll-engine/server/run-actions.ts",
+          "line": 158
+        }
+      ],
+      "definitions": [
+        "20261109114942_guard_payroll_engine_mutations.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy",
+        "wwfnsbilmyxeawgzicmv"
+      ]
+    },
+    {
+      "name": "claim_my_platform_checkout",
+      "sites": [
+        {
+          "file": "src/lib/billing/card-payments.ts",
+          "line": 66
+        }
+      ],
+      "definitions": [
+        "20261109100000_guard_billing_and_digest.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy",
+        "wwfnsbilmyxeawgzicmv"
+      ]
+    },
+    {
+      "name": "claim_notification_digest",
+      "sites": [
+        {
+          "file": "src/lib/notifications/digest.ts",
+          "line": 83
+        }
+      ],
+      "definitions": [
+        "20261109100000_guard_billing_and_digest.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy",
+        "wwfnsbilmyxeawgzicmv"
+      ]
+    },
+    {
+      "name": "complete_driver_portal_upload",
+      "sites": [
+        {
+          "file": "src/app/driver-portal/actions.ts",
+          "line": 85
+        }
+      ],
+      "definitions": [
+        "20261109110000_guard_driver_portal_uploads.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy",
+        "wwfnsbilmyxeawgzicmv"
+      ]
+    },
+    {
+      "name": "confirm_platform_checkout",
+      "sites": [
+        {
+          "file": "src/lib/billing/card-payments.ts",
+          "line": 94
+        }
+      ],
+      "definitions": [
+        "20261109100000_guard_billing_and_digest.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy",
+        "wwfnsbilmyxeawgzicmv"
+      ]
+    },
+    {
+      "name": "convert_my_external_fine",
+      "sites": [
+        {
+          "file": "src/app/actions/violations/fines.ts",
+          "line": 80
+        }
+      ],
+      "definitions": [
+        "20261109120000_atomic_external_fine_conversion.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy",
+        "wwfnsbilmyxeawgzicmv"
+      ]
+    },
+    {
+      "name": "create_my_platform_payroll_journal",
+      "sites": [
+        {
+          "file": "src/lib/payroll-engine/server/run-actions.ts",
+          "line": 202
+        }
+      ],
+      "definitions": [
+        "20261109114942_guard_payroll_engine_mutations.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy",
+        "wwfnsbilmyxeawgzicmv"
+      ]
+    },
+    {
+      "name": "create_platform_user",
+      "sites": [
+        {
+          "file": "src/app/api/platform/companies/route.ts",
+          "line": 53
+        }
+      ],
+      "definitions": [],
+      "absentFrom": [
+        "viowrovartosrkqukjxy",
+        "wwfnsbilmyxeawgzicmv"
+      ]
+    },
+    {
+      "name": "expense_claim_attach",
+      "sites": [
+        {
+          "file": "src/lib/expense-claims/attachments.ts",
+          "line": 35
+        }
+      ],
+      "definitions": [
+        "20261109090000_expense_claims.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy"
+      ]
+    },
+    {
+      "name": "expense_claim_delete_draft",
+      "sites": [
+        {
+          "file": "src/lib/expense-claims/actions.ts",
+          "line": 149
+        }
+      ],
+      "definitions": [
+        "20261109090000_expense_claims.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy"
+      ]
+    },
+    {
+      "name": "expense_claim_resolve_duplicate",
+      "sites": [
+        {
+          "file": "src/lib/expense-claims/actions.ts",
+          "line": 139
+        }
+      ],
+      "definitions": [
+        "20261109090000_expense_claims.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy"
+      ]
+    },
+    {
+      "name": "expense_claim_save",
+      "sites": [
+        {
+          "file": "src/lib/expense-claims/actions.ts",
+          "line": 98
+        }
+      ],
+      "definitions": [
+        "20261109090000_expense_claims.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy"
+      ]
+    },
+    {
+      "name": "expense_claim_save_checklist",
+      "sites": [
+        {
+          "file": "src/lib/expense-claims/actions.ts",
+          "line": 129
+        }
+      ],
+      "definitions": [
+        "20261109090000_expense_claims.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy"
+      ]
+    },
+    {
+      "name": "expense_claim_settings_save",
+      "sites": [
+        {
+          "file": "src/lib/expense-claims/actions.ts",
+          "line": 265
+        }
+      ],
+      "definitions": [
+        "20261109090000_expense_claims.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy"
+      ]
+    },
+    {
+      "name": "expense_claim_transition",
+      "sites": [
+        {
+          "file": "src/lib/expense-claims/actions.ts",
+          "line": 114
+        }
+      ],
+      "definitions": [
+        "20261109090000_expense_claims.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy"
+      ]
+    },
+    {
+      "name": "expense_claims_record_export",
+      "sites": [
+        {
+          "file": "src/lib/expense-claims/actions.ts",
+          "line": 222
+        }
+      ],
+      "definitions": [
+        "20261109090000_expense_claims.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy"
+      ]
+    },
+    {
+      "name": "expense_telegram_claim",
+      "sites": [
+        {
+          "file": "src/app/api/telegram/expenses/route.ts",
+          "line": 116
+        }
+      ],
+      "definitions": [
+        "20261109090000_expense_claims.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy"
+      ]
+    },
+    {
+      "name": "expense_telegram_consume_link",
+      "sites": [
+        {
+          "file": "src/app/api/telegram/expenses/route.ts",
+          "line": 79
+        }
+      ],
+      "definitions": [
+        "20261109090000_expense_claims.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy"
+      ]
+    },
+    {
+      "name": "expense_telegram_create_link_code",
+      "sites": [
+        {
+          "file": "src/lib/expense-claims/actions.ts",
+          "line": 301
+        }
+      ],
+      "definitions": [
+        "20261109090000_expense_claims.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy"
+      ]
+    },
+    {
+      "name": "expense_telegram_identity",
+      "sites": [
+        {
+          "file": "src/app/api/telegram/expenses/route.ts",
+          "line": 100
+        }
+      ],
+      "definitions": [
+        "20261109090000_expense_claims.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy"
+      ]
+    },
+    {
+      "name": "expense_telegram_unlink",
+      "sites": [
+        {
+          "file": "src/lib/expense-claims/actions.ts",
+          "line": 312
+        }
+      ],
+      "definitions": [
+        "20261109090000_expense_claims.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy"
+      ]
+    },
+    {
+      "name": "finish_notification_digest",
+      "sites": [
+        {
+          "file": "src/lib/notifications/digest.ts",
+          "line": 69
+        }
+      ],
+      "definitions": [
+        "20261109100000_guard_billing_and_digest.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy",
+        "wwfnsbilmyxeawgzicmv"
+      ]
+    },
+    {
+      "name": "import_external_fines",
+      "sites": [
+        {
+          "file": "src/app/actions/violations/fines.ts",
+          "line": 36
+        }
+      ],
+      "definitions": [
+        "20261106090000_driver_fines_matching_card_prints.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy"
+      ]
+    },
+    {
+      "name": "import_my_platform_income",
+      "sites": [
+        {
+          "file": "src/lib/payroll-engine/server/income-actions.ts",
+          "line": 178
+        }
+      ],
+      "definitions": [
+        "20261109114942_guard_payroll_engine_mutations.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy",
+        "wwfnsbilmyxeawgzicmv"
+      ]
+    },
+    {
+      "name": "invoice_reference_fonts",
+      "sites": [
+        {
+          "file": "src/lib/accounting/invoice-pdf.ts",
+          "line": 50
+        }
+      ],
+      "definitions": [
+        "20261103064018_invoice_reference_fonts.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy"
+      ]
+    },
+    {
+      "name": "issue_driver_portal_link",
+      "sites": [
+        {
+          "file": "src/app/actions/drivers/portal.ts",
+          "line": 26
+        }
+      ],
+      "definitions": [
+        "20261108090000_driver_portal_government_checks.sql",
+        "20261109110000_guard_driver_portal_uploads.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy"
+      ]
+    },
+    {
+      "name": "mark_platform_invoice_paid",
+      "sites": [
+        {
+          "file": "src/app/api/platform/admin/billing/route.ts",
+          "line": 76
+        }
+      ],
+      "definitions": [
+        "20261109100000_guard_billing_and_digest.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy",
+        "wwfnsbilmyxeawgzicmv"
+      ]
+    },
+    {
+      "name": "prepare_notification_digest",
+      "sites": [
+        {
+          "file": "src/lib/notifications/digest.ts",
+          "line": 109
+        }
+      ],
+      "definitions": [
+        "20261109100000_guard_billing_and_digest.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy",
+        "wwfnsbilmyxeawgzicmv"
+      ]
+    },
+    {
+      "name": "read_my_payroll_source_version",
+      "sites": [
+        {
+          "file": "src/lib/payroll-engine/server/data.ts",
+          "line": 21
+        }
+      ],
+      "definitions": [
+        "20261109114942_guard_payroll_engine_mutations.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy",
+        "wwfnsbilmyxeawgzicmv"
+      ]
+    },
+    {
+      "name": "read_my_platform_payroll_approval",
+      "sites": [
+        {
+          "file": "src/lib/payroll-engine/server/run-actions.ts",
+          "line": 113
+        }
+      ],
+      "definitions": [
+        "20261109114942_guard_payroll_engine_mutations.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy",
+        "wwfnsbilmyxeawgzicmv"
+      ]
+    },
+    {
+      "name": "read_my_zatca_environment",
+      "sites": [
+        {
+          "file": "src/lib/accounting/zatca-management.ts",
+          "line": 73
+        }
+      ],
+      "definitions": [
+        "20261030023958_guard_zatca_environment_switch.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy",
+        "wwfnsbilmyxeawgzicmv"
+      ]
+    },
+    {
+      "name": "record_driver_government_check",
+      "sites": [
+        {
+          "file": "src/app/actions/drivers/government-checks.ts",
+          "line": 20
+        }
+      ],
+      "definitions": [
+        "20261108090000_driver_portal_government_checks.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy"
+      ]
+    },
+    {
+      "name": "record_driver_platform_card_prints",
+      "sites": [
+        {
+          "file": "src/app/actions/drivers/platform-accounts.ts",
+          "line": 89
+        }
+      ],
+      "definitions": [
+        "20261106090000_driver_fines_matching_card_prints.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy"
+      ]
+    },
+    {
+      "name": "record_zatca_transmission",
+      "sites": [
+        {
+          "file": "src/lib/accounting/zatca-adapter-core.ts",
+          "line": 359
+        }
+      ],
+      "definitions": [
+        "20261029090002_reconcile_issuance_and_submission_contracts.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy",
+        "wwfnsbilmyxeawgzicmv"
+      ]
+    },
+    {
+      "name": "rematch_external_fines",
+      "sites": [
+        {
+          "file": "src/app/actions/violations/fines.ts",
+          "line": 47
+        }
+      ],
+      "definitions": [
+        "20261106090000_driver_fines_matching_card_prints.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy"
+      ]
+    },
+    {
+      "name": "remove_driver_platform_account",
+      "sites": [
+        {
+          "file": "src/app/actions/drivers/platform-accounts.ts",
+          "line": 68
+        }
+      ],
+      "definitions": [
+        "20261104090000_driver_platform_accounts.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy"
+      ]
+    },
+    {
+      "name": "reserve_driver_portal_upload",
+      "sites": [
+        {
+          "file": "src/app/driver-portal/actions.ts",
+          "line": 41
+        }
+      ],
+      "definitions": [
+        "20261109110000_guard_driver_portal_uploads.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy",
+        "wwfnsbilmyxeawgzicmv"
+      ]
+    },
+    {
+      "name": "resolve_external_fine",
+      "sites": [
+        {
+          "file": "src/app/actions/violations/fines.ts",
+          "line": 65
+        }
+      ],
+      "definitions": [
+        "20261106090000_driver_fines_matching_card_prints.sql",
+        "20261109120000_atomic_external_fine_conversion.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy"
+      ]
+    },
+    {
+      "name": "review_driver_portal_submission",
+      "sites": [
+        {
+          "file": "src/app/actions/drivers/portal.ts",
+          "line": 49
+        }
+      ],
+      "definitions": [
+        "20261108090000_driver_portal_government_checks.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy"
+      ]
+    },
+    {
+      "name": "revoke_driver_portal_links",
+      "sites": [
+        {
+          "file": "src/app/actions/drivers/portal.ts",
+          "line": 38
+        }
+      ],
+      "definitions": [
+        "20261108090000_driver_portal_government_checks.sql",
+        "20261109110000_guard_driver_portal_uploads.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy"
+      ]
+    },
+    {
+      "name": "save_driver_offboarding",
+      "sites": [
+        {
+          "file": "src/app/actions/drivers/offboarding.ts",
+          "line": 56
+        }
+      ],
+      "definitions": [
+        "20261107090000_driver_handover_evidence_offboarding.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy"
+      ]
+    },
+    {
+      "name": "save_driver_platform_account",
+      "sites": [
+        {
+          "file": "src/app/actions/drivers/platform-accounts.ts",
+          "line": 46
+        }
+      ],
+      "definitions": [
+        "20261104090000_driver_platform_accounts.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy"
+      ]
+    },
+    {
+      "name": "save_my_company_logo",
+      "sites": [
+        {
+          "file": "src/lib/settings/actions.ts",
+          "line": 64
+        }
+      ],
+      "definitions": [
+        "20261029145212_reconcile_guarded_tenant_branding.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy",
+        "wwfnsbilmyxeawgzicmv"
+      ]
+    },
+    {
+      "name": "save_my_platform_payroll",
+      "sites": [
+        {
+          "file": "src/lib/payroll-engine/server/data.ts",
+          "line": 34
+        }
+      ],
+      "definitions": [
+        "20261109114942_guard_payroll_engine_mutations.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy",
+        "wwfnsbilmyxeawgzicmv"
+      ]
+    },
+    {
+      "name": "save_my_zatca_environment",
+      "sites": [
+        {
+          "file": "src/lib/accounting/zatca-management.ts",
+          "line": 203
+        }
+      ],
+      "definitions": [
+        "20261030023958_guard_zatca_environment_switch.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy",
+        "wwfnsbilmyxeawgzicmv"
+      ]
+    },
+    {
+      "name": "settle_platform_card_payment",
+      "sites": [
+        {
+          "file": "src/lib/billing/card-payments.ts",
+          "line": 173
+        }
+      ],
+      "definitions": [
+        "20261103090000_platform_card_payments.sql",
+        "20261109100000_guard_billing_and_digest.sql"
+      ],
+      "absentFrom": [
+        "viowrovartosrkqukjxy"
+      ]
+    }
+  ]
+}

@@ -3,6 +3,7 @@
 // See: https://docs.sentry.io/platforms/javascript/guides/nextjs/
 
 import * as Sentry from "@sentry/nextjs"
+import { scrubSentryTelemetry, scrubTelemetrySpan } from "./src/lib/telemetry-privacy"
 
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
@@ -13,4 +14,9 @@ Sentry.init({
 
   enabled: !!process.env.SENTRY_DSN,
   sendDefaultPii: false,
+  beforeSend: scrubSentryTelemetry,
+  beforeSendTransaction: scrubSentryTelemetry,
+  beforeSendSpan: scrubTelemetrySpan,
+  beforeBreadcrumb: scrubSentryTelemetry,
+  beforeSendLog: scrubSentryTelemetry,
 })

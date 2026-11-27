@@ -1,86 +1,28 @@
 "use client"
 
 import Link from "next/link"
+import Image from "next/image"
 import { ArrowLeft, ArrowRight } from "lucide-react"
-import { Button } from "@/components/ui/button"
 import { landingContent } from "@/lib/landing-content"
 import { useTranslation } from "@/hooks/use-translation"
 import { REDIRECTS, withLocale } from "@/lib/redirects"
-import { Reveal } from "./shared"
-import { DashboardPreview } from "./dashboard-preview"
 
 export function HeroSection() {
   const { locale } = useTranslation()
-  const c = landingContent[locale as "en" | "ar"]
+  const c = landingContent[locale]
   const Arrow = locale === "ar" ? ArrowLeft : ArrowRight
-
   return (
-    <section className="relative" aria-labelledby="landing-hero-title">
-      <div className="mx-auto max-w-7xl px-4 pb-20 pt-14 lg:px-8 lg:pt-20">
-        <div className="grid items-center gap-12 lg:grid-cols-2">
-          <div className="text-start">
-            <Reveal>
-              <h1
-                id="landing-hero-title"
-                className="text-4xl font-bold leading-[1.2] text-foreground sm:text-[2.75rem] xl:text-5xl"
-              >
-                {c.hero.headlineA} {c.hero.headlineB}
-              </h1>
-            </Reveal>
-
-            <Reveal delay={80}>
-              <p className="mt-6 max-w-xl text-lg leading-relaxed text-foreground/80">
-                {c.hero.subheadline}
-              </p>
-            </Reveal>
-
-            <Reveal delay={160}>
-              <div className="mt-9 flex flex-col gap-3 sm:flex-row">
-                <Button
-                  asChild
-                  className="h-12 gap-2 rounded-md bg-elite-blue-600 px-7 text-base font-semibold text-white hover:bg-elite-blue-700"
-                >
-                  <Link href="#platform">
-                    {c.hero.ctaPrimary}
-                    <Arrow className="h-4 w-4" />
-                  </Link>
-                </Button>
-                <Button
-                  asChild
-                  variant="outline"
-                  className="h-12 rounded-md px-7 text-base font-semibold"
-                >
-                  <Link href={withLocale(REDIRECTS.signInUrl, locale)}>{c.hero.ctaSecondary}</Link>
-                </Button>
-              </div>
-            </Reveal>
-
-            <Reveal delay={240}>
-              <div className="mt-12 border-t border-border pt-6">
-                <p className="text-sm font-semibold text-foreground">{c.hero.flowTitle}</p>
-                <ol className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-2 text-base text-foreground/80">
-                  {c.hero.flow.map((step, i) => (
-                    <li key={step} className="flex items-center gap-2">
-                      <span>{step}</span>
-                      {i < c.hero.flow.length - 1 && (
-                        <Arrow aria-hidden className="h-3.5 w-3.5 text-muted-foreground" />
-                      )}
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            </Reveal>
+    <section className="bg-elite-blue-950 text-white">
+      <div className="mx-auto grid max-w-7xl items-center gap-9 px-5 pb-12 pt-8 sm:pb-16 lg:grid-cols-[.94fr_1.06fr] lg:gap-12 lg:px-8 lg:py-20">
+        <div className="min-w-0">
+          <h1 className="max-w-[14ch] text-balance text-[clamp(2.85rem,5.8vw,5.5rem)] font-semibold leading-[1.02] tracking-[-.045em] rtl:leading-[1.3] rtl:tracking-normal">{c.hero.headlineA}</h1>
+          <p className="mt-6 max-w-[46ch] text-base leading-relaxed text-white/85 sm:text-lg">{c.hero.subheadline}</p>
+          <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-2">
+            <Link href={withLocale(REDIRECTS.registerUrl, locale)} className="inline-flex min-h-12 items-center gap-3 bg-white px-5 py-3 text-sm font-semibold text-elite-blue-950 hover:bg-elite-blue-50 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white">{c.hero.ctaPrimary}<Arrow className="size-4" aria-hidden="true" /></Link>
+            <a href="#platform" className="inline-flex min-h-12 items-center py-3 text-sm font-semibold underline underline-offset-4">{c.hero.ctaSecondary}</a>
           </div>
-
-          <Reveal delay={120}>
-            <figure className="m-0">
-              <div className="overflow-hidden rounded-lg border border-border bg-card">
-                <DashboardPreview />
-              </div>
-              <figcaption className="mt-3 text-sm text-muted-foreground">{c.hero.demoLabel}</figcaption>
-            </figure>
-          </Reveal>
         </div>
+        <Image src="/Bike-2026.png" alt="" width={1365} height={768} preload sizes="(min-width: 1280px) 630px, (min-width: 1024px) 50vw, 100vw" className="aspect-[16/10] w-full object-cover lg:aspect-[5/4]" />
       </div>
     </section>
   )

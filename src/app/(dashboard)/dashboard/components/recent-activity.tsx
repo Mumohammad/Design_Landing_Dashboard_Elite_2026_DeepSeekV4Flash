@@ -14,25 +14,21 @@ import { ChartCard } from "./chart-card"
 import { EmptyState } from "./states"
 import { formatRelative } from "./format"
 
-const TYPE_META: Record<ActivityEvent["type"], { icon: LucideIcon; chip: string; href: string }> = {
+const TYPE_META: Record<ActivityEvent["type"], { icon: LucideIcon; href: string }> = {
   application: {
     icon: FileClock,
-    chip: "bg-elite-blue-500/10 text-elite-blue-600 dark:text-elite-blue-300",
     href: "/applications",
   },
   violation: {
     icon: TriangleAlert,
-    chip: "bg-red-500/10 text-red-600 dark:text-red-400",
     href: "/violations",
   },
   maintenance: {
     icon: CarFront,
-    chip: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
     href: "/maintenance",
   },
   driver: {
     icon: UserPlus,
-    chip: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
     href: "/drivers",
   },
 }
@@ -68,16 +64,14 @@ export function RecentActivity({ activity }: { activity: ActivityEvent[] }) {
                 href={meta.href}
                 className="group flex items-center gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-accent/50"
               >
-                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${meta.chip}`}>
-                  <Icon className="h-4 w-4" />
-                </span>
+                <Icon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[13px] font-semibold text-foreground">{label}</p>
-                  <p className="truncate text-[11px] text-muted-foreground" dir={a.ref && /[\u0600-\u06FF]/.test(a.ref) ? "rtl" : "ltr"}>
+                  <p className="truncate text-xs text-muted-foreground" dir={a.ref && /[\u0600-\u06FF]/.test(a.ref) ? "rtl" : "ltr"}>
                     {a.ref || "—"}
                   </p>
                 </div>
-                <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
                   {formatRelative(locale, a.time)}
                 </span>
               </Link>

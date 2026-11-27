@@ -1,0 +1,15 @@
+# Outbound telemetry privacy boundary
+
+The shared `src/lib/telemetry-privacy.ts` filters outbound structured Pino logs and Sentry error, transaction, span, breadcrumb and log payloads in all three configured runtimes. It contains no runtime SDK dependency, secret lookup or network call.
+
+Pino uses the final `streamWrite` hook so child bindings, interpolated messages and serialized errors pass through the same filter. Invalid or oversized serialized lines produce a fixed omission record, never the original data. Existing module/request correlation, log levels and ordinary error diagnostics remain available.
+
+The recursive copy filters normalized sensitive keys at any depth, including authorization/cookies, Supabase keys, Vercel bypass/identity headers, private signing material, contact/identity/bank fields and common financial values. It omits request bodies/headers/environment/query strings, user containers and stack-frame local variables. Absolute HTTP URLs retain only their origins; paths, credentials, queries, fragments, relative URL fields and non-HTTP connection URLs are omitted. Recognizable token/credential/contact values in text receive a second filter. The input is never mutated.
+
+Traversal limits are 8 levels, 512 visited values, 64 items per collection and 4,096 characters per string. Getters, `toJSON`, custom instances and cycles are not evaluated. Sentry events that cannot be safely copied within those limits are dropped, rather than producing invalid protocol arrays. The installed SDK does not permit dropping a span in `beforeSendSpan`; its fallback retains only validated trace IDs/timestamps and empty attributes. Default PII remains disabled.
+
+Regression coverage uses fabricated credentials only: nested/array values, HTTP and Telegram URLs, relative Storage links, error text, interpolation, Pino child bindings, SDK initialization in server/edge/browser, protocol shape, hostile accessors/proxies, cycles, budgets and invalid serialization. The SDK initialization tests mock its network-facing implementation; they do not prove a live Sentry account's retention, geography or ingestion configuration.
+
+This is defense in depth, not a detector for arbitrary personal or business information in free-form text. Callers must emit diagnostic codes and necessary correlation instead of documents, names or financial records. Review raw console output, provider transports, replay metadata, attachment handling, retention/access policy and representative outgoing envelopes separately before closing the full R15 privacy finding. No production DSN, secret, replay sampling rate, database permission or business record is changed by this implementation.
+
+References: installed Pino 10.x `docs/api.md` (`hooks.streamWrite`); installed Sentry 10.75.2 public option types and processing pipeline; [Sentry SDK data handling](https://develop.sentry.dev/sdk/data-handling/); [Sentry JavaScript filtering](https://docs.sentry.io/platforms/javascript/configuration/filtering/).

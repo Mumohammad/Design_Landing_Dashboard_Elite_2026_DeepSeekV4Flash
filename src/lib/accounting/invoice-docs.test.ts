@@ -3,16 +3,17 @@ import { createHash } from "node:crypto"
 const mocks = vi.hoisted(() => ({ permission: vi.fn(), user: vi.fn(), from: vi.fn(), storage: vi.fn(),
   upload: vi.fn(), sign: vi.fn(), audit: vi.fn(), read: vi.fn(), render: vi.fn(), queries: [] as Array<{table:string; builder:Record<string, ReturnType<typeof vi.fn>>}>,
   results: {} as Record<string, {data:unknown;error:unknown}>, existing: null as unknown, existingError: null as unknown,
-  saveError: null as unknown, fonts: vi.fn(),
+  saveError: null as unknown, fonts: vi.fn(), logo: vi.fn(), authority: vi.fn(), qr: vi.fn(), payload: vi.fn(),
 }))
 vi.mock("server-only", () => ({}))
 vi.mock("@/lib/auth/authorization", () => ({ requirePermission: mocks.permission, getCurrentUser: mocks.user }))
 vi.mock("@/lib/auth/sessions", () => ({ writeAuditLog: mocks.audit }))
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => ({ from: mocks.from, storage: { from: mocks.storage } }) }))
-vi.mock("./zatca-document-qr", () => ({ loadAuthorityQr: async () => null }))
+vi.mock("./zatca-document-qr", () => ({ loadAuthorityQr: mocks.authority }))
+vi.mock("@/lib/branding/logo", () => ({ loadTenantLogoDataUrl: mocks.logo }))
 vi.mock("node:fs/promises", () => ({ readFile: mocks.read }))
 vi.mock("./invoice-pdf", () => ({ renderInvoicePdf: mocks.render, loadInvoiceReferenceFonts: mocks.fonts }))
-vi.mock("./invoice-qr", () => ({ buildTaxQrPayload: vi.fn(), qrPngDataUrl: async () => "data:image/png;base64,AAAA" }))
+vi.mock("./invoice-qr", () => ({ buildTaxQrPayload: mocks.payload, qrPngDataUrl: mocks.qr }))
 import { generateInvoiceDocument } from "./invoice-docs"
 const invoiceId="80111111-1111-4111-8111-111111111111"
 const pdf=new TextEncoder().encode("%PDF-1.7\nfixture")
@@ -24,12 +25,16 @@ beforeEach(() => {
   mocks.read.mockResolvedValue(Buffer.from("asset"))
   mocks.render.mockResolvedValue(pdf)
   mocks.fonts.mockResolvedValue({})
+  mocks.logo.mockResolvedValue(null)
+  mocks.authority.mockResolvedValue(null)
+  mocks.qr.mockResolvedValue("data:image/png;base64,AAAA")
+  mocks.payload.mockReturnValue("internal-payload")
   mocks.upload.mockResolvedValue({error:null})
   mocks.sign.mockResolvedValue({data:{signedUrl:"https://example.test/private.pdf"},error:null})
   mocks.storage.mockReturnValue({upload:mocks.upload,createSignedUrl:mocks.sign})
   mocks.results={
     invoices:{data:{id:invoiceId,invoice_number:"INV-fixture",invoice_type:"sales",customer_id:"customer-a",status:"draft",
-      issue_date:"2026-10-19",due_date:"2026-10-20",currency:"SAR",subtotal:4.1,discount:0,vat_amount:0.62,total:4.72},error:null},
+      issue_date:"2026-10-19",due_date:"2026-10-20",show_due_date:false,currency:"SAR",subtotal:4.1,discount:0,vat_amount:0.62,total:4.72},error:null},
     invoice_lines:{data:[{line_no:1,description:"Service",quantity:1,unit_price:4.1,amount:4.1,discount:0,vat_rate:15,vat_amount:0.62}],error:null},
     customers:{data:{name_ar:"Customer",name_en:"Customer",tax_number:null,address:"City",phone:null},error:null},
     tenants:{data:{name_ar:"Company",name_en:"Company",vat_number:"300000000000003",address:"City"},error:null},
@@ -50,6 +55,32 @@ beforeEach(() => {
 })
 
 describe("retained invoice PDFs",()=>{
+  it("embeds only the scoped tenant's loaded logo and National Address",async()=>{
+    const logoUrl="https://storage.example.test/tenant-logo.png"
+    const logoPath="tenant-a/logo-managed.png"
+    mocks.results.tenants.data={...(mocks.results.tenants.data as object),logo_url:logoUrl,logo_storage_path:logoPath,
+      address:"Example Street",building_number:"0123",district:"Example District",postal_code:"01234",additional_number:"0456",city:"Riyadh",region:"Riyadh",country:"SA"}
+    mocks.logo.mockResolvedValue("data:image/png;base64,BBBB")
+    const result=await generateInvoiceDocument(invoiceId)
+    expect(result.success).toBe(true)
+    expect(mocks.logo).toHaveBeenCalledWith(expect.objectContaining({from:mocks.from}),"tenant-a",logoUrl,logoPath)
+    const tenantRead=mocks.queries.find(query=>query.table==="tenants")?.builder
+    expect(tenantRead?.select).toHaveBeenCalledWith("name_ar,name_en,vat_number,cr_number,phone,address,city,region,district,building_number,additional_number,postal_code,country,logo_url,logo_storage_path")
+    expect(tenantRead?.eq).toHaveBeenCalledWith("id","tenant-a")
+    const html=mocks.render.mock.calls[0][0]
+    expect(html).toContain('<img class="logo" src="data:image/png;base64,BBBB" alt="Company"')
+    expect(html).toContain('0123 Example Street\nExample District\n01234 - 0456\nRiyadh، SA')
+    expect(html).not.toContain(logoUrl)
+    expect(mocks.read.mock.calls.every(([file])=>String(file).endsWith("cairo.woff2"))).toBe(true)
+  })
+  it("leaves the logo slot blank when tenant branding is absent or unavailable",async()=>{
+    mocks.results.tenants.data={...(mocks.results.tenants.data as object),logo_url:null,logo_storage_path:null}
+    expect((await generateInvoiceDocument(invoiceId)).success).toBe(true)
+    expect(mocks.logo).toHaveBeenCalledWith(expect.any(Object),"tenant-a",null,null)
+    expect(mocks.render.mock.calls[0][0]).not.toContain('<img class="logo"')
+    expect(mocks.render.mock.calls[0][0]).not.toContain("Elite Development")
+    expect(mocks.read.mock.calls.every(([file])=>String(file).endsWith("cairo.woff2"))).toBe(true)
+  })
   it("stores and returns identical private PDF bytes and a hash, after scoped authoritative reads",async()=>{
     const result=await generateInvoiceDocument(invoiceId,"bank-a")
     expect(result.success).toBe(true)
@@ -64,10 +95,42 @@ describe("retained invoice PDFs",()=>{
     const record=mocks.queries.find(query=>query.table==="generated_documents"&&query.builder.insert.mock.calls.length)
     expect(record?.builder.insert).toHaveBeenCalledWith(expect.objectContaining({
       tenant_id:"tenant-a",file_url:"https://example.test/private.pdf",
-      generated_data:expect.objectContaining({file_format:"pdf",layout_version:"reference-a4-2",font_source:"system_or_cairo",pdf_sha256:hash,qr_kind:"internal_unvalidated"}),
+      generated_data:expect.objectContaining({file_format:"pdf",layout_version:"reference-letter-2",font_source:"system_or_cairo",pdf_sha256:hash,qr_kind:"internal_unvalidated"}),
     }))
     expect(mocks.render.mock.calls[0][0]).toContain('aria-label="SAR 0.30"')
     expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({tenantId:"tenant-a",entityId:"document-a"}))
+  })
+  it("retains authority QR evidence, its disclosure and the exact PDF hash",async()=>{
+    mocks.authority.mockResolvedValue({environment:"simulation",kind:"cleared",qrBase64:"accepted-authority-qr"})
+    expect((await generateInvoiceDocument(invoiceId)).success).toBe(true)
+    expect(mocks.authority).toHaveBeenCalledWith(expect.any(Object),"tenant-a",invoiceId)
+    expect(mocks.qr).toHaveBeenCalledWith("accepted-authority-qr")
+    expect(mocks.render.mock.calls[0][0]).toContain("ZATCA-cleared QR (simulation) · not a production invoice")
+    expect(mocks.render.mock.calls[0][0]).not.toContain("Internal QR · unvalidated")
+    const record=mocks.queries.find(query=>query.table==="generated_documents"&&query.builder.insert.mock.calls.length)
+    expect(record?.builder.insert).toHaveBeenCalledWith(expect.objectContaining({generated_data:expect.objectContaining({
+      qr_kind:"zatca_simulation_cleared",pdf_sha256:createHash("sha256").update(pdf).digest("hex"),
+      qr_note:{ar:expect.any(String),en:"ZATCA-cleared QR (simulation) · not a production invoice"},
+    })}))
+  })
+  it("does not print unsupported production QR evidence or claim authority acceptance",async()=>{
+    mocks.authority.mockResolvedValue({environment:"production",kind:"cleared",qrBase64:"unsupported-production-qr"})
+    expect(await generateInvoiceDocument(invoiceId)).toEqual({success:false,error:"Production ZATCA evidence has not been validated for invoice printing."})
+    expect(mocks.qr).not.toHaveBeenCalled()
+    expect(mocks.render).not.toHaveBeenCalled()
+    expect(mocks.upload).not.toHaveBeenCalled()
+    expect(mocks.audit).not.toHaveBeenCalled()
+  })
+  it.each(["2026-10-19T10:30:00+03:00", "2026-10-19T10:30:00.123+03:00"])("keeps the encoded Phase 1 issue timestamp and unsubmitted disclosure for %s",async(finalized)=>{
+    mocks.results.invoices.data={...(mocks.results.invoices.data as object),status:"finalized",finalized_at:finalized}
+    expect((await generateInvoiceDocument(invoiceId)).success).toBe(true)
+    expect(mocks.payload).toHaveBeenCalledWith(expect.objectContaining({timestamp:"2026-10-19T07:30:00Z"}))
+    expect(mocks.render.mock.calls[0][0]).toContain("E-invoice QR (Phase 1) · not submitted to ZATCA")
+    const record=mocks.queries.find(query=>query.table==="generated_documents"&&query.builder.insert.mock.calls.length)
+    expect(record?.builder.insert).toHaveBeenCalledWith(expect.objectContaining({generated_data:expect.objectContaining({
+      qr_kind:"phase1_unsubmitted",qr_timestamp:"2026-10-19T07:30:00Z",show_due_date:false,
+      qr_note:{ar:expect.any(String),en:"E-invoice QR (Phase 1) · not submitted to ZATCA"},
+    })}))
   })
   it("uses only operator-loaded reference fonts and fails before rendering when configured fonts are invalid",async()=>{
     mocks.fonts.mockResolvedValueOnce({referenceFontDataUrl:"data:font/ttf;base64,AAAA",referenceBoldFontDataUrl:"data:font/ttf;base64,BBBB"})
@@ -134,11 +197,11 @@ describe("retained invoice PDFs",()=>{
 
 describe("reference fields from persisted invoice records",()=>{
   it("hydrates the distinct item name and full price while hiding the financial due date by default",async()=>{
-    mocks.results.invoice_lines={data:[{line_no:1,item_name:"Item & name",description:"Separate description",quantity:1,unit_price:72225.2082,amount:72225.21,discount:0,vat_rate:15,vat_amount:10833.78}],error:null}
+    mocks.results.invoice_lines={data:[{line_no:1,item_name:"Item & name",description:"Separate description\nSecond description line",quantity:1,unit_price:72225.2082,amount:72225.21,discount:0,vat_rate:15,vat_amount:10833.78}],error:null}
     expect((await generateInvoiceDocument(invoiceId)).success).toBe(true)
     const html=mocks.render.mock.calls[0][0]
-    expect(html).toContain('class="text" dir="auto">Item &amp; name')
-    expect(html).toContain('class="text" dir="auto">Separate description')
+    expect(html).toContain('class="item" dir="auto">Item &amp; name')
+    expect(html).toContain('class="description" dir="auto">Separate description\nSecond description line')
     expect(html).toContain('72,225.2082')
     expect(html).not.toContain('Due Date')
     expect(mocks.queries.find(query=>query.table==='invoice_lines')?.builder.select).toHaveBeenCalledWith(expect.stringContaining('item_name'))

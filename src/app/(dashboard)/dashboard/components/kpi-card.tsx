@@ -1,11 +1,9 @@
 "use client"
 
 import Link from "next/link"
-import { type LucideIcon } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { ArrowDownRight, ArrowUpRight, type LucideIcon } from "lucide-react"
 import { useTranslation } from "@/hooks/use-translation"
 import type { MetricValue } from "@/lib/analytics/types"
-import { useCountUp } from "./use-count-up"
 import { formatNumber } from "./format"
 
 interface KpiCardProps {
@@ -16,80 +14,37 @@ interface KpiCardProps {
   /** Kept for API compatibility; values are set in ink, not a per-tile hue. */
   color?: string
   href?: string
-  /** Kept for API compatibility; trends live in their own charts, not sparklines. */
   spark?: number[]
-  /** Delta unit: "%" (default) or "pp" for percentage points. */
   deltaUnit?: "pct" | "pp"
-  /** Format the value as currency. */
   currency?: boolean
-  /** Show exact two-decimal financial amounts instead of the count animation. */
   exactCurrency?: boolean
 }
 
-export function KpiCard({
-  label,
-  metric,
-  href,
-  deltaUnit = "pct",
-  currency = false,
-  exactCurrency = false,
-}: KpiCardProps) {
-  const { locale, t } = useTranslation()
-  const display = useCountUp(metric.available && !exactCurrency ? metric.value : 0)
-  const valueText = currency && exactCurrency
-    ? new Intl.NumberFormat(locale === "ar" ? "ar-SA-u-nu-latn" : "en-US", {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }).format(metric.value)
-    : display
-
-  // Hide the delta when there is no real previous value (avoids fabricated
-  // "+100%" chips when the previous period was zero).
-  const hasDelta =
-    metric.available &&
-    metric.previous > 0 &&
-    metric.delta !== 0 &&
-    metric.previous !== metric.value
-  const deltaPositive = metric.delta > 0
-  const deltaText = deltaUnit === "pp" ? `${formatNumber(locale, Math.abs(metric.delta))}` : `${formatNumber(locale, Math.abs(metric.pct))}%`
-
-  const card = (
-    <div
-      className={cn(
-        "h-full rounded-lg border border-border bg-card p-5",
-        href && "transition-colors hover:border-foreground/25",
-      )}
-    >
-      <span className="text-sm font-medium text-muted-foreground">{label}</span>
-      <span className="mt-2 block text-2xl font-semibold tabular-nums text-foreground sm:text-[28px]">
-        {metric.available ? valueText : "N/A"}
-        {currency && metric.available && (
-          <span className="ms-1.5 text-sm font-normal text-muted-foreground">
-            {locale === "ar" ? "ر.س" : "SAR"}
-          </span>
-        )}
-      </span>
-      <p className="mt-2 text-[13px] tabular-nums text-muted-foreground">
-        {hasDelta ? (
-          <>
-            <span className={cn("font-medium", deltaPositive ? "text-emerald-700 dark:text-emerald-400" : "text-red-700 dark:text-red-400")}>
-              {deltaPositive ? "+" : "−"}{deltaText}
-            </span>{" "}
-            {t.dashboard.vsPreviousPeriod}
-          </>
-        ) : (
-          <span aria-label={t.dashboard.vsPreviousPeriod}>— {t.dashboard.vsPreviousPeriod}</span>
-        )}
-      </p>
+export function KpiCard({label,metric,href,deltaUnit="pct",currency=false,exactCurrency=false}: KpiCardProps) {
+  const {locale,t}=useTranslation()
+  const valueText=currency && exactCurrency
+    ? new Intl.NumberFormat(locale === "ar" ? "ar-SA-u-nu-latn" : "en-US",{minimumFractionDigits:2,maximumFractionDigits:2}).format(metric.value)
+    : formatNumber(locale,Math.round(metric.value))
+  const hasDelta=metric.available && metric.previous>0 && metric.delta!==0 && metric.previous!==metric.value
+  const increasing=metric.delta>0
+  const deltaText=deltaUnit === "pp" ? formatNumber(locale,Math.abs(metric.delta)) : `${formatNumber(locale,Math.abs(metric.pct))}%`
+  const card=(
+    <div className="h-full min-w-0 bg-card p-4 transition-colors group-hover:bg-accent">
+      <div className="text-sm font-medium leading-6 text-muted-foreground">{label}</div>
+      <div className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <span className="text-2xl font-semibold tabular-nums tracking-tight text-foreground" dir="ltr">
+          {metric.available ? valueText : "—"}
+        </span>
+        {currency && metric.available && <span className="text-xs font-medium text-muted-foreground">{locale === "ar" ? "ر.س" : "SAR"}</span>}
+      </div>
+      <div className="mt-2 flex min-h-5 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+        {hasDelta && <span className="inline-flex items-center gap-1 font-medium tabular-nums text-foreground" dir="ltr">
+          {increasing ? <ArrowUpRight className="size-3.5" aria-hidden="true"/> : <ArrowDownRight className="size-3.5" aria-hidden="true"/>}
+          <span>{increasing ? "+" : "−"}{deltaText}{deltaUnit === "pp" && <span className="ms-1">{locale === "ar" ? "نقطة" : "pp"}</span>}</span>
+        </span>}
+        <span>{t.dashboard.vsPreviousPeriod}</span>
+      </div>
     </div>
   )
-
-  if (href) {
-    return (
-      <Link href={href} className="block h-full rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={label}>
-        {card}
-      </Link>
-    )
-  }
-  return card
+  return href ? <Link href={href} className="group block h-full focus-visible:relative focus-visible:z-10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring" aria-label={label}>{card}</Link> : card
 }

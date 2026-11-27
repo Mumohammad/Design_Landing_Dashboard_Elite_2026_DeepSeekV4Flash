@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test"
+import { test, expect, type Page } from "./preview-test"
 import { translations } from "../src/lib/i18n/translations"
 import { assertStagingTarget } from "./staging-target"
 
@@ -7,7 +7,7 @@ test.beforeAll(async ({ request }) => assertStagingTarget(request))
 test("landing, company pages and auth share one language without reloading", async ({ page }) => {
   await page.goto("/landing?lang=en")
   await expect(page.locator("html")).toHaveAttribute("lang", "en")
-  await expect(page.getByRole("heading", { name: "Simple plans for every fleet size" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Plans for your fleet." })).toBeVisible()
   await expect(page.locator("footer").getByRole("link", { name: "Privacy policy", exact: true })).toBeVisible()
   await expect(page.getByRole("navigation").getByRole("link", { name: "Sign in", exact: true }).first()).toBeVisible()
   for (const width of [1440, 390]) {
@@ -22,12 +22,12 @@ test("landing, company pages and auth share one language without reloading", asy
   page.on("framenavigated", frame => { if (frame === page.mainFrame()) navigations++ })
   await page.getByRole("button", { name: "تغيير اللغة إلى العربية", exact: true }).first().click()
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl")
-  await expect(page.getByRole("heading", { name: "خطط بسيطة لأي حجم أسطول" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "خطط بحجم أسطولك." })).toBeVisible()
   expect(navigations).toBe(0)
   await page.getByRole("button", { name: "Switch language to English", exact: true }).first().click()
   await page.reload()
   await expect(page.locator("html")).toHaveAttribute("lang", "en")
-  await expect(page.getByRole("heading", { name: "Simple plans for every fleet size" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Plans for your fleet." })).toBeVisible()
 
   await page.goto("/platform")
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Your company's workspace")
@@ -46,7 +46,7 @@ test("language changes synchronize between existing tabs", async ({ page, contex
   await expect(other.locator("html")).toHaveAttribute("lang", "en")
   await page.getByRole("button", { name: "تغيير اللغة إلى العربية", exact: true }).first().click()
   await expect(other.locator("html")).toHaveAttribute("lang", "ar")
-  await expect(other.getByRole("heading", { name: "خطط بسيطة لأي حجم أسطول" })).toBeVisible()
+  await expect(other.getByRole("heading", { name: "خطط بحجم أسطولك." })).toBeVisible()
   await other.close()
 })
 
@@ -61,7 +61,7 @@ test("language selection works when browser persistence is blocked", async ({ pa
   await page.goto("/landing")
   await page.getByRole("button", { name: "Switch language to English", exact: true }).first().click()
   await expect(page.locator("html")).toHaveAttribute("lang", "en")
-  await expect(page.getByRole("heading", { name: "Simple plans for every fleet size" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Plans for your fleet." })).toBeVisible()
 })
 
 async function signIn(page: Page) {
@@ -133,7 +133,9 @@ test("every business module loads in both interface languages", async ({ page })
         : path === "/approvals" ? (locale === "ar" ? "صندوق القرارات" : "Approvals Inbox")
         : translations[locale].nav[label]
       await expect(page.getByRole("heading", { level: 1 }).first()).toContainText(heading)
-      await page.waitForLoadState("networkidle", { timeout: 20_000 })
+      // Background prefetch/notifications need not become network-idle. Require
+      // the actual module skeletons and busy regions to finish instead.
+      await expect(page.locator("main").locator('[aria-busy="true"], .animate-pulse')).toHaveCount(0, { timeout: 20_000 })
       await expect(page.getByText("Unable to load this module", { exact: true })).toHaveCount(0)
       await expect(page.getByText("تعذّر تحميل هذه الوحدة", { exact: true })).toHaveCount(0)
     }

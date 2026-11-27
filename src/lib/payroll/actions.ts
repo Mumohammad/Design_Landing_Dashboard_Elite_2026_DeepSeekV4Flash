@@ -13,6 +13,7 @@
 // write immutable audit_log entries (ADR-007).
 
 import { integrationAvailable, INTEGRATION_UNAVAILABLE } from "@/lib/release/integrations"
+import { collectRows } from "@/lib/reports/collect-rows"
 import { revalidatePath } from "next/cache"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { createClient } from "@/lib/supabase/server"
@@ -183,18 +184,20 @@ export async function generateWpsFile(
 
     const admin = createAdminClient()
 
-    const { data: periods } = await admin
+    const periods = await collectRows(() => admin
       .from("driver_payroll_periods")
       .select(
-        "period_year,period_month,status,net_payroll,base_amount,total_deductions,working_days_actual,paid_at,driver:drivers(iqama_number,full_name_ar,iban,housing_allowance)"
+        "id,period_year,period_month,status,net_payroll,base_amount,total_deductions,working_days_actual,paid_at,driver:drivers(iqama_number,full_name_ar,iban,housing_allowance)",
+        { count: "exact" }
       )
       .eq("tenant_id", currentUser.tenantId)
       .eq("period_year", periodYear)
       .eq("period_month", periodMonth)
       .in("status", ["approved", "paid"])
       .is("deleted_at", null)
+      .order("id", { ascending: true }))
 
-    const rows = (periods as unknown as WpsPeriodRow[]) ?? []
+    const rows = periods as unknown as WpsPeriodRow[]
     if (rows.length === 0) {
       return {
         success: false,
@@ -223,20 +226,23 @@ export async function generateWpsFile(
       }
     }
 
-    const payments: WPSPaymentRecord[] = rows.map((r) => ({
-      driver: {
-        iqama_number: r.driver?.iqama_number ?? "0000000000",
-        full_name_ar: r.driver?.full_name_ar ?? "N/A",
-      },
-      iban: r.driver?.iban ?? "",
-      net_payroll: Number(r.net_payroll ?? 0),
-      base_amount: Number(r.base_amount ?? 0),
-      housing_allowance: Number(r.driver?.housing_allowance ?? 0),
-      other_allowances: 0,
-      total_deductions: Number(r.total_deductions ?? 0),
-      paid_at: r.paid_at ?? new Date().toISOString(),
-      working_days_actual: Number(r.working_days_actual ?? 0),
-    }))
+    const payments: WPSPaymentRecord[] = rows.map((r) => {
+      if (!r.driver?.iqama_number?.trim() || !r.driver.full_name_ar?.trim() || !r.driver.iban?.trim()
+        || r.net_payroll == null || r.base_amount == null) {
+        throw new Error("Complete the driver identity, bank details and pay amounts for every payroll record before exporting.")
+      }
+      return {
+        driver: { iqama_number: r.driver.iqama_number, full_name_ar: r.driver.full_name_ar },
+        iban: r.driver.iban,
+        net_payroll: Number(r.net_payroll),
+        base_amount: Number(r.base_amount),
+        housing_allowance: Number(r.driver.housing_allowance ?? 0),
+        other_allowances: 0,
+        total_deductions: Number(r.total_deductions ?? 0),
+        paid_at: r.paid_at ?? new Date().toISOString(),
+        working_days_actual: Number(r.working_days_actual ?? 0),
+      }
+    })
 
     const periodLabel = `${periodYear}-${String(periodMonth).padStart(2, "0")}`
     const content = generateWPSSIF(payments, { mol_reference: molReference, iban: wpsIban }, periodLabel)

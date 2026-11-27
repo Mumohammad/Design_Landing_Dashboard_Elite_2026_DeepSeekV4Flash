@@ -9,8 +9,8 @@
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUser, requirePermission } from "@/lib/auth/authorization"
 import { writeAuditLog } from "@/lib/auth/sessions"
-import { loadZatcaSourceDocument } from "./zatca-source"
-import { buyerParty, sellerParty, type CustomerPartyRow, type TenantPartyRow } from "./zatca-adapter-input"
+import { loadZatcaBuyer, loadZatcaSourceDocument } from "./zatca-source"
+import { buyerParty, sellerParty, type TenantPartyRow } from "./zatca-adapter-input"
 import { runZatcaDryRunBatch, type DryRunDocument, type DryRunSummary } from "./zatca-dry-run-core"
 import { zatcaConfiguredEnvironment, zatcaProductionAvailable } from "./zatca-config"
 
@@ -68,14 +68,11 @@ export async function runZatcaDryRun(opts: { limit?: number } = {}): Promise<{ s
       const docType = EVENT_DOC[ev.event_type]
       const src = await loadZatcaSourceDocument(admin, tenantId, docType, ev.source_id)
       if (src === "skipped" || src === "failed") { skipped++; continue }
-      const { data: customer } = src.customerId
-        ? await admin.from("customers").select("name_ar,name_en,tax_number,address,city,district,building_number,additional_number,postal_code,country_code")
-          .eq("id", src.customerId).eq("tenant_id", tenantId).maybeSingle<CustomerPartyRow>()
-        : { data: null }
+      const buyer = await loadZatcaBuyer(admin, tenantId, src.customerId)
       documents.push({
         sourceId: ev.source_id, docType, docRef: src.docRef, issueDate: src.issueDate, finalizedAt: ev.created_at,
         currency: src.currency, subtotal: src.subtotal, discount: src.discount, vatAmount: src.vatAmount, total: src.total,
-        lines: src.lines, buyer: buyerParty(customer ?? null), referenceInvoiceNumber: src.referenceInvoiceNumber, noteReason: src.noteReason,
+        lines: src.lines, buyer, referenceInvoiceNumber: src.referenceInvoiceNumber, noteReason: src.noteReason,
       })
     }
     const sample = documents.length === 0

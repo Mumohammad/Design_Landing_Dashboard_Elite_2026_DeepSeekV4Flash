@@ -1,0 +1,65 @@
+{
+  "artifactType": "approved-vercel-trusted-source-record",
+  "status": "approved-applied-verified",
+  "appliedByThisTask": true,
+  "provider": "GitHub Actions",
+  "issuerUrl": "https://token.actions.githubusercontent.com",
+  "requiredClaims": {
+    "aud": "https://github.com/Mumohammad",
+    "repository": "Mumohammad/Design_Landing_Dashboard_Elite_2026_DeepSeekV4Flash",
+    "head_ref": "codex/production-modules-completion",
+    "base_ref": "master",
+    "event_name": "pull_request"
+  },
+  "claimMatching": "Every listed claim is required and matches its one exact accepted value. No wildcard or additional accepted value is configured.",
+  "allowedTargetEnvironments": [
+    "preview"
+  ],
+  "productionAccess": false,
+  "targetProjectSelection": "elite-dashboard, prj_0FJTFtAXzBZMUP9rPyU7XtiEYteX, team_j3ptCX4b6u3KnlTRbe8mRhKG; Preview only",
+  "requestHeader": "x-vercel-trusted-oidc-idp-token",
+  "localDevelopment": {
+    "source": "Process VERCEL_OIDC_TOKEN supplied by vc env run for the same linked project",
+    "defaultAccess": "development to preview",
+    "additionalExternalServiceRuleRequired": false
+  },
+  "documentation": [
+    "https://vercel.com/docs/deployment-protection/methods-to-bypass-deployment-protection/trusted-sources",
+    "https://docs.github.com/en/actions/reference/security/oidc"
+  ],
+  "apiSchemaNote": "The apiPayload property was verified against https://openapi.vercel.sh/ PATCH /v9/projects/{idOrName}, applied only after scoped owner approval, and checked by an authenticated readback.",
+  "verifiedAt": "2026-11-09T15:54:06.257Z",
+  "apiPayload": {
+    "trustedSources": {
+      "oidcProviders": {
+        "https://token.actions.githubusercontent.com": [
+          {
+            "label": "GitHub release PR Preview",
+            "to": {
+              "slugs": [
+                "preview"
+              ]
+            },
+            "claims": {
+              "aud": [
+                "https://github.com/Mumohammad"
+              ],
+              "repository": [
+                "Mumohammad/Design_Landing_Dashboard_Elite_2026_DeepSeekV4Flash"
+              ],
+              "head_ref": [
+                "codex/production-modules-completion"
+              ],
+              "base_ref": [
+                "master"
+              ],
+              "event_name": [
+                "pull_request"
+              ]
+            }
+          }
+        ]
+      }
+    }
+  }
+}

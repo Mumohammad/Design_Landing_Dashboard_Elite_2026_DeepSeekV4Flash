@@ -13,6 +13,7 @@ import { LocalizedText } from "@/components/localized-text"
 import { useEffect } from "react"
 import { TriangleAlert } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { RecoveryLink } from "@/components/ui/recovery-link"
 
 export default function GlobalModuleError({
   error,
@@ -38,7 +39,7 @@ export default function GlobalModuleError({
         )}
         <div className="mt-6 flex items-center justify-center gap-3">
           <Button onClick={reset} className="rounded-xl"><LocalizedText text="إعادة المحاولة" /></Button>
-          <Button variant="outline" className="rounded-xl" onClick={() => (window.location.href = "/dashboard")}><LocalizedText text="العودة للوحة" /></Button>
+          <RecoveryLink href="/dashboard"><LocalizedText text="العودة للوحة" /></RecoveryLink>
         </div>
       </div>
     </div>

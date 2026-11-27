@@ -3,6 +3,17 @@ import type { Locale } from "./types"
 // Static interface copy only. Never pass tenant names, notes or other user data
 // through this catalog: original business content must retain its language.
 export const uiCopy = {
+  "Unable to verify retained ZATCA issuance evidence.": "تعذر التحقق من أدلة إصدار ZATCA المحفوظة.",
+  "Unable to verify retained ZATCA submission evidence.": "تعذر التحقق من أدلة إرسال ZATCA المحفوظة.",
+  "Retained ZATCA QR evidence is incomplete.": "أدلة رمز QR الخاص بـ ZATCA المحفوظة غير مكتملة.",
+  "Production ZATCA evidence has not been validated for invoice printing.": "لم يتم التحقق من أدلة ZATCA الإنتاجية لطباعة الفاتورة.",
+  "ZATCA environment could not be verified. Reload before continuing.": "تعذر التحقق من بيئة ZATCA. أعد التحميل قبل المتابعة.",
+  "ZATCA production remains blocked pending independent authority acceptance of XML, signing and simulation evidence.": "الإرسال الإنتاجي إلى ZATCA محظور حتى التحقق المستقل من قبول الهيئة لملفات XML والتوقيع وأدلة المحاكاة.",
+  "Invalid ZATCA setting or request identity.": "إعداد ZATCA أو معرّف الطلب غير صالح.",
+  "You do not have permission to change the ZATCA setting.": "ليس لديك صلاحية تغيير إعداد ZATCA.",
+  "Company configuration changed. Reload and review before saving.": "تغيّرت إعدادات المنشأة. أعد التحميل وراجعها قبل الحفظ.",
+  "The save result could not be confirmed. Reload and review before retrying.": "تعذر تأكيد نتيجة الحفظ. أعد التحميل وراجع الحالة قبل المحاولة مجددًا.",
+  "Too many attempts. Wait before retrying.": "محاولات كثيرة. انتظر قبل المحاولة مجددًا.",
   "Previous page": "الصفحة السابقة", "Next page": "الصفحة التالية",
   "Elite Development": "نخبة التطوير",
   "Enterprise logistics operations platform": "منصة لوجستيات التشغيل المؤسسي",

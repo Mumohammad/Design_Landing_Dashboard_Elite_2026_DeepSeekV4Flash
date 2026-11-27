@@ -6,6 +6,7 @@ import "server-only"
 // the RLS client the policies apply on top. A missing table or a module the
 // role cannot read contributes no items instead of failing the whole feed.
 
+import { readCompleteRows } from "@/lib/analytics/complete-read"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import {
   buildNotificationFeed,
@@ -27,14 +28,6 @@ function shift(iso: string, days: number): string {
   return new Date(Date.parse(`${iso}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10)
 }
 
-async function safe<T>(fn: () => PromiseLike<T>, fallback: T): Promise<T> {
-  try {
-    return await fn()
-  } catch {
-    return fallback
-  }
-}
-
 type Embedded = { full_name_ar?: string | null; full_name_en?: string | null; plate_number?: string | null }
 function one(v: Embedded | Embedded[] | null | undefined): Embedded | null {
   return Array.isArray(v) ? (v[0] ?? null) : (v ?? null)
@@ -54,34 +47,42 @@ export async function loadTenantFeed(
   todayIso: string,
   opts: LoadFeedOptions,
 ): Promise<NotificationFeed> {
+  async function safe<T>(fn: () => PromiseLike<T>, fallback: T): Promise<T> {
+    try { return await fn() } catch {
+      if (opts.mode === "service") throw new Error("Complete notification source unavailable")
+      return fallback
+    }
+  }
   const horizonDays = opts.horizonDays ?? NOTIFICATION_HORIZON_DAYS
   const horizon = shift(todayIso, horizonDays)
   const want = (c: NotificationCategory) => !opts.categories || opts.categories.length === 0 || opts.categories.includes(c)
 
   const drivers = want("drivers")
     ? safe<DriverExpiryRow[]>(async () => {
-        const { data, error } = await db
+        const { data, error } = await readCompleteRows(() => db
           .from("drivers")
-          .select("id, full_name_ar, full_name_en, iqama_expiry_date, license_expiry_date, passport_expiry_date, contract_end")
+          .select("id, full_name_ar, full_name_en, iqama_expiry_date, license_expiry_date, passport_expiry_date, contract_end", { count: "exact" })
           .eq("tenant_id", tenantId)
           .is("deleted_at", null)
           .not("status", "in", "(terminated,blacklisted)")
           .or(`iqama_expiry_date.lte.${horizon},license_expiry_date.lte.${horizon},passport_expiry_date.lte.${horizon},contract_end.lte.${horizon}`)
-          .limit(1000)
+          .order("id", { ascending: true }))
+        if (error && opts.mode === "service") throw Error("Notification source unavailable")
         return error ? [] : ((data ?? []) as DriverExpiryRow[])
       }, [])
     : Promise.resolve([])
 
   const driverDocuments = want("drivers")
     ? safe<EntityDocumentRow[]>(async () => {
-        const { data, error } = await db
+        const { data, error } = await readCompleteRows(() => db
           .from("driver_documents")
-          .select("id, driver_id, document_type, expiry_date, drivers(full_name_ar, full_name_en)")
+          .select("id, driver_id, doc_type, expiry_date, drivers(full_name_ar, full_name_en)", { count: "exact" })
           .eq("tenant_id", tenantId)
           .is("deleted_at", null)
           .not("expiry_date", "is", null)
           .lte("expiry_date", horizon)
-          .limit(1000)
+          .order("id", { ascending: true }))
+        if (error && opts.mode === "service") throw Error("Notification source unavailable")
         if (error) return []
         return (data ?? []).map((r) => {
           const owner = one(r.drivers as Embedded | Embedded[] | null)
@@ -89,7 +90,7 @@ export async function loadTenantFeed(
             id: r.id as string,
             owner_id: r.driver_id as string,
             owner_label: owner?.full_name_ar || owner?.full_name_en || null,
-            document_type: (r.document_type as string | null) ?? null,
+            document_type: (r.doc_type as string | null) ?? null,
             expiry_date: (r.expiry_date as string | null) ?? null,
           }
         })
@@ -98,34 +99,36 @@ export async function loadTenantFeed(
 
   const vehicles = want("vehicles")
     ? safe<(VehicleExpiryRow & VehicleInspectionRow)[]>(async () => {
-        const { data, error } = await db
+        const { data, error } = await readCompleteRows(() => db
           .from("vehicles")
-          .select("id, plate_number, insurance_expiry, registration_expiry, operating_card_expiry, rental_contract_end, inspection_expiry")
+          .select("id, plate_number, insurance_expiry, registration_expiry, operating_card_expiry, rental_contract_end, inspection_expiry", { count: "exact" })
           .eq("tenant_id", tenantId)
           .is("deleted_at", null)
           .or(`insurance_expiry.lte.${horizon},registration_expiry.lte.${horizon},operating_card_expiry.lte.${horizon},rental_contract_end.lte.${horizon},inspection_expiry.lte.${horizon}`)
-          .limit(1000)
+          .order("id", { ascending: true }))
+        if (error && opts.mode === "service") throw Error("Notification source unavailable")
         return error ? [] : ((data ?? []) as (VehicleExpiryRow & VehicleInspectionRow)[])
       }, [])
     : Promise.resolve([])
 
   const vehicleDocuments = want("vehicles")
     ? safe<EntityDocumentRow[]>(async () => {
-        const { data, error } = await db
+        const { data, error } = await readCompleteRows(() => db
           .from("vehicle_documents")
-          .select("id, vehicle_id, document_type, expiry_date, vehicles(plate_number)")
+          .select("id, vehicle_id, doc_type, expiry_date, vehicles(plate_number)", { count: "exact" })
           .eq("tenant_id", tenantId)
           .is("deleted_at", null)
           .eq("is_active", true)
           .not("expiry_date", "is", null)
           .lte("expiry_date", horizon)
-          .limit(1000)
+          .order("id", { ascending: true }))
+        if (error && opts.mode === "service") throw Error("Notification source unavailable")
         if (error) return []
         return (data ?? []).map((r) => ({
           id: r.id as string,
           owner_id: r.vehicle_id as string,
           owner_label: one(r.vehicles as Embedded | Embedded[] | null)?.plate_number ?? null,
-          document_type: (r.document_type as string | null) ?? null,
+          document_type: (r.doc_type as string | null) ?? null,
           expiry_date: (r.expiry_date as string | null) ?? null,
         }))
       }, [])
@@ -133,15 +136,16 @@ export async function loadTenantFeed(
 
   const maintenance = want("maintenance")
     ? safe<MaintenanceDueRow[]>(async () => {
-        const { data, error } = await db
+        const { data, error } = await readCompleteRows(() => db
           .from("vehicle_maintenance_events")
-          .select("vehicle_id, next_service_date, vehicles(plate_number)")
+          .select("id, vehicle_id, next_service_date, vehicles(plate_number)", { count: "exact" })
           .eq("tenant_id", tenantId)
           .is("deleted_at", null)
           .neq("status", "cancelled")
           .not("next_service_date", "is", null)
           .gte("next_service_date", shift(todayIso, -365))
-          .limit(2000)
+          .order("id", { ascending: true }))
+        if (error && opts.mode === "service") throw Error("Notification source unavailable")
         if (error) return []
         return (data ?? []).map((r) => ({
           vehicle_id: r.vehicle_id as string,
@@ -153,28 +157,30 @@ export async function loadTenantFeed(
 
   const receivables = want("finance")
     ? safe<OverdueReceivableRow[]>(async () => {
-        const { data, error } = await db
+        const { data, error } = await readCompleteRows(() => db
           .from("receivables")
-          .select("id, invoice_ref, due_date, total_amount, paid_amount")
+          .select("id, invoice_ref, due_date, total_amount, paid_amount", { count: "exact" })
           .eq("tenant_id", tenantId)
           .is("deleted_at", null)
           .in("status", ["open", "partially_paid", "overdue"])
           .lt("due_date", todayIso)
-          .limit(500)
+          .order("id", { ascending: true }))
+        if (error && opts.mode === "service") throw Error("Notification source unavailable")
         return error ? [] : ((data ?? []) as OverdueReceivableRow[])
       }, [])
     : Promise.resolve([])
 
   const payables = want("finance")
     ? safe<PayableDueRow[]>(async () => {
-        const { data, error } = await db
+        const { data, error } = await readCompleteRows(() => db
           .from("payables")
-          .select("id, invoice_ref, due_date, total_amount, paid_amount")
+          .select("id, invoice_ref, due_date, total_amount, paid_amount", { count: "exact" })
           .eq("tenant_id", tenantId)
           .is("deleted_at", null)
           .in("status", ["open", "partially_paid", "overdue"])
           .lte("due_date", shift(todayIso, 7))
-          .limit(500)
+          .order("id", { ascending: true }))
+        if (error && opts.mode === "service") throw Error("Notification source unavailable")
         return error ? [] : ((data ?? []) as PayableDueRow[])
       }, [])
     : Promise.resolve([])
@@ -187,6 +193,7 @@ export async function loadTenantFeed(
           .eq("tenant_id", tenantId)
           .is("deleted_at", null)
           .in("status", OPEN_VIOLATION_STATUS)
+        if (opts.mode === "service" && (error || count === null)) throw Error("Notification count unavailable")
         return error ? 0 : (count ?? 0)
       }, 0)
     : Promise.resolve(0)
@@ -210,6 +217,7 @@ export async function loadTenantFeed(
             db.from("driver_leave_requests").select("id", head).eq("tenant_id", tenantId).is("deleted_at", null).eq("status", "pending"),
             db.from("driver_applications").select("id", head).eq("tenant_id", tenantId).in("status", ["submitted", "under_review"]),
           ])
+          if ([e, l, a].some(row => row.error || row.count === null)) throw Error("Approval counts unavailable")
           return (e.error ? 0 : (e.count ?? 0)) + (l.error ? 0 : (l.count ?? 0)) + (a.error ? 0 : (a.count ?? 0))
         }, 0)
     : Promise.resolve(0)

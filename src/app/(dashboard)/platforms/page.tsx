@@ -160,7 +160,7 @@ export default function PlatformsPage() {
   }
 
   return (
-    <div className="px-4 lg:px-6 py-4">
+    <div className="py-4">
       <EnterpriseModulePage
         title={t.nav.platforms}
         subtitle={pm.subtitle}

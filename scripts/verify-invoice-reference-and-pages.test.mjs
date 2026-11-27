@@ -1,7 +1,7 @@
 import test from'node:test'
 import assert from'node:assert/strict'
-import{expect as browserExpect}from'@playwright/test'
-import{assertInvoiceReferenceTestTarget,createInvoiceResponseLoss,verifyInvoiceReferenceAndPages}from'./verify-invoice-reference-and-pages.mjs'
+import{assertInvoiceReferenceTestTarget,createInvoiceResponseLoss,verifyInvoiceReferenceAndPages,invoicePdfContainsText}from'./verify-invoice-reference-and-pages.mjs'
+import * as invoiceVerification from './verify-invoice-reference-and-pages.mjs'
 const stage='https://viowrovartosrkqukjxy.supabase.co',app='https://elite-dashboard-fixture-elitesaasc-5643.vercel.app',sha='a'.repeat(40)
 for(const[name,backend,url,commit]of[
  ['production backend','https://wwfnsbilmyxeawgzicmv.supabase.co',app,sha],['production alias',stage,'https://elite-dashboard-blush.vercel.app',sha],['unknown backend','https://unknown.supabase.co',app,sha],['unknown app',stage,'https://example.test',sha],['backend path',stage+'/rest/v1',app,sha],['query pin',stage,app+'?dpl=old',sha],['nonexact commit',stage,app,'master'],
@@ -20,6 +20,47 @@ test('healthy exclusively local runtime still requires an owned company',async()
 
 
 const requestId='95200000-0000-4000-8000-000000000003',description='Owned offline invoice description'
+const fixtureOwner='95200000-0000-4000-8000-000000000004'
+const fixtureCustomer='95200000-0000-4000-8000-000000000005'
+function invoiceOwnerRequest(overrides={}) {
+ const claims={sub:fixtureOwner,aal:'aal2',role:'authenticated',...overrides}
+ const token=['fixture',Buffer.from(JSON.stringify(claims)).toString('base64url'),'signature'].join('.')
+ return {url:()=>stage+'/rest/v1/rpc/read_my_invoice_page',method:()=> 'POST',
+  headerValue:async name=>name==='authorization'?'Bearer '+token:'synthetic-publishable-key'}
+}
+
+test('invoice volume fixtures use the authenticated draft RPC for every unique invoice', async () => {
+ const calls=[]
+ await invoiceVerification.seedInvoiceDraftFixtures({
+  request:invoiceOwnerRequest(),target:assertInvoiceReferenceTestTarget(stage,app,sha),
+  ownerId:fixtureOwner,customerId:fixtureCustomer,today:'2026-11-27',count:11,
+  fetcher:async (url,options)=>{calls.push({url,options});return Response.json({id:fixtureCustomer})},
+ })
+ assert.equal(calls.length,11)
+ const drafts=calls.map(call=>JSON.parse(call.options.body).p_input)
+ assert.equal(new Set(drafts.map(row=>row.request_id)).size,11)
+ for(const [index,call] of calls.entries()){
+  assert.equal(call.url,stage+'/rest/v1/rpc/save_invoice_draft')
+  assert.equal(call.options.redirect,'error')
+  assert.equal(call.options.headers.apikey,'synthetic-publishable-key')
+  assert.equal(drafts[index].customer_id,fixtureCustomer)
+  assert.equal(drafts[index].currency,'SAR')
+  assert.equal(drafts[index].lines[0].unit_price,1)
+ }
+})
+
+for(const claims of [{sub:fixtureCustomer},{aal:'aal1'},{role:'service_role'}]){
+ test('invoice volume fixtures reject an unowned access session '+Object.keys(claims)[0],async()=>{
+  let sends=0
+  await assert.rejects(()=>invoiceVerification.seedInvoiceDraftFixtures({
+   request:invoiceOwnerRequest(claims),target:assertInvoiceReferenceTestTarget(stage,app,sha),
+   ownerId:fixtureOwner,customerId:fixtureCustomer,today:'2026-11-27',count:1,
+   fetcher:async()=>{sends++;return Response.json({id:fixtureCustomer})},
+  }),/Owned invoice fixture session/)
+  assert.equal(sends,0)
+ })
+}
+
 function invoiceLossRoute(overrides={}){
  const calls={continued:0,forwarded:0,aborted:0},request={method:()=> 'POST',headers:()=>({'next-action':'offline-action'}),postData:()=>JSON.stringify([{request_id:requestId,description}])}
  const route={request:()=>request,async continue(){calls.continued++},async fetch(options){calls.forwarded++;assert.equal(options.timeout,60000);return{ok:()=>true}},async abort(reason){calls.aborted++;assert.equal(reason,'failed')},...overrides}
@@ -35,10 +76,11 @@ test('invoice response loss waits for delayed commit and abort before the unchan
  fields.resolve();await nextTurn();assert.equal(loss.ready,true)
  const waiting=loss.wait().then(()=>{finished=true})
  // The previous ordering starts this check while the commit is still pending.
- await assert.rejects(()=>browserExpect.poll(()=>state.alert,{timeout:20,intervals:[1]}).toBe(true))
+ const assertAlert=()=>assert.equal(state.alert,true)
+ assert.throws(assertAlert,{code:'ERR_ASSERTION'})
  assert.equal(finished,false);assert.equal(state.invoices,0);assert.equal(state.audits,0)
  forward.resolve();await nextTurn();assert.equal(state.invoices,1);assert.equal(state.audits,1);assert.equal(finished,false);assert.equal(state.alert,false)
- abort.resolve();await handling;await waiting;await browserExpect.poll(()=>state.alert,{timeout:20,intervals:[1]}).toBe(true)
+ abort.resolve();await handling;await waiting;assertAlert()
  await loss.handler(fixture.route)
  assert.equal(pendingChecks,1);assert.equal(fixture.calls.forwarded,1);assert.equal(fixture.calls.aborted,1);assert.equal(fixture.calls.continued,1)
  assert.deepEqual(loss.ids,[requestId,requestId]);assert.equal(state.invoices,1);assert.equal(state.audits,1)
@@ -72,4 +114,29 @@ test('invoice response loss completion wait remains bounded',async()=>{
  const loss=createInvoiceResponseLoss(description,async()=>{})
  await assert.rejects(()=>loss.wait(5),/Owned invoice response loss did not complete/)
  assert.equal(loss.lost,false);assert.equal(loss.ready,false)
+})
+
+// PDF.js inserts spaces at soft line breaks, including within a word in the
+// sample's narrow item column. Every non-whitespace character must survive.
+for(const[name,actual,expected,result]of[
+ ['within-word wrap','Refer ence item ABCD','Reference item ABCD',true],
+ ['description lines','Separate\nreference\ndescription ABCD','Separate reference description ABCD',true],
+ ['missing character','Refer ence ite ABCD','Reference item ABCD',false],
+ ['changed character','Refer ence item ABCE','Reference item ABCD',false],
+ ['reordered characters','Refer ence item ACBD','Reference item ABCD',false],
+ ['absent item','Separate reference description ABCD','Reference item ABCD',false],
+])test('invoice PDF text check: '+name,()=>assert.equal(invoicePdfContainsText(actual,expected),result))
+
+
+test('hosted invoice loss and retry preserve scoped Preview identity without redirect forwarding',async()=>{
+ const saved=Object.fromEntries(['VERIFY_APP_URL','BASE_URL','VERCEL_OIDC_TOKEN','GITHUB_ACTIONS'].map(key=>[key,process.env[key]]));
+ const token=[Buffer.from('{}').toString('base64url'),Buffer.from(JSON.stringify({iss:'https://oidc.vercel.com/elitesaasc-5643',exp:Math.floor(Date.now()/1000)+600})).toString('base64url'),'fabricated-signature'].join('.');
+ process.env.VERIFY_APP_URL=app;delete process.env.BASE_URL;process.env.VERCEL_OIDC_TOKEN=token;process.env.GITHUB_ACTIONS='false';
+ try{
+  const fixture=invoiceLossRoute(),forwarded=[];let fulfilled=0;
+  fixture.request.url=()=>app+'/invoices?lang=ar';fixture.route.fetch=async options=>{forwarded.push(options);return{ok:()=>true}};fixture.route.fulfill=async()=>{fulfilled++};
+  const loss=createInvoiceResponseLoss(description,async()=>{});await loss.handler(fixture.route);await loss.wait();await loss.handler(fixture.route);
+  assert.equal(forwarded.length,2);assert.equal(fulfilled,1);assert.equal(fixture.calls.continued,0);assert.equal(fixture.calls.aborted,1);
+  for(const options of forwarded){assert.equal(options.maxRedirects,0);assert.equal(options.headers['x-vercel-trusted-oidc-idp-token'],token);assert.equal(options.headers['next-action'],'offline-action')}
+ }finally{for(const[key,value]of Object.entries(saved))if(value===undefined)delete process.env[key];else process.env[key]=value}
 })

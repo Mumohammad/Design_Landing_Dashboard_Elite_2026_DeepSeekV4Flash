@@ -138,7 +138,7 @@ export default function UsersSettingsPage() {
   }
 
   return (
-    <div className="page-enter px-4 lg:px-6 py-4 space-y-6">
+    <div className="page-enter py-4 space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-foreground">{t.nav.users}</h1>
         <p className="text-sm text-muted-foreground mt-1">
@@ -221,7 +221,7 @@ export default function UsersSettingsPage() {
           <Card className="rounded-2xl border border-border/50 bg-card shadow-sm">
             <CardHeader className="pb-4">
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl text-elite-blue-600 dark:text-elite-blue-300">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-elite-blue-600/10">
                   <UserPlus className="h-5 w-5 text-elite-blue-600" />
                 </div>
                 <div>
@@ -263,7 +263,7 @@ export default function UsersSettingsPage() {
                 <Button
                   type="submit"
                   disabled={isInviting}
-                  className="bg-elite-blue-600 hover:bg-elite-blue-700"
+                  className="hover:from-elite-blue-700 hover:to-elite-blue-800 bg-foreground text-background"
                 >
                   {isInviting ? <LoadingSpinner className="h-4 w-4" /> : <Send className="h-4 w-4" />}
                   {ar ? "إرسال الدعوة" : "Send invite"}

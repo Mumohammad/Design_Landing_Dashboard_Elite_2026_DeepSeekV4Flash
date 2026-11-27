@@ -73,25 +73,8 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'invoice_id and action=mark_paid required' }, { status: 400 });
     }
 
-    const { data: invoice, error: fetchError } = await guard.service
-      .from('platform_invoices').select('tenant_id, status').eq('id', invoice_id).single();
-    if (fetchError) throw fetchError;
-    if (invoice.status === 'paid') return NextResponse.json({ error: 'Already paid' }, { status: 409 });
-
-    const { error } = await guard.service.from('platform_invoices').update({
-      status: 'paid',
-      paid_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      payment_method: 'manual',
-    }).eq('id', invoice_id).in('status', ['pending', 'overdue']);
-    if (error) throw error;
-
-    await guard.service.from('tenants').update({ billing_status: 'active_paid', updated_by: guard.userId }).eq('id', invoice.tenant_id);
-
-    await guard.service.from('audit_log').insert({
-      tenant_id: invoice.tenant_id, actor_id: guard.userId, module: 'platform_admin',
-      entity_type: 'platform_invoices', entity_id: invoice_id, action: 'invoice_marked_paid', new_values: { status: 'paid' },
-    });
+    const { data, error } = await guard.caller.rpc('mark_platform_invoice_paid', { p_invoice_id: invoice_id });
+    if (error || !data || data.invoice_id !== invoice_id || data.status !== 'paid') return NextResponse.json({ error: 'Payment transition could not be confirmed. Reload the invoice.' }, { status: 409 });
 
     return NextResponse.json({ success: true });
   } catch (error) {

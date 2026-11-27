@@ -342,7 +342,7 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
   const showDocTypePicker = uploadFor === "identity" || uploadFor === "general"
 
   return (
-    <div data-testid="driver-compliance-engine" className="rounded-2xl border border-border/50 bg-card/60 p-5">
+    <div data-testid="driver-compliance-engine" className="rounded-2xl border border-border/50 bg-card p-5">
       <div className="flex items-center justify-between gap-3">
         <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
           <ShieldAlert className="h-4 w-4 text-elite-blue-500" />
@@ -412,7 +412,7 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
                         <button
                           type="button"
                           onClick={() => openUpload(r.key)}
-                          className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600 hover:underline dark:text-emerald-400"
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 hover:underline dark:text-emerald-400"
                         >
                           <Upload className="h-3 w-3" />
                           {isAr ? "رفع" : "Upload"}
@@ -422,12 +422,12 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
                         <button
                           type="button"
                           onClick={() => openOverride(r.key)}
-                          className="text-[11px] font-semibold text-elite-blue-500 hover:underline"
+                          className="text-[10px] font-semibold text-elite-blue-500 hover:underline"
                         >
                           {isAr ? "تجاوز" : "Override"}
                         </button>
                       )}
-                      <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold", reqStatusCls[r.status] ?? "bg-muted text-muted-foreground")}>
+                      <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold", reqStatusCls[r.status] ?? "bg-muted text-muted-foreground")}>
                         {isAr?(reqStatusLabels[r.status]?.ar??"غير معروف"):(reqStatusLabels[r.status]?.en??"Unknown")}
                       </span>
                     </span>
@@ -474,7 +474,7 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
                         <span className="font-medium text-foreground">{isAr ? lbl.ar : lbl.en}</span>
                         <span
                           className={cn(
-                            "ml-2 inline-flex items-center rounded-full px-1.5 py-0.5 text-[11px] font-semibold",
+                            "ml-2 inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-semibold",
                             doc.is_verified
                               ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
                               : "bg-amber-500/15 text-amber-700 dark:text-amber-400",
@@ -482,7 +482,7 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
                         >
                           {doc.is_verified ? (isAr ? "موثّق" : "verified") : isAr ? "قيد المراجعة" : "pending"}
                         </span>
-                        <div className="text-[11px] text-muted-foreground tabular-nums">
+                        <div className="text-[10px] text-muted-foreground tabular-nums">
                           {doc.expiry_date
                             ? `${isAr ? "تنتهي" : "expires"} ${new Date(doc.expiry_date).toLocaleDateString(isAr ? "ar-SA" : "en-GB")}`
                             : isAr ? "بدون تاريخ انتهاء" : "no expiry captured"}
@@ -540,7 +540,7 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
                   <div>
                     <span className="font-medium text-foreground">{isAr ? lbl.ar : lbl.en}</span>
                     <span className="text-muted-foreground"> — {o.reason}</span>
-                    <div className="text-[11px] text-muted-foreground tabular-nums">
+                    <div className="text-[10px] text-muted-foreground tabular-nums">
                       {isAr ? "تنتهي" : "expires"} {new Date(o.expires_at).toLocaleDateString(isAr ? "ar-SA" : "en-GB")}
                     </div>
                   </div>
@@ -548,7 +548,7 @@ export function DriverComplianceEngine({ driver, isAr }: { driver: Driver; isAr:
                     type="button"
                     disabled={revokingId === o.id}
                     onClick={() => void onRevoke(o.id)}
-                    className="shrink-0 text-[11px] font-semibold text-red-600 hover:underline disabled:opacity-50 dark:text-red-400"
+                    className="shrink-0 text-[10px] font-semibold text-red-600 hover:underline disabled:opacity-50 dark:text-red-400"
                   >
                     {revokingId === o.id ? (isAr ? "جارٍ الإلغاء…" : "Revoking…") : isAr ? "إلغاء" : "Revoke"}
                   </button>

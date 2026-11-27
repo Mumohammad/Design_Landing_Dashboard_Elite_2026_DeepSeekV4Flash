@@ -60,16 +60,26 @@ describe("server-only non-production ZATCA preparation",()=>{
     expect(p.p_canonical_xml).not.toContain("<cbc:ID>QR</cbc:ID>")
     expect(p.p_invoice_hash).toMatch(/^[A-Za-z0-9+/]{43}=$/)
   })
-  it("reuses original persisted artifact after time/profile changes without rebuilding or recording",async()=>{
+  it("rechecks the source then reuses the persisted artifact after time/profile changes",async()=>{
     existingResult.data={id:"stored",tenant_id:tenant,stream_id:stream,environment:"sandbox",source_type:"invoice",source_id:source,
       doc_ref:"SYNTHETIC-1",issued_at:"2026-10-18T09:00:00Z",invoice_counter:1,previous_invoice_hash:genesisPiH(),invoice_hash:"stored hash",
       unsigned_xml:"original bytes",source_snapshot:{private:"evidence"},canonical_xml:"private canonical bytes"}
+    mocks.rpc.mockResolvedValueOnce({data:existingResult.data,error:null})
     const result=await prepareZatcaDocument(stream,source,{...input,seller:{name:"changed",vatNumber:null}})
     expect(result.unsigned_xml).toBe("original bytes")
     expect(result.issued_at).toBe("2026-10-18T09:00:00Z")
     expect(result).not.toHaveProperty("source_snapshot")
     expect(result).not.toHaveProperty("canonical_xml")
-    expect(mocks.rpc).not.toHaveBeenCalled()
+    expect(mocks.rpc).toHaveBeenCalledExactlyOnceWith("record_zatca_issuance",expect.objectContaining({
+      p_source_id:source,p_document_uuid:"stored",p_expected_counter:null,p_xml:null,p_canonical_xml:null,
+    }))
+  })
+  it("fails a stored replay when the database rejects a cancelled or deleted source",async()=>{
+    existingResult.data={id:"stored",tenant_id:tenant,stream_id:stream,environment:"sandbox",source_type:"invoice",source_id:source,
+      doc_ref:"SYNTHETIC-1",issued_at:"2026-10-18T09:00:00Z",invoice_counter:1,previous_invoice_hash:genesisPiH(),invoice_hash:"stored hash",unsigned_xml:"original bytes"}
+    mocks.rpc.mockResolvedValueOnce({data:null,error:{message:"ZTC_SOURCE: private diagnostic"}})
+    await expect(prepareZatcaDocument(stream,source,input)).rejects.toThrow(/^Unable to replay the ZATCA preparation\.$/)
+    expect(mocks.rpc).toHaveBeenCalledTimes(1)
   })
   it("uses the note's identity rather than the reference invoice's identity",async()=>{
     await prepareZatcaDocument(stream,source,{...input,docType:"credit_note",referenceInvoiceNumber:"SYNTHETIC-ORIGINAL",noteReason:"Synthetic adjustment"})
@@ -79,6 +89,13 @@ describe("server-only non-production ZATCA preparation",()=>{
   it.each(["unknown","live"])("blocks %s streams before XML is prepared",async environment=>{
     streamResult.data!.environment=environment
     await expect(prepareZatcaDocument(stream,source,input)).rejects.toThrow("Unknown ZATCA environment")
+    expect(mocks.rpc).not.toHaveBeenCalled()
+  })
+  it("blocks production before reading or replaying any existing artifact",async()=>{
+    streamResult.data!.environment="production"
+    existingResult.data={id:"existing production artifact"}
+    await expect(prepareZatcaDocument(stream,source,input)).rejects.toThrow("production preparation is disabled")
+    expect(mocks.from).toHaveBeenCalledExactlyOnceWith("zatca_issuance_streams")
     expect(mocks.rpc).not.toHaveBeenCalled()
   })
   it.each([-1,1.2,Number.MAX_SAFE_INTEGER,"invalid"])("rejects invalid/exhausted counter %s",async counter=>{

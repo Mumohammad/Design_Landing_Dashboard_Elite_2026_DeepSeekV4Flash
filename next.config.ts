@@ -3,7 +3,7 @@ import { verifyNativePreviewEnvironment } from "./scripts/preview-safety.mjs"
 
 // Validate before Next embeds public values or compiles a hosted preview.
 verifyNativePreviewEnvironment(process.env)
-import { withSentryConfig } from "@sentry/nextjs"
+import { withSentryConfig } from "@sentry/nextjs/config"
 import { buildCsp, buildOcrWorkerCsp } from "./src/lib/security/csp"
 import { realpathSync } from "node:fs"
 import { relative } from "node:path"
@@ -38,9 +38,20 @@ const LANDING_PATH = LANDING_URL.slice(LANDING_URL.indexOf("://") + 3).split("/"
   : "/landing"
 
 
+const receiptParserAssets = [
+  "./workers/receipt-extract.cjs",
+  `${packagePath("unpdf")}/**/*`,
+  `${packagePath("jsqr")}/**/*`,
+  `${packagePath("sharp")}/**/*`,
+  "./node_modules/.pnpm/@img+sharp-*/node_modules/@img/sharp-*/**/*",
+]
+
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["@sparticuz/chromium", "playwright-core", "unpdf"],
+  serverExternalPackages: ["@sparticuz/chromium", "playwright-core", "unpdf", "sharp", "jsqr"],
   outputFileTracingIncludes: {
+    "/api/telegram/expenses": receiptParserAssets,
+    "/expenses/claims": receiptParserAssets,
+    "/expenses/claims/*": receiptParserAssets,
     "/api/invoices/*/pdf": [
       `${packagePath("@sparticuz/chromium")}/bin/*.br`,
       // Optional licensed server fonts stay private and out of browser assets.
@@ -49,6 +60,10 @@ const nextConfig: NextConfig = {
       // Playwright loads metadata/injected resources dynamically; tracing its
       // JS entry alone omits browsers.json in the deployed function.
       `${packagePath("playwright-core")}/**/*`,
+      // Sharp's native loader discovers platform libraries dynamically. Trace
+      // physical pnpm packages, including libvips, rather than symlink children.
+      `${packagePath("sharp")}/**/*`,
+      "./node_modules/.pnpm/@img+sharp-*/node_modules/@img/sharp-*/**/*",
     ],
     "/*": ["./src/assets/fonts/cairo.woff2"],
   },
@@ -64,12 +79,12 @@ const nextConfig: NextConfig = {
     // Fix for Turbopack on Windows: multiple lockfiles in parent dirs make
     // Next infer the wrong workspace root, which breaks the PostCSS worker
     // (node exits 0xc0000142 during CSS compile). Pin the project root.
-    root: process.platform === 'win32' ? '.' : undefined,
+    root: process.platform === 'win32' ? process.cwd() : undefined,
   },
 
 
-  // NOTE: Locale is handled client-side via LocaleProvider (localStorage +
-  // lang/dir attributes). The legacy `i18n` config block was removed — it is
+  // LocaleProvider handles persisted choices; the public landing page also
+  // seeds requested-language server HTML. The legacy `i18n` block was removed — it is
   // unsupported in App Router and generated bogus /ar/* prerender routes.
 
 

@@ -2,6 +2,7 @@
 
 import { useRef, useCallback } from "react"
 import { useTheme } from "@/hooks/use-theme"
+import { oppositeTheme } from "@/lib/theme-policy"
 
 interface CircularTransitionHook {
   startTransition: (coords: { x: number; y: number }, callback: () => void) => void
@@ -15,6 +16,11 @@ export function useCircularTransition(): CircularTransitionHook {
 
   const startTransition = useCallback((coords: { x: number; y: number }, callback: () => void) => {
     if (isTransitioningRef.current) return
+
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      callback()
+      return
+    }
 
     isTransitioningRef.current = true
 
@@ -32,9 +38,8 @@ export function useCircularTransition(): CircularTransitionHook {
         callback()
       })
 
-      transition.finished.finally(() => {
-        isTransitioningRef.current = false
-      })
+      const finish = () => { isTransitioningRef.current = false }
+      void transition.finished.then(finish, finish)
     } else {
       // Fallback for browsers without View Transitions API
       callback()
@@ -51,9 +56,8 @@ export function useCircularTransition(): CircularTransitionHook {
       y: event.clientY
     }
 
-    startTransition(coords, () => {
-      setTheme(theme === "dark" ? "light" : "dark")
-    })
+    const nextTheme = oppositeTheme(theme, window.matchMedia("(prefers-color-scheme: dark)").matches)
+    startTransition(coords, () => setTheme(nextTheme))
   }, [theme, setTheme, startTransition])
 
   const isTransitioning = useCallback(() => {

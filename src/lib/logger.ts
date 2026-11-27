@@ -12,6 +12,7 @@
 //   log.info({ action: "createJournalDraft", userId }, "Journal entry created")
 
 import pino from "pino"
+import { scrubTelemetryLogLine } from "@/lib/telemetry-privacy"
 
 const isDev = process.env.NODE_ENV !== "production"
 
@@ -22,6 +23,8 @@ const isDev = process.env.NODE_ENV !== "production"
  * In production, outputs JSON for structured log aggregation.
  */
 export const logger = pino({
+  // Apply after message interpolation, error serialization and child bindings.
+  hooks: { streamWrite: scrubTelemetryLogLine },
   // NB: `||` not `??` — .env.example ships `LOG_LEVEL=` (empty). After copying
   // it to .env.local, Next.js exposes the var as an EMPTY STRING, which `??`
   // passes straight through; pino then receives level: "" and throws at

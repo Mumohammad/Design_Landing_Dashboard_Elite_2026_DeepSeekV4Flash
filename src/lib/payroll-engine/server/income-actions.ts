@@ -1,4 +1,6 @@
 "use server"
+import { readCompleteRows } from "@/lib/analytics/complete-read"
+import { createClient } from "@/lib/supabase/server"
 
 // Income vs Expenses: monthly income records (synced from payroll runs or
 // imported from a delivery company sheet), expense categories, monthly
@@ -27,7 +29,20 @@ const COLUMN: Record<NumField, string> = {
   missedDaysPenalty: "missed_days_penalty", riderBalance: "rider_balance",
 }
 
-type CustomField = { name: string; amount: number; type: "add" | "deduct" }
+const customFieldId = z.string().uuid()
+const maxMappedIncomeFields = 50
+type CustomField = { field_id?: string; name: string; amount: number; type: "add" | "deduct" }
+
+function parseIncomeAmount(value: unknown): number {
+  if (value == null) return 0
+  if (typeof value === "number") return value
+  if (typeof value !== "string") return NaN
+
+  const text = value.trim()
+  if (!text) return 0
+  if (!/^[+-]?(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(text)) return NaN
+  return Number(text.replace(/,/g, ""))
+}
 
 function recordFromRow(r: Record<string, unknown>): IncomeRecordInput {
   const out = { id: String(r.id), riderId: String(r.rider_id), driverName: String(r.driver_name ?? ""), companyName: String(r.company_name),
@@ -41,23 +56,26 @@ function recordFromRow(r: Record<string, unknown>): IncomeRecordInput {
 export interface IncomeDashboardData extends IncomeDashboard {
   month: string; months: string[]; companies: string[]
   driverCount: { confirmed: number | null; notes: string | null; source: "confirmed" | "income" | "payroll" | "none" }
-  expenses: Array<{ id: string; categoryId: string; categoryName: string; amount: number; allocationType: string; assignedRiderId: string | null; notes: string | null }>
+  expenses: Array<{ id: string; categoryId: string; categoryName: string; amount: number; allocationType: string; assignedRiderId: string | null; notes: string | null; updatedAt: string }>
   categories: Array<{ id: string; name: string; nameAr: string | null; defaultAmount: number; allocationType: string; description: string | null; isActive: boolean }>
-  customFields: Array<{ id: string; name: string; nameAr: string | null; fieldType: "add" | "deduct"; isActive: boolean }>
+  customFields: Array<{ id: string; name: string; nameAr: string | null; fieldType: "add" | "deduct"; description: string | null; isActive: boolean }>
 }
 
 async function loadMonth(ctx: EngineContext, month: string, company: string, rider: string) {
-  let q = ctx.admin.from("payroll_income_records").select("*").eq("tenant_id", ctx.tenantId).eq("month_key", month).order("rider_id").limit(5000)
-  if (company) q = q.eq("company_name", company)
-  if (rider) q = q.eq("rider_id", rider)
+  const recordsQuery = () => {
+    let q = ctx.admin.from("payroll_income_records").select("*", { count: "exact" }).eq("tenant_id", ctx.tenantId).eq("month_key", month)
+    if (company) q = q.eq("company_name", company)
+    if (rider) q = q.eq("rider_id", rider)
+    return q.order("rider_id").order("id", { ascending: true })
+  }
   const [records, allIncome, expenses, count, latestRun, categories, customFields] = await Promise.all([
-    q,
-    ctx.admin.from("payroll_income_records").select("month_key,company_name,rider_id").eq("tenant_id", ctx.tenantId).limit(50000),
-    ctx.admin.from("payroll_monthly_expenses").select("*").eq("tenant_id", ctx.tenantId).eq("month_key", month).order("created_at"),
+    readCompleteRows(recordsQuery),
+    readCompleteRows(() => ctx.admin.from("payroll_income_records").select("id,month_key,company_name,rider_id", { count: "exact" }).eq("tenant_id", ctx.tenantId).order("id", { ascending: true })),
+    readCompleteRows(() => ctx.admin.from("payroll_monthly_expenses").select("*", { count: "exact" }).eq("tenant_id", ctx.tenantId).eq("month_key", month).order("created_at").order("id", { ascending: true })),
     ctx.admin.from("payroll_driver_counts").select("active_driver_count,notes").eq("tenant_id", ctx.tenantId).eq("month_key", month).maybeSingle(),
-    ctx.admin.from("payroll_engine_runs").select("total_drivers").eq("tenant_id", ctx.tenantId).neq("status", "cancelled").order("created_at", { ascending: false }).limit(1).maybeSingle(),
-    ctx.admin.from("payroll_expense_categories").select("*").eq("tenant_id", ctx.tenantId).order("name"),
-    ctx.admin.from("payroll_custom_income_fields").select("*").eq("tenant_id", ctx.tenantId).order("name"),
+    company ? ctx.admin.from("payroll_engine_runs").select("total_drivers").eq("tenant_id", ctx.tenantId).eq("month_key", month).eq("platform_name", company).eq("status", "approved").maybeSingle() : Promise.resolve({ data: null, error: null }),
+    readCompleteRows(() => ctx.admin.from("payroll_expense_categories").select("*", { count: "exact" }).eq("tenant_id", ctx.tenantId).order("name").order("id", { ascending: true })),
+    readCompleteRows(() => ctx.admin.from("payroll_custom_income_fields").select("*", { count: "exact" }).eq("tenant_id", ctx.tenantId).order("name").order("id", { ascending: true })),
   ])
   for (const r of [records, allIncome, expenses, count, latestRun, categories, customFields]) if (r.error) throw new Error(r.error.message)
   return { records: records.data ?? [], allIncome: allIncome.data ?? [], expenses: expenses.data ?? [], count: count.data, latestRun: latestRun.data,
@@ -83,9 +101,9 @@ export async function getIncomeDashboard(input: unknown): Promise<EngineResult<I
       months: [...new Set(d.allIncome.map(r => r.month_key as string))].sort().reverse(),
       companies: [...new Set(d.allIncome.map(r => r.company_name as string))].sort(),
       driverCount: { confirmed, notes: d.count?.notes ?? null, source },
-      expenses: d.expenses.map(e => ({ id: e.id, categoryId: e.category_id, categoryName: e.category_name, amount: num(e.amount), allocationType: e.allocation_type, assignedRiderId: e.assigned_rider_id, notes: e.notes })),
+      expenses: d.expenses.map(e => ({ id: e.id, categoryId: e.category_id, categoryName: e.category_name, amount: num(e.amount), allocationType: e.allocation_type, assignedRiderId: e.assigned_rider_id, notes: e.notes, updatedAt: e.updated_at })),
       categories: d.categories.map(c => ({ id: c.id, name: c.name, nameAr: c.name_ar, defaultAmount: num(c.default_amount), allocationType: c.allocation_type, description: c.description, isActive: c.is_active })),
-      customFields: d.customFields.map(f => ({ id: f.id, name: f.name, nameAr: f.name_ar, fieldType: f.field_type, isActive: f.is_active })),
+      customFields: d.customFields.map(f => ({ id: f.id, name: f.name, nameAr: f.name_ar, fieldType: f.field_type, description: f.description, isActive: f.is_active })),
     } }
   } catch (e) { return failure(e, "Could not load income and expenses") }
 }
@@ -93,6 +111,7 @@ export async function getIncomeDashboard(input: unknown): Promise<EngineResult<I
 // ─── Income import (mapped rows from a delivery-company sheet) ────────────
 
 const importSchema = z.object({
+  requestId: z.string().uuid().optional(),
   month: monthKey,
   companyName: z.string().trim().min(1).max(80),
   rows: z.array(z.record(z.string(), z.unknown())).min(1).max(5000),
@@ -128,29 +147,48 @@ export async function importIncomeRows(input: unknown): Promise<EngineResult<Inc
       const row = { riderId: rid, driverName: String(r.driverName ?? "").trim().slice(0, 160) || `Rider ${rid}`, customFields: [] as CustomField[] } as Record<NumField, number> & { riderId: string; driverName: string; customFields: CustomField[] }
       for (const k of INCOME_NUMERIC_FIELDS) {
         const v = r[k]
-        if (v === undefined || v === null || v === "") row[k] = 0
-        else {
-          const n = typeof v === "number" ? v : Number(String(v).replace(/,/g, "").trim())
-          if (!Number.isFinite(n)) { errors.push(`Row ${i + 1} (rider ${rid}): invalid ${k} = "${String(v).slice(0, 40)}"`); row[k] = 0 }
-          else row[k] = n
+        const n = parseIncomeAmount(v)
+        if (!Number.isFinite(n)) {
+          errors.push(`Row ${i + 1} (rider ${rid}): invalid ${k} = "${String(v).slice(0, 40)}"`)
+          row[k] = 0
+        } else {
+          row[k] = n
         }
       }
       if (Array.isArray(r.customFields)) {
-        for (const f of r.customFields.slice(0, 50) as Array<Record<string, unknown>>) {
-          const amount = Number(f?.amount)
-          if (!f?.name || !Number.isFinite(amount) || amount === 0) continue
-          row.customFields.push({ name: String(f.name).slice(0, 120), amount: Math.abs(amount), type: f.type === "deduct" ? "deduct" : "add" })
+        if (r.customFields.length > maxMappedIncomeFields) {
+          errors.push(`Row ${i + 1}: at most ${maxMappedIncomeFields} mapped income fields are supported`)
+          return
+        }
+        for (const f of r.customFields as Array<Record<string, unknown>>) {
+          if (!f?.name) continue
+          const name = String(f.name).slice(0, 120)
+          const amount = parseIncomeAmount(f.amount)
+          if (!Number.isFinite(amount)) {
+            errors.push(`Row ${i + 1}: invalid amount for ${name}`)
+            continue
+          }
+          if (amount === 0) continue
+          const fieldId = f.field_id === undefined ? undefined : customFieldId.safeParse(f.field_id)
+          if (fieldId && !fieldId.success) {
+            errors.push("Invalid mapped income field in row " + (i + 1))
+            continue
+          }
+          row.customFields.push({
+            ...(fieldId?.success ? { field_id: fieldId.data } : {}),
+            name, amount: Math.abs(amount), type: f.type === "deduct" ? "deduct" : "add",
+          })
         }
       }
       clean.push(row)
     })
 
-    const existing = await ctx.admin.from("payroll_income_records").select("rider_id,run_id").eq("tenant_id", ctx.tenantId).eq("month_key", month).eq("company_name", companyName)
+    const existing = await readCompleteRows(() => ctx.admin.from("payroll_income_records").select("id,rider_id,run_id", { count: "exact" }).eq("tenant_id", ctx.tenantId).eq("month_key", month).eq("company_name", companyName).order("id", { ascending: true }))
     if (existing.error) return failure(existing.error, "Could not check existing records")
     const existingIds = new Set((existing.data ?? []).map(r => r.rider_id as string))
     const payrollManaged = (existing.data ?? []).some(r => r.run_id)
     const duplicateRiderIds = clean.filter(r => existingIds.has(r.riderId)).map(r => r.riderId)
-    const drivers = await loadDriversByRider(ctx, clean.map(r => r.riderId))
+    const drivers = await loadDriversByRider(ctx, clean.map(r => r.riderId), companyName)
     const calcs = clean.map(r => ({ r, calc: calculateIncome({ ...r, customFieldsJson: r.customFields.length ? JSON.stringify(r.customFields) : null }) }))
     const summary = {
       rowCount: clean.length, errors, duplicateRiderIds, payrollManaged,
@@ -158,24 +196,23 @@ export async function importIncomeRows(input: unknown): Promise<EngineResult<Inc
       rows: calcs.map(({ r, calc }) => ({ riderId: r.riderId, driverName: r.driverName, totalIncome: calc.totalIncome, totalPenalties: calc.totalPenalties, linked: drivers.has(r.riderId) })),
     }
     if (preview) return { success: true, data: { preview: true, imported: 0, updated: 0, ...summary } }
+    if (!p.data.requestId) return { success: false, error: "Reload the import form before saving." }
+    if (errors.length > 0) return { success: false, error: "Correct every invalid input row before importing. No rows were saved." }
     if (clean.length === 0) return { success: false, error: errors[0] ?? "No valid rows" }
-    if (duplicateRiderIds.length > 0 && !forceUpdate) return { success: false, error: `${duplicateRiderIds.length} record(s) already exist for ${companyName} in ${month}. Enable “Overwrite existing” to update them.` }
 
-    const payload = calcs.map(({ r, calc }) => ({
-      tenant_id: ctx.tenantId, month_key: month, rider_id: r.riderId, company_name: companyName, driver_id: drivers.get(r.riderId)?.id ?? null, driver_name: r.driverName,
+    const payload = calcs.map(({ r }) => ({
+      rider_id: r.riderId, driver_id: drivers.get(r.riderId)?.id ?? null, driver_name: r.driverName,
       ...Object.fromEntries(INCOME_NUMERIC_FIELDS.map(f => [COLUMN[f], r[f]])),
-      custom_fields: r.customFields.length ? r.customFields : null, total_income: calc.totalIncome, total_penalties: calc.totalPenalties,
-      source_file: sourceFile, run_id: null, created_by: ctx.userId, updated_at: now(),
+      custom_fields: r.customFields.length ? r.customFields : null,
+      source_file: sourceFile,
     }))
-    for (let i = 0; i < payload.length; i += 500) {
-      const { error } = await ctx.admin.from("payroll_income_records").upsert(payload.slice(i, i + 500), { onConflict: "tenant_id,month_key,rider_id,company_name" })
-      if (error) return failure(error, "Import failed")
-    }
-    const updated = duplicateRiderIds.length
-    await writeAuditLog({ tenantId: ctx.tenantId, actorId: ctx.userId, module: "payroll", action: "income_import", entityType: "payroll_income_records",
-      newValues: { month, companyName, imported: clean.length - updated, updated, sourceFile, totalIncome: summary.totalIncome } })
+    const caller = await createClient()
+    const saved = await caller.rpc("import_my_platform_income", { p_request_id: p.data.requestId, p_month: month, p_company: companyName, p_rows: payload, p_overwrite: forceUpdate })
+    if (saved.error) return failure(saved.error, "Import outcome could not be confirmed. Reload before changing this request.")
+    const receipt = z.object({ imported: z.number().int().nonnegative(), updated: z.number().int().nonnegative(), replayed: z.boolean() }).safeParse(saved.data)
+    if (!receipt.success || receipt.data.imported + receipt.data.updated !== clean.length) return { success: false, error: "Import outcome could not be confirmed. Reload before changing this request." }
     revalidatePath(PATH)
-    return { success: true, data: { preview: false, imported: clean.length - updated, updated, ...summary } }
+    return { success: true, data: { preview: false, imported: receipt.data.imported, updated: receipt.data.updated, ...summary } }
   } catch (e) { return failure(e, "Import failed") }
 }
 
@@ -231,7 +268,8 @@ export async function deleteExpenseCategory(id: unknown): Promise<EngineResult> 
 }
 
 const expenseSchema = z.object({
-  id: z.string().uuid().optional(), month: monthKey, categoryId: z.string().uuid(), amount: money.refine(n => n > 0, "Amount must be greater than zero"),
+  id: z.string().uuid().optional(), expectedUpdatedAt: z.iso.datetime({ offset: true }).optional(),
+  month: monthKey, categoryId: z.string().uuid(), amount: money,
   allocationType: allocation.optional(), assignedRiderId: optText(64), notes: optText(500),
 })
 
@@ -245,13 +283,33 @@ export async function saveMonthlyExpense(input: unknown): Promise<EngineResult<{
     if (cat.error) return { success: false, error: "Expense category not found" }
     const allocationType = v.allocationType ?? cat.data.allocation_type
     if (allocationType === "assigned" && !v.assignedRiderId) return { success: false, error: "Choose the rider this expense is assigned to" }
-    const driver = allocationType === "assigned" && v.assignedRiderId ? (await loadDriversByRider(ctx, [v.assignedRiderId])).get(v.assignedRiderId) : undefined
-    const row = { month_key: v.month, category_id: v.categoryId, category_name: cat.data.name, amount: v.amount, allocation_type: allocationType,
-      assigned_rider_id: allocationType === "assigned" ? v.assignedRiderId : null, assigned_driver_id: driver?.id ?? null, notes: v.notes, updated_at: now() }
-    const res = v.id
-      ? await ctx.admin.from("payroll_monthly_expenses").update(row).eq("id", v.id).eq("tenant_id", ctx.tenantId).select("id").single()
-      : await ctx.admin.from("payroll_monthly_expenses").insert({ ...row, tenant_id: ctx.tenantId, created_by: ctx.userId }).select("id").single()
+    const table = () => ctx.admin.from("payroll_monthly_expenses")
+    const previous = v.id
+      ? await table().select("amount,category_id,allocation_type,assigned_rider_id,updated_at")
+        .eq("id", v.id).eq("tenant_id", ctx.tenantId).eq("month_key", v.month).maybeSingle()
+      : null
+    if (previous?.error) return failure(previous.error, "Could not verify the expense")
+    if (previous && (!previous.data || (v.expectedUpdatedAt && previous.data.updated_at !== v.expectedUpdatedAt))) {
+      return { success: false, error: "This expense changed or was deleted. Refresh and reopen it." }
+    }
+    if (v.amount === 0 && !(previous?.data && Number(previous.data.amount) === 0)) {
+      return { success: false, error: "Amount must be greater than zero" }
+    }
+    const assignedRiderId = allocationType === "assigned" ? v.assignedRiderId : null
+    const preserveDriver = allocationType === "assigned" && previous?.data?.allocation_type === "assigned"
+      && assignedRiderId === previous.data.assigned_rider_id
+    const row = {
+      month_key: v.month, category_id: v.categoryId,
+      ...(previous?.data?.category_id === v.categoryId ? {} : { category_name: cat.data.name }),
+      amount: v.amount, allocation_type: allocationType,
+      assigned_rider_id: assignedRiderId, ...(preserveDriver ? {} : { assigned_driver_id: null }), notes: v.notes, updated_at: now(),
+    }
+    const res = v.id && previous?.data
+      ? await table().update(row).eq("id", v.id).eq("tenant_id", ctx.tenantId).eq("month_key", v.month)
+        .eq("updated_at", previous.data.updated_at).select("id").maybeSingle()
+      : await table().insert({ ...row, tenant_id: ctx.tenantId, created_by: ctx.userId }).select("id").single()
     if (res.error) return failure(res.error, "Could not save expense")
+    if (!res.data) return { success: false, error: "This expense changed or was deleted. Refresh and reopen it." }
     await writeAuditLog({ tenantId: ctx.tenantId, actorId: ctx.userId, module: "payroll", action: v.id ? "payroll_expense_updated" : "payroll_expense_created", entityType: "payroll_monthly_expenses", entityId: res.data.id as string, newValues: row })
     revalidatePath(PATH)
     return { success: true, data: { id: res.data.id as string } }
@@ -279,8 +337,8 @@ export async function applyDefaultExpenses(input: unknown): Promise<EngineResult
     if (!p.success) return { success: false, error: "Invalid month" }
     const ctx = await engineContext("create")
     const [cats, existing] = await Promise.all([
-      ctx.admin.from("payroll_expense_categories").select("id,name,default_amount,allocation_type").eq("tenant_id", ctx.tenantId).eq("is_active", true),
-      ctx.admin.from("payroll_monthly_expenses").select("category_id").eq("tenant_id", ctx.tenantId).eq("month_key", p.data.month),
+      readCompleteRows(() => ctx.admin.from("payroll_expense_categories").select("id,name,default_amount,allocation_type", { count: "exact" }).eq("tenant_id", ctx.tenantId).eq("is_active", true).order("id", { ascending: true })),
+      readCompleteRows(() => ctx.admin.from("payroll_monthly_expenses").select("id,category_id", { count: "exact" }).eq("tenant_id", ctx.tenantId).eq("month_key", p.data.month).order("id", { ascending: true })),
     ])
     if (cats.error || existing.error) return failure(cats.error ?? existing.error, "Could not apply defaults")
     const have = new Set((existing.data ?? []).map(e => e.category_id))
@@ -317,12 +375,35 @@ export async function saveCustomIncomeField(input: unknown): Promise<EngineResul
     if (!p.success) return { success: false, error: p.error.issues.map(i => i.message).join("; ") }
     const v = p.data
     const ctx = await engineContext(v.id ? "update" : "create")
-    const row = { name: v.name, name_ar: v.nameAr, field_type: v.fieldType, description: v.description, is_active: v.isActive, updated_at: now() }
+    const row = { name: v.name, name_ar: v.nameAr, field_type: v.fieldType, description: v.description, updated_at: now() }
     const res = v.id
       ? await ctx.admin.from("payroll_custom_income_fields").update(row).eq("id", v.id).eq("tenant_id", ctx.tenantId).select("id").single()
-      : await ctx.admin.from("payroll_custom_income_fields").insert({ ...row, tenant_id: ctx.tenantId }).select("id").single()
+      : await ctx.admin.from("payroll_custom_income_fields").insert({ ...row, tenant_id: ctx.tenantId, is_active: v.isActive }).select("id").single()
     if (res.error) return failure(res.error.code === "23505" ? new Error("A field with this name already exists") : res.error, "Could not save field")
+    await writeAuditLog({ tenantId: ctx.tenantId, actorId: ctx.userId, module: "payroll",
+      action: v.id ? "payroll_income_field_updated" : "payroll_income_field_created",
+      entityType: "payroll_custom_income_fields", entityId: res.data.id as string, newValues: row })
     revalidatePath(PATH)
     return { success: true, data: { id: res.data.id as string } }
   } catch (e) { return failure(e, "Could not save field") }
+}
+
+/** Archived definitions stay available for review. Imported amounts already retain their own snapshot. */
+export async function setCustomIncomeFieldAvailability(input: unknown): Promise<EngineResult> {
+  try {
+    const parsed = z.object({ id: z.string().uuid(), isActive: z.boolean() }).safeParse(input)
+    if (!parsed.success) return { success: false, error: "Invalid income field" }
+    const { id, isActive } = parsed.data
+    const ctx = await engineContext("update")
+    const { data, error } = await ctx.admin.from("payroll_custom_income_fields")
+      .update({ is_active: isActive, updated_at: now() })
+      .eq("id", id).eq("tenant_id", ctx.tenantId).select("id").maybeSingle()
+    if (error) return failure(error, "Could not change income field availability")
+    if (!data) return { success: false, error: "Income field not found" }
+    await writeAuditLog({ tenantId: ctx.tenantId, actorId: ctx.userId, module: "payroll",
+      action: isActive ? "payroll_income_field_restored" : "payroll_income_field_archived",
+      entityType: "payroll_custom_income_fields", entityId: id })
+    revalidatePath(PATH)
+    return { success: true, data: undefined }
+  } catch (e) { return failure(e, "Could not change income field availability") }
 }

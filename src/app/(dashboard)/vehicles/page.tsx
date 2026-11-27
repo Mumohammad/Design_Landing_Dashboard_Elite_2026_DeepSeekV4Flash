@@ -322,7 +322,7 @@ export default function VehiclesPage() {
   ]
 
   return (
-    <div className="px-4 lg:px-6">
+    <div className="">
       <EnterpriseModulePage
         title={t.vehicles.title}
         subtitle={t.vehicles.subtitle}

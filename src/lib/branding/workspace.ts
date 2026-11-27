@@ -3,6 +3,7 @@ import "server-only"
 import { cache } from "react"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUser } from "@/lib/auth/authorization"
+import { COMPANY_ASSETS_BUCKET, validTenantLogoPath } from "./logo-core"
 
 /** Branding shown in the dashboard chrome (sidebar header + account menu). */
 export type WorkspaceBranding = {
@@ -26,7 +27,7 @@ export const getWorkspaceBranding = cache(async (): Promise<WorkspaceBranding | 
     if (!me) return null
     const admin = createAdminClient()
     const [tenantRes, userRes] = await Promise.all([
-      admin.from("tenants").select("name_ar,name_en,logo_url").eq("id", me.tenantId).maybeSingle(),
+      admin.from("tenants").select("name_ar,name_en,logo_url,logo_storage_path").eq("id", me.tenantId).maybeSingle(),
       admin
         .from("users")
         .select("full_name_ar,full_name_en,preferred_name,email,avatar_url")
@@ -35,9 +36,11 @@ export const getWorkspaceBranding = cache(async (): Promise<WorkspaceBranding | 
         .maybeSingle(),
     ])
     const tenant = tenantRes.data
-    const user = userRes.data
-    if (!tenant) return null
-    const logoUrl = safeImageUrl(tenant.logo_url)
+    const user = userRes.error ? null : userRes.data
+    if (tenantRes.error || !tenant) return null
+    const logoUrl = tenant.logo_storage_path != null
+      ? (validTenantLogoPath(tenant.logo_storage_path,me.tenantId) ? admin.storage.from(COMPANY_ASSETS_BUCKET).getPublicUrl(tenant.logo_storage_path).data.publicUrl : null)
+      : safeImageUrl(tenant.logo_url)
     return {
       companyNameAr: tenant.name_ar || tenant.name_en || "",
       companyNameEn: tenant.name_en || tenant.name_ar || "",
@@ -56,9 +59,10 @@ function safeImageUrl(value: unknown): string | null {
   if (typeof value !== "string" || !value) return null
   try {
     const url = new URL(value)
-    if (url.protocol === "https:") return url.toString()
+    if (url.username || url.password) return null
     const supabase = process.env.NEXT_PUBLIC_SUPABASE_URL
     if (supabase && url.origin === new URL(supabase).origin) return url.toString()
+    if (url.protocol === "https:" && (/^[a-z0-9]+\.supabase\.co$/.test(url.hostname) || ["ui.shadcn.com","images.unsplash.com"].includes(url.hostname))) return url.toString()
   } catch {
     return null
   }

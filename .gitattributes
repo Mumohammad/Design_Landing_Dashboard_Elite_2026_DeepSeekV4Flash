@@ -11,3 +11,6 @@
 # Preserve upstream OFL bytes (including line endings and license whitespace)
 # so the recorded license integrity remains identical on Windows and CI.
 src/assets/fonts/licenses/*.txt -text whitespace=-blank-at-eol
+
+# Unified-diff context markers include required spaces; keep patch bytes stable.
+patches/*.patch text eol=lf -whitespace

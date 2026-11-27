@@ -31,3 +31,12 @@ private/*
 private/invoice-fonts/*
 !private/invoice-fonts/regular.ttf
 !private/invoice-fonts/bold.ttf
+
+# Stale local investigation artifacts are never runtime inputs.
+*.log
+/dashboard-page-local-backup.patch
+/p0-1-production-supabase/p0-1-production-supabase.patch
+/deployment_info.txt
+/lint-errors.txt
+/lint-report.txt
+/project-tree.txt

@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
-import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart"
+import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, type ChartConfig } from "@/components/ui/chart"
 import { useTranslation } from "@/hooks/use-translation"
 import type { ComplianceSummary } from "@/lib/analytics/types"
 import { ChartCard } from "./chart-card"
@@ -58,7 +58,7 @@ export function ComplianceRadar({
         (expiringSoon > 0 || expired > 0) && (
           <Link
             href="/drivers"
-            className="inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[11px] font-bold text-amber-600 dark:text-amber-400 transition-colors hover:bg-amber-500/20"
+            className="inline-flex items-center rounded-md bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800 transition-colors hover:bg-amber-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring dark:bg-amber-950 dark:text-amber-300 dark:hover:bg-amber-900"
           >
             {expired > 0 ? `${expired} ${t.dashboard.expired}` : `${expiringSoon} ${t.dashboard.expiring}`}
           </Link>
@@ -86,6 +86,7 @@ export function ComplianceRadar({
               />
             }
           />
+          <ChartLegend content={<ChartLegendContent />} />
           <Bar dataKey="valid" stackId="a" fill="var(--color-valid)" radius={[0, 0, 0, 0]} isAnimationActive={false} />
           <Bar dataKey="expiring" stackId="a" fill="var(--color-expiring)" radius={[0, 0, 0, 0]} isAnimationActive={false} />
           <Bar dataKey="expired" stackId="a" fill="var(--color-expired)" radius={[4, 4, 0, 0]} isAnimationActive={false} />

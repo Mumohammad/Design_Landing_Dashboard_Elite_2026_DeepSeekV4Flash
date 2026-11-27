@@ -13,12 +13,13 @@
 //   const data = await cacheGet(cacheKey("dashboard", tenantId, userId, filters), fetcher, CACHE_TTL.dashboard)
 //   await cacheInvalidate(`dashboard:${tenantId}:*`)
 
-import { createHash } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { logger } from "@/lib/logger"
 
 type CacheEntry<T> = { value: T; expiresAt: number }
 
 type UpstashRedisInstance = {
+  eval: (script: string, keys: string[], args: (string | number)[]) => Promise<unknown>
   get: (key: string) => Promise<unknown>
   set: (key: string, value: string, opts?: { ex?: number }) => Promise<unknown>
   del: (...keys: string[]) => Promise<number>
@@ -142,7 +143,7 @@ export const CACHE_TTL = {
 
 // ── Keys ────────────────────────────────────────────────────────────────────
 
-const KEY_PREFIX = "ed:"
+const KEY_PREFIX = "ed:v2:"
 const prefixedKey = (key: string) => `${KEY_PREFIX}${key}`
 
 /**
@@ -166,103 +167,149 @@ function stableJson(value: unknown): string {
 
 // ── Public API ──────────────────────────────────────────────────────────────
 
-const inflight = new Map<string, Promise<unknown>>()
+type Inflight = { promise: Promise<unknown>; epoch: number; revision: string | null }
+const inflight = new Map<string, Inflight>()
+let cacheEpoch = 0
+// Serialize writes/deletions so a fetch started before invalidation cannot
+// restore old Redis data after the deletion has completed.
+let mutations: Promise<unknown> = Promise.resolve()
+function mutate<T>(operation: () => Promise<T>): Promise<T> {
+  const next = mutations.then(operation, operation)
+  mutations = next.catch(() => undefined)
+  return next
+}
 
-/**
- * Read-through cache. On a miss (or any cache failure) the fetcher runs and
- * its result is stored for `ttlSeconds`. `undefined` results are not cached.
- */
+/** Read through the cache; fresh reads bypass both stored and in-flight data. */
 export async function cacheGet<T>(
   key: string,
   fetcher: () => Promise<T>,
-  ttlSeconds: number = CACHE_TTL.default
+  ttlSeconds: number = CACHE_TTL.default,
+  options?: { fresh?: boolean },
 ): Promise<T> {
+  if (options?.fresh) await cacheInvalidate(key)
+  let epoch = cacheEpoch
   const redis = await getUpstashClient()
-
-  if (redis) {
-    try {
-      const raw = await redis.get(prefixedKey(key))
-      if (typeof raw === "string") return JSON.parse(raw) as T
-    } catch (err) {
-      redisFailed(err, "get")
+  const revision = redis ? await redisRevision(redis, key) : null
+  if (!options?.fresh) {
+    if (redis && revision !== null) {
+      try {
+        const raw = await redis.get(prefixedKey(key))
+        if (epoch === cacheEpoch && typeof raw === "string") return JSON.parse(raw) as T
+      } catch (err) { redisFailed(err, "get") }
+    } else if (!redis) {
+      const cached = memoryGet<T>(key)
+      if (epoch === cacheEpoch && cached !== undefined) return cached
     }
-  } else {
-    const cached = memoryGet<T>(key)
-    if (cached !== undefined) return cached
   }
-
-  const pending = inflight.get(key) as Promise<T> | undefined
-  if (pending) return pending
-
+  epoch = cacheEpoch
+  const pending = inflight.get(key)
+  if ((!redis || revision !== null) && pending?.epoch === epoch && pending.revision === revision) return pending.promise as Promise<T>
   const run = (async () => {
     const value = await fetcher()
-    if (value !== undefined) await cacheSet(key, value, ttlSeconds)
+    if (value !== undefined) await mutate(async () => {
+      if (epoch === cacheEpoch) await storeValue(key, value, ttlSeconds, redis, revision)
+    })
     return value
   })()
-  inflight.set(key, run)
-  try {
-    return await run
-  } finally {
-    inflight.delete(key)
-  }
+  const entry = { promise: run, epoch, revision }
+  inflight.set(key, entry)
+  try { return await run }
+  finally { if (inflight.get(key) === entry) inflight.delete(key) }
 }
 
 /** Store a value directly. Failures are logged and ignored. */
+const REVISION_TTL = 86400
+const GENERATION_PREFIX = "edg:v2:"
+const revisionKey = (key: string) => GENERATION_PREFIX + key
+const ENSURE_REVISION = `-- cache-generation-read
+local revision = redis.call('GET', KEYS[1])
+if not revision then
+  revision = ARGV[1]
+  redis.call('SET', KEYS[1], revision, 'EX', ARGV[2])
+else
+  redis.call('EXPIRE', KEYS[1], ARGV[2])
+end
+return revision`
+const STORE_CURRENT = `-- cache-generation-write
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+redis.call('SET', KEYS[2], ARGV[2], 'EX', ARGV[3])
+return 1`
+const INVALIDATE_CURRENT = `-- cache-generation-invalidate
+redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
+return redis.call('DEL', KEYS[2])`
+
+async function redisRevision(redis: UpstashRedisInstance, key: string): Promise<string | null> {
+  try {
+    const revision = await redis.eval(ENSURE_REVISION, [revisionKey(key)], [randomUUID(), REVISION_TTL])
+    return typeof revision === "string" && revision.length > 0 ? revision : null
+  } catch (err) { redisFailed(err, "generation"); return null }
+}
+
 export async function cacheSet<T>(key: string, value: T, ttlSeconds: number = CACHE_TTL.default): Promise<void> {
-  const ttl = Math.max(1, Math.floor(ttlSeconds))
   const redis = await getUpstashClient()
+  const revision = redis ? await redisRevision(redis, key) : null
+  await mutate(() => storeValue(key, value, ttlSeconds, redis, revision))
+}
+
+async function storeValue<T>(key: string, value: T, ttlSeconds: number, redis: UpstashRedisInstance | null, revision: string | null): Promise<void> {
+  const ttl = Math.max(1, Math.floor(ttlSeconds))
   if (redis) {
-    try {
-      await redis.set(prefixedKey(key), JSON.stringify(value), { ex: ttl })
-    } catch (err) {
-      redisFailed(err, "set")
-    }
+    // A distributed generation check and the payload write are one Redis
+    // operation. A different Vercel instance cannot restore pre-refresh data.
+    if (revision === null) return
+    try { await redis.eval(STORE_CURRENT, [revisionKey(key), prefixedKey(key)], [revision, JSON.stringify(value), ttl]) }
+    catch (err) { redisFailed(err, "set") }
     return
   }
   memorySet(key, value, ttl)
 }
 
-/**
- * Invalidate one key, or every key matching a `*` glob
- * (e.g. "dashboard:<tenant>:*"). Returns the number of keys removed.
- */
+/** Invalidate one logical key or all keys matching a tenant-scoped glob. */
 export async function cacheInvalidate(pattern: string): Promise<number> {
-  const redis = await getUpstashClient()
-  if (!redis) return memoryDelete(pattern)
-
-  try {
-    if (!pattern.includes("*")) return await redis.del(prefixedKey(pattern))
-    let cursor: string | number = 0
-    let removed = 0
-    let rounds = 0
-    do {
-      const [next, keys]: [string | number, string[]] = await redis.scan(cursor, { match: prefixedKey(pattern), count: 200 })
-      if (keys.length) removed += await redis.del(...keys)
-      cursor = next
-    } while (String(cursor) !== "0" && ++rounds < 100)
-    return removed
-  } catch (err) {
-    redisFailed(err, "invalidate")
-    return 0
-  }
+  cacheEpoch++
+  return mutate(() => deleteCached(pattern))
 }
 
-/** Invalidate every cached entry for a tenant (all scopes). */
+async function deleteCached(pattern: string): Promise<number> {
+  const redis = await getUpstashClient()
+  if (!redis) return memoryDelete(pattern)
+  try {
+    const invalidate = async (key: string) => Number(await redis.eval(INVALIDATE_CURRENT,
+      [revisionKey(key), prefixedKey(key)], [randomUUID(), REVISION_TTL]))
+    if (!pattern.includes("*")) return await invalidate(pattern)
+    const keys = new Set<string>()
+    // Disjoint versioned namespaces prevent older deployments from restoring
+    // unfenced entries and include misses still being fetched on other instances.
+    for (const prefix of [KEY_PREFIX, GENERATION_PREFIX]) {
+      let cursor: string | number = 0
+      do {
+        const [next, found] = await redis.scan(cursor, { match: prefix + pattern, count: 200 })
+        for (const key of found) keys.add(key.slice(prefix.length))
+        cursor = next
+      } while (String(cursor) !== "0")
+    }
+    let removed = 0
+    for (const key of keys) removed += await invalidate(key)
+    return removed
+  } catch (err) { redisFailed(err, "invalidate"); return 0 }
+}
+
 export async function cacheInvalidateTenant(tenantId: string): Promise<void> {
   if (!/^[0-9a-f-]{8,64}$/i.test(tenantId)) return
   await cacheInvalidate(`*:${tenantId}:*`)
 }
 
-/** Cache stats for monitoring/debugging. */
 export async function cacheStats(): Promise<{ provider: "redis" | "memory"; memoryEntries?: number }> {
   const redis = await getUpstashClient()
   return redis ? { provider: "redis" } : { provider: "memory", memoryEntries: memoryStore.size }
 }
 
-/** Test seam: reset module state. */
+/** Test seam: reset process-local module state. */
 export function __resetCacheForTests(): void {
   upstashClient = null
   upstashAvailable = null
   memoryStore.clear()
   inflight.clear()
+  cacheEpoch = 0
+  mutations = Promise.resolve()
 }

@@ -1,3 +1,4 @@
+import {continueVerificationRoute,forwardVerificationRoute,installVerificationAccess,verificationFetch} from './lib/verification-access.mjs'
 import { expect as baseExpect } from '@playwright/test'
 import { createClient } from '@supabase/supabase-js'
 import { randomBytes, randomUUID } from 'node:crypto'
@@ -9,7 +10,7 @@ export async function verifyRequiredPasswordChange(page,admin,actorId,appUrl,{re
   const local=['localhost','127.0.0.1'].includes(db.hostname)&&db.port==='58321'&&['http://localhost:3107','http://localhost:3108'].includes(app.origin)
   if(!local){
     if(db.origin!=='https://viowrovartosrkqukjxy.supabase.co'||app.hostname==='elite-dashboard-blush.vercel.app')throw Error('Isolated staging required')
-    const policy=(await fetch(appUrl+'/landing')).headers.get('content-security-policy')??''
+    const policy=(await verificationFetch(appUrl+'/landing',{},appUrl)).headers.get('content-security-policy')??''
     if(!policy.includes(db.origin)||policy.includes('wwfnsbilmyxeawgzicmv'))throw Error('Isolated app/database required')
   }
   if(!['en','ar'].includes(locale)||!['/dashboard','/settings/mfa'].includes(nextPath))throw Error('Bounded password verification options required')
@@ -38,10 +39,10 @@ export async function verifyRequiredPasswordChange(page,admin,actorId,appUrl,{re
     if(responseLoss)await page.route(pattern,async route=>{
       const request=route.request()
       if(!lost&&request.method()==='POST'&&request.headers()['next-action']&&request.postData()?.includes(replacement)){
-        lost=true;const response=await route.fetch()
+        lost=true;const response=await forwardVerificationRoute(route)
         if(!response.ok())throw Error('Password action failed before response-loss injection')
         await route.abort('failed')
-      }else await route.continue()
+      }else await continueVerificationRoute(route)
     })
     await page.locator('button[type="submit"]').click()
     if(responseLoss){
@@ -85,10 +86,11 @@ export async function verifyNewPasswordFlows(browser,admin,appUrl,anonKey){
     &&['localhost','127.0.0.1'].includes(db.hostname)&&db.port==='58321'
   if(!local){
     if(db.origin!=='https://viowrovartosrkqukjxy.supabase.co'||app.hostname==='elite-dashboard-blush.vercel.app')throw Error('Isolated staging required')
-    const policy=(await fetch(appUrl+'/landing')).headers.get('content-security-policy')??''
+    const policy=(await verificationFetch(appUrl+'/landing',{},appUrl)).headers.get('content-security-policy')??''
     if(!policy.includes(db.origin)||policy.includes('wwfnsbilmyxeawgzicmv'))throw Error('Isolated app/database required')
   }
   const context=await browser.newContext({viewport:{width:390,height:844},reducedMotion:'reduce'})
+  await installVerificationAccess(context,appUrl)
   const page=await context.newPage()
   const user=createClient(db.href,anonKey,{auth:{persistSession:false,autoRefreshToken:false}})
   let fixtureId,recoveryStarted=false,revoked=false,stage='public forms'

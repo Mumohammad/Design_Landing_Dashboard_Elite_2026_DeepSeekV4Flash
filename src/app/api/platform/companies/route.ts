@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
       .select('id, slug')
       .single();
     if (companyError) {
-      console.error('company insert failed:', companyError.message);
+      console.error('Company creation failed');
       return NextResponse.json({ message: 'Failed to create company' }, { status: 500 });
     }
 
@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
     });
     if (authError) {
       await supabase.from('platform_companies').delete().eq('id', company.id);
-      console.error('create_platform_user failed:', authError.message);
+      console.error('Company owner creation failed');
       return NextResponse.json({ message: 'Failed to create user account' }, { status: 500 });
     }
 
@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
       // Compensate BOTH prior writes — the original code orphaned the auth user.
       await supabase.auth.admin.deleteUser(authData.user_id);
       await supabase.from('platform_companies').delete().eq('id', company.id);
-      console.error('platform_users insert failed:', userError.message);
+      console.error('Company membership creation failed');
       return NextResponse.json({ message: 'Failed to link user to company' }, { status: 500 });
     }
 
@@ -85,7 +85,7 @@ export async function POST(req: NextRequest) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ message: 'Validation failed', errors: error.issues }, { status: 400 });
     }
-    console.error('API error:', error);
+    console.error('Company creation failed unexpectedly');
     return NextResponse.json({ message: 'Internal server error' }, { status: 500 });
   }
 }

@@ -303,14 +303,14 @@ export default function PayrollPage() {
         <div className="flex items-center gap-2">
           <span dir="ltr" className="tabular-nums font-bold">{fmtMoney(r.net_payroll)}</span>
           {r.below_minimum_wage && (
-            <span className="inline-flex items-center rounded-full bg-red-500/15 text-red-600 border border-red-500/20 px-1.5 py-0.5 text-[11px] font-medium" title={ar ? "أقل من الحد المرجعي المضبوط للرواتب" : "Below configured payroll advisory"}>
+            <span className="inline-flex items-center rounded-full bg-red-500/15 text-red-600 border border-red-500/20 px-1.5 py-0.5 text-xs font-medium" title={ar ? "أقل من الحد المرجعي المضبوط للرواتب" : "Below configured payroll advisory"}>
               <AlertTriangle className="h-3 w-3 ml-0.5" /><LocalizedText text="MW" /></span>
           )}
           {r.minimum_floor_applied && (
-            <span className="inline-flex items-center rounded-full bg-amber-500/15 text-amber-600 border border-amber-500/20 px-1.5 py-0.5 text-[11px] font-medium" title={ui("Minimum floor applied")}><LocalizedText text="Floor" /></span>
+            <span className="inline-flex items-center rounded-full bg-amber-500/15 text-amber-600 border border-amber-500/20 px-1.5 py-0.5 text-xs font-medium" title={ui("Minimum floor applied")}><LocalizedText text="Floor" /></span>
           )}
           {r.manual_override && (
-            <span className="inline-flex items-center rounded-full bg-teal-500/15 text-teal-600 border border-teal-500/20 px-1.5 py-0.5 text-[11px] font-medium" title={ui("Manual override applied")}><LocalizedText text="Override" /></span>
+            <span className="inline-flex items-center rounded-full bg-purple-500/15 text-purple-600 border border-purple-500/20 px-1.5 py-0.5 text-xs font-medium" title={ui("Manual override applied")}><LocalizedText text="Override" /></span>
           )}
         </div>
       ),
@@ -359,7 +359,7 @@ export default function PayrollPage() {
   ]
 
   return (
-    <div className="px-4 lg:px-6 py-4">
+    <div className="py-4">
       <EnterpriseModulePage
         title={t.nav.payroll}
         subtitle={ar ? "إدارة فترات الرواتب والمدفوعات" : "Manage payroll periods and payments"}
@@ -390,7 +390,7 @@ export default function PayrollPage() {
             <button
               onClick={handleCalculate}
               disabled={isCalculating}
-              className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-elite-blue-600 px-3.5 text-sm font-medium text-white shadow-sm transition-all hover:bg-elite-blue-700 disabled:opacity-50"
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl px-3.5 text-sm font-medium shadow-sm transition-all hover:from-elite-blue-700 hover:to-elite-blue-800 disabled:opacity-50 bg-foreground text-background"
             >
               {isCalculating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Calculator className="h-4 w-4" />}
               {ar ? "احتساب الفترة" : "Calculate period"}

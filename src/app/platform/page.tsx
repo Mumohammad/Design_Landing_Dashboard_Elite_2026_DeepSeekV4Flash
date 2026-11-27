@@ -18,83 +18,83 @@ const steps = [
 
 export default function PlatformPage() {
   return (
-    <main className="min-h-screen bg-[#f6f8fb] text-slate-900">
-      <header className="sticky top-0 z-50 border-b border-slate-200/70 bg-white/80">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
+    <main className="min-h-dvh bg-background text-foreground">
+      <header className="sticky top-0 z-50 border-b border-border bg-background">
+        <div className="mx-auto flex min-h-16 max-w-6xl flex-wrap items-center justify-between gap-3 px-5 py-3 sm:px-6">
           <Link href="/landing" className="flex items-center gap-2.5 font-bold">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl text-elite-blue-600 dark:text-elite-blue-300"><Building2 className="h-5 w-5" /></span>
-            <span><LocalizedText text="نخبة التطوير" /> <span className="text-slate-400 font-medium">· <LocalizedText text="Company platform" /></span></span>
+            <span className="flex h-9 w-9 items-center justify-center text-primary"><Building2 className="h-5 w-5" /></span>
+            <span><LocalizedText text="نخبة التطوير" /> <span className="hidden font-normal text-muted-foreground sm:inline">· <LocalizedText text="Company platform" /></span></span>
           </Link>
-          <div className="flex items-center gap-2 sm:gap-3"><LanguageToggle />
-            <Link href="/platform/admin" className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-bold text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"><ShieldCheck className="h-4 w-4" /> <LocalizedText text="الإدارة" /></Link>
-            <Link href="/platform/login" className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-100"><LogIn className="h-4 w-4" /> <LocalizedText text="Sign in" /></Link>
-            <Link href="/platform/register" className="inline-flex items-center gap-1.5 rounded-xl bg-[#1E5A99] px-4 py-2 text-sm font-bold text-white shadow-[#1E5A99]/25 transition"><Rocket className="h-4 w-4" /> <LocalizedText text="سجّل شركتك" /></Link>
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3"><LanguageToggle />
+            <Link href="/platform/admin" className="inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"><ShieldCheck className="h-4 w-4" /> <LocalizedText text="الإدارة" /></Link>
+            <Link href="/platform/login" className="inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"><LogIn className="h-4 w-4" /> <LocalizedText text="Sign in" /></Link>
+            <Link href="/platform/register" className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-foreground/90"><Rocket className="h-4 w-4" /> <LocalizedText text="سجّل شركتك" /></Link>
           </div>
         </div>
       </header>
 
       <section className="relative overflow-hidden">
-        <div className="relative mx-auto max-w-6xl px-6 py-20 text-center md:py-28">
-          <span className="inline-flex items-center gap-2 rounded-full border border-[#1E5A99]/20 bg-[#1E5A99]/5 px-4 py-1.5 text-xs font-bold text-[#1E5A99]"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#E87D3E]" /> <LocalizedText text="منصة إدارة الأسطول للشركات" /></span>
-          <h1 className="mx-auto mt-7 max-w-3xl text-4xl font-extrabold leading-[1.15] tracking-tight sm:text-5xl xl:text-6xl"><LocalizedText text="مساحة عمل شركتك." /> <span className="text-[#1E5A99]"><LocalizedText text="باسمك، وهويتك، وبياناتك." /></span></h1>
-          <p className="mx-auto mt-6 max-w-2xl text-lg leading-8 text-slate-500"><LocalizedText text="كل شركة تحصل على لوحة التحكم الكاملة بهويتها الخاصة — السائقون والمركبات والرواتب والمصروفات والتقارير، معزولة تمامًا ومحمية بأمان مؤسسي." /></p>
-          <div className="mt-10 flex flex-col justify-center gap-3 sm:flex-row">
-            <Link href="/platform/register" className="group inline-flex items-center justify-center gap-2.5 rounded-2xl bg-[#1E5A99] px-8 py-4 text-sm font-bold text-white shadow-[#1E5A99]/30 transition hover:scale-[1.02] hover:shadow-[#1E5A99]/45 active:scale-[0.98]"><LocalizedText text="ابدأ التجربة المجانية" /> <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-1" /></Link>
-            <Link href="/platform/login" className="inline-flex items-center justify-center gap-2.5 rounded-2xl border border-slate-200 bg-white px-8 py-4 text-sm font-bold text-slate-700 shadow-sm transition hover:border-[#1E5A99]/40 hover:bg-[#1E5A99]/5"><LayoutDashboard className="h-4 w-4" /> <LocalizedText text="دخول إلى لوحة التحكم" /></Link>
+        <div className="relative mx-auto max-w-6xl px-5 py-16 sm:px-6 md:py-24">
+          <span className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground"><span className="h-1.5 w-1.5 rounded-full bg-primary" /> <LocalizedText text="منصة إدارة الأسطول للشركات" /></span>
+          <h1 className="mt-6 max-w-4xl text-4xl font-semibold leading-[1.2] tracking-tight sm:text-5xl xl:text-6xl"><LocalizedText text="مساحة عمل شركتك." /> <span className="text-muted-foreground"><LocalizedText text="باسمك، وهويتك، وبياناتك." /></span></h1>
+          <p className="mt-6 max-w-2xl text-base leading-8 text-muted-foreground sm:text-lg"><LocalizedText text="كل شركة تحصل على لوحة التحكم الكاملة بهويتها الخاصة — السائقون والمركبات والرواتب والمصروفات والتقارير، معزولة تمامًا ومحمية بأمان مؤسسي." /></p>
+          <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+            <Link href="/platform/register" className="group inline-flex items-center justify-center gap-2.5 rounded-md bg-foreground px-6 py-3 text-sm font-medium text-background transition-colors hover:bg-foreground/90"><LocalizedText text="ابدأ التجربة المجانية" /> <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-1" /></Link>
+            <Link href="/platform/login" className="inline-flex items-center justify-center gap-2.5 rounded-md border border-border bg-background px-6 py-3 text-sm font-medium text-foreground transition-colors hover:bg-muted"><LayoutDashboard className="h-4 w-4" /> <LocalizedText text="دخول إلى لوحة التحكم" /></Link>
           </div>
-          <p className="mt-5 text-xs font-semibold text-slate-400"><LocalizedText text="14 يومًا مجانًا · بدون بطاقة ائتمان · إعداد في دقيقتين" /></p>
+          <p className="mt-5 text-xs font-semibold text-muted-foreground"><LocalizedText text="14 يومًا مجانًا · بدون بطاقة ائتمان · إعداد في دقيقتين" /></p>
         </div>
       </section>
 
-      <section className="mx-auto max-w-6xl px-6 py-16">
-        <div className="mx-auto max-w-2xl text-center"><p className="text-xs font-bold text-[#E87D3E]"><LocalizedText text="لماذا الشركات تختارنا" /></p><h2 className="mt-3 text-3xl font-extrabold tracking-tight sm:text-4xl"><LocalizedText text="بنية متعددة الشركات بحكم التصميم" /></h2></div>
-        <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="mx-auto max-w-6xl px-5 py-14 sm:px-6">
+        <div className="max-w-3xl"><p className="text-sm font-medium text-muted-foreground"><LocalizedText text="لماذا الشركات تختارنا" /></p><h2 className="mt-3 text-3xl font-semibold leading-tight tracking-tight sm:text-4xl"><LocalizedText text="بنية متعددة الشركات بحكم التصميم" /></h2></div>
+        <div className="mt-10 grid gap-x-10 gap-y-8 sm:grid-cols-2">
           {features.map(f => (
-            <div key={f.title} className="group rounded-3xl border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:border-[#1E5A99]/30 hover:shadow-[#1E5A99]/10">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl transition group-hover:scale-110 text-elite-blue-600 dark:text-elite-blue-300"><f.icon className="h-5 w-5" /></div>
-              <h3 className="mt-5 font-extrabold"><LocalizedText text={f.title} /></h3>
-              <p className="mt-2 text-sm leading-6 text-slate-500"><LocalizedText text={f.desc} /></p>
+            <div key={f.title} className="border-t border-border pt-6">
+              <div className="flex h-6 w-6 items-center text-muted-foreground"><f.icon className="h-5 w-5" /></div>
+              <h3 className="mt-5 font-semibold"><LocalizedText text={f.title} /></h3>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground"><LocalizedText text={f.desc} /></p>
             </div>
           ))}
         </div>
       </section>
 
-      <section className="border-y border-slate-200/70 bg-white py-16">
+      <section className="border-y border-border bg-muted py-14">
         <div className="mx-auto max-w-6xl px-6">
-          <div className="mx-auto max-w-2xl text-center"><p className="text-xs font-bold text-[#1E5A99]"><LocalizedText text="كيف تبدأ" /></p><h2 className="mt-3 text-3xl font-extrabold tracking-tight sm:text-4xl"><LocalizedText text="ثلاث خطوات وتنطلق" /></h2></div>
+          <div className="max-w-3xl"><p className="text-sm font-medium text-muted-foreground"><LocalizedText text="كيف تبدأ" /></p><h2 className="mt-3 text-3xl font-semibold leading-tight tracking-tight sm:text-4xl"><LocalizedText text="ثلاث خطوات وتنطلق" /></h2></div>
           <div className="mt-12 grid gap-5 md:grid-cols-3">
             {steps.map(s => (
-              <div key={s.n} className="relative rounded-3xl border border-slate-200 bg-[#f6f8fb] p-7">
-                <span className="flex h-11 w-11 items-center justify-center rounded-2xl text-lg font-extrabold text-elite-blue-600 dark:text-elite-blue-300">{s.n}</span>
-                <h3 className="mt-5 text-lg font-extrabold"><LocalizedText text={s.title} /></h3>
-                <p className="mt-2 text-sm leading-6 text-slate-500"><LocalizedText text={s.desc} /></p>
+              <div key={s.n} className="relative border-t border-border pt-6">
+                <span className="block text-sm font-medium tabular-nums text-muted-foreground">{s.n}</span>
+                <h3 className="mt-5 text-lg font-semibold"><LocalizedText text={s.title} /></h3>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground"><LocalizedText text={s.desc} /></p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      <section className="mx-auto max-w-6xl px-6 py-16">
-        <div className="relative overflow-hidden rounded-[2rem] bg-[#0c1f38] p-10 text-center sm:p-14">
+      <section className="mx-auto max-w-6xl px-5 py-14 sm:px-6">
+        <div className="relative border-t border-border bg-muted p-6 text-start sm:p-12">
           <div className="relative">
-            <h2 className="mx-auto max-w-2xl text-3xl font-extrabold leading-tight text-white sm:text-4xl"><LocalizedText text="جاهز تبني مساحة عمل شركتك؟" /></h2>
-            <p className="mx-auto mt-4 max-w-xl text-base leading-7 text-white/60"><LocalizedText text="سجّل الآن وابدأ تجربتك المجانية — لوحة تحكمك بهويتك تنتظرك." /></p>
-            <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
-              <Link href="/platform/register" className="group inline-flex items-center justify-center gap-2.5 rounded-2xl bg-[#E87D3E] px-8 py-4 text-sm font-bold text-white shadow-[#E87D3E]/30 transition hover:scale-[1.02] active:scale-[0.98]"><LocalizedText text="سجّل شركتك الآن" /> <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-1" /></Link>
+            <h2 className="max-w-3xl text-3xl font-semibold leading-tight text-foreground sm:text-4xl"><LocalizedText text="جاهز تبني مساحة عمل شركتك؟" /></h2>
+            <p className="mt-4 max-w-xl text-base leading-7 text-muted-foreground"><LocalizedText text="سجّل الآن وابدأ تجربتك المجانية — لوحة تحكمك بهويتك تنتظرك." /></p>
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <Link href="/platform/register" className="group inline-flex items-center justify-center gap-2.5 rounded-md bg-foreground px-6 py-3 text-sm font-medium text-background transition-colors hover:bg-foreground/90"><LocalizedText text="سجّل شركتك الآن" /> <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-1" /></Link>
             </div>
-            <div className="mt-8 flex flex-wrap items-center justify-center gap-6 text-xs text-white/45">
-              <span className="flex items-center gap-1.5"><CheckCircle2 className="h-4 w-4 text-emerald-400" /> <LocalizedText text="عزل كامل للبيانات" /></span>
-              <span className="flex items-center gap-1.5"><CheckCircle2 className="h-4 w-4 text-emerald-400" /> <LocalizedText text="هوية بصرية خاصة" /></span>
-              <span className="flex items-center gap-1.5"><CheckCircle2 className="h-4 w-4 text-emerald-400" /> <LocalizedText text="تجربة 14 يومًا" /></span>
+            <div className="mt-8 flex flex-wrap items-center gap-6 text-sm text-muted-foreground">
+              <span className="flex items-center gap-1.5"><CheckCircle2 className="h-4 w-4 text-muted-foreground" /> <LocalizedText text="عزل كامل للبيانات" /></span>
+              <span className="flex items-center gap-1.5"><CheckCircle2 className="h-4 w-4 text-muted-foreground" /> <LocalizedText text="هوية بصرية خاصة" /></span>
+              <span className="flex items-center gap-1.5"><CheckCircle2 className="h-4 w-4 text-muted-foreground" /> <LocalizedText text="تجربة 14 يومًا" /></span>
             </div>
           </div>
         </div>
       </section>
 
-      <footer className="border-t border-slate-200/70 px-6 py-8">
-        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 text-xs text-slate-400 sm:flex-row">
+      <footer className="border-t border-border px-5 py-8 sm:px-6">
+        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 text-xs text-muted-foreground sm:flex-row">
           <p>© {new Date().getFullYear()} <LocalizedText text="Elite Development" /> — <LocalizedText text="Company platform" />. <LocalizedText text="All rights reserved." /></p>
-          <Link href="/platform/admin" className="inline-flex items-center gap-1.5 font-semibold text-slate-400 transition hover:text-[#1E5A99]"><ShieldCheck className="h-3.5 w-3.5" /> <LocalizedText text="إدارة المنصة" /></Link>
+          <Link href="/platform/admin" className="inline-flex items-center gap-1.5 font-semibold text-muted-foreground transition hover:text-foreground"><ShieldCheck className="h-3.5 w-3.5" /> <LocalizedText text="إدارة المنصة" /></Link>
         </div>
       </footer>
     </main>

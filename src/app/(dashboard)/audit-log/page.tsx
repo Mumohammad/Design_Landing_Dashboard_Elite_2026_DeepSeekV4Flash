@@ -316,7 +316,7 @@ function AuditTrailInner() {
                 {isOpen && (
                   <pre
                     dir="ltr"
-                    className="mt-1 max-h-48 overflow-auto rounded-lg border border-border/50 bg-muted/20 p-2 text-left text-[11px] leading-relaxed"
+                    className="mt-1 max-h-48 overflow-auto rounded-lg border border-border/50 bg-muted/20 p-2 text-left text-xs leading-relaxed"
                   >
                     {prettyMetadata(meta, consentOf(r.actor_id)) ?? "{}"}
                   </pre>
@@ -343,7 +343,7 @@ function AuditTrailInner() {
       )}
 
       {/* Filter + export toolbar (server-side filters — one capped page) */}
-      <div className="mb-4 space-y-3 rounded-2xl border border-border/50 bg-card/60 px-4 py-3">
+      <div className="mb-4 space-y-3 rounded-2xl border border-border/50 bg-card px-4 py-3">
         <div className="flex flex-wrap items-center gap-2">
           <Input
             type="date"

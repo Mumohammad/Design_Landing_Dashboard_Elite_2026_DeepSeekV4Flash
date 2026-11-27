@@ -10,6 +10,18 @@ describe('platform creation choices',()=>{
  it.each(['companies','roles'] as const)('fails closed when %s cannot be loaded and hides provider details',async(endpoint)=>{const get=async(path:string)=>{if(path.endsWith(endpoint==='roles'?'/users':'/companies'))throw Object.assign(Error('PRIVATE provider detail'),{status:403});return path.endsWith('/companies')?{companies:[company()]}:{active_roles:[]}};await expect(loadPlatformUserChoices(get)).rejects.toMatchObject({endpoint,status:403});await expect(loadPlatformUserChoices(get)).rejects.not.toThrow('PRIVATE')})
  it.each([{}, {companies:null}, {companies:[{...company(),id:'unknown'}]}, {companies:[{...company(),status:'unknown'}]}, {companies:[company(),company()]}])('rejects malformed or ambiguous company source %j',async(body)=>{await expect(loadPlatformUserChoices(request(body))).rejects.toBeInstanceOf(PlatformUserChoicesError)})
  it.each([{}, {active_roles:null}, {active_roles:[{tenant_id:'bad',name:'accountant'}]}, {active_roles:[{tenant_id:id,name:''}]}, {active_roles:[{tenant_id:id,name:'accountant'},{tenant_id:id,name:'accountant'}]}])('rejects malformed or ambiguous role source %j',async(body)=>{await expect(loadPlatformUserChoices(request(undefined,body))).rejects.toMatchObject({endpoint:'roles'})})
+ it('keeps legacy PostgreSQL tenant IDs in the verified company and role choices', async () => {
+   const legacyId = '00000000-0000-0000-0000-000000000001'
+   const legacyCompany = { ...company(), id: legacyId }
+   const legacyRole = { tenant_id: legacyId, name: 'accountant' }
+   const result = await loadPlatformUserChoices(request(
+     { companies: [company(), legacyCompany] },
+     { active_roles: [...payload().roles, legacyRole] },
+   ))
+   expect(result.companies).toEqual([company(), legacyCompany])
+   expect(result.roles).toContainEqual(legacyRole)
+   expect(canCreatePlatformUser(result, { tenant_id: legacyId, role: 'accountant' }, ['accountant'])).toBe(true)
+ })
  it('accepts an authoritative empty company set without inventing choices',async()=>{expect(await loadPlatformUserChoices(request({companies:[]},{active_roles:[]}))).toEqual({companies:[],roles:[]})})
  it('permits only an active company with a configured supported non-owner role',()=>{expect(canCreatePlatformUser(payload(),{tenant_id:id,role:'accountant'},['accountant'])).toBe(true);for(const choices of [null,{...payload(),companies:[{...company(),status:'suspended' as const}]},{...payload(),roles:[]},{...payload(),roles:[{tenant_id:other,name:'accountant'}]}])expect(canCreatePlatformUser(choices,{tenant_id:id,role:'accountant'},['accountant'])).toBe(false);expect(canCreatePlatformUser({...payload(),roles:[{tenant_id:id,name:'general_manager'}]},{tenant_id:id,role:'general_manager'},['general_manager'])).toBe(false);expect(canCreatePlatformUser(payload(),{tenant_id:id,role:'accountant'},[])).toBe(false)})
 })

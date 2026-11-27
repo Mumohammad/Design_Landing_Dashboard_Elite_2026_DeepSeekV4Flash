@@ -1,33 +1,9 @@
 "use client"
 
 import * as React from "react"
-import {
-  Navigation,
-  UsersRound,
-  CarFront,
-  CalendarClock,
-  PackageSearch,
-  LayoutTemplate,
-  HandCoins,
-  WalletCards,
-  Receipt,
-  FileBadge,
-  Calculator,
-  CreditCard,
-  Wrench,
-  Siren,
-  Users,
-  ChartLine,
-  ShieldCheck,
-  ClipboardCheck,
-  FileSearch,
-  FileCheck2,
-  Fingerprint,
-  Settings,
-  ReceiptText,
-} from "lucide-react"
+import { dashboardNavigation } from "@/lib/dashboard-navigation"
 import Link from "next/link"
-import { Logo } from "@/components/logo"
+import { Building2 } from "lucide-react"
 import { SidebarNotification } from "@/components/sidebar-notification"
 
 import { NavMain } from "@/components/nav-main"
@@ -47,78 +23,15 @@ import {
 export function AppSidebar({ branding, ...props }: React.ComponentProps<typeof Sidebar> & { branding?: WorkspaceBranding | null }) {
   const { t, locale } = useTranslation()
 
-  const navGroups = [
-    {
-      label: t.nav.operations,
-      accentColor: "#1E5A99",
-      items: [
-        { title: t.nav.dashboard, url: "/dashboard", icon: Navigation },
-        { title: t.nav.drivers, url: "/drivers", icon: UsersRound },
-        { title: t.nav.vehicles, url: "/vehicles", icon: CarFront },
-        { title: t.nav.attendance, url: "/attendance", icon: CalendarClock },
-        { title: t.nav.orders, url: "/orders", icon: PackageSearch },
-        { title: t.nav.platforms, url: "/platforms", icon: LayoutTemplate },
-      ],
-    },
-    {
-      label: t.nav.finance,
-      accentColor: "#10B981",
-      items: [
-        { title: t.nav.payroll, url: "/payroll", icon: HandCoins },
-        { title: t.nav.expenses, url: "/expenses", icon: WalletCards },
-        { title: locale === "ar" ? "مطالبات المصروفات" : "Expense claims", url: "/expenses/claims", icon: Receipt },
-        { title: t.nav.invoices, url: "/invoices", icon: FileBadge },
-        { title: t.nav.payments, url: "/payments", icon: CreditCard },
-        { title: t.nav.accounting, url: "/accounting", icon: Calculator },
-        { title: t.nav.einvoicing, url: "/accounting?tab=zatca", icon: FileCheck2 },
-      ],
-    },
-    {
-      label: t.nav.fleet,
-      accentColor: "#F59E0B",
-      items: [
-        { title: t.nav.maintenance, url: "/maintenance", icon: Wrench },
-        { title: t.nav.violations, url: "/violations", icon: Siren },
-        { title: locale === "ar" ? "المخالفات المرورية" : "Traffic fines", url: "/violations/fines", icon: ReceiptText },
-      ],
-    },
-    {
-      label: t.nav.hr,
-      accentColor: "#0F766E",
-      items: [
-        { title: t.nav.hrManagement, url: "/hr", icon: Users },
-        { title: t.nav.applications, url: "/applications", icon: FileBadge },
-      ],
-    },
-    {
-      label: t.nav.analytics,
-      accentColor: "#0EA5E9",
-      items: [
-        { title: t.nav.reports, url: "/reports", icon: ChartLine },
-      ],
-    },
-    {
-      label: t.nav.administration,
-      accentColor: "#64748B",
-      items: [
-        { title: t.nav.users, url: "/users", icon: UsersRound },
-        { title: t.nav.roles, url: "/roles", icon: ShieldCheck },
-        { title: t.nav.approvals, url: "/approvals", icon: ClipboardCheck },
-        { title: t.nav.auditLog, url: "/audit-log", icon: FileSearch },
-        { title: t.nav.security, url: "/security", icon: Fingerprint },
-        { title: t.nav.settings, url: "/settings", icon: Settings },
-      ],
-    },
-  ]
+  const navGroups = dashboardNavigation(t, locale)
 
   // The signed-in company's own name/logo and the real user — never the
   // platform's brand or a placeholder address.
-  const companyPrimary = (locale === "ar" ? branding?.companyNameAr : branding?.companyNameEn) || t.app.companyNameArabic
-  const companySecondary = branding
-    ? (locale === "ar" ? branding.companyNameEn : branding.companyNameAr)
-    : t.app.companyName
+  const companyPrimary = (locale === "ar" ? branding?.companyNameAr : branding?.companyNameEn)
+    || (locale === "ar" ? "مساحة العمل" : "Workspace")
+  const companySecondary = locale === "ar" ? branding?.companyNameEn : branding?.companyNameAr
   const user = {
-    name: branding?.userName || companyPrimary,
+    name: branding?.userName || (locale === "ar" ? "حسابي" : "My account"),
     email: branding?.userEmail ?? "",
     avatar: branding?.userAvatar ?? "",
   }
@@ -137,7 +50,7 @@ export function AppSidebar({ branding, ...props }: React.ComponentProps<typeof S
                   </div>
                 ) : (
                   <div className="flex aspect-square size-8 items-center justify-center rounded-md bg-elite-blue-600 text-white">
-                    <Logo size={24} className="text-current" />
+                    <Building2 size={20} aria-hidden="true" />
                   </div>
                 )}
                 <div className="grid flex-1 text-start text-sm leading-tight">

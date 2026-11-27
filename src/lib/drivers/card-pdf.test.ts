@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest"
-import { buildImagePdf, cardPdfFilename, CARD_H_PT, CARD_W_PT, layoutCardPages } from "./card-pdf"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { buildImagePdf, cardPdfFilename, CARD_H_PT, CARD_W_PT, layoutCardPages, photoAsDataUrl, renderRiderCardsPdf } from "./card-pdf"
+import { draftToCard, emptyDraft } from "./card-editor"
 
 const jpeg = { bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xd9]), width: 2, height: 3 }
 const text = (b: Uint8Array) => new TextDecoder("latin1").decode(b)
@@ -45,5 +46,40 @@ describe("card pdf", () => {
 
   it("builds safe filenames", () => {
     expect(cardPdfFilename("HS/12 34", "hungerstation")).toBe("rider-card-hungerstation-HS-12-34.pdf")
+  })
+})
+
+describe("configured card photos", () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it("allows a deliberately photo-free card without making a request", async () => {
+    const fetch = vi.fn()
+    vi.stubGlobal("fetch", fetch)
+    expect(await photoAsDataUrl(null)).toBeNull()
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it.each(["expired", "network", "non-image"])("rejects %s photos before PDF rendering can omit them", async fault => {
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      if (fault === "network") throw new Error("Offline")
+      return new Response(fault === "expired" ? "Denied" : "Not an image", {
+        status: fault === "expired" ? 403 : 200, headers: { "content-type": "text/plain" },
+      })
+    }))
+    const card = draftToCard({ ...emptyDraft(), name: "Driver", riderId: "HS-1", photoUrl: "https://fixture.test/signed-photo" })
+    await expect(renderRiderCardsPdf([card.face], card.person, "pvc")).rejects.toThrow("configured card photo")
+  })
+
+  it("rejects corrupt local image data instead of exporting a blank frame", async () => {
+    vi.stubGlobal("Image", class { src = ""; decode() { return Promise.reject(new Error("Invalid image")) } })
+    await expect(photoAsDataUrl("data:image/png;base64,broken")).rejects.toThrow("configured card photo")
+  })
+
+  it("retains a successfully decoded local photo", async () => {
+    const decode = vi.fn(async () => undefined)
+    vi.stubGlobal("Image", class { src = ""; decode = decode })
+    const photo = "data:image/png;base64,fixture"
+    expect(await photoAsDataUrl(photo)).toBe(photo)
+    expect(decode).toHaveBeenCalledOnce()
   })
 })

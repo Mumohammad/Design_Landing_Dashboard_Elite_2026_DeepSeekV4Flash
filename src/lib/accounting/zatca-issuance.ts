@@ -48,7 +48,8 @@ function preparedResult(value: unknown, tenant: string, source: string, type: Za
  * submission. Future authorized adapters supply DB-loaded financial/profile
  * data. Store the returned artifact, not a newly built retry's proposed XML.
  * The DB validates source ownership/state/totals and atomically fences the
- * stream. Signing, onboarding, transmission and production remain unavailable.
+ * stream. Signing and submission use the retained artifact; production is
+ * excluded by the stream's environment constraint.
  */
 export type ZatcaActor = { tenantId: string; authUserId: string }
 
@@ -78,13 +79,24 @@ export async function prepareZatcaDocumentAs(
     .select("id,environment,last_counter,last_invoice_hash")
     .eq("id", streamId).eq("tenant_id", user.tenantId).maybeSingle()
   if (streamError || !stream) throw new Error("Unable to load the tenant's ZATCA preparation stream.")
-  if (!["sandbox", "simulation", "production"].includes(stream.environment)) throw new Error("Unknown ZATCA environment.")
+  if (stream.environment === "production") throw new Error("ZATCA production preparation is disabled.")
+  if (!["sandbox", "simulation"].includes(stream.environment)) throw new Error("Unknown ZATCA environment.")
   const { data: existing, error: existingError } = await admin.from("zatca_document_issuances")
     .select("id,tenant_id,stream_id,environment,source_type,source_id,doc_ref,issued_at,invoice_counter,previous_invoice_hash,invoice_hash,unsigned_xml")
     .eq("tenant_id", user.tenantId).eq("environment", stream.environment)
     .eq("source_type", input.docType).eq("source_id", sourceId).maybeSingle()
   if (existingError) throw new Error("Unable to load the existing ZATCA preparation.")
-  if (existing) return preparedResult(existing,user.tenantId,sourceId,input.docType,stream.environment)
+  if (existing) {
+    const original = preparedResult(existing,user.tenantId,sourceId,input.docType,stream.environment)
+    const { data: replayed, error: replayError } = await admin.rpc("record_zatca_issuance", {
+      p_tenant: user.tenantId, p_stream: stream.id, p_source_type: input.docType,
+      p_source_id: sourceId, p_document_uuid: original.id, p_issued_at: original.issued_at,
+      p_expected_counter: null, p_previous_hash: null, p_xml: null,
+      p_canonical_xml: null, p_invoice_hash: null, p_actor: user.authUserId,
+    })
+    if (replayError) throw new Error("Unable to replay the ZATCA preparation.")
+    return preparedResult(replayed,user.tenantId,sourceId,input.docType,stream.environment)
+  }
   const counter = Number(stream.last_counter)
   if (!Number.isSafeInteger(counter) || counter < 0 || counter >= Number.MAX_SAFE_INTEGER) {
     throw new Error("Invalid ZATCA preparation counter.")

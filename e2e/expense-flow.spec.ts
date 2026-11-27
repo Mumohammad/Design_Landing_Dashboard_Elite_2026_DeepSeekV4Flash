@@ -74,31 +74,12 @@ test.describe("Expense Module — Full Flow", () => {
     await page.goto("/expenses")
     await page.waitForLoadState("networkidle", { timeout: 30_000 })
 
-    const createBtn = page.getByRole("button", {
-      name: /new expense|مصروف جديد|create/i,
-    })
-
-    if (await createBtn.isVisible().catch(() => false)) {
-      await createBtn.click()
-
-      // Wait for dialog
-      await page.locator("[role='dialog'], [data-state='open']").first().waitFor({ timeout: 5_000 })
-
-      // Look for form inputs (driver, type, amount, description)
-      const inputs = page.locator("[role='dialog'] input, [role='dialog'] select, [role='dialog'] [role='combobox']")
-      const inputCount = await inputs.count()
-      expect(inputCount).toBeGreaterThanOrEqual(2) // At least type + amount
-
-      // Look for amount input specifically
-      const amountInput = page.locator("[role='dialog'] input[type='number'], [role='dialog'] input[placeholder*='amount'], [role='dialog'] input[placeholder*='مبلغ']")
-      const hasAmount = await amountInput.isVisible().catch(() => false)
-
-      // Close dialog
-      const closeBtn = page.locator("[role='dialog'] button[aria-label='Close'], [role='dialog'] button:has-text('×')").first()
-      if (await closeBtn.isVisible().catch(() => false)) {
-        await closeBtn.click()
-      }
-    }
+    await page.getByRole("button", { name: /new expense|مصروف جديد/i }).click()
+    const dialog = page.getByRole("dialog")
+    await expect(dialog.getByRole("combobox", { name: /^(type|النوع)$/i })).toBeVisible()
+    await expect(dialog.getByRole("spinbutton", { name: /net amount|المبلغ قبل الضريبة/i })).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(dialog).toBeHidden()
   })
 
   test("4. expense data table renders or shows empty state", async ({ authed: page }) => {

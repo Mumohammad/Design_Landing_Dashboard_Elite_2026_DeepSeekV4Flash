@@ -115,7 +115,7 @@ export default function OrdersPage() {
       render: (r) => (
         <div className="flex flex-col">
           <span className="font-medium">{(isAr ? r.driver?.full_name_ar : r.driver?.full_name_en) ?? r.driver?.full_name_ar ?? "—"}</span>
-          {r.driver?.driver_code && <span dir="ltr" className="font-mono text-[11px] text-muted-foreground">{r.driver.driver_code}</span>}
+          {r.driver?.driver_code && <span dir="ltr" className="font-mono text-xs text-muted-foreground">{r.driver.driver_code}</span>}
         </div>
       ),
     },
@@ -219,7 +219,7 @@ export default function OrdersPage() {
   }
 
   return (
-    <div className="px-4 lg:px-6 py-4">
+    <div className="py-4">
       <EnterpriseModulePage
         title={t.orders.title}
         subtitle={t.orders.subtitle}

@@ -2,7 +2,7 @@
 // (TEST-STRATEGY.md §3.1): header/detail/trailer layout, pipe escaping,
 // SAR currency 682, bank-code map, date formatting.
 import { describe, expect, it } from "vitest"
-import { generateWPSSIF } from "./wps-generator"
+import { generateSIFFileName, generateWPSSIF } from "./wps-generator"
 
 const COMPANY = { mol_reference: "MOL-2026-000123", iban: "SA0310000000000000000000" }
 const PERIOD = "2026-08"
@@ -50,6 +50,13 @@ describe("generateWPSSIF — layout", () => {
     const header = generateWPSSIF([PAYMENT, { ...PAYMENT, net_payroll: 10000 }], COMPANY, PERIOD).split("\n")[0]
     expect(header).toBe("H|MOL-2026-000123|202608|000002|15000.00|01")
   })
+
+  it("reconciles the header to the net amounts actually written on the detail lines", () => {
+    const payments = [12.004, 1.004].map(net_payroll => ({ ...PAYMENT, net_payroll }))
+    const [header, ...remaining] = generateWPSSIF(payments, COMPANY, PERIOD).split("\n")
+    expect(remaining.slice(0, -1).map(line => line.split("|")[5])).toEqual(["12.00", "1.00"])
+    expect(header.split("|")[4]).toBe("13.00")
+  })
 })
 
 describe("generateWPSSIF — escaping", () => {
@@ -65,6 +72,47 @@ describe("generateWPSSIF — validation", () => {
   it("throws when there are no payment records", () => {
     expect(() => generateWPSSIF([], COMPANY, PERIOD)).toThrow("no payment records")
   })
+
+  it.each(["", "invalid", "2026-02-29", "2026-02-30T16:00:00+03:00", "2026-08-10T25:00:00Z"])(
+    "rejects invalid payment date %j", paid_at => {
+      expect(() => generateWPSSIF([{ ...PAYMENT, paid_at }], COMPANY, PERIOD)).toThrow(/date/i)
+    }
+  )
+
+  it.each([
+    ["2028-02-29", "20280229"],
+    ["2026-08-15T20:59:59.999Z", "20260815"],
+    ["2026-12-31T21:00:00.000Z", "20270101"],
+    ["2027-01-01T01:00:00+05:00", "20261231"],
+    ["2026-08-15T23:30:00", "20260815"],
+  ])("writes the Saudi calendar date for %s", (paid_at, day) => {
+    const detail = generateWPSSIF([{ ...PAYMENT, paid_at }], COMPANY, PERIOD).split("\n")[1]
+    expect(detail.split("|")[10]).toBe(day)
+  })
+
+  it.each(["|", "\r", "\n"])("rejects record delimiters %j in identifiers", delimiter => {
+    const invalid = "abc" + delimiter + "def"
+    expect(() => generateWPSSIF([PAYMENT], { ...COMPANY, mol_reference: invalid }, PERIOD)).toThrow(/reference/i)
+    expect(() => generateWPSSIF([{ ...PAYMENT, driver: { ...PAYMENT.driver, iqama_number: invalid } }], COMPANY, PERIOD)).toThrow(/iqama/i)
+    expect(() => generateWPSSIF([{ ...PAYMENT, iban: invalid }], COMPANY, PERIOD)).toThrow(/iban/i)
+  })
+
+  it("rejects a beneficiary name that becomes blank after escaping", () => {
+    expect(() => generateWPSSIF([{ ...PAYMENT, driver: { ...PAYMENT.driver, full_name_ar: "|\n " } }], COMPANY, PERIOD)).toThrow(/name/i)
+  })
+
+  it.each(["2026-08\n", "2026|08", "2026-00", "2026-13", "26-08"])("rejects invalid period %j", period => {
+    expect(() => generateWPSSIF([PAYMENT], COMPANY, period)).toThrow(/period/i)
+    expect(() => generateSIFFileName(period)).toThrow(/period/i)
+  })
+
+  it.each(["base_amount", "housing_allowance", "other_allowances", "total_deductions", "working_days_actual", "net_payroll"] as const)(
+    "rejects nonfinite %s", field => {
+      for (const value of [NaN, Infinity, -Infinity]) {
+        expect(() => generateWPSSIF([{ ...PAYMENT, [field]: value }], COMPANY, PERIOD)).toThrow()
+      }
+    }
+  )
 })
 
 describe("Saudi bank-code map (IBAN positions 4-5)", () => {

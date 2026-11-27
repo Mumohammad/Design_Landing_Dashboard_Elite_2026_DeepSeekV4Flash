@@ -1,7 +1,7 @@
 "use client"
 
 import { Area, CartesianGrid, ComposedChart, Line, XAxis, YAxis } from "recharts"
-import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart"
+import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, type ChartConfig } from "@/components/ui/chart"
 import { useTranslation } from "@/hooks/use-translation"
 import type { TrendPoint } from "@/lib/analytics/types"
 import { ChartCard } from "./chart-card"
@@ -22,7 +22,7 @@ export function RevenueTrend({
 
   const chartConfig = {
     revenue: { label: t.dashboard.revenue, color: "#1E5A99" },
-    payroll: { label: t.dashboard.netPayroll, color: "#E87D3E" },
+    payroll: { label: t.dashboard.netPayroll, color: "#73849A" },
   } satisfies ChartConfig
 
   if (!available)
@@ -67,11 +67,12 @@ export function RevenueTrend({
               />
             }
           />
+          {hasPayroll && <ChartLegend content={<ChartLegendContent />} />}
           <Area
             dataKey="revenue"
-            type="monotone"
+            type="linear"
             fill="var(--color-revenue)"
-            fillOpacity={0.18}
+            fillOpacity={0.1}
             stroke="var(--color-revenue)"
             strokeWidth={2}
             dot={false}
@@ -79,7 +80,7 @@ export function RevenueTrend({
           {hasPayroll && (
             <Line
               dataKey="payroll"
-              type="monotone"
+              type="linear"
               stroke="var(--color-payroll)"
               strokeWidth={2}
               strokeDasharray="5 4"

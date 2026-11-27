@@ -8,6 +8,7 @@ import { createClient } from "@supabase/supabase-js"
 import { createHmac, randomBytes, randomUUID } from "node:crypto"
 import { setTimeout } from "node:timers/promises"
 import {readAcceptanceFixturePlans} from "./lib/acceptance-fixture-ledgers.mjs"
+import {createVerificationBrowserProxy,installVerificationAccess} from "./lib/verification-access.mjs"
 import {MODULE_GROUPS,runCoordinatedAcceptance,retireAcceptanceFixtures,preflightAcceptanceTarget,assertAcceptanceRunId} from "./lib/coordinated-acceptance.mjs"
 
 process.loadEnvFile("supabase/.temp/staging-verification.env")
@@ -47,12 +48,13 @@ const proof = {runId:releaseRunId,group:moduleGroup,pid:process.pid,project:"vio
 const saveProof = () => writeReleaseEvidence(proofPath,proof)
 const recordFixture = fixture => {if(fixture.kind==="platform-marker"){proof.authorityMarker=fixture}else if(fixture.kind==="platform-member-intent"){proof.pendingAuxiliary.push(fixture)}else{const index=proof.extraFixtures.findIndex(item=>item.authUserId===fixture.authUserId);if(index<0)proof.extraFixtures.push(fixture);else proof.extraFixtures[index]={...proof.extraFixtures[index],...fixture}}saveProof()}
 saveProof()
-let browser
+let browser,browserProxy
 let fixtureUserId
 let stage = "fixture creation"
 const heartbeat = setInterval(() => {proof.currentStage=stage;saveProof();console.log(JSON.stringify({check:"hosted verification",group:moduleGroup,stage}))},45000)
 heartbeat.unref()
 try {
+  browserProxy=await createVerificationBrowserProxy(appUrl)
   const id = randomUUID()
   const email = `release-${id}@example.test`
   let password = `${randomBytes(20).toString("base64url")}1a`
@@ -73,7 +75,8 @@ try {
 
   browser = await chromium.launch({ headless: true })
   // Explicit context permits the stale-tab and shared-session acceptance checks.
-  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 },...browserProxy?.contextOptions })
+  await installVerificationAccess(context, appUrl)
   const capture = page => {const screenshot=page.screenshot.bind(page);page.screenshot=options=>screenshot({...options,path:options?.path?path.join(evidenceDir,path.basename(options.path)):undefined})}
   context.on("page",capture)
   const page = await context.newPage()
@@ -348,7 +351,12 @@ try {
       for (const page of context.pages()) await page.goto(appUrl + "/auth/sign-out").catch(() => {})
     }
   }
-  await browser?.close()
+  try { await browser?.close() }
+  catch { proof.result="FAIL";process.exitCode=1;console.error('Owned verification browser closure failed') }
+  finally {
+    try { await browserProxy?.close() }
+    catch { proof.result="FAIL";process.exitCode=1;console.error('Owned verification proxy closure failed') }
+  }
   if(fixtureUserId) {
     try {const plans=readAcceptanceFixturePlans({workspaceRoot:process.cwd(),groupDirectory:evidenceDir,proof});const cleanup=await retireAcceptanceFixtures(admin,proof,plans);proof.appAccessRetired=cleanup.result==="PASS";proof.authAccessRetired=cleanup.result==="PASS";if(cleanup.result!=="PASS")process.exitCode=1}
     catch (error) {proof.cleanupFailed=true;proof.cleanupEvidence=error.cleanupEvidence;process.exitCode=1;console.error("Owned group access retirement failed")}

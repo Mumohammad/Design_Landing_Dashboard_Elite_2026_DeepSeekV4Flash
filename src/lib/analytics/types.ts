@@ -183,7 +183,7 @@ export interface DashboardSnapshot {
   }
   /** Payroll module results for the latest calculated period. */
   payroll: {
-    period: string
+    period: string | null
     gross: number
     bonuses: number
     deductions: number

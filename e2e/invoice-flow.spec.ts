@@ -103,31 +103,12 @@ test.describe("Invoice Module — Full Flow", () => {
     await page.goto("/invoices")
     await page.waitForLoadState("networkidle", { timeout: 30_000 })
 
-    const createBtn = page.getByRole("button", {
-      name: /new invoice|فاتورة جديدة|create/i,
-    })
-
-    if (await createBtn.isVisible().catch(() => false)) {
-      await createBtn.click()
-
-      // Wait for dialog
-      await page.locator("[role='dialog'], [data-state='open']").first().waitFor({ timeout: 5_000 })
-
-      // Look for form inputs (customer, type, etc.)
-      const inputs = page.locator("[role='dialog'] input, [role='dialog'] select, [role='dialog'] [role='combobox']")
-      const inputCount = await inputs.count()
-      expect(inputCount).toBeGreaterThanOrEqual(1)
-
-      // Look for submit button in dialog
-      const submitBtn = page.locator("[role='dialog'] button[type='submit'], [role='dialog'] button:has-text('create'), [role='dialog'] button:has-text('إضافة')")
-      const hasSubmit = await submitBtn.isVisible().catch(() => false)
-
-      // Close dialog
-      const closeBtn = page.locator("[role='dialog'] button[aria-label='Close'], [role='dialog'] button:has-text('×'), [role='dialog'] [data-state='open'] button").first()
-      if (await closeBtn.isVisible().catch(() => false)) {
-        await closeBtn.click()
-      }
-    }
+    await page.getByRole("button", { name: /new invoice|فاتورة جديدة/i }).click()
+    const dialog = page.getByRole("dialog")
+    await expect(dialog.getByLabel(/^(invoice date|تاريخ الفاتورة)$/i)).toBeVisible()
+    await expect(dialog.getByRole("button", { name: /^(save draft|حفظ المسودة)$/i })).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(dialog).toBeHidden()
   })
 
   test("6. invoice data table renders or shows empty state", async ({ authed: page }) => {

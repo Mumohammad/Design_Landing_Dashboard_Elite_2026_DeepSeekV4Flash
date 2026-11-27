@@ -21,6 +21,11 @@ export interface MoyasarInvoice {
 
 export function moyasarConfigured(): boolean {
   return /^sk_(test|live)_[A-Za-z0-9]+$/.test(process.env.MOYASAR_SECRET_KEY ?? "")
+    && (!isProductionBilling() || moyasarMode() === "live")
+}
+
+export function isProductionBilling(): boolean {
+  return process.env.VERCEL_ENV === "production" || process.env.NEXT_PUBLIC_SUPABASE_URL === "https://wwfnsbilmyxeawgzicmv.supabase.co"
 }
 
 export function moyasarMode(): "test" | "live" | null {
@@ -47,6 +52,7 @@ export function parseMoyasarInvoice(value: unknown): MoyasarInvoice {
 }
 
 async function call(path: string, init?: RequestInit): Promise<unknown> {
+  if (!moyasarConfigured()) throw new Error("Payment provider mode is unavailable")
   const res = await fetch(`${API}${path}`, {
     ...init,
     headers: { Authorization: auth(), "Content-Type": "application/json", Accept: "application/json", ...(init?.headers ?? {}) },

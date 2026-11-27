@@ -96,13 +96,12 @@ export function DashboardHeader({
   }
 
   return (
-    <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-      <div>
-        <h1 className="text-2xl font-semibold text-foreground">
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 sm:flex sm:flex-col sm:gap-4 md:flex-row md:items-center md:justify-between">
+      <div className="min-w-0">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground lg:text-[1.75rem]">
           {t.app.dashboardTitle}
         </h1>
         <p className="mt-1.5 text-sm text-muted-foreground">
-          {t.dashboard.welcomeMessage} ·{" "}
           <time dateTime={businessDay ?? undefined} data-testid="dashboard-business-date" className="font-medium text-foreground/70">
             {formatDualDate(businessDay ? `${businessDay}T12:00:00+03:00` : null, isAr)}
           </time>
@@ -114,14 +113,16 @@ export function DashboardHeader({
           size="sm"
           onClick={exportCsv}
           disabled={!snapshot}
-          className="gap-1.5"
+          aria-label={isAr ? "تصدير CSV" : "Export CSV"}
+          title={isAr ? "تصدير CSV" : "Export CSV"}
+          className="gap-1.5 max-sm:w-11 max-sm:px-0"
         >
           <Download className="h-3.5 w-3.5" />
-          {isAr ? "تصدير CSV" : "Export CSV"}
+          <span className="hidden sm:inline">{isAr ? "تصدير CSV" : "Export CSV"}</span>
         </Button>
-        <Button variant="outline" size="sm" onClick={onRefresh} disabled={refreshing} className="gap-1.5">
+        <Button variant="outline" size="sm" onClick={onRefresh} disabled={refreshing} aria-label={t.dashboard.refresh} title={t.dashboard.refresh} className="gap-1.5 max-sm:w-11 max-sm:px-0">
           <RefreshCw className={"h-3.5 w-3.5" + (refreshing ? " animate-spin" : "")} />
-          {t.dashboard.refresh}
+          <span className="hidden sm:inline">{t.dashboard.refresh}</span>
         </Button>
       </div>
     </div>

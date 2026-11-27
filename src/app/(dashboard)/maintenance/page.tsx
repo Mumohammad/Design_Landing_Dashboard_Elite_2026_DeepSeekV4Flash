@@ -300,7 +300,7 @@ export default function MaintenancePage() {
   const defaultOdometer = activeVehicle?.odometer_current ?? null
 
   return (
-    <div className="px-4 lg:px-6 py-4">
+    <div className="py-4">
       <EnterpriseModulePage
         title={t.nav.maintenance}
         subtitle={m.subtitle}

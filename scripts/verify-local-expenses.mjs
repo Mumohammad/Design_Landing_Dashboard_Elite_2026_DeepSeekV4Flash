@@ -1,3 +1,4 @@
+import {continueVerificationRoute,forwardVerificationRoute,verificationFetch} from './lib/verification-access.mjs'
 import { expect as baseExpect } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 const expect = baseExpect.configure({ timeout: 25_000 })
@@ -16,7 +17,18 @@ async function verifyTextContrast(locator) {
     const a=luminance(foreground),b=luminance(background)
     return (Math.max(a,b)+0.05)/(Math.min(a,b)+0.05)
   })
-  if(ratio<4.5)throw Error('Decision text contrast is below 4.5:1')
+  if(ratio<4.5){
+    console.error(JSON.stringify({check:'decision text contrast',ratio:Number(ratio.toFixed(3)),minimum:4.5}))
+    throw Error('Decision text contrast is below 4.5:1')
+  }
+}
+
+/** Retained accounting evidence is not deleted to reset an acceptance fixture. */
+export async function requirePristineExpenseScope(admin, tenantId) {
+  if (typeof tenantId !== 'string' || !tenantId) throw Error('Synthetic tenant required')
+  const result = await admin.from('expenses').select('id', { count: 'exact', head: true })
+    .eq('tenant_id', tenantId).is('deleted_at', null)
+  if (result.error || result.count !== 0) throw Error('Expense acceptance requires a pristine synthetic tenant with zero active expenses')
 }
 
 export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
@@ -25,10 +37,11 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
     && ['localhost','127.0.0.1'].includes(db.hostname) && db.port === '58321'
   if (!local) {
     if (db.origin !== 'https://viowrovartosrkqukjxy.supabase.co' || app.hostname === 'elite-dashboard-blush.vercel.app') throw Error('Isolated staging required')
-    const policy = (await fetch(appUrl + '/landing')).headers.get('content-security-policy') ?? ''
+    const policy = (await verificationFetch(appUrl + '/landing',{},appUrl)).headers.get('content-security-policy') ?? ''
     if (!policy.includes(db.origin) || policy.includes('wwfnsbilmyxeawgzicmv')) throw Error('Isolated app/database required')
   }
   if (!tenantId) throw Error('Synthetic tenant required')
+  await requirePristineExpenseScope(admin, tenantId)
   const locale = await page.locator('html').getAttribute('lang')
   const viewport = page.viewportSize(), tag = randomUUID().slice(0,8)
   const needle = `Needle "${tag},50%_`, createdVendor = 'Created-expense-' + tag
@@ -43,10 +56,10 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
     if(!responseLost&&request.method()==='POST'&&new URL(request.url()).pathname==='/expenses'
       &&request.headers()['next-action']&&request.postData()?.includes(createdVendor)){
       responseLost=true
-      const response=await route.fetch()
+      const response=await forwardVerificationRoute(route)
       if(!response.ok())throw Error('Expense action failed before response-loss injection')
       await route.abort('failed')
-    }else await route.continue()
+    }else await continueVerificationRoute(route)
   }
   let stage = 'fixtures'
   const rejectElsewhere=async(code,reason,language='en')=>{
@@ -89,7 +102,7 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
     await page.goto(appUrl + '/expenses?lang=en')
     await expect(page.locator('section[aria-live="polite"]')).toHaveAttribute('aria-label',/^Notifications /)
     const rows = page.locator('tbody tr'), search = page.getByRole('textbox').first()
-    const metrics = page.locator('main div.text-2xl.font-bold')
+    const metrics = page.getByTestId('module-kpi-value')
     await expect(rows).toHaveCount(25)
     await expect(page.getByText('106 records · Page 1 of 5',{exact:true})).toBeVisible()
     await expect(metrics.nth(0)).toHaveText('106')
@@ -109,7 +122,7 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
     await expect(metrics.nth(2)).toHaveText('10.70')
     stage = 'table failure and retry'
     const failList = route => new URL(route.request().url()).searchParams.get('select')?.includes('driver:')
-      ? route.fulfill({status:503,contentType:'application/json',body:'{"message":"Synthetic read unavailable"}'}) : route.continue()
+      ? route.fulfill({status:503,contentType:'application/json',body:'{"message":"Synthetic read unavailable"}'}) : continueVerificationRoute(route)
     await page.route(pattern,failList)
     await search.fill('changed-' + tag)
     await expect(page.getByText('Could not load expenses, their totals or account mappings. Try again.',{exact:true})).toBeVisible()
@@ -119,7 +132,7 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
     await expect(page.getByTestId('module-empty-state')).toBeVisible()
     stage = 'failed summary stays unknown and recovers'
     const failSummary = route => new URL(route.request().url()).searchParams.get('select') === 'id,amount,vat_amount,currency,is_approved,rejected_at,cancelled_at'
-      ? route.fulfill({status:503,contentType:'application/json',body:'{"message":"Synthetic summary unavailable"}'}) : route.continue()
+      ? route.fulfill({status:503,contentType:'application/json',body:'{"message":"Synthetic summary unavailable"}'}) : continueVerificationRoute(route)
     await page.route(pattern,failSummary)
     await page.reload()
     await expect(page.getByText('Could not load expenses, their totals or account mappings. Try again.',{exact:true})).toBeVisible()
@@ -176,10 +189,10 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
       if(!approvalResponseLost&&request.method()==='POST'&&new URL(request.url()).pathname==='/expenses'
         &&request.headers()['next-action']&&request.postData()?.includes(created.data.id)){
         approvalResponseLost=true
-        const response=await route.fetch()
+        const response=await forwardVerificationRoute(route)
         if(!response.ok())throw Error('Approval failed before response-loss injection')
         await route.abort('failed')
-      }else await route.continue()
+      }else await continueVerificationRoute(route)
     }
     await page.route(actionPattern,loseApproval)
     stage = 'submit approval with committed-response loss'
@@ -279,10 +292,10 @@ export async function verifyExpensesOverview(page, admin, tenantId, appUrl) {
       const request=route.request()
       if(!rejectionResponseLost&&request.method()==='POST'&&new URL(request.url()).pathname==='/approvals'
         &&request.headers()['next-action']&&request.postData()?.includes(ids[1])){
-        rejectionResponseLost=true;const response=await route.fetch()
+        rejectionResponseLost=true;const response=await forwardVerificationRoute(route)
         if(!response.ok())throw Error('Rejection failed before response-loss injection')
         await route.abort('failed')
-      }else await route.continue()
+      }else await continueVerificationRoute(route)
     }
     await page.route(rejectionPattern,loseRejection)
     await dialog.getByRole('button',{name:'Confirm rejection',exact:true}).click()

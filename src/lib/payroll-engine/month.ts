@@ -1,4 +1,5 @@
 // Month helpers shared by the payroll engine adapters and UI.
+import { decimalRound } from "@/lib/accounting/decimal"
 const MONTH_INDEX: Record<string, string> = {
   jan: "01", january: "01", feb: "02", february: "02", mar: "03", march: "03",
   apr: "04", april: "04", may: "05", jun: "06", june: "06", jul: "07", july: "07",
@@ -40,7 +41,7 @@ export function monthEndDate(key: string): string {
   return d.toISOString().slice(0, 10)
 }
 
-/** Half-up rounding to halalas for payable amounts (display, bank files, journals). */
+/** Round payable amounts to halalas on the same basis as PostgreSQL numeric. */
 export function toHalalas(value: number): number {
-  return Math.round((value + Number.EPSILON) * 100) / 100
+  return decimalRound(value)
 }

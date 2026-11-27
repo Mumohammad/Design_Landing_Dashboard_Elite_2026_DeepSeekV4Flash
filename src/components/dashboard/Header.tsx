@@ -2,6 +2,7 @@
 
 import { LocalizedText, useUiText } from "@/components/localized-text"
 import { Bell, Search, User, LogOut } from 'lucide-react';
+import Image from 'next/image';
 import { REDIRECTS } from '@/lib/redirects';
 
 interface Tenant {
@@ -30,7 +31,7 @@ export default function Header({ tenant }: HeaderProps) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           {tenant?.logo_url ? (
-            <img src={tenant.logo_url} alt={tenant.name} className="w-8 h-8 rounded-lg object-cover" />
+            <Image src={tenant.logo_url} unoptimized width={32} height={32} alt={tenant.name} className="w-8 h-8 rounded-lg object-cover" />
           ) : (
             <div className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm text-elite-blue-600 dark:text-elite-blue-300">
               {tenant?.name?.charAt(0) || 'C'}

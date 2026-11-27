@@ -2,9 +2,10 @@
 
 import { ChevronRight, type LucideIcon } from "lucide-react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useSearchParams } from "next/navigation"
+import { Suspense } from "react"
+import { activeNavigationUrl } from "@/lib/navigation-active"
 
-import { useTranslation } from "@/hooks/use-translation"
 import {
   Collapsible,
   CollapsibleContent,
@@ -21,11 +22,7 @@ import {
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar"
 
-export function NavMain({
-  label,
-  items,
-  accentColor,
-}: {
+type NavMainProps = {
   label: string
   accentColor?: string
   items: {
@@ -40,47 +37,52 @@ export function NavMain({
       isActive?: boolean
     }[]
   }[]
-}) {
+}
+
+export function NavMain(props: NavMainProps) {
   const pathname = usePathname()
-  const { locale } = useTranslation()
-  const isRtl = locale === "ar"
+  return <Suspense fallback={<NavigationItems {...props} pathname={pathname} query="" />}>
+    <QueryNavigation {...props} pathname={pathname} />
+  </Suspense>
+}
 
-  // Check if any subitem is active to determine if parent should be open
-  const shouldBeOpen = (item: typeof items[0]) => {
-    if (item.isActive) return true
-    return item.items?.some(subItem => pathname === subItem.url) || false
-  }
+function QueryNavigation(props: NavMainProps & { pathname: string }) {
+  const query = useSearchParams()
+  return <NavigationItems {...props} query={query.toString()} />
+}
 
-  const isActiveItem = (url: string) => pathname === url
+function NavigationItems({ label, items, pathname, query }: NavMainProps & { pathname: string; query: string }) {
+  const urls = items.flatMap(item => item.items?.length ? item.items.map(child => child.url) : item.disabled ? [] : [item.url])
+  const selected = activeNavigationUrl(pathname, query, urls)
+  const isActiveItem = (url: string) => selected === url
+  const shouldBeOpen = (item: typeof items[0]) =>
+    !!item.isActive || !!item.items?.some((subItem) => isActiveItem(subItem.url))
+  const currentLocation = (url: string) => isActiveItem(url) ? (pathname === new URL(url, "https://navigation.invalid").pathname ? "page" : "location") : undefined
 
   return (
     <SidebarGroup>
       <SidebarGroupLabel>{label}</SidebarGroupLabel>
       <SidebarMenu>
         {items.map((item) => (
-          <Collapsible
-            key={item.title}
-            asChild
-            defaultOpen={shouldBeOpen(item)}
-            className="group/collapsible"
-          >
+          <Collapsible key={`${item.title}:${shouldBeOpen(item)}`} asChild defaultOpen={shouldBeOpen(item)} className="group/collapsible">
             <SidebarMenuItem>
               {item.items?.length ? (
                 <>
                   <CollapsibleTrigger asChild>
-                    <SidebarMenuButton tooltip={item.title} className="cursor-pointer">
-                      {item.icon && <item.icon />}
+                    <SidebarMenuButton tooltip={item.title} isActive={shouldBeOpen(item)} className="h-9 cursor-pointer max-sm:min-h-11">
+                      {item.icon && <item.icon aria-hidden="true" />}
                       <span>{item.title}</span>
-                      <ChevronRight className="ms-auto rtl:-scale-x-100 transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+                      <ChevronRight aria-hidden="true" className="ms-auto transition-transform duration-200 rtl:-scale-x-100 group-data-[state=open]/collapsible:rotate-90" />
                     </SidebarMenuButton>
                   </CollapsibleTrigger>
                   <CollapsibleContent>
                     <SidebarMenuSub>
-                      {item.items?.map((subItem) => (
+                      {item.items.map((subItem) => (
                         <SidebarMenuSubItem key={subItem.title}>
-                          <SidebarMenuSubButton asChild className="cursor-pointer" isActive={pathname === subItem.url}>
+                          <SidebarMenuSubButton asChild className="min-h-9 cursor-pointer max-sm:min-h-11" isActive={isActiveItem(subItem.url)}>
                             <Link
                               href={subItem.url}
+                              aria-current={currentLocation(subItem.url)}
                               target={(item.title === "Auth Pages" || item.title === "Errors") ? "_blank" : undefined}
                               rel={(item.title === "Auth Pages" || item.title === "Errors") ? "noopener noreferrer" : undefined}
                             >
@@ -93,38 +95,14 @@ export function NavMain({
                   </CollapsibleContent>
                 </>
               ) : item.disabled ? (
-                <SidebarMenuButton
-                  tooltip={item.title}
-                  className="cursor-not-allowed opacity-50 pointer-events-none"
-                >
-                  {item.icon && <item.icon />}
+                <SidebarMenuButton tooltip={item.title} disabled aria-disabled="true" className="h-9 cursor-not-allowed opacity-70 max-sm:min-h-11">
+                  {item.icon && <item.icon aria-hidden="true" />}
                   <span>{item.title}</span>
                 </SidebarMenuButton>
               ) : (
-                <SidebarMenuButton
-                  asChild
-                  tooltip={item.title}
-                  className="cursor-pointer"
-                  isActive={isActiveItem(item.url)}
-                  style={
-                    isActiveItem(item.url) && accentColor
-                      ? {
-                          // Accent bar on the reading-start edge: right in RTL.
-                          boxShadow: `inset ${isRtl ? "-3px 0" : "3px 0"} 0 0 ${accentColor}`,
-                        }
-                      : undefined
-                  }
-                >
-                  <Link href={item.url}>
-                    {item.icon && (
-                      <item.icon
-                        style={
-                          isActiveItem(item.url) && accentColor
-                            ? { color: accentColor }
-                            : undefined
-                        }
-                      />
-                    )}
+                <SidebarMenuButton asChild tooltip={item.title} className="h-9 cursor-pointer max-sm:min-h-11" isActive={isActiveItem(item.url)}>
+                  <Link href={item.url} aria-current={currentLocation(item.url)}>
+                    {item.icon && <item.icon aria-hidden="true" />}
                     <span>{item.title}</span>
                   </Link>
                 </SidebarMenuButton>

@@ -1,3 +1,4 @@
+import {verificationFetch} from './lib/verification-access.mjs'
 import { expect as baseExpect } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 const expect = baseExpect.configure({ timeout: 20_000 })
@@ -5,7 +6,7 @@ const expect = baseExpect.configure({ timeout: 20_000 })
 export async function verifyLedgerPagination(page, admin, tenantId, appUrl, accounts, periodId) {
   const database = new URL(admin.supabaseUrl)
   const target = new URL(appUrl)
-  const policy = (await fetch(`${appUrl}/landing`)).headers.get('content-security-policy') ?? ''
+  const policy = (await verificationFetch(`${appUrl}/landing`,{},appUrl)).headers.get('content-security-policy') ?? ''
   const local = ['http://localhost:3107', 'http://localhost:3108'].includes(target.origin)
     && ['localhost', '127.0.0.1'].includes(database.hostname) && database.port === '58321'
   const staging = database.origin === 'https://viowrovartosrkqukjxy.supabase.co' && policy.includes(database.origin)
@@ -108,6 +109,10 @@ export async function verifyLedgerPagination(page, admin, tenantId, appUrl, acco
       await page.goto(`${appUrl}/accounting?lang=ar`)
       const arabicTab = tab === 'Journal' ? 'قيود اليومية' : tab === 'Receivables' ? 'الذمم المدينة' : 'الذمم الدائنة'
       await page.getByRole('tab', { name: arabicTab, exact: true }).click()
+      // The toolbar is shared by all three ledgers. Wait for the selected panel
+      // before typing, so pending navigation cannot send the query to Journal.
+      await expect(page.getByRole('tab', { name: arabicTab, exact: true })).toHaveAttribute('aria-selected', 'true')
+      await expect(page.getByRole('tabpanel', { name: arabicTab, exact: true })).toBeVisible()
       await page.getByRole('searchbox', { name: 'بحث في السجل', exact: true }).fill(needle)
       await expect(page.getByRole('tabpanel', { name: arabicTab, exact: true }).locator('tbody tr')).toHaveCount(1)
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
@@ -145,7 +150,7 @@ export async function verifyLedgerPagination(page, admin, tenantId, appUrl, acco
     await expect(page.getByTestId('ledger-toolbar')).toContainText('1 record · Page 1 of 1')
     console.log('PASS: journal/AR/AP database pages beyond old caps, literal Arabic/English search, malformed-page recovery, Arabic mobile controls and persisted manual receivable/VAT refresh')
   } catch (error) {
-    console.error(JSON.stringify({ check: 'ledger pagination', stage, errorType: error.name }))
+    console.error(JSON.stringify({ check: 'ledger pagination', stage, errorType: error.name, callsite: /verify-ledger-pagination\.mjs:(\d+):(\d+)/.exec(error.stack)?.slice(1), operation: /expect\(locator\)\.[A-Za-z]+/.exec(error.message)?.[0] }))
     await page.screenshot({ path: 'supabase/.temp/ledger-pagination-failure.png' })
     throw Error(`Ledger pagination verification failed: ${stage}`)
   } finally {

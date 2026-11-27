@@ -1,7 +1,17 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import {readFileSync} from 'node:fs'
 import {MODULE_GROUPS,resolveAcceptanceRunId,assertAcceptanceRunId,preflightAcceptanceTarget,assertAcceptanceTarget,validateDeploymentEvidence,validateGroupProof,redactAcceptanceOutput,createAcceptanceLogScrubber,retireAcceptanceFixtures} from './lib/coordinated-acceptance.mjs'
 const stage='https://viowrovartosrkqukjxy.supabase.co',app='https://elite-dashboard-fixture-elitesaasc-5643.vercel.app',sha='a'.repeat(40),runId='15000000-0000-4000-8000-000000000001',auth='15000000-0000-4000-8000-000000000002',tenant='15000000-0000-4000-8000-000000000003'
+test('hosted release E2E cannot silently skip with the optional flag off or accept fork credentials',()=>{
+ const workflow=readFileSync(new URL('../.github/workflows/ci.yml',import.meta.url),'utf8')
+ const job=workflow.split(/^  e2e:\s*$/m)[1]?.split(/^  [a-z_]+:\s*$/m)[0]
+ assert.ok(job,'Hosted E2E job must exist')
+ const condition=job.match(/^    if: (.+)$/m)?.[1]
+ assert.equal(condition,"github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (vars.STAGING_E2E_ENABLED == 'true' || github.event.pull_request.head.ref == 'codex/production-modules-completion')")
+ assert.match(job,/node scripts\/wait-for-staging\.mjs/)
+ assert.match(job,/e2e\/driver-document-quick-upload\.spec\.ts/)
+})
 for(const [name,backend,url,commit] of [
  ['production backend','https://wwfnsbilmyxeawgzicmv.supabase.co',app,sha],['production alias',stage,'https://elite-dashboard-blush.vercel.app',sha],['unknown backend','https://unknown.supabase.co',app,sha],['unknown deployment',stage,'https://example.test',sha],['credentials',stage,'https://name:password@elite-dashboard-fixture-elitesaasc-5643.vercel.app',sha],['query pin',stage,app+'?dpl=old',sha],['fragment',stage,app+'#old',sha],['nonroot path',stage,app+'/dashboard',sha],['backend path',stage+'/rest/v1',app,sha],['bad commit',stage,app,'master'],['port',stage,app+':8443',sha],
 ])test('coordinated target rejects '+name,()=>assert.throws(()=>assertAcceptanceTarget(backend,url,commit),/isolated staging/))
@@ -47,3 +57,12 @@ test('valid owned child run identity remains stable',()=>assert.equal(assertAcce
 test('coordinator retains the caller-owned run identity',()=>assert.equal(resolveAcceptanceRunId({VERIFY_RELEASE_RUN_ID:runId}),runId))
 test('coordinator validates caller identity before creating a run',()=>assert.throws(()=>resolveAcceptanceRunId({VERIFY_RELEASE_RUN_ID:'not-owned'}),/UUID required/))
 test('coordinator generates a valid identity when no caller supplied one',()=>assert.doesNotThrow(()=>assertAcceptanceRunId(resolveAcceptanceRunId({}))))
+
+test('signed report download failure asserts exact report feedback in the main content', () => {
+ const verifier=readFileSync(new URL('./verify-reports-lifecycle.mjs',import.meta.url),'utf8')
+ const operation=verifier.split("stage = 'localized signed-download failure and ordinary retry'")[1]?.split("stage = 'completed but expired")[0]
+ assert.ok(operation,'Signed download failure and retry stage must exist')
+ assert.match(operation,/page\.locator\('main'\)\.getByRole\('alert'\)\.filter\(\{hasText:downloadFailure\}\)/)
+ assert.match(operation,/\.toHaveText\(downloadFailure\)/)
+ assert.doesNotMatch(operation,/\.first\(\)|\.nth\(/)
+})

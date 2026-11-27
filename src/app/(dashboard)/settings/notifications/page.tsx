@@ -45,36 +45,65 @@ export default function NotificationSettingsPage() {
   const [testing, setTesting] = React.useState(false)
   const [emailDraft, setEmailDraft] = React.useState("")
   const [emailError, setEmailError] = React.useState("")
+  const mounted = React.useRef(false)
+  const settingsRequest = React.useRef(0)
 
-  const load = React.useCallback(async () => {
-    try {
-      const v = await getDigestSettings()
+  const load = React.useCallback(() => {
+    const request = ++settingsRequest.current
+    return getDigestSettings().then(v => {
+      if (!mounted.current || request !== settingsRequest.current) return
       setView(v)
       setForm(v?.settings ?? null)
       setLoadError(!v)
-    } catch {
+    }).catch(() => {
+      if (!mounted.current || request !== settingsRequest.current) return
+      setView(null)
+      setForm(null)
       setLoadError(true)
-    } finally {
-      setLoading(false)
-    }
+    }).finally(() => {
+      if (mounted.current && request === settingsRequest.current) setLoading(false)
+    })
   }, [])
 
   React.useEffect(() => {
+    mounted.current = true
     void load()
+    return () => { mounted.current = false }
   }, [load])
+
+  const heading = (
+    <div>
+      <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
+        <BellRing className="h-6 w-6 text-red-500" />
+        {ar ? "الإشعارات والتنبيهات" : "Notifications"}
+      </h1>
+      <p className="mt-1 text-sm text-muted-foreground">
+        {ar
+          ? "ملخص بريدي دوري للإدارة يشمل كل الوثائق والمواعيد في اللوحة، إضافة إلى جرس التنبيهات داخل التطبيق."
+          : "A periodic email digest for management covering every document and deadline in the dashboard, plus the in-app bell."}
+      </p>
+    </div>
+  )
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-24">
-        <LoadingSpinner className="h-6 w-6 text-elite-blue-600" />
+      <div className="space-y-6 px-4 py-4 lg:px-6" dir={ar ? "rtl" : "ltr"}>
+        {heading}
+        <div className="flex items-center justify-center py-16" role="status" aria-label={ar ? "جارٍ تحميل إعدادات الإشعارات" : "Loading notification settings"}>
+          <LoadingSpinner className="h-6 w-6 text-elite-blue-600" />
+        </div>
       </div>
     )
   }
 
   if (loadError || !view || !form) {
     return (
-      <div className="px-4 py-12 text-center text-sm text-muted-foreground lg:px-6">
-        {ar ? "تعذر تحميل إعدادات الإشعارات أو لا تملك صلاحية عرضها." : "Couldn't load notification settings, or you don't have access."}
+      <div className="space-y-6 px-4 py-4 lg:px-6" dir={ar ? "rtl" : "ltr"}>
+        {heading}
+        <div className="space-y-3 text-sm" role="alert">
+          <p className="text-muted-foreground">{ar ? "تعذر تحميل إعدادات الإشعارات أو لا تملك صلاحية عرضها." : "Couldn't load notification settings, or you don't have access."}</p>
+          <Button type="button" variant="outline" onClick={() => { setLoading(true); setLoadError(false); void load() }}>{ar ? "إعادة المحاولة" : "Try again"}</Button>
+        </div>
       </div>
     )
   }
@@ -107,6 +136,7 @@ export default function NotificationSettingsPage() {
     }
     setSaving(true)
     const res = await saveDigestSettings(parsed.data).catch(() => ({ success: false as const, error: "Save failed", errorAr: "تعذر الحفظ" }))
+    if (!mounted.current) return
     setSaving(false)
     if (res.success) {
       toast.success(ar ? "تم حفظ إعدادات الإشعارات" : "Notification settings saved")
@@ -117,6 +147,7 @@ export default function NotificationSettingsPage() {
   const test = async () => {
     setTesting(true)
     const res = await sendTestDigest().catch(() => ({ success: false as const, error: "Send failed", errorAr: "تعذر الإرسال" }))
+    if (!mounted.current) return
     setTesting(false)
     if (res.success) toast.success(ar ? `أُرسلت رسالة تجربة إلى ${res.message}` : `Test digest sent to ${res.message}`)
     else toast.error(ar ? res.errorAr : res.error)
@@ -128,17 +159,7 @@ export default function NotificationSettingsPage() {
   return (
     <div className="page-enter space-y-6 px-4 py-4 lg:px-6" data-testid="notification-settings">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
-            <BellRing className="h-6 w-6 text-red-500" />
-            {ar ? "الإشعارات والتنبيهات" : "Notifications"}
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {ar
-              ? "ملخص بريدي دوري للإدارة يشمل كل الوثائق والمواعيد في اللوحة، إضافة إلى جرس التنبيهات داخل التطبيق."
-              : "A periodic email digest for management covering every document and deadline in the dashboard, plus the in-app bell."}
-          </p>
-        </div>
+        {heading}
         <div className="flex gap-2">
           <Button type="button" variant="outline" onClick={test} disabled={!view.canManage || testing || !view.emailConfigured} className="gap-2">
             {testing ? <LoadingSpinner className="h-4 w-4" /> : <Send className="h-4 w-4" />}

@@ -24,6 +24,7 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -67,29 +68,30 @@
 
 :root {
   --radius: 0.5rem;
-  --background: hsl(0 0% 100%);
-  --foreground: hsl(222.2 84% 4.9%);
-  --card: hsl(0 0% 100%);
-  --card-foreground: hsl(222.2 84% 4.9%);
-  --popover: hsl(0 0% 100%);
-  --popover-foreground: hsl(222.2 84% 4.9%);
-  --primary: hsl(222.2 47.4% 11.2%);
-  --primary-foreground: hsl(210 40% 98%);
-  --secondary: hsl(210 40% 96.1%);
-  --secondary-foreground: hsl(222.2 47.4% 11.2%);
-  --muted: hsl(210 40% 96.1%);
-  --muted-foreground: hsl(215.4 16.3% 46.9%);
-  --accent: hsl(210 40% 96.1%);
-  --accent-foreground: hsl(222.2 47.4% 11.2%);
-  --destructive: hsl(0 84.2% 60.2%);
-  --border: hsl(214.3 31.8% 91.4%);
-  --input: hsl(214.3 31.8% 91.4%);
-  --ring: hsl(222.2 47.4% 11.2%);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
+  --background: #f2f4f7;
+  --foreground: #172330;
+  --card: #ffffff;
+  --card-foreground: #172330;
+  --popover: #ffffff;
+  --popover-foreground: #172330;
+  --primary: #172330;
+  --primary-foreground: #ffffff;
+  --secondary: #e8edf2;
+  --secondary-foreground: #263747;
+  --muted: #edf1f5;
+  --muted-foreground: #596579;
+  --accent: #e8edf2;
+  --accent-foreground: #172330;
+  --destructive: #b42335;
+  --destructive-foreground: #ffffff;
+  --border: #dce3eb;
+  --input: #cbd5e1;
+  --ring: #1e5a99;
+  --chart-1: #1e5a99;
+  --chart-2: #73849a;
+  --chart-3: #b6c5d5;
+  --chart-4: #485d72;
+  --chart-5: #d9e2ec;
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
@@ -98,38 +100,38 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
-  /* Immutable sidebar gradient per ADR-015 — do not change these hex values */
-  /* ADR-021 (Taste Skill pass) supersedes the ADR-015 navy gradient: the sidebar sits on the page ground. */
+  /* ADR-020 (Taste Skill pass) supersedes the ADR-015 navy gradient: the sidebar sits on the page ground. */
   --sidebar-gradient: var(--sidebar);
 }
 
 .dark {
-  --background: hsl(222.2 84% 4.9%);
-  --foreground: hsl(210 40% 98%);
-  --card: hsl(222.2 84% 4.9%);
-  --card-foreground: hsl(210 40% 98%);
-  --popover: hsl(222.2 84% 4.9%);
-  --popover-foreground: hsl(210 40% 98%);
-  --primary: hsl(210 40% 98%);
-  --primary-foreground: hsl(222.2 47.4% 11.2%);
-  --secondary: hsl(217.2 32.6% 17.5%);
-  --secondary-foreground: hsl(210 40% 98%);
-  --muted: hsl(217.2 32.6% 17.5%);
-  --muted-foreground: hsl(215 20.2% 65.1%);
-  --accent: hsl(217.2 32.6% 17.5%);
-  --accent-foreground: hsl(210 40% 98%);
-  --destructive: hsl(0 62.8% 30.6%);
-  --border: hsl(217.2 32.6% 17.5%);
-  --input: hsl(217.2 32.6% 17.5%);
-  --ring: hsl(215 20.2% 65.1%);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
+  --background: #121212;
+  --foreground: #eef2f6;
+  --card: #1a1a1a;
+  --card-foreground: #eef2f6;
+  --popover: #222222;
+  --popover-foreground: #eef2f6;
+  --primary: #eef2f6;
+  --primary-foreground: #171717;
+  --secondary: #262626;
+  --secondary-foreground: #e4ebf2;
+  --muted: #242424;
+  --muted-foreground: #afbdcc;
+  --accent: #2a2a2a;
+  --accent-foreground: #f4f7fa;
+  --destructive: #f28b95;
+  --destructive-foreground: #36151b;
+  --border: #3d3d3d;
+  --input: #999999;
+  --ring: #9ac6f0;
+  --chart-1: #8cb9e6;
+  --chart-2: #a1afbf;
+  --chart-3: #657d96;
+  --chart-4: #d0d9e2;
+  --chart-5: #485e75;
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary: var(--primary);
   --sidebar-primary-foreground: oklch(0.985 0 0);
   --sidebar-accent: oklch(0.269 0 0);
   --sidebar-accent-foreground: oklch(0.985 0 0);
@@ -140,9 +142,6 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
-    transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, transform, box-shadow;
-    transition-duration: 200ms;
-    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   }
   body {
     @apply bg-background text-foreground;
@@ -172,7 +171,7 @@
 }
 
 /* Fix for right-side inset variant support */
-@media (min-width: 768px) {
+@media (min-width: 1024px) {
   /* Right sidebar inset variant - margin adjustments */
   [data-side="right"][data-variant="inset"] ~ [data-slot="sidebar-inset"] {
     margin-right: 0 !important;
@@ -300,33 +299,25 @@ html {
     background: var(--card);
     border: 1px solid var(--border);
   }
+  .dark .glass {
+    background: var(--card);
+    border: 1px solid var(--border);
+  }
   .glass-dark {
     background: var(--card);
     border: 1px solid var(--border);
   }
-  .shadow-modern,
-  .shadow-modern-lg {
-    box-shadow: none;
-  }
-  .hover-lift {
-    transition: transform 200ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 200ms cubic-bezier(0.4, 0, 0.2, 1);
-  }
-  .hover-lift:hover {
-    border-color: var(--ring);
-  }
-  .gradient-elite-blue {
-    background: var(--color-elite-blue-600, #1a4d85);
-  }
-  .gradient-elite-orange {
-    background: var(--color-elite-orange-600, #d06830);
-  }
+  .shadow-modern { box-shadow: none; }
+  .shadow-modern-lg { box-shadow: none; }
+  .hover-lift { transition: border-color 140ms ease; }
+  .hover-lift:hover { border-color: var(--input); }
+  .gradient-elite-blue { background: #1e5a99; }
+  .gradient-elite-orange { background: #e87d3e; }
   .sidebar-gradient {
     background: var(--sidebar);
     border-inline-end: 1px solid var(--sidebar-border);
   }
-  .gradient-avatar {
-    background: var(--color-elite-blue-500, #1E5A99);
-  }
+  .gradient-avatar { background: #1e5a99; }
 }
 
 /* ═══ Design DNA Animation Keyframes (ADR-015) ═══ */
@@ -455,15 +446,18 @@ html {
 
 /* Premium card with subtle gradient border on hover */
 .card-premium {
-  position: relative;
-  border: 1px solid var(--border);
-  border-radius: 1rem;
   background: var(--card);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  box-shadow: none;
 }
 
+.card-premium::after { content: none; }
+
+
+
 .card-premium:hover {
-  border-color: var(--ring);
+  border-color: var(--input);
 }
 
 /* Text gradient utility */
@@ -580,27 +574,33 @@ html {
   }
 }
 
-/* ── Modern form controls (global, unlayered so it applies to raw inputs,
-   selects and textareas across every module). Only interaction states are
-   styled here; layout/size stays with each component's utilities. ───────── */
-:where(input:not([type=checkbox],[type=radio],[type=range],[type=file],[type=color],[type=hidden],[type=submit],[type=button]), select, textarea):not([class*="border-0"],[class*="border-none"],[data-slot=command-input]) {
-  transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease;
+/* Shared visual rhythm across public pages and operational screens. */
+@layer base {
+  body { text-rendering: optimizeLegibility; }
+  h1, h2, h3 { text-wrap: balance; }
+  button, a, input, textarea, select, [role="button"], [role="tab"] {
+    transition-property: color, background-color, border-color, box-shadow;
+    transition-duration: 140ms;
+    transition-timing-function: ease-out;
+  }
+  :focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+  ::selection { background: color-mix(in srgb, var(--ring) 20%, transparent); }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
 }
-:where(input:not([type=checkbox],[type=radio],[type=range],[type=file],[type=color],[type=hidden],[type=submit],[type=button]), select, textarea):not([class*="border-0"],[class*="border-none"],[data-slot=command-input],:disabled,[readonly]):hover {
-  border-color: color-mix(in oklab, var(--color-elite-blue-500, #1E5A99) 45%, var(--border));
+
+.workspace-canvas { min-width: 0; }
+.workspace-canvas .page-enter { animation: none; }
+.workspace-canvas :is(.animate-slide-up, .animate-scale-in, .stagger-1, .stagger-2, .stagger-3, .stagger-4, .stagger-5, .stagger-6) {
+  animation: none; opacity: 1; transform: none;
 }
-:where(input:not([type=checkbox],[type=radio],[type=range],[type=file],[type=color],[type=hidden],[type=submit],[type=button]), select, textarea):not([class*="border-0"],[class*="border-none"],[data-slot=command-input]):focus-visible {
-  border-color: var(--color-elite-blue-500, #1E5A99);
-  box-shadow: 0 0 0 4px color-mix(in oklab, var(--color-elite-blue-500, #1E5A99) 16%, transparent);
-  outline: none;
-}
-:where(input, select, textarea)[aria-invalid=true]:not([class*="border-0"]) {
-  border-color: var(--destructive);
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--destructive) 14%, transparent);
-}
-:where(input, textarea)::placeholder { color: color-mix(in oklab, var(--muted-foreground) 80%, transparent); }
-:where(input[type=checkbox], input[type=radio]) { accent-color: var(--color-elite-blue-600, #1a4d85); }
-:where(input[type=number]) { font-variant-numeric: tabular-nums; }
 
 /* Rich text (invoice notes/terms editor + previews) — Tailwind preflight resets lists. */
 .rich-text-content ul { list-style: disc; padding-inline-start: 1.5em; margin: .25em 0; }
@@ -608,3 +608,5 @@ html {
 .rich-text-content hr { border: 0; border-top: 1px solid currentColor; opacity: .35; margin: .5em 0; }
 .rich-text-content a { color: #1e5a99; text-decoration: underline; }
 .rich-text-content b { font-weight: 700; }
+
+:where(input[type=number]) { font-variant-numeric: tabular-nums; }

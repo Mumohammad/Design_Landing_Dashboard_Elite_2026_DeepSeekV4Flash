@@ -58,7 +58,7 @@ export default function HRPage() {
   ]
 
   return (
-    <div className="px-4 lg:px-6 py-4">
+    <div className="py-4">
       <EnterpriseModulePage
         title={t.nav.hrManagement}
         subtitle={locale === "ar" ? "إدارة التقييمات من ملف السائق. الملخص لجميع التقييمات." : "Manage reviews from the driver profile. Summary covers all reviews."}

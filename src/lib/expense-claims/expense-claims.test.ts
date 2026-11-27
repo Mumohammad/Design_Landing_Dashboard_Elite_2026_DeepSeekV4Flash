@@ -83,6 +83,19 @@ describe("receipt OCR parsing", () => {
 })
 
 describe("Telegram caption parsing", () => {
+  it("keeps a repeated implicit field name as part of the value", () => {
+    expect(parseCaption("supplier Fixture Supplier total 115")).toEqual({
+      supplier_name: "Fixture Supplier", total_amount: "115.00",
+    })
+  })
+  it("reads field labels inside quoted values as text", () => {
+    expect(parseCaption('supplier: "First Tax Vendor" purpose "Ride for client" total 115')).toEqual({
+      supplier_name: "First Tax Vendor", business_purpose: "Ride for client", total_amount: "115.00",
+    })
+    expect(parseCaption('المورد "مؤسسة القسم" المبلغ ٥٠')).toEqual({
+      supplier_name: "مؤسسة القسم", total_amount: "50.00",
+    })
+  })
   it("reads key/value captions in English and Arabic", () => {
     expect(parseCaption("total 115 vat 15 supplier Shell Station category fuel purpose delivery run Riyadh date 2026-11-01 receipt R-77"))
       .toEqual({ total_amount: "115.00", vat_amount: "15.00", amount_before_vat: "100.00", supplier_name: "Shell Station", category: "fuel",

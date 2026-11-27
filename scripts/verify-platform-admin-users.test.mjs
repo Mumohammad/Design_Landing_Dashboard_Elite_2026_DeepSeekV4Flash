@@ -25,7 +25,7 @@ for (const policy of ["connect-src 'self' " + backend + " https://wwfnsbilmyxeaw
     let accesses = 0
     const page = { request: { async get() { return { status: () => 200, headers: () => ({ "content-security-policy": policy }) } } } }
     const admin = { supabaseUrl: backend, from() { accesses++; throw Error("Unexpected fixture access") } }
-    await assert.rejects(() => verifyPlatformAdminUsers(page, admin, tenant, app, actor), /Staging CSP/)
+    await assert.rejects(() => verifyPlatformAdminUsers(page, admin, tenant, app, actor, {targetRequest:(context,url,options)=>context.get(url,options)}), /Staging CSP/)
     assert.equal(accesses, 0)
   })
 }

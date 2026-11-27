@@ -39,16 +39,16 @@ export default function AcceptInvitePage() {
   if (acceptance && !invite.tid && !invite.token) {
     return (
       <div className="flex flex-col gap-6">
-        <div className="stagger-1 flex justify-center">
+        <div className="flex justify-center">
           <LogoMark size={56} showIndicator />
         </div>
-        <div className="rounded-2xl border border-border/50 shadow-modern-lg bg-card p-6 md:p-8 text-center">
-          <h1 className="text-2xl font-bold tracking-tight mb-2">{t.auth.acceptInviteSuccessTitle}</h1>
+        <div className="rounded-lg border border-border bg-card shadow-none p-6 md:p-8 text-center">
+          <h1 className="text-2xl font-semibold tracking-tight mb-2">{t.auth.acceptInviteSuccessTitle}</h1>
           <p className="text-sm text-muted-foreground mb-6">{t.auth.acceptInviteSuccessBody}</p>
-          {acceptanceNotice?<div role="status" className="mb-6 space-y-3 rounded-xl border border-border p-4 text-start text-sm"><p>{locale==="ar"?acceptanceNotice.ar:acceptanceNotice.en}</p><Link href="/auth/forgot-password" className="font-medium text-primary underline underline-offset-4">{locale==="ar"?"إعادة تعيين كلمة المرور":"Reset password"}</Link></div>:null}
+          {acceptanceNotice?<div role="status" className="mb-6 space-y-3 rounded-xl border border-border p-4 text-start text-sm"><p>{locale==="ar"?acceptanceNotice.ar:acceptanceNotice.en}</p><Link href="/auth/forgot-password" className="font-medium text-foreground underline underline-offset-4">{locale==="ar"?"إعادة تعيين كلمة المرور":"Reset password"}</Link></div>:null}
           <Link
             href="/auth/sign-in?invite_accepted=1"
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-elite-blue-500 hover:bg-elite-blue-600 px-6 font-semibold text-white shadow-lg shadow-elite-blue-500/20 transition"
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-foreground hover:bg-foreground/90 px-6 font-medium text-background transition"
           >
             {t.auth.backToSignIn}
           </Link>
@@ -108,16 +108,16 @@ function AcceptInviteForm({ invite, onAccepted }: { invite: Invite; onAccepted: 
   if (!invite.token || !invite.tid) {
     return (
       <div className="flex flex-col gap-6">
-        <div className="stagger-1 flex justify-center">
+        <div className="flex justify-center">
           <LogoMark size={56} showIndicator />
         </div>
-        <div className="rounded-2xl border border-border/50 shadow-modern-lg bg-card dark:bg-card/60 p-6 md:p-8 text-center">
+        <div className="rounded-lg border border-border bg-card shadow-none p-6 md:p-8 text-center">
           <AlertCircle className="mx-auto size-8 text-destructive mb-3" />
           <h1 className="text-xl font-bold tracking-tight mb-2">{t.auth.inviteMissingTitle}</h1>
           <p className="text-sm text-muted-foreground mb-6">{t.auth.inviteMissingBody}</p>
           <Link
             href="/auth/sign-in"
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-elite-blue-500 hover:bg-elite-blue-600 px-6 font-semibold text-white shadow-elite-blue-500/20 transition"
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-foreground hover:bg-foreground/90 px-6 font-medium text-background transition"
           >
             {t.auth.backToSignIn}
           </Link>
@@ -128,17 +128,17 @@ function AcceptInviteForm({ invite, onAccepted }: { invite: Invite; onAccepted: 
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="stagger-1 flex justify-center">
+      <div className="flex justify-center">
         <LogoMark size={56} showIndicator />
       </div>
 
-      <div className="rounded-2xl border border-border/50 shadow-modern-lg bg-card dark:bg-card/60 p-6 md:p-8">
-        <div className="stagger-2 flex flex-col gap-1.5 text-center mb-6">
-          <h1 className="text-2xl font-bold tracking-tight">{t.pages.acceptInvite}</h1>
+      <div className="rounded-lg border border-border bg-card shadow-none p-6 md:p-8">
+        <div className="flex flex-col gap-2 text-start mb-6">
+          <h1 className="text-2xl font-semibold tracking-tight">{t.pages.acceptInvite}</h1>
           <p className="text-sm text-muted-foreground">{t.auth.acceptInviteSubtitle}</p>
         </div>
 
-        <form onSubmit={onSubmit} className="stagger-3 grid gap-4">
+        <form onSubmit={onSubmit} className="grid gap-4">
           {error && (
             <div role="alert" className="flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               <AlertCircle className="size-4 shrink-0" />
@@ -160,7 +160,7 @@ function AcceptInviteForm({ invite, onAccepted }: { invite: Invite; onAccepted: 
                 autoComplete="name"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
-                className="flex h-11 w-full rounded-md border border-input bg-transparent ps-10 pe-3 py-2 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring placeholder:text-muted-foreground"
+                className="flex h-11 w-full rounded-md border border-input bg-background ps-10 pe-3 py-2 text-sm shadow-none transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring placeholder:text-muted-foreground"
               />
             </div>
           </div>
@@ -183,7 +183,7 @@ function AcceptInviteForm({ invite, onAccepted }: { invite: Invite; onAccepted: 
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder={t.auth.passwordPlaceholder}
-                className="flex h-11 w-full rounded-md border border-input bg-transparent ps-10 pe-10 py-2 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring placeholder:text-muted-foreground"
+                className="flex h-11 w-full rounded-md border border-input bg-background ps-10 pe-10 py-2 text-sm shadow-none transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring placeholder:text-muted-foreground"
               />
               <button
                 type="button"
@@ -217,7 +217,7 @@ function AcceptInviteForm({ invite, onAccepted }: { invite: Invite; onAccepted: 
                   setMismatch(false)
                 }}
                 placeholder={t.auth.passwordPlaceholder}
-                className={`flex h-11 w-full rounded-md border bg-transparent ps-10 pe-3 py-2 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 placeholder:text-muted-foreground ${
+                className={`flex h-11 w-full rounded-md border bg-background ps-10 pe-3 py-2 text-sm shadow-none transition-colors focus-visible:outline-none focus-visible:ring-1 placeholder:text-muted-foreground ${
                   mismatch
                     ? "border-destructive focus-visible:ring-destructive"
                     : "border-input focus-visible:ring-ring"
@@ -229,7 +229,7 @@ function AcceptInviteForm({ invite, onAccepted }: { invite: Invite; onAccepted: 
           <button
             type="submit"
             disabled={loading}
-            className="mt-2 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-elite-blue-500 hover:bg-elite-blue-600 text-base font-semibold text-white shadow-elite-blue-500/20 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60 cursor-pointer"
+            className="mt-2 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-foreground hover:bg-foreground/90 text-base font-medium text-background transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60 cursor-pointer"
           >
             {loading && <Loader2 className="size-4 animate-spin" />}
             {t.auth.acceptInviteButton}
@@ -237,10 +237,10 @@ function AcceptInviteForm({ invite, onAccepted }: { invite: Invite; onAccepted: 
         </form>
       </div>
 
-      <div className="stagger-4 text-center text-sm">
+      <div className="text-center text-sm">
         <Link
           href="/auth/sign-in"
-          className="font-medium text-primary underline underline-offset-4 hover:opacity-80 transition"
+          className="font-medium text-foreground underline underline-offset-4 hover:opacity-80 transition"
         >
           {t.auth.backToSignIn}
         </Link>

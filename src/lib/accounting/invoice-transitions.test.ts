@@ -11,8 +11,7 @@ vi.mock("@/lib/auth/authorization", () => ({ requirePermission: mocks.permission
 vi.mock("@/lib/auth/rate-limit", () => ({ rateLimitAccounting: mocks.rate }))
 vi.mock("@/lib/auth/sessions", () => ({ writeAuditLog: mocks.audit }))
 vi.mock("@/lib/accounting/dispatcher", () => ({ runEventDispatcher: mocks.dispatch }))
-vi.mock("@/lib/accounting/zatca", () => ({ runZatcaAdapter: mocks.zatca }))
-vi.mock("@/lib/accounting/zatca-adapter-core", () => ({ runZatcaForTenant: vi.fn(async () => ({ success: false })) }))
+vi.mock("@/lib/accounting/zatca-adapter-core", () => ({ runZatcaForTenant: mocks.zatca }))
 import { finalizeInvoice, issueInvoice } from "./invoices"
 
 const input = { id: "80111111-1111-4111-8111-111111111111", expected_updated_at: "2026-10-21T00:00:00.123456+00:00" }
@@ -38,6 +37,7 @@ describe("invoice issue and approval transaction boundary", () => {
     })
     expect(mocks.permission).toHaveBeenCalledWith("invoices", "approve")
     expect(mocks.from).toHaveBeenCalledWith("financial_events")
+    expect(mocks.zatca).toHaveBeenCalledExactlyOnceWith("tenant", input.id)
     expect(mocks.audit).not.toHaveBeenCalled()
   })
   it("issues without dispatching, privileged writes or a second audit", async () => {

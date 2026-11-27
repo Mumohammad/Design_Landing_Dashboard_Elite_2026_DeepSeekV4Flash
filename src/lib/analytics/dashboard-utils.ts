@@ -5,6 +5,7 @@
 // "use server" modules cannot be imported by client components, so every
 // pure computation the dashboard UI needs lives here.
 
+import { sumMoney } from "@/lib/accounting/decimal"
 import type { MetricValue } from "./types"
 //
 // Covers:
@@ -73,9 +74,9 @@ export function mergePayrollTrend(
     const key = periodKeyOf(r.period_year, r.period_month)
     const p = byMonth.get(key)
     if (p) {
-      p.payroll = (p.payroll ?? 0) + Number(r.net_payroll ?? 0)
+      p.payroll = sumMoney(p.payroll ?? 0, r.net_payroll ?? 0)
     } else {
-      byMonth.set(key, { date: key, payroll: Number(r.net_payroll ?? 0) })
+      byMonth.set(key, { date: key, payroll: sumMoney(r.net_payroll ?? 0) })
     }
   }
   return [...byMonth.values()].sort((a, b) => (a.date < b.date ? -1 : 1))

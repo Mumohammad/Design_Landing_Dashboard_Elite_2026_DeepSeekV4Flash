@@ -146,7 +146,7 @@ export default function PlatformDetailPage() {
   ]
 
   return (
-    <div className="px-4 lg:px-6 py-4">
+    <div className="py-4">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Link href="/platforms" className="rounded-xl border border-border/50 p-2 hover:bg-muted/40"><ArrowLeft className="h-4 w-4" /></Link>

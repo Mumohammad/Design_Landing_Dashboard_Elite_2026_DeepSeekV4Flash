@@ -1,3 +1,4 @@
+import {continueVerificationRoute} from './lib/verification-access.mjs'
 import { expect as baseExpect } from '@playwright/test'
 import { randomUUID, createHash } from 'node:crypto'
 import { assertModuleTestTarget } from './assert-module-test-target.mjs'
@@ -110,10 +111,10 @@ export async function verifyReportsLifecycle(page, admin, tenantId, appUrl) {
     await expect(page.locator('html')).toHaveAttribute('lang','ar')
     await page.getByRole('combobox',{name:'نوع التقرير',exact:true}).selectOption('driver_performance')
     const initialCount=(await reports()).length
-    const actionPattern='**/reports**', actionFault=async route=>{if(route.request().method()==='POST'&&route.request().headers()['next-action'])return route.abort('failed');return route.continue()}
+    const actionPattern='**/reports**', actionFault=async route=>{if(route.request().method()==='POST'&&route.request().headers()['next-action'])return route.abort('failed');return continueVerificationRoute(route)}
     routes.push([actionPattern,actionFault]);await page.route(actionPattern,actionFault)
     await page.getByRole('button',{name:'إنشاء تقرير',exact:true}).click()
-    await expect(page.getByRole('alert')).toContainText('تعذر إنشاء التقرير. أعد المحاولة.')
+    await expect(page.getByRole('alert').filter({hasText:'تعذر إنشاء التقرير. أعد المحاولة.'})).toContainText('تعذر إنشاء التقرير. أعد المحاولة.')
     await expect(page.getByRole('button',{name:'إنشاء تقرير',exact:true})).toBeEnabled()
     expect((await reports()).length).toBe(initialCount)
     await page.unroute(actionPattern,actionFault)
@@ -127,7 +128,8 @@ export async function verifyReportsLifecycle(page, admin, tenantId, appUrl) {
     const signPattern='**/storage/v1/object/sign/generated-reports/**', signFault=route=>route.fulfill({status:503,contentType:'application/json',body:'{"message":"SENSITIVE_TEST_DETAIL"}'})
     routes.push([signPattern,signFault]);await page.route(signPattern,signFault)
     await page.getByTestId('report-download-'+retry.id).click()
-    await expect(page.getByRole('alert')).toContainText('تعذر تنزيل التقرير. أعد المحاولة.')
+    const downloadFailure = 'تعذر تنزيل التقرير. أعد المحاولة.'
+    await expect(page.locator('main').getByRole('alert').filter({hasText:downloadFailure})).toHaveText(downloadFailure)
     await expect(page.locator('main')).not.toContainText('SENSITIVE_TEST_DETAIL')
     await expect(page.getByTestId('report-download-'+retry.id)).toBeEnabled()
     await page.unroute(signPattern,signFault)

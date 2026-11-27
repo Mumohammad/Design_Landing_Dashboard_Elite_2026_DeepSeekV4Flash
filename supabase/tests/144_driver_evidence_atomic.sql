@@ -28,6 +28,7 @@ SELECT set_config('request.jwt.claims','{"sub":"14400000-0000-4000-8000-00000000
 SELECT throws_ok($$SELECT public.mutate_driver_evidence('recompute','14400000-0000-4000-8000-000000000012',1)$$,'P0001','EVIDENCE_NOT_FOUND','foreign driver is not exposed through the owner RPC');
 SELECT throws_ok($$SELECT pg_temp.evidence_call('document_register',jsonb_build_object('doc_type','health_certificate','file_path',(SELECT path FROM evidence_paths WHERE kind='foreign-owner.pdf')))$$,'P0001','EVIDENCE_OBJECT_REQUIRED','another uploader object cannot be claimed even within the same driver folder');
 SELECT throws_ok($$SELECT pg_temp.evidence_call('document_register','{"doc_type":"health_certificate","file_path":"https://example.test/file.pdf"}')$$,'P0001','EVIDENCE_OBJECT_REQUIRED','external and unbound document paths are rejected');
+INSERT INTO evidence_results VALUES('payroll_before_documents',to_jsonb(public.read_my_payroll_source_version()));
 INSERT INTO evidence_results VALUES('document',pg_temp.evidence_call('document_register',jsonb_build_object('doc_type','health_certificate','file_path',(SELECT path FROM evidence_paths WHERE kind='doc-one.pdf'),'doc_number','PRIVATE-DOC-144','file_size',100,'mime_type','application/pdf')));
 SELECT ok((SELECT is_active AND NOT is_verified AND file_size_bytes=100 AND mime_type='application/pdf' FROM public.driver_documents WHERE id=(SELECT (result->>'id')::uuid FROM evidence_results WHERE kind='document')),'uploaded document metadata is finalized from the bound Storage object');
 SELECT throws_ok($$SELECT public.mutate_driver_evidence('document_verify','14400000-0000-4000-8000-000000000011',1,'{}',(SELECT (result->>'id')::uuid FROM evidence_results WHERE kind='document'),1)$$,'P0001','EVIDENCE_STALE','stale reviewed driver version cannot verify a document');
@@ -35,6 +36,9 @@ UPDATE evidence_results SET result=pg_temp.evidence_call('document_verify','{}',
 SELECT ok((SELECT is_verified AND verified_by=auth.uid() AND verified_at IS NOT NULL AND workflow_version=2 FROM public.driver_documents WHERE id=(SELECT (result->>'id')::uuid FROM evidence_results WHERE kind='document')),'verification and actor evidence commit with source version');
 INSERT INTO evidence_results VALUES('replacement',pg_temp.evidence_call('document_register',jsonb_build_object('doc_type','health_certificate','file_path',(SELECT path FROM evidence_paths WHERE kind='doc-two.pdf'))));
 SELECT ok((SELECT NOT is_active AND is_verified AND verified_at IS NOT NULL AND file_url=(SELECT path FROM evidence_paths WHERE kind='doc-one.pdf') FROM public.driver_documents WHERE id=(SELECT (result->>'id')::uuid FROM evidence_results WHERE kind='document')),'replacement retains verified predecessor metadata and file binding');
+SELECT is(public.read_my_payroll_source_version(),
+ (SELECT (result #>> '{}')::bigint FROM evidence_results WHERE kind='payroll_before_documents'),
+ 'document registration, verification and replacement preserve the payroll source revision');
 SELECT throws_ok($$SELECT pg_temp.evidence_call('document_verify','{}',(SELECT (result->>'id')::uuid FROM evidence_results WHERE kind='document'),3)$$,'P0001','EVIDENCE_NOT_CURRENT','retired evidence cannot be verified after a replacement');
 SELECT throws_ok($$UPDATE public.driver_documents SET is_verified=true WHERE id=(SELECT (result->>'id')::uuid FROM evidence_results WHERE kind='replacement')$$,'42501',NULL,'direct document mutation cannot bypass caller review');
 RESET ROLE;
@@ -52,11 +56,15 @@ RESET ROLE;
 SELECT is((SELECT count(*) FROM driver_operations_private.photo_records WHERE driver_id='14400000-0000-4000-8000-000000000011'),0::bigint,'photo audit failure rolls private photo evidence back');
 DROP TRIGGER fail_evidence_audit ON public.audit_log;
 SET LOCAL ROLE authenticated;
+INSERT INTO evidence_results VALUES('payroll_before_photo',to_jsonb(public.read_my_payroll_source_version()));
 INSERT INTO evidence_results VALUES('photo',pg_temp.evidence_call('photo_update',jsonb_build_object('file_path',(SELECT path FROM evidence_paths WHERE kind='photo-one.png'),'file_size',100,'mime_type','image/png')));
 SELECT is((SELECT photo_url FROM public.drivers WHERE id='14400000-0000-4000-8000-000000000011'),(SELECT path FROM evidence_paths WHERE kind='photo-one.png'),'photo finalization succeeds without restoring generic driver UPDATE grants');
 UPDATE evidence_results SET result=pg_temp.evidence_call('photo_remove') WHERE kind='photo';
 SELECT is((SELECT photo_url FROM public.drivers WHERE id='14400000-0000-4000-8000-000000000011'),NULL::text,'photo removal atomically clears the current pointer');
 RESET ROLE;
+SELECT is((SELECT version FROM payroll_guard_private.source_versions WHERE tenant_id=(SELECT id FROM evidence_tenants WHERE kind='own')),
+ (SELECT (result #>> '{}')::bigint FROM evidence_results WHERE kind='payroll_before_photo'),
+ 'photo attach and removal preserve the payroll source revision');
 SELECT is((SELECT count(*) FROM storage.objects WHERE bucket_id='driver-photos' AND name=(SELECT path FROM evidence_paths WHERE kind='photo-one.png')),1::bigint,'photo removal retains the uploaded object');
 SELECT ok((SELECT retired_at IS NOT NULL AND retired_by='14400000-0000-4000-8000-000000000001' FROM driver_operations_private.photo_records WHERE driver_id='14400000-0000-4000-8000-000000000011'),'photo history records controlled retirement without deleting bytes');
 SET LOCAL ROLE authenticated;
@@ -94,6 +102,14 @@ RESET ROLE;
 SELECT ok(NOT EXISTS(SELECT 1 FROM public.audit_log WHERE tenant_id=(SELECT id FROM evidence_tenants WHERE kind='own') AND (coalesce(new_values::text,'')||coalesce(old_values::text,'')) LIKE ANY(ARRAY['%PRIVATE-DOC-144%','%PRIVATE-OVERRIDE-REASON-144%','%doc-one.pdf%','%photo-one.png%'])),'evidence audit contains flags and versions without source PII or object paths');
 SELECT throws_ok($$UPDATE public.driver_cards SET revoke_reason='Rewrite final review' WHERE id=(SELECT (result->>'id')::uuid FROM evidence_results WHERE kind='card')$$,'P0001','EVIDENCE_HISTORY_IMMUTABLE','trusted direct write cannot rewrite final card history');
 SELECT throws_ok($$UPDATE public.driver_documents SET doc_number='Rewrite old document' WHERE id=(SELECT (result->>'id')::uuid FROM evidence_results WHERE kind='document')$$,'P0001','EVIDENCE_HISTORY_IMMUTABLE','retired verified document metadata remains immutable');
+INSERT INTO evidence_results
+ SELECT 'payroll_before_bank_edit',to_jsonb(version) FROM payroll_guard_private.source_versions
+ WHERE tenant_id=(SELECT id FROM evidence_tenants WHERE kind='own');
+UPDATE public.drivers SET bank_name='Synthetic updated payroll bank',last_compliance_review_at=clock_timestamp()
+ WHERE id='14400000-0000-4000-8000-000000000011';
+SELECT is((SELECT version FROM payroll_guard_private.source_versions WHERE tenant_id=(SELECT id FROM evidence_tenants WHERE kind='own')),
+ (SELECT (result #>> '{}')::bigint+1 FROM evidence_results WHERE kind='payroll_before_bank_edit'),
+ 'driver bank edits still invalidate payroll even with derived compliance changes');
 SET LOCAL ROLE service_role;
 SELECT throws_ok($$UPDATE public.driver_cards SET status='active' WHERE id=(SELECT (result->>'id')::uuid FROM evidence_results WHERE kind='card')$$,'42501',NULL,'BYPASSRLS service DML cannot replace the caller workflow');
 SELECT throws_ok($$SELECT public.mutate_driver_evidence('card_issue','14400000-0000-4000-8000-000000000011',1)$$,'42501',NULL,'service role cannot impersonate a caller mutation');

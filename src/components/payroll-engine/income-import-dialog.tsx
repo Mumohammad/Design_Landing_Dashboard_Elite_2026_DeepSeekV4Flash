@@ -1,7 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { importIncomeRows, type IncomeImportResult } from "@/lib/payroll-engine/server/income-actions"
+import type { IncomeSheet } from "@/lib/payroll-engine/income-workbook"
 import { Field, Notice, buttonClass, inputClass, primaryButtonClass, sar, useLang } from "./shared"
 
 // Same target fields and auto-mapping heuristic as the upstream import dialog,
@@ -38,14 +39,12 @@ function autoMap(headers: string[]): Record<string, string> {
   return out
 }
 
-type Sheet = { name: string; headers: string[]; rows: Record<string, unknown>[] }
-
 export function IncomeImportDialog({ defaultMonth, customFields, onClose, onImported }: {
   defaultMonth: string; customFields: Array<{ id: string; name: string; nameAr: string | null; fieldType: "add" | "deduct" }>; onClose: () => void; onImported: () => void
 }) {
   const { ar, tx } = useLang()
   const [file, setFile] = useState<File | null>(null)
-  const [sheets, setSheets] = useState<Sheet[]>([])
+  const [sheets, setSheets] = useState<IncomeSheet[]>([])
   const [sheetName, setSheetName] = useState("")
   const [month, setMonth] = useState(defaultMonth)
   const [companyName, setCompanyName] = useState("HungerStation")
@@ -54,6 +53,7 @@ export function IncomeImportDialog({ defaultMonth, customFields, onClose, onImpo
   const [forceUpdate, setForceUpdate] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
+  const request = useRef<{ id: string; signature: string } | null>(null)
 
   useEffect(() => {
     const k = (e: KeyboardEvent) => { if (e.key === "Escape") onClose() }
@@ -66,13 +66,8 @@ export function IncomeImportDialog({ defaultMonth, customFields, onClose, onImpo
   async function readFile(f: File) {
     setError(""); setPreview(null); setFile(f)
     try {
-      const XLSX = await import("xlsx")
-      const wb = XLSX.read(await f.arrayBuffer(), { type: "array" })
-      const parsed: Sheet[] = wb.SheetNames.map(name => {
-        const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[name], { defval: null })
-        const headers = [...new Set(rows.flatMap(r => Object.keys(r)))]
-        return { name, headers, rows }
-      }).filter(s => s.rows.length > 0)
+      const { readIncomeWorkbook } = await import("@/lib/payroll-engine/income-workbook")
+      const parsed = readIncomeWorkbook(await f.arrayBuffer(), f.name)
       if (!parsed.length) { setError(tx("The file has no data rows", "الملف لا يحتوي على بيانات")); return }
       // Prefer the sheet that looks like rider data (has a rider id column).
       const best = parsed.find(s => autoMap(s.headers).riderId) ?? parsed[0]
@@ -85,18 +80,33 @@ export function IncomeImportDialog({ defaultMonth, customFields, onClose, onImpo
     return sheet.rows.map(r => {
       const out: Record<string, unknown> = {}
       for (const [field, col] of Object.entries(mapping)) if (col && !field.startsWith("cf:")) out[field] = r[col]
-      out.customFields = customFields.filter(f => mapping[`cf:${f.id}`]).map(f => ({ name: f.name, type: f.fieldType, amount: Number(r[mapping[`cf:${f.id}`]] ?? 0) || 0 }))
+      out.customFields = customFields.filter(f => mapping[`cf:${f.id}`]).map(f => ({
+        field_id: f.id, name: f.name, type: f.fieldType, amount: r[mapping[`cf:${f.id}`]],
+      }))
       return out
-    }).filter(r => String(r.riderId ?? "").trim())
+    })
   }
 
   async function submit(previewOnly: boolean) {
     if (!mapping.riderId) { setError(tx("Map the Rider ID column", "اربط عمود رقم المندوب")); return }
     setBusy(true); setError("")
-    const r = await importIncomeRows({ month, companyName, rows: mappedRows(), forceUpdate, preview: previewOnly, sourceFile: file?.name ?? null })
-    setBusy(false)
-    if (!r.success) { setError(r.error); return }
-    if (previewOnly) setPreview(r.data); else onImported()
+    const input = { month, companyName, rows: mappedRows(), forceUpdate, sourceFile: file?.name ?? null }
+    const signature = JSON.stringify(input)
+    if (request.current && request.current.signature !== signature) {
+      setBusy(false); setError(tx("Reload this form before changing a submitted import.", "أعد فتح النموذج قبل تغيير عملية استيراد مُرسلة.")); return
+    }
+    if (!previewOnly && !request.current) request.current = { id: crypto.randomUUID(), signature }
+    try {
+      const r = await importIncomeRows({ ...input, requestId: request.current?.id, preview: previewOnly })
+      if (!r.success) {
+        setError(r.error.startsWith("PAYENG024:")
+          ? tx("A mapped income field changed. Reopen the import and map the columns again.", "تغيّر أحد حقول الإيراد المرتبطة. أعد فتح الاستيراد واربط الأعمدة مجدداً.")
+          : r.error)
+        return
+      }
+      if (previewOnly) setPreview(r.data); else onImported()
+    } catch { setError(tx("Import outcome is unknown. Retry the same request or reload to inspect the saved rows.", "نتيجة الاستيراد غير مؤكدة. أعد نفس الطلب أو أعد التحميل لمراجعة السجلات.")) }
+    finally { setBusy(false) }
   }
 
   return (
@@ -124,7 +134,7 @@ export function IncomeImportDialog({ defaultMonth, customFields, onClose, onImpo
         {error && <Notice kind="err">{error}</Notice>}
         {preview && <div className="space-y-2">
           <Notice kind="info">{preview.rowCount} {tx("riders", "مندوب")} · {tx("Total income", "إجمالي الإيراد")} SAR {sar(preview.totalIncome)} · {tx("Penalties", "الغرامات")} SAR {sar(preview.totalPenalties)} · {preview.rows.filter(r => !r.linked).length} {tx("not linked to a driver profile", "غير مرتبطين بملف سائق")}</Notice>
-          {preview.payrollManaged && <Notice kind="err">{tx("This month/company already has income synced from a payroll run. Importing overwrites those rows; recalculating that run later replaces them again.", "لهذا الشهر/الشركة إيرادات من مسير رواتب. الاستيراد يستبدلها، وإعادة احتساب المسير لاحقاً تستبدلها مجدداً.")}</Notice>}
+          {preview.payrollManaged && <Notice kind="err">{tx("This income belongs to a payroll run. Review or recalculate that run; importing cannot replace payroll-managed rows.", "هذه الإيرادات مرتبطة بمسير رواتب. راجع المسير أو أعد احتسابه؛ لا يمكن للاستيراد استبدال الصفوف المرتبطة بالرواتب.")}</Notice>}
           {preview.duplicateRiderIds.length > 0 && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={forceUpdate} onChange={e => setForceUpdate(e.target.checked)} />{tx(`Overwrite ${preview.duplicateRiderIds.length} existing record(s)`, `استبدال ${preview.duplicateRiderIds.length} سجل موجود`)}</label>}
           {preview.errors.length > 0 && <Notice kind="err"><ul className="list-disc ps-5">{preview.errors.slice(0, 20).map((e, i) => <li key={i}>{e}</li>)}</ul></Notice>}
           <div className="max-h-56 overflow-y-auto rounded-lg border border-border"><table className="w-full text-xs"><tbody>{preview.rows.slice(0, 200).map(r => <tr key={r.riderId} className="border-t border-border"><td className="px-2 py-1">{r.riderId}</td><td className="px-2 py-1">{r.driverName}</td><td className="px-2 py-1 text-end tabular-nums">{sar(r.totalPenalties)}</td><td className="px-2 py-1 text-end font-medium tabular-nums">{sar(r.totalIncome)}</td></tr>)}</tbody></table></div>
@@ -132,7 +142,7 @@ export function IncomeImportDialog({ defaultMonth, customFields, onClose, onImpo
         <div className="flex justify-end gap-2">
           <button className={buttonClass} onClick={onClose}>{tx("Close", "إغلاق")}</button>
           <button className={buttonClass} disabled={busy || !sheet} onClick={() => submit(true)}>{tx("Preview", "معاينة")}</button>
-          <button className={primaryButtonClass} disabled={busy || !preview || (preview.duplicateRiderIds.length > 0 && !forceUpdate)} onClick={() => submit(false)}>{busy ? tx("Saving…", "جارٍ الحفظ…") : tx("Save income", "حفظ الإيرادات")}</button>
+          <button className={primaryButtonClass} disabled={busy || !preview || preview.errors.length > 0 || preview.payrollManaged || (preview.duplicateRiderIds.length > 0 && !forceUpdate)} onClick={() => submit(false)}>{busy ? tx("Saving…", "جارٍ الحفظ…") : tx("Save income", "حفظ الإيرادات")}</button>
         </div>
       </div>
     </div>

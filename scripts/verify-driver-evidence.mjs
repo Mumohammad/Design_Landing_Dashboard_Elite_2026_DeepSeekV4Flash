@@ -1,3 +1,4 @@
+import {continueVerificationRoute} from './lib/verification-access.mjs'
 import {expect as baseExpect} from '@playwright/test'
 import {randomUUID} from 'node:crypto'
 import {assertModuleTestTarget} from './assert-module-test-target.mjs'
@@ -6,8 +7,8 @@ const pdf=Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0
 const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lN8AAAAASUVORK5CYII=','base64')
 
 /** Actual UI uploads/actions in an isolated staging tenant. Retains source objects and final audit history. */
-export async function verifyDriverEvidence(page,admin,tenantId,appUrl){
- await assertModuleTestTarget(page,admin.supabaseUrl,appUrl)
+export async function verifyDriverEvidence(page,admin,tenantId,appUrl,{targetRequest}={}){
+ await assertModuleTestTarget(page,admin.supabaseUrl,appUrl,targetRequest)
  if(!/^[0-9a-f-]{36}$/i.test(tenantId??''))throw Error('Synthetic evidence tenant required')
  const id=randomUUID(),tag=randomUUID().slice(0,8),viewport=page.viewportSize(),locale=await page.locator('html').getAttribute('lang'),needle='History 50%_ '+tag
  let stage='synthetic driver',second=null,readFailure=null,lastWrite=0
@@ -79,7 +80,7 @@ export async function verifyDriverEvidence(page,admin,tenantId,appUrl){
   panel=await open(page);await panel.getByRole('checkbox',{name:'Replacement history',exact:true}).check();await expect(panel.getByTestId('driver-document-record')).toHaveCount(25);await panel.getByRole('button',{name:'Next page',exact:true}).click();await expect(docs(page,first.id)).toBeVisible()
   const search=panel.getByRole('searchbox',{name:'Search history',exact:true});await search.pressSequentially(needle,{delay:30});await expect(search).toBeFocused();await expect(panel.getByTestId('driver-document-record')).toHaveCount(1);await expect(docs(page,first.id)).toBeVisible()
   stage='history read failure retains toolbar and distinguishes empty state'
-  readFailure=route=>route.request().method()==='GET'?route.fulfill({status:503,contentType:'application/json',body:'{"message":"Synthetic evidence history unavailable"}'}):route.continue();await page.route(pattern,readFailure);await panel.getByRole('button',{name:'Refresh',exact:true}).click();await expect(panel.getByRole('alert')).toContainText('Could not load documents. Try again.');await expect(panel.getByText('No documents for this driver',{exact:true})).toHaveCount(0);await expect(panel.getByRole('searchbox',{name:'Search history',exact:true})).toBeVisible();await page.unroute(pattern,readFailure);readFailure=null;await panel.getByRole('button',{name:'Try again',exact:true}).click();await expect(docs(page,first.id)).toBeVisible()
+  readFailure=route=>route.request().method()==='GET'?route.fulfill({status:503,contentType:'application/json',body:'{"message":"Synthetic evidence history unavailable"}'}):continueVerificationRoute(route);await page.route(pattern,readFailure);await panel.getByRole('button',{name:'Refresh',exact:true}).click();await expect(panel.getByRole('alert')).toContainText('Could not load documents. Try again.');await expect(panel.getByText('No documents for this driver',{exact:true})).toHaveCount(0);await expect(panel.getByRole('searchbox',{name:'Search history',exact:true})).toBeVisible();await page.unroute(pattern,readFailure);readFailure=null;await panel.getByRole('button',{name:'Try again',exact:true}).click();await expect(docs(page,first.id)).toBeVisible()
   stage='audit privacy and expected one-per-success evidence'
   const rows=await list('audit_log','action,entity_type,old_values,new_values',{entity_type:'driver_evidence'}),own=rows.filter(row=>JSON.stringify([row.old_values,row.new_values]).includes(id)),serialized=JSON.stringify(own)
   expect(serialized).not.toContain(needle);expect(serialized).not.toContain(first.file_url);expect(serialized).not.toContain('Synthetic identity renewal');expect(own.filter(row=>row.action==='card_issue')).toHaveLength(1);expect(own.filter(row=>row.action==='card_print_requested')).toHaveLength(1);expect(own.filter(row=>row.action==='photo_remove')).toHaveLength(1)

@@ -1,3 +1,4 @@
+import {continueVerificationRoute} from './lib/verification-access.mjs'
 import {expect as baseExpect} from "@playwright/test"
 import {assertModuleTestTarget} from "./assert-module-test-target.mjs"
 const expect=baseExpect.configure({timeout:30_000})
@@ -32,7 +33,7 @@ export async function verifyAccountingPages(page,admin,tenantId,appUrl){
   expect(csv).toContain(prefix+"-0000");expect(csv).toContain(prefix+"-1004")
   phase="truthful read failure and recovery"
   let fail=true
-  const unavailable=async route=>{if(fail&&route.request().method()==="POST"){fail=false;await route.fulfill({status:503,contentType:"application/json",body:'{"message":"Synthetic unavailable"}'})}else await route.continue()}
+  const unavailable=async route=>{if(fail&&route.request().method()==="POST"){fail=false;await route.fulfill({status:503,contentType:"application/json",body:'{"message":"Synthetic unavailable"}'})}else await continueVerificationRoute(route)}
   await page.route("**/rest/v1/rpc/read_my_accounting_page",unavailable)
   await page.reload()
   const alert=page.getByRole("alert").filter({hasText:"Could not load payments"})

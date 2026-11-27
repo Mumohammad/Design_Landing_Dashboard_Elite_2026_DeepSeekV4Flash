@@ -1,3 +1,4 @@
+import {verificationFetch} from './lib/verification-access.mjs'
 import { expect as baseExpect } from '@playwright/test'
 const expect = baseExpect.configure({ timeout: 20_000 })
 
@@ -5,7 +6,7 @@ const expect = baseExpect.configure({ timeout: 20_000 })
 // tenant; neither failures nor recovery mutate financial documents.
 export async function verifyAccountingReads(page, appUrl) {
   const origin = new URL(appUrl).origin
-  const policy = (await fetch(`${origin}/landing`)).headers.get('content-security-policy') ?? ''
+  const policy = (await verificationFetch(`${origin}/landing`,{},appUrl)).headers.get('content-security-policy') ?? ''
   const isolated = policy.includes('https://viowrovartosrkqukjxy.supabase.co') ||
     (['http://localhost:3107', 'http://localhost:3108'].includes(origin) && ['http://127.0.0.1:58321', 'http://localhost:58321'].some(url => policy.includes(url)))
   if (!isolated || policy.includes('https://wwfnsbilmyxeawgzicmv.supabase.co')) throw Error('Isolated accounting test target required')

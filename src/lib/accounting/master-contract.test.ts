@@ -12,6 +12,7 @@ const stamp = "2026-10-25T12:30:00.123456+00:00"
 const party = (index = 0): PartyMasterRow => ({
   id: "18000000-0000-4000-8000-" + String(index + 1).padStart(12, "0"), code: "CUS" + String(index + 1).padStart(6, "0"),
   name_ar: "عميل", name_en: "Customer", phone: null, email: null, tax_number: null, address: null,
+  city: null, district: null, building_number: null, additional_number: null, postal_code: null, country_code: "SA",
   credit_limit: "12.34", is_active: true, updated_at: stamp,
 })
 const account: ChartMasterRow = {
@@ -145,5 +146,16 @@ describe("localized chart import diagnostics", () => {
   })
   it("falls back to a safe translated message for an unexpected diagnostic", () => {
     expect(formatChartImportError("unstructured server details", true)).toBe("راجع البيانات المحاسبية المدخلة وحاول مجدداً.")
+  })
+})
+
+
+describe("National Address read contract",()=>{
+  it("retains all address values including leading zeroes",()=>{
+    const address={city:"الرياض",district:"حي الاختبار",building_number:"0123",additional_number:"0456",postal_code:"01234",country_code:"SA"}
+    expect(parseMasterPage<PartyMasterRow>(envelope([{...party(),...address}]),"customers").rows[0]).toMatchObject(address)
+  })
+  it.each([{city:undefined},{district:undefined},{building_number:undefined},{additional_number:undefined},{postal_code:undefined},{country_code:undefined},{building_number:"123"},{additional_number:"12345"},{postal_code:"1234"},{country_code:"sa"}])("rejects incomplete or malformed address responses: %j",invalid=>{
+    expect(()=>parseMasterPage(envelope([{...party(),...invalid}]),"suppliers")).toThrow(MasterContractError)
   })
 })

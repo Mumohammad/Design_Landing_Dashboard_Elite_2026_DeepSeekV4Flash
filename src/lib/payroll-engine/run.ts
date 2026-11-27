@@ -156,7 +156,7 @@ export function computePayrollRun(input: {
     exceptions,
     incomeRows: results.map(incomeRowFromResult),
     installments: input.advanceInstallments
-      ? { customDeductions: advanceCustomDeductionInstallments(input.sources.customDeductions ?? []), trafficViolations: advanceTrafficInstallments(input.sources.trafficViolations ?? [], riderIds) }
+      ? { customDeductions: advanceCustomDeductionInstallments(input.sources.customDeductions ?? [], riderIds), trafficViolations: advanceTrafficInstallments(input.sources.trafficViolations ?? [], riderIds) }
       : { customDeductions: [], trafficViolations: [] },
   }
 }

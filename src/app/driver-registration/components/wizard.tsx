@@ -54,8 +54,8 @@ function ProgressRail({
           <li key={step.key}>
             <div
               className={cn(
-                "group flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200",
-                isCurrent && "bg-elite-blue-500/10",
+                "group flex items-center gap-3 rounded-md px-3 py-2.5 transition-all duration-200",
+                isCurrent && "bg-muted",
                 isDone && !isCurrent && "opacity-80"
               )}
               aria-current={isCurrent ? "step" : undefined}
@@ -64,11 +64,11 @@ function ProgressRail({
                 className={cn(
                   "flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 text-xs font-bold transition-all duration-300",
                   isDone && "border-emerald-500 bg-emerald-500 text-white",
-                  isCurrent && "border-elite-blue-500 bg-elite-blue-500 text-white shadow-elite-blue-500/30",
+                  isCurrent && "border-foreground bg-foreground text-background",
                   !isDone && !isCurrent && "border-muted-foreground/30 text-muted-foreground"
                 )}
               >
-                {isDone ? <Check className="h-3.5 w-3.5" /> : isCurrent ? <span className="h-2 w-2 animate-pulse rounded-full bg-white" /> : i + 1}
+                {isDone ? <Check className="h-3.5 w-3.5" /> : isCurrent ? <span className="h-2 w-2 rounded-full bg-background" /> : i + 1}
               </span>
               <span
                 className={cn(
@@ -78,10 +78,10 @@ function ProgressRail({
               >
                 {step.label}
               </span>
-              {isCurrent && <span className="ms-auto h-1.5 w-1.5 animate-pulse rounded-full bg-elite-blue-500" />}
+              {isCurrent && <span className="ms-auto h-1.5 w-1.5 rounded-full bg-foreground" />}
             </div>
             {i < labels.length - 1 && (
-              <div className="ms-6 h-4 w-px border-s border-dashed border-border/70" aria-hidden />
+              <div className="ms-6 h-4 w-px border-s border-dashed border-input" aria-hidden />
             )}
           </li>
         )
@@ -257,19 +257,19 @@ function ReviewPanel({
   return (
     <div className="space-y-6">
       <div className="space-y-1.5">
-        <h2 className="text-2xl font-extrabold tracking-tight text-foreground">{dict.review.heading}</h2>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">{dict.review.heading}</h1>
         <p className="text-sm text-muted-foreground">{dict.review.subheading}</p>
       </div>
 
       <div className="space-y-3">
         {sections.map((section) => (
-          <div key={section.key} className="rounded-2xl border border-border bg-card/60 p-4">
+          <div key={section.key} className="rounded-lg border border-border bg-card p-4">
             <div className="mb-2 flex items-center justify-between">
               <p className="text-sm font-bold text-foreground">{section.title}</p>
               <button
                 type="button"
                 onClick={() => onEdit(section.key)}
-                className="rounded-lg px-2 py-1 text-xs font-semibold text-elite-blue-600 transition-colors hover:bg-elite-blue-500/10 dark:text-elite-blue-300"
+                className="rounded-lg px-2 py-1 text-xs font-semibold text-foreground underline underline-offset-4 transition-colors hover:bg-muted"
               >
                 {dict.review.edit}
               </button>
@@ -286,13 +286,13 @@ function ReviewPanel({
         ))}
       </div>
 
-      <div className="space-y-3 rounded-2xl border border-elite-blue-500/20 bg-elite-blue-500/5 p-4">
+      <div className="space-y-3 rounded-lg border border-border bg-muted p-4">
         <label className="flex cursor-pointer items-start gap-3">
           <input
             type="checkbox"
             checked={consent.terms}
             onChange={(e) => setConsent({ ...consent, terms: e.target.checked })}
-            className="mt-0.5 h-4 w-4 rounded accent-[#1E5A99]"
+            className="mt-0.5 h-4 w-4 rounded accent-foreground"
           />
           <span className="text-sm font-medium text-foreground">{dict.review.consentTerms}</span>
         </label>
@@ -301,7 +301,7 @@ function ReviewPanel({
             type="checkbox"
             checked={consent.privacy}
             onChange={(e) => setConsent({ ...consent, privacy: e.target.checked })}
-            className="mt-0.5 h-4 w-4 rounded accent-[#1E5A99]"
+            className="mt-0.5 h-4 w-4 rounded accent-foreground"
           />
           <span className="text-sm font-medium text-foreground">{dict.review.consentPrivacy}</span>
         </label>
@@ -309,11 +309,11 @@ function ReviewPanel({
 
       {error && <p className="text-sm font-medium text-destructive" role="alert">{error}</p>}
 
-      <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-5">
+      <div className="flex items-center justify-between gap-3 border-t border-border pt-5">
         <button
           type="button"
           onClick={onBack}
-          className="rounded-xl px-4 py-2.5 text-sm font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          className="rounded-md px-4 py-2.5 text-sm font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         >
           {dict.common.back}
         </button>
@@ -321,7 +321,7 @@ function ReviewPanel({
           type="button"
           onClick={() => void onSubmit()}
           disabled={phase === "validating" || phase === "submitting"}
-          className="flex h-12 items-center gap-2 rounded-xl bg-elite-blue-500 px-8 text-sm font-bold text-white shadow-elite-blue-500/25 transition-all hover:bg-elite-blue-600 hover:shadow-elite-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60"
+          className="flex h-12 items-center gap-2 rounded-md bg-foreground text-background hover:bg-foreground/90 px-8 text-sm font-medium transition-all disabled:cursor-not-allowed disabled:opacity-60"
         >
           {phase === "validating" && (
             <>
@@ -402,7 +402,7 @@ export function Wizard({
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-dvh bg-background">
       <RegistrationHeader />
 
       <div className="mx-auto max-w-5xl px-4 pb-20 pt-8 lg:px-8">
@@ -424,7 +424,7 @@ export function Wizard({
           </div>
           <div className="h-2 w-40 overflow-hidden rounded-full bg-muted">
             <div
-              className="h-full rounded-full bg-elite-blue-500 transition-all duration-500"
+              className="h-full rounded-full bg-foreground transition-all duration-500"
               style={{ width: `${((currentIndex + 1) / STEP_ORDER.length) * 100}%` }}
             />
           </div>
@@ -433,8 +433,8 @@ export function Wizard({
         <div className="grid gap-8 lg:grid-cols-[240px_1fr]">
           {/* Journey rail (right panel on desktop becomes compact bar on mobile) */}
           <aside className="hidden lg:block">
-            <div className="sticky top-24 rounded-2xl border border-border/60 bg-card/60 p-4">
-              <p className="mb-3 px-3 text-xs font-bold text-muted-foreground">
+            <div className="sticky top-24 rounded-lg border border-border bg-card p-4">
+              <p className="mb-3 px-3 text-xs font-medium text-muted-foreground">
                 {dict.steps.review === dict.steps.review ? dict.header.tagline : dict.header.tagline}
               </p>
               <ProgressRail current={current} completed={completed} />

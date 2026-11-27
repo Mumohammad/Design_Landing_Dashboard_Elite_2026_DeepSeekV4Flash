@@ -31,7 +31,7 @@ export function SiteHeader() {
         {/* Subtle animated gradient line at bottom */}
         <div className="absolute inset-x-0 bottom-0 h-px bg-transparent" />
         <div className="flex w-full items-center gap-3 px-4 py-2 lg:px-6">
-          <SidebarTrigger className="-ml-1 hover:bg-muted/50 rounded-lg transition-colors" />
+          <SidebarTrigger className="-ms-1 hover:bg-muted/50 rounded-lg transition-colors" />
           <Separator orientation="vertical" className="mx-1 h-6 bg-border/50" />
           <div className="flex-1 min-w-0">
             <SearchTrigger onClick={() => setSearchOpen(true)} />

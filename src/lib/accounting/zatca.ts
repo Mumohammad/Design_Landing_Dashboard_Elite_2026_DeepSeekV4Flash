@@ -54,7 +54,11 @@ export async function sendDocumentToZatca(sourceId: string): Promise<ZatcaAdapte
     const { data: stream } = await admin.from("zatca_issuance_streams")
       .select("egs_serial").eq("tenant_id", currentUser.tenantId).limit(1).maybeSingle()
     if (!stream) return { success: false, error: "Connect ZATCA (onboard the EGS unit) before sending documents." }
-    return await runZatcaAdapterAs(currentUser, { sourceIds: [sourceId] })
+    const result = await runZatcaAdapterAs(currentUser, { sourceIds: [sourceId] })
+    if (result.success && result.inProgress && !result.processed && !result.failed) {
+      return { ...result, success: false, error: "A ZATCA submission is already in progress." }
+    }
+    return result
   } catch (e) {
     return { success: false, error: errorMessage(e) }
   }

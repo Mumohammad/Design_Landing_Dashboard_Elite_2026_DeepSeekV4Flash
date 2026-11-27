@@ -1,3 +1,5 @@
+import {verificationRequest} from './lib/verification-access.mjs'
+import {continueVerificationRoute} from './lib/verification-access.mjs'
 import { randomBytes, randomUUID } from "node:crypto"
 import { expect as baseExpect } from "@playwright/test"
 import { assertModuleTestTarget } from "./assert-module-test-target.mjs"
@@ -84,7 +86,7 @@ export function createOwnedPlatformIntentRecorder({ record, bind }) {
  */
 export async function verifyPlatformAdminUsers(page, admin, tenantId, appUrl, actorId, options = {}) {
   // This must precede every fixture read, Auth lookup, and mutation.
-  await assertModuleTestTarget(page, admin.supabaseUrl, appUrl)
+  await assertModuleTestTarget(page, admin.supabaseUrl, appUrl, options.targetRequest)
   requireProof(uuid(tenantId) && uuid(actorId), "Synthetic release owner and tenant IDs required")
   const actorResult = await admin.from("users").select(userFields).eq("tenant_id", tenantId).eq("auth_user_id", actorId).is("deleted_at", null).single()
   const actor = actorResult.data
@@ -129,7 +131,7 @@ export async function verifyPlatformAdminUsers(page, admin, tenantId, appUrl, ac
     reservationInput = { p_request_id: requestId, p_tenant_id: targetTenantId, p_email: memberEmail, p_role: payload.role, p_full_name: payload.full_name }
   }
   const api = (method, data, authenticated = true) => {
-    const forward = payload => page.request.fetch(endpoint, { method, headers: authenticated ? { Authorization: authorization } : {}, ...(payload ? { data: payload } : {}) })
+    const forward = payload => verificationRequest(page.request, endpoint, { method, headers: authenticated ? { Authorization: authorization } : {}, ...(payload ? { data: payload } : {}) }, appUrl)
     if (method === "GET") return forward(data)
     // APIRequestContext traffic bypasses page.route, so it has its own preflight.
     const intent = method === "POST" ? { method } : apiOperations.find(operation => operation.method === method && samePayload(data, operation.payload))
@@ -138,7 +140,7 @@ export async function verifyPlatformAdminUsers(page, admin, tenantId, appUrl, ac
   const platformRoute = url => url.origin === app.origin && url.pathname === "/api/platform/admin/users"
   const routeHandler = async route => {
     const request = route.request()
-    if (["GET", "HEAD", "OPTIONS"].includes(request.method())) return route.continue()
+    if (["GET", "HEAD", "OPTIONS"].includes(request.method())) return continueVerificationRoute(route)
     try {
       const url = new URL(request.url())
       requireProof(!url.search && !url.hash, "Exact platform mutation endpoint required")
@@ -147,7 +149,7 @@ export async function verifyPlatformAdminUsers(page, admin, tenantId, appUrl, ac
         recordIntent: persistIntent,
         forward: async validated => {
           if (request.method() === "POST") rememberCreation(validated)
-          await route.continue()
+          await continueVerificationRoute(route)
         },
       })
     } catch {

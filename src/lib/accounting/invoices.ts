@@ -149,9 +149,9 @@ export async function deleteInvoiceDraft(input: { id: string; expected_updated_a
  * Phase 1 e-invoices until someone sends them from the invoice list. Never
  * fails the committed invoice decision.
  */
-async function submitToZatcaAfterIssue(tenantId: string): Promise<void> {
+async function submitToZatcaAfterIssue(tenantId: string, sourceId: string): Promise<void> {
   try {
-    await runZatcaForTenant(tenantId)
+    await runZatcaForTenant(tenantId, sourceId)
   } catch { /* Separate, gated transmission workflow; retried on schedule. */ }
 }
 
@@ -206,7 +206,7 @@ async function transitionInvoice(operation: "issue" | "finalize", input: Invoice
         postingPending = !!posting.error || !["processed", "skipped_duplicate"].includes(posting.data?.processing_status ?? "")
       } catch { /* Preserve the committed result and disclose pending posting. */ }
       if (data.invoice_type === "sales") {
-        await submitToZatcaAfterIssue(user.tenantId)
+        await submitToZatcaAfterIssue(user.tenantId, input.id)
       }
     }
     try { revalidatePath("/invoices"); revalidatePath("/accounting") } catch { /* Refresh reads the committed state. */ }
@@ -352,7 +352,7 @@ async function createInvoiceNote(kind: "credit" | "debit", input: CreditNoteInpu
     if (!data || !uuid.test(data.id ?? "") || !uuid.test(data.event_id ?? "") || data.kind !== kind
       || data.reference_invoice_id !== input.reference_invoice_id || typeof data.replayed !== "boolean"
       || data.posting_status !== "posted") return uncertain
-    await submitToZatcaAfterIssue(user.tenantId)
+    await submitToZatcaAfterIssue(user.tenantId, data.id)
     try { revalidatePath("/invoices"); revalidatePath("/accounting") } catch { /* Confirmed note remains committed. */ }
     return { success: true, id: data.id, replayed: data.replayed, postingPending: false }
   } catch { return uncertain }

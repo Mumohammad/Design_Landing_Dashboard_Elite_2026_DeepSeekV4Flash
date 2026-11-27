@@ -40,6 +40,9 @@ export function DataTable<TData, TValue>({
   data,
   onAddTask,
 }: DataTableProps<TData, TValue>) {
+  // TanStack Table keeps a stable instance whose row and selection state can change.
+  "use no memo"
+
   const [rowSelection, setRowSelection] = React.useState({})
   const [columnVisibility, setColumnVisibility] =
     React.useState<VisibilityState>({})
@@ -48,6 +51,7 @@ export function DataTable<TData, TValue>({
   )
   const [sorting, setSorting] = React.useState<SortingState>([])
 
+  // eslint-disable-next-line react-hooks/incompatible-library -- This component opts out of memoization for TanStack Table v8.
   const table = useReactTable({
     data,
     columns,

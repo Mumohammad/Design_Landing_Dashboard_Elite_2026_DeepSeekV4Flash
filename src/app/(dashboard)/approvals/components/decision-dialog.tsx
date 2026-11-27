@@ -177,7 +177,8 @@ export function DecisionDialog({
           </Button>
           <Button
             variant={decision === "rejected" ? "destructive" : "default"}
-            className={decision === "rejected" ? "bg-red-700 text-white hover:bg-red-800 dark:bg-red-700 dark:hover:bg-red-800" : undefined}
+            // Keep text/background changes atomic when re-enabling after a failed decision.
+            className={decision === "rejected" ? "transition-none bg-red-700 text-white hover:bg-red-800 dark:bg-red-700 dark:hover:bg-red-800" : undefined}
             onClick={submit}
             disabled={submitting}
           >

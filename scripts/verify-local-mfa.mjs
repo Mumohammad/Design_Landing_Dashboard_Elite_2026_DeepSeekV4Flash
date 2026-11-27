@@ -1,3 +1,4 @@
+import { verificationFailureMetadata } from "./lib/verification-failure.mjs"
 // Run after `pnpm build` and `pnpm start --port 3107` with the isolated local
 // Supabase stack. Creates a disposable owner/workspace; the next local reset
 // removes fixtures. Never writes to a hosted project or records MFA secrets.
@@ -245,7 +246,7 @@ try {
   const locator = failureKind === "ambiguous-locator"
     ? (/strict mode violation: (.+?) resolved to (\d+) elements/.exec(error.message) ?? []).slice(1, 3).join(" x")
     : undefined
-  console.error(JSON.stringify({ result: "FAIL", stage, errorType: error.name, failureKind, locator }))
+  console.error(JSON.stringify({ result: "FAIL", stage, errorType: error.name, failureKind, locator, ...verificationFailureMetadata(error) }))
   process.exitCode = 1
 } finally {
   await browser?.close()

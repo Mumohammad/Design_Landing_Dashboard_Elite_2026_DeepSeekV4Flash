@@ -1,6 +1,6 @@
 "use client"
 
-import { ArrowRight, Check } from "lucide-react"
+import { ArrowRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useDriverRegistration } from "@/contexts/driver-registration-context"
 import { RegistrationHeader } from "./fields"
@@ -24,67 +24,47 @@ export function WelcomeHero({
     : null
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-dvh bg-background">
       <RegistrationHeader />
-
-      <main className="mx-auto grid max-w-5xl gap-10 px-4 pb-16 pt-12 lg:grid-cols-[1.25fr_1fr] lg:items-end lg:gap-16 lg:px-8 lg:pt-24">
-        <section aria-labelledby="registration-title">
-          <h1
-            id="registration-title"
-            className="max-w-[18ch] text-4xl font-extrabold leading-[1.05] tracking-tight text-foreground sm:text-6xl"
-          >
-            {dict.welcome.title}
-          </h1>
-          <p className="mt-6 max-w-xl text-lg leading-relaxed text-foreground/80">{dict.welcome.subtitle}</p>
-
-          {saved ? (
-            <div className="mt-10 bg-elite-blue-50 p-6 dark:bg-elite-blue-950/40" data-testid="registration-resume">
-              <h2 className="text-xl font-bold text-foreground">{dict.resume.title}</h2>
-              <p className="mt-2 max-w-md text-base text-foreground/80">
-                {dict.resume.body}
-                {savedTime ? <span className="ms-1 tabular-nums">({savedTime})</span> : null}
-              </p>
-              <div className="mt-5 flex flex-wrap items-center gap-3">
-                <Button
-                  onClick={onResume}
-                  size="lg"
-                  className="h-12 gap-2 rounded-none bg-elite-blue-600 px-7 text-base font-bold text-white hover:bg-elite-blue-700 active:translate-y-px"
-                >
-                  {dict.resume.continue}
-                  <ArrowRight className="h-5 w-5 rtl:-scale-x-100" aria-hidden />
-                </Button>
-                <Button
-                  onClick={onStartOver}
-                  size="lg"
-                  variant="ghost"
-                  className="h-12 rounded-none px-5 text-base font-semibold text-foreground hover:bg-background/70"
-                >
-                  {dict.resume.startOver}
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <div className="mt-10 flex flex-wrap items-center gap-x-6 gap-y-3">
-              <Button
-                onClick={onStart}
-                size="lg"
-                className="group h-14 gap-2.5 rounded-none bg-elite-blue-600 px-10 text-base font-bold text-white transition-colors hover:bg-elite-blue-700 active:translate-y-px"
-              >
-                {dict.welcome.ctaStart}
-                <ArrowRight
-                  className="h-5 w-5 transition-transform group-hover:translate-x-0.5 rtl:-scale-x-100 rtl:group-hover:-translate-x-0.5"
-                  aria-hidden
-                />
+      <main className="mx-auto flex max-w-4xl flex-col items-start px-5 pb-16 pt-14 lg:px-8 lg:pt-20">
+        <h1 id="registration-title" className="max-w-3xl text-4xl font-semibold leading-[1.2] tracking-tight text-foreground sm:text-5xl">
+          {dict.welcome.title}
+        </h1>
+        <p className="mt-5 max-w-xl text-base leading-8 text-muted-foreground sm:text-lg">
+          {dict.welcome.subtitle}
+        </p>
+        {saved ? (
+          <section aria-labelledby="resume-title" className="mt-8 w-full rounded-md border border-border bg-muted/40 p-5 sm:p-6" data-testid="registration-resume">
+            <h2 id="resume-title" className="text-xl font-semibold text-foreground">{dict.resume.title}</h2>
+            <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
+              {dict.resume.body}
+              {savedTime ? <span className="ms-1 tabular-nums">({savedTime})</span> : null}
+            </p>
+            <div className="mt-5 flex flex-wrap items-center gap-3">
+              <Button onClick={onResume} size="lg" className="h-12 gap-2.5 rounded-md bg-foreground px-6 text-sm font-medium text-background hover:bg-foreground/90">
+                {dict.resume.continue}
+                <ArrowRight className="h-4 w-4 rtl:-scale-x-100" aria-hidden />
               </Button>
-              <p className="text-base font-semibold text-foreground/70">{dict.welcome.steps}</p>
+              <Button onClick={onStartOver} size="lg" variant="ghost" className="h-12 rounded-md px-5 text-sm font-medium">
+                {dict.resume.startOver}
+              </Button>
             </div>
-          )}
-        </section>
-
-        <ul className="space-y-px bg-border/0" aria-label={dict.welcome.badge}>
+          </section>
+        ) : (
+          <>
+            <Button onClick={onStart} size="lg" className="mt-8 h-12 gap-2.5 rounded-md bg-foreground px-6 text-sm font-medium text-background hover:bg-foreground/90">
+              {dict.welcome.ctaStart}
+              <ArrowRight className="h-4 w-4 rtl:-scale-x-100" aria-hidden />
+            </Button>
+            <p className="mt-4 text-sm text-muted-foreground">{dict.welcome.steps}</p>
+          </>
+        )}
+        <ul aria-label={dict.welcome.badge} className="mt-12 grid w-full gap-x-8 gap-y-5 border-t border-border pt-6 sm:grid-cols-3">
           {dict.welcome.trustPoints.map((point) => (
-            <li key={point} className="flex items-center gap-4 bg-muted/60 px-5 py-5 text-base font-semibold text-foreground">
-              <Check className="h-5 w-5 shrink-0 text-elite-orange-600" aria-hidden />
+            <li key={point} className="flex items-start gap-2 text-sm leading-6 text-foreground">
+              <svg viewBox="0 0 12 12" className="mt-1 h-3 w-3 shrink-0 text-muted-foreground" fill="none" aria-hidden>
+                <path d="M2 6.5L4.5 9L10 3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
               {point}
             </li>
           ))}

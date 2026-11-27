@@ -4,11 +4,13 @@
 // raw code. Exact codes use the dictionary; otherwise generic rules by suffix
 // keep the message meaningful. Plain human sentences pass through unchanged.
 import { DRIVER_MESSAGES } from "./friendly-drivers"
+import { PLATFORM_PAYROLL_MESSAGES } from "./friendly-payroll"
 
 type Pair = readonly [en: string, ar: string]
 
 const MESSAGES: Record<string, Pair> = {
   ...DRIVER_MESSAGES,
+  ...PLATFORM_PAYROLL_MESSAGES,
   // Fleet / vehicles / maintenance
   FLT003: ["The vehicle or record was not found, or the vehicle is not active.", "لم يتم العثور على المركبة أو السجل، أو المركبة غير نشطة."],
   FLT004: ["Retired vehicles cannot receive operational changes.", "لا يمكن إجراء تغييرات تشغيلية على مركبة متقاعدة."],

@@ -26,7 +26,7 @@ const receipt = { id, updated_at: stamp, code: "CUS-001", is_active: true, archi
 const partyRow = (index: number, address: string | null = null) => ({
   id: "18100000-0000-4000-8000-" + String(index + 1).padStart(12, "0"), code: "CUS" + String(index + 1).padStart(6, "0"),
   name_ar: "عميل", name_en: index === 0 ? "=SUM(A1)" : "Customer", phone: null, email: null, tax_number: null,
-  address, credit_limit: "12.34", is_active: true, updated_at: stamp,
+  address, city: null, district: null, building_number: null, additional_number: null, postal_code: null, country_code: "SA", credit_limit: "12.34", is_active: true, updated_at: stamp,
 })
 const page = (rows: unknown[], total = rows.length) => ({
   rows, total, page: 1, page_size: 25, summary: { total, active: total, tax_registered: 0, avg_credit_limit: "12.34" },
@@ -176,5 +176,43 @@ for (const [kind, action] of [["customers", exportCustomersCsv], ["suppliers", e
     mocks.permission.mockImplementation(async (_module, permission) => { if (permission === "read") throw Object.assign(new Error("private role"), { code: "AUTH007" }) })
     expect((await action()).success).toBe(false)
     expect(mocks.caller).not.toHaveBeenCalled()
+  })
+})
+
+const nationalAddress = { address: " شارع الاختبار ", city: " الرياض ", district: " حي الاختبار ", building_number: " 0123 ", additional_number: "0456", postal_code: "01234", country_code: " sa " }
+const normalizedNationalAddress = { address: "شارع الاختبار", city: "الرياض", district: "حي الاختبار", building_number: "0123", additional_number: "0456", postal_code: "01234", country_code: "SA" }
+for (const [kind, create, update, exportCsv] of [["customers", createCustomer, updateCustomer, exportCustomersCsv], ["suppliers", createSupplier, updateSupplier, exportSuppliersCsv]] as const) describe(kind + " National Address", () => {
+  it("normalizes the complete address and keeps its request replay identity", async () => {
+    const addressInput = { ...input, ...nationalAddress }
+    expect((await create(addressInput, intent)).success).toBe(true)
+    expect((await create(addressInput, intent)).success).toBe(true)
+    expect(mocks.rpc.mock.calls[0]).toEqual(mocks.rpc.mock.calls[1])
+    expect(mocks.rpc.mock.calls[0][1].p_input).toMatchObject(normalizedNationalAddress)
+    expect(mocks.rpc.mock.calls[0][1]).toMatchObject({p_kind:kind,p_request_id:requestId})
+  })
+  it("keeps omitted address fields omitted for older receipt replays", async () => {
+    expect((await create(input,intent)).success).toBe(true)
+    const payload=mocks.rpc.mock.calls[0][1].p_input
+    for(const key of ["city","district","building_number","additional_number","postal_code","country_code"]) expect(payload).not.toHaveProperty(key)
+  })
+  it.each([{building_number:"123"},{additional_number:"12345"},{postal_code:"12x45"},{country_code:"SAU"},{country_code:"1A"},{city:"x".repeat(101)},{district:"x".repeat(128)},{district:"line\u0001break"}])("rejects invalid address before the caller RPC: %j",async invalid=>{
+    expect(await create({...input,...invalid},intent)).toMatchObject({success:false,errorCode:"MASTER_INVALID"})
+    expect(mocks.rpc).not.toHaveBeenCalled()
+  })
+  it("preserves the exact stale review and denies address changes before access",async()=>{
+    mocks.rpc.mockResolvedValueOnce({data:null,error:{message:"MASTER_STALE: private"}})
+    expect(await update(id,{...input,...nationalAddress},review)).toMatchObject({success:false,errorCode:"MASTER_STALE"})
+    expect(mocks.rpc.mock.calls[0][1].p_expected_updated_at).toBe(stamp)
+    mocks.permission.mockRejectedValueOnce(Object.assign(new Error("private"),{code:"AUTH007"}))
+    expect(await update(id,{...input,...nationalAddress},review)).toMatchObject({success:false,errorCode:"MASTER_FORBIDDEN"})
+    expect(mocks.rpc).toHaveBeenCalledTimes(1)
+  })
+  it("exports every National Address field without losing leading zeroes",async()=>{
+    mocks.rpc.mockResolvedValueOnce({data:page([{...partyRow(0),...normalizedNationalAddress}]),error:null})
+    const result=await exportCsv()
+    expect(result.success).toBe(true)
+    if(!result.success) throw Error("Expected complete export")
+    expect(result.csv).toContain("address,city,district,building_number,additional_number,postal_code,country_code,credit_limit")
+    expect(result.csv).toContain("0123,0456,01234,SA")
   })
 })

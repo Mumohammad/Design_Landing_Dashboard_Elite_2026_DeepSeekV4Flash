@@ -12,7 +12,10 @@ export function formatNumber(locale: Locale, value: number): string {
 }
 
 export function formatCurrency(locale: Locale, value: number): string {
-  return `${formatNumber(locale, Math.round(value))} ${locale === "ar" ? "ر.س" : "SAR"}`
+  const amount = new Intl.NumberFormat(locale === "ar" ? "ar-SA-u-nu-latn" : "en-US", {
+    minimumFractionDigits: 2, maximumFractionDigits: 2,
+  }).format(value)
+  return `${amount} ${locale === "ar" ? "ر.س" : "SAR"}`
 }
 
 /** "yyyy-MM-dd" (daily) or "yyyy-MM" (monthly) bucket → localized short label. */

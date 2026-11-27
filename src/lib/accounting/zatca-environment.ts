@@ -1,12 +1,10 @@
 // Per-tenant ZATCA environment resolution (server only).
 //
-// Effective environment for a tenant:
-//   production — the deployment is production-capable (zatca-config.ts) AND
-//                the tenant's administrator switched production ON.
-//   otherwise  — the deployment's test environment (sandbox/simulation),
-//                or null when no gateway is configured (offline mock).
+// Production remains blocked in this release. A stored production preference
+// cannot silently route a tenant to simulation, and read failures cannot be
+// mistaken for a confirmed OFF preference.
 import { createAdminClient } from "@/lib/supabase/admin"
-import { zatcaConfiguredEnvironment, zatcaProductionAvailable, type ZatcaEnvironment } from "./zatca-config"
+import { zatcaConfiguredEnvironment, getZatcaNetworkBase, ZATCA_PRODUCTION_BLOCKED, ZATCA_ENVIRONMENT_UNAVAILABLE, type ZatcaEnvironment } from "./zatca-config"
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -16,13 +14,16 @@ export async function tenantZatcaProductionOn(admin: Admin, tenantId: string): P
     .select("production_enabled")
     .eq("tenant_id", tenantId)
     .maybeSingle<{ production_enabled: boolean }>()
-  if (error) return false
+  if (error || (data != null && typeof data.production_enabled !== "boolean")) throw new Error(ZATCA_ENVIRONMENT_UNAVAILABLE)
   return data?.production_enabled === true
 }
 
 export async function resolveTenantZatcaEnvironment(admin: Admin, tenantId: string): Promise<ZatcaEnvironment | null> {
+  // Validate configuration directly: availability helpers deliberately return
+  // false for diagnostics, whereas routing must fail closed on invalid config.
+  if (getZatcaNetworkBase() === null) return null
   const test = zatcaConfiguredEnvironment()
-  if (!test) return null
-  if (zatcaProductionAvailable() && await tenantZatcaProductionOn(admin, tenantId)) return "production"
+  if (!test) throw new Error(ZATCA_ENVIRONMENT_UNAVAILABLE)
+  if (await tenantZatcaProductionOn(admin, tenantId)) throw new Error(ZATCA_PRODUCTION_BLOCKED)
   return test
 }

@@ -4,6 +4,7 @@
 // See: https://docs.sentry.io/platforms/javascript/guides/nextjs/
 
 import * as Sentry from "@sentry/nextjs"
+import { scrubSentryTelemetry, scrubTelemetrySpan } from "./src/lib/telemetry-privacy"
 
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
@@ -35,38 +36,11 @@ Sentry.init({
   },
 
   // ── PII scrubbing ──────────────────────────────────────────
-  beforeSend(event) {
-    // Never send service-role keys or auth tokens
-    if (event.extra) {
-      for (const key of Object.keys(event.extra)) {
-        if (/password|token|secret|key|credential|service_role/i.test(key)) {
-          event.extra[key] = "[Filtered]"
-        }
-      }
-    }
-
-    // Scrub request data
-    if (event.request?.data) {
-      const data = event.request.data as Record<string, unknown>
-      for (const key of Object.keys(data)) {
-        if (/password|token|secret|key|credential/i.test(key)) {
-          data[key] = "[Filtered]"
-        }
-      }
-    }
-
-    // Scrub request headers (never send auth headers)
-    if (event.request?.headers) {
-      const headers = event.request.headers as Record<string, string>
-      for (const key of Object.keys(headers)) {
-        if (/authorization|cookie|set-cookie/i.test(key)) {
-          headers[key] = "[Filtered]"
-        }
-      }
-    }
-
-    return event
-  },
+  beforeSend: scrubSentryTelemetry,
+  beforeSendTransaction: scrubSentryTelemetry,
+  beforeSendSpan: scrubTelemetrySpan,
+  beforeBreadcrumb: scrubSentryTelemetry,
+  beforeSendLog: scrubSentryTelemetry,
 
   // ── Ignore common noise ────────────────────────────────────
   ignoreErrors: [

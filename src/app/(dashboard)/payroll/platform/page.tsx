@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useCallback, useEffect, useState, type FormEvent } from "react"
+import { useEffect, useState, type FormEvent } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { importPayrollWorkbook, preparePayrollWorkbookUpload } from "@/lib/payroll-engine/server/run-actions"
 import { listPayrollRuns, type RunSummary } from "@/lib/payroll-engine/server/read-actions"
@@ -15,16 +15,25 @@ export default function PlatformPayrollRunsPage() {
   const [runs, setRuns] = useState<RunSummary[] | null>(null)
   const [platforms, setPlatforms] = useState<Array<{ id: string; name: string }>>([])
   const [error, setError] = useState("")
+  const [loadAttempt, setLoadAttempt] = useState(0)
   const [form, setForm] = useState({ monthKey: currentMonthKey(), platformId: "", platformName: "HungerStation" })
   const [file, setFile] = useState<File | null>(null)
   const [busy, setBusy] = useState("")
   const [message, setMessage] = useState<{ kind: "ok" | "err"; text: string } | null>(null)
 
-  const load = useCallback(async () => {
-    const r = await listPayrollRuns()
-    if (r.success) { setRuns(r.data.runs); setPlatforms(r.data.platforms); setError("") } else { setRuns([]); setError(r.error) }
-  }, [])
-  useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    let cancelled = false
+    void listPayrollRuns().then(r => {
+      if (cancelled) return
+      if (r.success) { setRuns(r.data.runs); setPlatforms(r.data.platforms); setError("") } else { setRuns([]); setPlatforms([]); setError(r.error) }
+    }).catch(() => {
+      if (cancelled) return
+      setRuns([])
+      setPlatforms([])
+      setError("PAYROLL_RUNS_READ_UNAVAILABLE")
+    })
+    return () => { cancelled = true }
+  }, [loadAttempt])
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -81,10 +90,10 @@ export default function PlatformPayrollRunsPage() {
           <input type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" className={inputClass} onChange={e => setFile(e.target.files?.[0] ?? null)} />
         </Field>
         <button type="submit" className={primaryButtonClass} disabled={!!busy}>{busy || tx("Import & calculate", "استيراد واحتساب")}</button>
-        <p className="text-xs text-muted-foreground md:col-span-5">{tx("Re-importing the same month and platform replaces that month's draft. Approved months must be cancelled first.", "إعادة استيراد نفس الشهر والمنصة تستبدل المسودة. يجب إلغاء المسير المعتمد أولاً.")}</p>
+        <p className="text-xs text-muted-foreground md:col-span-5">{tx("To change an existing draft, open it and recalculate or cancel it before importing again. Approved runs must be cancelled first.", "لتغيير مسودة موجودة، افتحها وأعد احتسابها أو ألغها قبل الاستيراد مجدداً. يجب إلغاء المسيرات المعتمدة أولاً.")}</p>
       </form>
       {message && <Notice kind={message.kind}>{message.text}</Notice>}
-      {error && <Notice kind="err">{error}</Notice>}
+      {error && <Notice kind="err"><div className="flex flex-wrap items-center gap-3"><span>{error === "PAYROLL_RUNS_READ_UNAVAILABLE" ? tx("Could not load payroll runs. Try again.", "تعذر تحميل مسيرات الرواتب. أعد المحاولة.") : error}</span><button type="button" className="underline underline-offset-2" onClick={() => { setRuns(null); setError(""); setLoadAttempt(value => value + 1) }}>{tx("Try again", "إعادة المحاولة")}</button></div></Notice>}
 
       <div className="overflow-x-auto rounded-xl border border-border">
         <table className="w-full text-sm">

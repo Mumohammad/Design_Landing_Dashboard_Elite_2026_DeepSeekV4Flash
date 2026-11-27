@@ -271,12 +271,12 @@ const en: LandingContent = {
   },
   hero: {
     badge: "Enterprise Logistics Operations",
-    headlineA: "Run Your Entire Logistics Operation",
+    headlineA: "Manage your delivery fleet.",
     headlineB: "From One Command Center",
     subheadline:
-      "Connect drivers, vehicles, orders, payroll, expenses and compliance in one centralized operational system — built for Saudi logistics operations.",
-    ctaPrimary: "Explore the Platform",
-    ctaSecondary: "Sign In",
+      "Track the day’s orders, assign vehicles and review driver pay in one workspace for Saudi delivery teams.",
+    ctaPrimary: "Register your company",
+    ctaSecondary: "Explore the platform",
     demoLabel: "Product preview",
     flowTitle: "One platform. Every operational record connected.",
     flow: ["Drivers", "Vehicles", "Orders", "Payroll", "Costs", "Reporting"],
@@ -327,7 +327,7 @@ const en: LandingContent = {
     tag: "Delivery platforms",
     title: "Built to Connect With Every Delivery Platform",
     subtitle:
-      "Drivers, orders and revenue tracked across the platforms your fleet delivers for — no spreadsheets, no double entry.",
+      "Record orders by delivery platform to see where each driver worked and compare revenue across channels.",
   },
   modules: {
     tag: "Platform modules",
@@ -488,21 +488,21 @@ const en: LandingContent = {
       { driver: "Khalid Al-Harbi", productivity: "84%", attendance: "24/26", status: "Below target", warn: true },
       { driver: "Saleh Al-Zahrani", productivity: "82%", attendance: "23/26", status: "Below target", warn: true },
     ],
-    droneCaption: "Drone view — monitoring the operation from above",
+    droneCaption: "An illustration of an Elite Development delivery drone.",
     note: "Preview operational data.",
   },
   compliance: {
     tag: "Compliance",
     title: "Built for the Realities of Saudi Logistics Operations",
     subtitle:
-      "Centralized document and expiry management keeps your operation ready for review — without claiming integrations we don't have.",
+      "Review driver and vehicle documents, track expiry dates and trace payroll adjustments to the records behind them.",
     features: [
       { icon: "documents", title: "Driver documents", desc: "Iqama, license and insurance with expiry thresholds and readiness alerts." },
       { icon: "vehicles", title: "Vehicle documents", desc: "Registration, inspection and insurance tracked per vehicle." },
       { icon: "audit", title: "Audit-ready records", desc: "Immutable audit trail across operations, payroll and financial records." },
       { icon: "payroll", title: "Traceable payroll", desc: "Every bonus and deduction links back to an operational record." },
     ],
-    note: "Compliance-ready design for Saudi operations — centralized management, no external API claims.",
+    note: "A prepared invoice or wage file still needs acceptance from the receiving authority or payment provider.",
   },
   cost: {
     tag: "Cost control",
@@ -643,7 +643,7 @@ const en: LandingContent = {
       { icon: "payroll", title: "Financial traceability", desc: "Every calculation links back to its operational source." },
       { icon: "bilingual", title: "Bilingual by design", desc: "Arabic RTL and English LTR, equally polished." },
       { icon: "languages", title: "Saudi-ready workflows", desc: "SAR, driver documentation and local operational patterns." },
-      { icon: "scale", title: "Future multi-tenant architecture", desc: "Designed to support multiple companies per installation." },
+      { icon: "scale", title: "Company workspaces", desc: "Each company manages its own team, branding and operational records." },
     ],
   },
   faq: {
@@ -696,23 +696,23 @@ const en: LandingContent = {
         a: "Yes. SAR, driver documentation, compliance tracking and Saudi operational workflows are built into the product.",
       },
       {
-        q: "Does it support future multi-company architecture?",
-        a: "Yes. The architecture is designed to support multiple companies per installation in a future phase.",
+        q: "Can each company have its own workspace?",
+        a: "Yes. Register your company to create a workspace for its team, branding and operational records.",
       },
       {
-        q: "Does it integrate with external platforms?",
-        a: "External integrations are part of the future architecture — the current platform centralizes your operational records first.",
+        q: "Does preparing an invoice or wage file confirm acceptance?",
+        a: "Preparation and acceptance are separate steps. Check the response from ZATCA for an invoice, or from your bank or wage protection provider for a WPS file.",
       },
     ],
   },
   finalCta: {
-    title: "Your Operation Is Complex. Your Control Center Shouldn't Be.",
+    title: "Set up your company workspace.",
     subtitle:
-      "Bring drivers, fleet, payroll, operations and financial visibility together in one platform.",
-    ctaPrimary: "Explore the Platform",
-    ctaSecondary: "View Dashboard",
-    applyAsDriver: "Apply as a Driver",
-    applyAsDriverDesc: "Join our delivery team — complete your driver application in minutes, no account needed.",
+      "Register with your company name and work email, or sign in to an existing workspace.",
+    ctaPrimary: "Register your company",
+    ctaSecondary: "Sign in",
+    applyAsDriver: "Applying as a driver?",
+    applyAsDriverDesc: "Ask the company you want to drive for for its application link. Open that link to send your details directly to its recruitment team.",
     note: "Sign in to open the platform.",
   },
   footer: {
@@ -748,12 +748,12 @@ const ar: LandingContent = {
   },
   hero: {
     badge: "عمليات لوجستية مؤسسية",
-    headlineA: "شغّل عمليتك اللوجستية بالكامل",
+    headlineA: "أدِر أسطول التوصيل.",
     headlineB: "من مركز قيادة واحد",
     subheadline:
-      "اربط السائقين والمركبات والطلبات والرواتب والمصروفات والامتثال في نظام تشغيلي مركزي واحد — مصمم لعمليات اللوجستيات السعودية.",
-    ctaPrimary: "استكشف المنصة",
-    ctaSecondary: "تسجيل الدخول",
+      "تابع طلبات اليوم، وخصّص المركبات للسائقين، وراجع مستحقاتهم في مساحة عمل واحدة لفرق التوصيل في السعودية.",
+    ctaPrimary: "سجّل شركتك",
+    ctaSecondary: "استكشف المنصة",
     demoLabel: "معاينة المنتج",
     flowTitle: "منصة واحدة. كل السجلات التشغيلية مترابطة.",
     flow: ["السائقون", "المركبات", "الطلبات", "الرواتب", "التكاليف", "التقارير"],
@@ -804,7 +804,7 @@ const ar: LandingContent = {
     tag: "منصات التوصيل",
     title: "مصممة للعمل مع كل منصات التوصيل",
     subtitle:
-      "السائقون والطلبات والإيرادات متتبعة عبر المنصات التي يعمل عليها أسطولك — دون جداول أو إدخال مزدوج.",
+      "سجّل الطلبات حسب منصة التوصيل لتتابع عمل كل سائق وتقارن الإيرادات بين المنصات.",
   },
   modules: {
     tag: "وحدات المنصة",
@@ -964,21 +964,21 @@ const ar: LandingContent = {
       { driver: "خالد الحربي", productivity: "84%", attendance: "24/26", status: "دون الهدف", warn: true },
       { driver: "صالح الزهراني", productivity: "82%", attendance: "23/26", status: "دون الهدف", warn: true },
     ],
-    droneCaption: "منظار جوي — مراقبة العملية من الأعلى",
+    droneCaption: "رسم توضيحي لطائرة توصيل تحمل شعار نخبة التطوير.",
     note: "بيانات تشغيلية تجريبية.",
   },
   compliance: {
     tag: "الامتثال",
     title: "مصمم لواقع عمليات اللوجستيات السعودية",
     subtitle:
-      "إدارة مركزية للمستندات والانتهاءات تُبقي عمليتك جاهزة للمراجعة — دون ادعاء تكاملات غير موجودة.",
+      "راجع مستندات السائقين والمركبات، وتابع مواعيد انتهائها، وارجع إلى السجل المرتبط بكل تسوية في الرواتب.",
     features: [
       { icon: "documents", title: "مستندات السائقين", desc: "الإقامة والرخصة والتأمين مع عتبات الانتهاء وتنبيهات الجاهزية." },
       { icon: "vehicles", title: "مستندات المركبات", desc: "التسجيل والفحص والتأمين متتبع لكل مركبة." },
       { icon: "audit", title: "سجلات جاهزة للتدقيق", desc: "سجل تدقيق غير قابل للتغيير عبر العمليات والرواتب والسجلات المالية." },
       { icon: "payroll", title: "رواتب قابلة للتتبع", desc: "كل مكافأة وخصم يعود إلى سجل تشغيلي." },
     ],
-    note: "تصميم جاهز للامتثال للعمليات السعودية — إدارة مركزية دون ادعاء تكاملات خارجية.",
+    note: "بعد تجهيز الفاتورة أو ملف الأجور، تحقّق من القبول لدى الجهة المستلمة أو مزوّد خدمة الدفع.",
   },
   cost: {
     tag: "التحكم في التكاليف",
@@ -1116,7 +1116,7 @@ const ar: LandingContent = {
       { icon: "payroll", title: "قابلية التتبع المالي", desc: "كل حساب يعود إلى مصدره التشغيلي." },
       { icon: "bilingual", title: "ثنائية اللغة بحكم التصميم", desc: "عربية RTL وإنجليزية LTR بنفس الجودة." },
       { icon: "languages", title: "سير عمل سعودي", desc: "الريال السعودي ومستندات السائقين وأنماط التشغيل المحلية." },
-      { icon: "scale", title: "بنية متعددة الجهات مستقبلاً", desc: "مصممة لدعم أكثر من شركة في التثبيت الواحد." },
+      { icon: "scale", title: "مساحة عمل لكل شركة", desc: "تدير كل شركة فريقها وهويتها وسجلاتها التشغيلية." },
     ],
   },
   faq: {
@@ -1169,22 +1169,22 @@ const ar: LandingContent = {
         a: "نعم. الريال السعودي ومستندات السائقين وتتبع الامتثال وسير العمل السعودي مدمجة في المنتج.",
       },
       {
-        q: "هل تدعم بنية متعددة الجهات مستقبلاً؟",
-        a: "نعم. البنية مصممة لدعم أكثر من شركة لكل تثبيت في مرحلة لاحقة.",
+        q: "هل يمكن أن يكون لكل شركة مساحة عمل خاصة؟",
+        a: "نعم. سجّل شركتك لإنشاء مساحة عمل لفريقها وهويتها وسجلاتها التشغيلية.",
       },
       {
-        q: "هل تتكامل مع منصات خارجية؟",
-        a: "التكاملات الخارجية جزء من البنية المستقبلية — المنصة الحالية تركز أولاً على مركزية سجلاتك التشغيلية.",
+        q: "هل تجهيز الفاتورة أو ملف الأجور يؤكد قبوله؟",
+        a: "التجهيز والقبول خطوتان منفصلتان. تحقّق من رد هيئة الزكاة والضريبة والجمارك على الفاتورة، أو رد البنك أو مزوّد خدمة حماية الأجور على ملف الأجور.",
       },
     ],
   },
   finalCta: {
-    title: "عمليتك معقدة. مركز التحكم لا يجب أن يكون كذلك.",
-    subtitle: "اجمع السائقين والأسطول والرواتب والعمليات والرؤية المالية في منصة واحدة.",
-    ctaPrimary: "استكشف المنصة",
-    ctaSecondary: "عرض لوحة التحكم",
-    applyAsDriver: "سجّل كسائق",
-    applyAsDriverDesc: "انضم إلى فريق التوصيل — أكمل طلب السائق في دقائق دون الحاجة إلى حساب.",
+    title: "أنشئ مساحة عمل لشركتك.",
+    subtitle: "سجّل باسم شركتك وبريد العمل، أو ادخل إلى مساحة العمل الحالية.",
+    ctaPrimary: "سجّل شركتك",
+    ctaSecondary: "تسجيل الدخول",
+    applyAsDriver: "ترغب في التقديم كسائق؟",
+    applyAsDriverDesc: "اطلب رابط التقديم من الشركة التي ترغب في العمل معها. افتح الرابط لإرسال بياناتك مباشرة إلى فريق التوظيف لديها.",
     note: "سجّل الدخول لفتح المنصة.",
   },
   footer: {

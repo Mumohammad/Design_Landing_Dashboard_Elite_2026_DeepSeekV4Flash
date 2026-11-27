@@ -1,3 +1,4 @@
+import {verificationFetch} from './lib/verification-access.mjs'
 import { expect as baseExpect } from "@playwright/test"
 
 // Match the parent CRUD workflow's allowance for hosted server-action cold
@@ -11,7 +12,7 @@ export async function verifyZatcaDisplay(page, admin, tenantId, appUrl, invoiceI
   const staging = database.origin === "https://viowrovartosrkqukjxy.supabase.co"
   if (!local && !staging) throw new Error("ZATCA display verification requires a disposable database")
   if (staging) {
-    const policy = (await fetch(appUrl+"/landing")).headers.get("content-security-policy") ?? ""
+    const policy = (await verificationFetch(appUrl+"/landing",{},appUrl)).headers.get("content-security-policy") ?? ""
     if (!policy.includes(database.origin) || policy.includes("https://wwfnsbilmyxeawgzicmv.supabase.co")) throw new Error("App is not bound to isolated staging")
   } else if (!["localhost","127.0.0.1"].includes(new URL(appUrl).hostname)) throw new Error("Local app required")
   const viewport = page.viewportSize()

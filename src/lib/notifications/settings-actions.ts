@@ -39,7 +39,7 @@ export async function getDigestSettings(): Promise<DigestSettingsView | null> {
   const user = await getCurrentUser()
   if (!user) return null
   const admin = createAdminClient()
-  const [{ data: row }, { data: history }, manage] = await Promise.all([
+  const [settingsRead, historyRead, manage] = await Promise.all([
     admin.from("notification_settings").select("*").eq("tenant_id", user.tenantId).maybeSingle(),
     admin
       .from("notification_digest_log")
@@ -49,6 +49,8 @@ export async function getDigestSettings(): Promise<DigestSettingsView | null> {
       .limit(15),
     can("settings", "update").then((r) => r.allowed, () => false),
   ])
+  if (settingsRead.error || historyRead.error) throw new Error("Notification settings unavailable")
+  const row = settingsRead.data, history = historyRead.data
   return {
     settings: settingsFromRow(row as Record<string, unknown> | null),
     canManage: manage,
@@ -105,14 +107,16 @@ export async function sendTestDigest(): Promise<Result> {
   const to = typeof me?.email === "string" ? me.email : ""
   if (!to.includes("@")) return { success: false, error: "Your account has no email address.", errorAr: "لا يوجد بريد إلكتروني لحسابك." }
 
-  const { data: row } = await admin.from("notification_settings").select("*").eq("tenant_id", user.tenantId).maybeSingle()
+  const { data: row, error: settingsError } = await admin.from("notification_settings").select("*").eq("tenant_id", user.tenantId).maybeSingle()
+  if (settingsError) return { success: false, error: "Notification settings are unavailable.", errorAr: "تعذر تحميل إعدادات الإشعارات." }
   const settings = settingsFromRow(row as Record<string, unknown> | null)
   const todayIso = businessDateKey(new Date())
-  const { data: log } = await admin
+  const { data: log, error: logError } = await admin
     .from("notification_digest_log")
     .insert({ tenant_id: user.tenantId, run_date: todayIso, kind: "test", status: "pending", recipients: 1 })
     .select("id")
     .single()
+  if (logError || !log?.id) return { success: false, error: "Delivery tracking is unavailable. No test email was sent.", errorAr: "تعذر تسجيل عملية الإرسال. لم تُرسل رسالة التجربة." }
   const { feed, email } = await buildTenantDigest(admin, user.tenantId, settings, todayIso, true)
   const res = await sendEmail({ to: [to], subject: email.subject, html: email.html, text: email.text })
   if (log?.id) {

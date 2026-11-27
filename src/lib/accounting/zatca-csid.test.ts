@@ -417,7 +417,8 @@ describe("onboardZatcaCsids", () => {
     const tenantBuilder = mockBuilder({
       maybeSingleData: { name_en: "Elite", legal_name: "Elite Co", vat_number: "not-a-vat", address: null, city: null, country: "SA" },
     })
-    mocks.adminFrom.mockReturnValue(tenantBuilder)
+    const environmentBuilder = mockBuilder({ maybeSingleData: null })
+    mocks.adminFrom.mockImplementation((table?: string) => table === "zatca_tenant_environment" ? environmentBuilder : tenantBuilder)
     const res = await onboardZatcaCsids({ environment: "sandbox", otp: "123456" })
     expect(res.success).toBe(false)
     expect(res.error).toContain("vat_number")

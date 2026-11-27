@@ -1,3 +1,4 @@
+import {continueVerificationRoute,forwardVerificationRoute} from './lib/verification-access.mjs'
 import { expect as baseExpect } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 import { assertModuleTestTarget } from './assert-module-test-target.mjs'
@@ -40,7 +41,7 @@ export async function verifyApprovalsInbox(page,admin,tenantId,appUrl){
     stage='all-source pages and exact totals'
     await page.goto(appUrl+'/approvals?lang=en')
     const rows=page.locator('tbody tr'),search=page.getByRole('textbox',{name:'Search references and visible details...',exact:true})
-    const metrics=page.locator('main div.text-2xl.font-bold')
+    const metrics=page.getByTestId('module-kpi-value')
     // Scope the complete mixed-source queue to this fixture tag; earlier module
     // checks retain their immutable synthetic evidence in the same tenant.
     await search.fill(tag)
@@ -94,7 +95,7 @@ export async function verifyApprovalsInbox(page,admin,tenantId,appUrl){
     const csv=Buffer.concat(chunks).toString('utf8')
     if(!csv.includes(appReference)||!csv.includes('H. S.')||csv.includes(hiddenName)||csv.includes(phone)||!file.suggestedFilename().startsWith('approvals-page-1-'))throw Error('Page CSV privacy/scope incorrect')
     stage='read failure removes stale actions; explicit retry'
-    const fail=async route=>route.request().method()==='POST'?route.fulfill({status:503,contentType:'text/plain',body:'Synthetic queue unavailable'}):route.continue()
+    const fail=async route=>route.request().method()==='POST'?route.fulfill({status:503,contentType:'text/plain',body:'Synthetic queue unavailable'}):continueVerificationRoute(route)
     await page.route('**/approvals*',fail);patterns.push(fail)
     await page.getByRole('button',{name:'Refresh',exact:true}).click()
     const alert=page.getByRole('alert').filter({hasText:'Could not load the approvals queue'})
@@ -109,8 +110,8 @@ export async function verifyApprovalsInbox(page,admin,tenantId,appUrl){
     let held=false,freshHeld=false
     const stale=async route=>{
       const request=route.request(),body=request.postData()??''
-      if(request.method()!=='POST'||(!body.includes(literal)&&!body.includes(appReference)))return route.continue()
-      const response=await route.fetch()
+      if(request.method()!=='POST'||(!body.includes(literal)&&!body.includes(appReference)))return continueVerificationRoute(route)
+      const response=await forwardVerificationRoute(route)
       if(body.includes(literal)){
         held=true
         await new Promise(resolve=>{releaseStale=resolve})

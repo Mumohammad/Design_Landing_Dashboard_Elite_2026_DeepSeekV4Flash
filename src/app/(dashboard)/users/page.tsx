@@ -199,7 +199,7 @@ export default function UsersPage() {
       header: isAr ? "المستخدم" : "User",
       render: (u) => (
         <div className="flex items-center gap-3">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-elite-blue-500 text-xs font-semibold text-white">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-background bg-foreground">
             {userInitial(u.full_name_ar ?? u.full_name_en)}
           </span>
           <div className="min-w-0">
@@ -273,7 +273,7 @@ export default function UsersPage() {
 
   return (
     <div
-      className="px-4 py-4 lg:px-6"
+      className="py-4"
       onDoubleClick={(e) => {
         const target = e.target as HTMLElement
         if (target.closest("[data-row-actions]")) return
@@ -292,7 +292,7 @@ export default function UsersPage() {
       )}
 
       {/* Filter + export toolbar */}
-      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-border/50 bg-card/60 px-4 py-3">
+      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-border/50 bg-card px-4 py-3">
         <Select value={statusFilter} onValueChange={(v) => {setPage(1);setStatusFilter(v as "all" | UserStatus)}}>
           <SelectTrigger className="h-9 w-36 rounded-xl bg-muted/30 text-xs">
             <SelectValue placeholder={t.common.status} />

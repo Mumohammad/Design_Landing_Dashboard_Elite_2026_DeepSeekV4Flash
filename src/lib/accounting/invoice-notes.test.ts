@@ -11,8 +11,7 @@ vi.mock("@/lib/auth/authorization", () => ({ requirePermission: mocks.permission
 vi.mock("@/lib/auth/rate-limit", () => ({ rateLimitAccounting: mocks.rate }))
 vi.mock("@/lib/auth/sessions", () => ({ writeAuditLog: mocks.audit }))
 vi.mock("@/lib/accounting/dispatcher", () => ({ runEventDispatcher: mocks.dispatch }))
-vi.mock("@/lib/accounting/zatca", () => ({ runZatcaAdapter: mocks.zatca }))
-vi.mock("@/lib/accounting/zatca-adapter-core", () => ({ runZatcaForTenant: vi.fn(async () => ({ success: false })) }))
+vi.mock("@/lib/accounting/zatca-adapter-core", () => ({ runZatcaForTenant: mocks.zatca }))
 import { issueCreditNote, issueDebitNote } from "./invoices"
 import { getErrorDefinition } from "@/lib/errors/error-codes"
 
@@ -61,6 +60,7 @@ describe.each(["credit", "debit"] as const)("atomic %s note action", (kind) => {
   it("uses the session RPC with the exact reviewed version, date and request identity", async () => {
     const result = await issue(kind)
     expect(result).toEqual({ success: true, id: noteId, replayed: false, postingPending: false })
+    expect(mocks.zatca).toHaveBeenCalledExactlyOnceWith("tenant", noteId)
     expect(mocks.permission).toHaveBeenCalledWith("invoices", "create")
     expect(mocks.permission).toHaveBeenCalledWith("invoices", "approve")
     expect(mocks.rate).toHaveBeenCalledWith("staff")

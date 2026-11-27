@@ -1,6 +1,13 @@
+import {continueVerificationRoute,forwardVerificationRoute,verificationFetch} from './lib/verification-access.mjs'
 import { expect as baseExpect } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 const expect = baseExpect.configure({ timeout: 30_000 })
+
+// Tab/language query strings are part of the real action URL; keep the origin/path exact.
+export function accountingActionRoute(appUrl) {
+  const origin = new URL(appUrl).origin
+  return url => url.origin === origin && url.pathname === '/accounting'
+}
 
 // Called only after MFA sign-in to a freshly provisioned synthetic tenant.
 export async function verifyReceivableCrud(page, admin, tenantId, appUrl) {
@@ -9,7 +16,7 @@ export async function verifyReceivableCrud(page, admin, tenantId, appUrl) {
     && ['localhost','127.0.0.1'].includes(db.hostname) && db.port === '58321'
   if (!local) {
     if (db.origin !== 'https://viowrovartosrkqukjxy.supabase.co' || app.hostname === 'elite-dashboard-blush.vercel.app') throw Error('Isolated staging required')
-    const policy = (await fetch(appUrl + '/landing')).headers.get('content-security-policy') ?? ''
+    const policy = (await verificationFetch(appUrl + '/landing',{},appUrl)).headers.get('content-security-policy') ?? ''
     if (!policy.includes(db.origin) || policy.includes('wwfnsbilmyxeawgzicmv')) throw Error('Staging app/database isolation required')
   }
   if (!tenantId) throw Error('Synthetic tenant required')
@@ -17,14 +24,14 @@ export async function verifyReceivableCrud(page, admin, tenantId, appUrl) {
   const locale = await page.locator('html').getAttribute('lang')
   const viewport = page.viewportSize()
   let id, intercepted = false, stage = 'open form'
-  const pattern = '**/accounting'
+  const pattern = accountingActionRoute(appUrl)
   const loseResponse = async route => {
     if (!intercepted && route.request().method() === 'POST' && route.request().headers()['next-action'] && route.request().postData()?.includes(reference)) {
       intercepted = true
-      const response = await route.fetch()
+      const response = await forwardVerificationRoute(route)
       if (!response.ok()) throw Error('Synthetic receivable action failed before transport fault')
       await route.abort('failed')
-    } else await route.continue()
+    } else await continueVerificationRoute(route)
   }
   try {
     await page.goto(appUrl + '/accounting')
@@ -71,7 +78,12 @@ export async function verifyReceivableCrud(page, admin, tenantId, appUrl) {
     await expect(page.getByRole('row').filter({ hasText: reference })).toContainText('4.72')
     await expect(page.locator('html')).toHaveAttribute('lang',locale)
     console.log('PASS: manual receivable → exact VAT preview → committed response loss → unchanged-form retry → one record/audit → fresh form/mobile → persisted reload')
-  } catch (error) { error.verificationStage = stage; throw error }
+  } catch (error) {
+    error.verificationStage = stage
+    error.verificationContext = { accountingRoute: new URL(page.url()).pathname === '/accounting', transportFaultInjected: intercepted }
+    try { error.verificationContext.mainCount = await page.locator('main').count(); error.verificationContext.dialogs = await page.getByRole('dialog').count(); error.verificationContext.alerts = await page.getByRole('alert').count() } catch { /* A closed page is still a failed check. */ }
+    throw error
+  }
   finally {
     await page.unroute(pattern,loseResponse).catch(()=>{})
     if (viewport) await page.setViewportSize(viewport)
